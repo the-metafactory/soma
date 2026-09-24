@@ -296,6 +296,10 @@ test("codex AGENTS import follows the contract: appended when projected, omitted
     const agents = await readFile(join(codexHome, "AGENTS.md"), "utf8");
     expect(agents.match(/^@\.\/memories\/soma\/communication\.md$/gm)).toHaveLength(1);
     expect(agents.match(/^@\.\/memories\/soma\/context\.md$/gm)).toHaveLength(1);
+
+    await rm(join(codexHome, "memories/soma/communication.md"));
+    await configureCodexAgentsImport(codexHome);
+    expect(await readFile(join(codexHome, "AGENTS.md"), "utf8")).not.toContain("@./memories/soma/communication.md");
   });
 });
 

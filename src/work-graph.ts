@@ -161,11 +161,17 @@ export interface NodeRef {
  *   what a verb decides. That is what keeps a second input from becoming a
  *   second authority. A backend with no index concept ignores them.
  */
-export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id" | "completion"> & {
+/** A typed, backend-declared creation capability. */
+export interface StoreCreationData {
+  /** Discriminates a store's creation-data contract without coupling core to a forge. */
+  readonly capability: string;
+}
+
+export type CreateNodeSpec<TStoreData extends StoreCreationData = StoreCreationData> = DistributiveOmit<WorkGraphNode, "id" | "completion"> & {
   body?: string;
   parent?: NodeRef;
-  /** Opaque store-specific creation data. It is never encoded into the typed node. */
-  storeData?: Readonly<Record<string, unknown>>;
+  /** Store-specific, validated creation data. It is never encoded into the typed node. */
+  storeData?: TStoreData;
   /** Backend-only native provenance relation, supplied by WorkGraph after validation. */
   relatedTo?: NodeRef;
   labels?: readonly string[];
@@ -628,7 +634,7 @@ function redactAll(text: string, root: string): string {
  * A graph records its backend at creation and lives there forever; moving is a
  * one-way export into a fresh graph.
  */
-export interface GraphStore {
+export interface GraphStore<TStoreData extends StoreCreationData = StoreCreationData> {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
   /**
@@ -655,8 +661,10 @@ export interface GraphStore {
    * check reports `checked: false`, which reads as unconfined.
    */
   checkConfinement(): Promise<ConfinementResult>;
+  /** Parse this store's optional creation capability from untrusted CLI/API input. */
+  parseCreateData?(value: unknown): TStoreData;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
-  createNode(spec: CreateNodeSpec): Promise<NodeRef>;
+  createNode(spec: CreateNodeSpec<TStoreData>): Promise<NodeRef>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
@@ -932,7 +940,7 @@ function parseLabels(value: unknown): string[] {
  * Validate an untrusted node spec at the store boundary. This — not the TS
  * tuple type — is what makes an `auto` node without probes impossible (§2.1).
  */
-export function parseNodeSpec(input: unknown): CreateNodeSpec {
+export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreationData>(input: unknown, parseCreateData?: (value: unknown) => TStoreData): CreateNodeSpec<TStoreData> {
   const record = asRecord(input, "invalid-node", "node spec");
   if ("completion" in record) {
     throw new WorkGraphError("invalid-node", "completion is backend-owned and cannot be supplied at creation");
@@ -948,7 +956,11 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
   const autonomy = parseAutonomy(record.autonomy);
   const kind = normalizeKind(record.kind);
   const checkpointId = optionalString(record, "checkpointId", "invalid-node", "node spec");
-  const storeData = record.storeData === undefined ? undefined : asRecord(record.storeData, "invalid-node", "node spec: storeData");
+  const storeData = record.storeData === undefined
+    ? undefined
+    : parseCreateData === undefined
+      ? (() => { throw new WorkGraphError("invalid-node", "node spec: storeData requires a store-declared creation capability"); })()
+      : parseCreateData(record.storeData);
   const budget = record.budget === undefined || record.budget === null ? undefined : parseBudget(record.budget);
   const body = optionalString(record, "body", "invalid-node", "node spec");
   const parentId = record.parent === undefined || record.parent === null
@@ -1367,10 +1379,10 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
  * The rules, over any {@link GraphStore}. Verbs (`soma graph …`, #498) call
  * this; nothing here knows what a tracker is.
  */
-export class WorkGraph {
-  private readonly store: GraphStore;
+export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData> {
+  private readonly store: GraphStore<TStoreData>;
 
-  constructor(store: GraphStore) {
+  constructor(store: GraphStore<TStoreData>) {
     this.store = store;
   }
 
@@ -1381,7 +1393,7 @@ export class WorkGraph {
 
   /** Validate at the boundary, then create. Additive mutation — free after structural validation (§1 clause 2). */
   async createNode(spec: unknown): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }> {
-    const parsed = parseNodeSpec(spec);
+    const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
     if (parsed.parent === undefined || this.store.allowedParentTypes === undefined) return await this.store.createNode(parsed);
     const requested = await this.store.readNode(parsed.parent);
     if (requested.trackerType !== "Task") return await this.store.createNode(parsed);

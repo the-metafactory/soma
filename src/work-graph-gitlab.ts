@@ -21,6 +21,7 @@ import {
   type NodeStatus,
   type Reaction,
   type ReleaseResult,
+  type StoreCreationData,
 } from "./work-graph";
 import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation";
 import { decodeNodeBlock, encodeNodeBlock } from "./work-graph-node-block";
@@ -72,6 +73,7 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
 }
 
 export interface GitLabGraphStoreOptions { host: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
+export interface GitLabCreateData extends StoreCreationData { readonly capability: "gitlab"; readonly homeProject: string; }
 interface Parts { path: string; iid: number; sigil: "#" | "&"; }
 interface Item { id: string; iid: number; path: string; type: string; title: string; description: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
 const THUMBS_UP = /^thumbsup(?:_tone[1-5])?$/u;
@@ -92,7 +94,12 @@ function typeEnum(name: "Epic" | "Issue" | "Task"): "EPIC" | "ISSUE" | "TASK" { 
 const GITLAB_ROUTE_OPEN = "<!-- soma:gitlab-work-graph-route\n";
 function decodeGitLabRoute(description: string): { text: string; homeProject?: string } { const start = description.lastIndexOf(GITLAB_ROUTE_OPEN); if (start === -1) return { text: description }; const end = description.indexOf("-->", start); if (end === -1) return { text: description }; try { const value = rec(JSON.parse(description.slice(start + GITLAB_ROUTE_OPEN.length, end).trim()) as unknown, "GitLab route metadata"); const homeProject = typeof value.homeProject === "string" && value.homeProject.length > 0 ? value.homeProject : undefined; return { text: `${description.slice(0, start)}${description.slice(end + 3)}`.trim(), ...(homeProject === undefined ? {} : { homeProject }) }; } catch { return { text: description }; } }
 function encodeGitLabRoute(homeProject: string): string { return `${GITLAB_ROUTE_OPEN}${JSON.stringify({ homeProject })}\n-->`; }
-function createHomeProject(spec: CreateNodeSpec): string | undefined { const value = spec.storeData?.homeProject; return typeof value === "string" ? value : undefined; }
+export function parseGitLabCreateData(value: unknown): GitLabCreateData {
+  const data = rec(value, "node spec: GitLab creation data");
+  if (typeof data.homeProject !== "string" || data.homeProject.trim().length === 0) throw new WorkGraphError("invalid-node", "node spec: GitLab homeProject must be a non-empty string");
+  return { capability: "gitlab", homeProject: data.homeProject.trim() };
+}
+function createHomeProject(spec: CreateNodeSpec<GitLabCreateData>): string | undefined { return spec.storeData?.homeProject; }
 function limitConcurrency(limit: number): <T>(fn: () => Promise<T>) => Promise<T> { let active = 0; const waiting: (() => void)[] = []; return async <T>(fn: () => Promise<T>): Promise<T> => { if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve)); active += 1; try { return await fn(); } finally { active -= 1; waiting.shift()?.(); } }; }
 function mutation(response: unknown, field: string): Record<string, unknown> {
   const result = rec(gqlValue(response, field), field);
@@ -162,10 +169,11 @@ export async function checkGitLabConfinement(deps: ConfinementDeps, host: string
   return { checked: true, reachableIdentities: [...reachable].sort(), at, probes };
 }
 
-class GitLabGraphStore implements GraphStore {
+class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   readonly attestation: AttestationCapability = "verifiable";
   /** GitLab Tasks can only be parented by Issues; WorkGraph applies re-home. */
   readonly allowedParentTypes = ["Issue"] as const;
+  readonly parseCreateData = parseGitLabCreateData;
   private readonly host: string; private readonly transport: GitLabApiTransport; private readonly confinement: ConfinementDeps; private readonly workItemTypeIds = new Map<string, Promise<string>>();
   constructor(options: GitLabGraphStoreOptions) { this.host = validateRepoRef({ forge: "gitlab", host: options.host, path: "group" }).host; this.transport = options.transport ?? createGlabCliTransport({ hostname: this.host }); this.confinement = options.confinement ?? defaultConfinement(); }
   async actingIdentity(): Promise<string> { const user = rec(await this.transport({ method: "GET", path: "user" }), "GitLab user"); return str(user, "username", "GitLab user"); }
@@ -178,7 +186,7 @@ class GitLabGraphStore implements GraphStore {
     return refs.map((ref, index) => { const namespace = rec(gqlValue(response, `item${index}`), "work item namespace"); const item = itemFrom(namespace.workItem, `work item ${ref.id}`, parsed[index]!.path); if (item.linksTruncated) throw new WorkGraphError("backend", `GitLab blockers for ${ref.id} are paginated; refusing incomplete graph state`); return item; }); }
   private async item(ref: NodeRef): Promise<Item> { return (await this.items([ref]))[0]!; }
   async readNode(ref: NodeRef): Promise<NodeState> { return stateFrom(await this.item(ref)); }
-  async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
+  async createNode(spec: CreateNodeSpec<GitLabCreateData>): Promise<NodeRef> {
     const [parent, related] = await Promise.all([spec.parent === undefined ? undefined : this.item(spec.parent), spec.relatedTo === undefined ? undefined : this.item(spec.relatedTo)]);
     const homeProject = createHomeProject(spec); const description = [spec.body ?? "", encodeNodeBlock(spec), ...(homeProject === undefined ? [] : [encodeGitLabRoute(homeProject)])].filter(Boolean).join("\n\n");
     let input: Record<string, unknown>;
@@ -210,9 +218,24 @@ class GitLabGraphStore implements GraphStore {
   async readComment(ref: CommentRef): Promise<CommentRef> { const p = parts({ id: ref.nodeId }); if (p.sigil === "&") { const note = rec(gqlValue(await this.transport({ method: "POST", path: "graphql", body: { query: `query($id:NoteID!){note(id:$id){id author{username} url}}`, variables: { id: ref.id } } }), "note"), "GitLab note"); return { id: str(note, "id", "GitLab note"), nodeId: ref.nodeId, author: username(note.author), ...(typeof note.url === "string" ? { url: note.url } : {}) }; } const note = rec(await this.transport({ method: "GET", path: `${restIssue(p)}/notes/${ref.id}` }), "GitLab note"); return { id: String(num(note, "id", "GitLab note")), nodeId: ref.nodeId, author: username(note.author), ...(typeof note.web_url === "string" ? { url: note.web_url } : {}) }; }
   private reactions(awards: unknown[]): Reaction[] { return awards.flatMap((award) => { const value = rec(award, "GitLab award"); const name = typeof value.name === "string" ? value.name : ""; const content = THUMBS_UP.test(name) ? "+1" : THUMBS_DOWN.test(name) ? "-1" : name; const id = typeof value.id === "string" ? value.id : String(num(value, "id", "GitLab award")); return [{ id, content, author: username(value.user), ...(typeof value.createdAt === "string" ? { createdAt: value.createdAt } : typeof value.created_at === "string" ? { createdAt: value.created_at } : {}) }]; }); }
   async readCommentReactions(ref: CommentRef): Promise<Reaction[]> { const p = parts({ id: ref.nodeId }); if (p.sigil === "&") { const note = rec(gqlValue(await this.transport({ method: "POST", path: "graphql", body: { query: `query($id:NoteID!){note(id:$id){awardEmoji{nodes{id name user{username} createdAt}}}}`, variables: { id: ref.id } } }), "note"), "GitLab note"); const awards = note.awardEmoji && typeof note.awardEmoji === "object" && Array.isArray((note.awardEmoji as Record<string, unknown>).nodes) ? (note.awardEmoji as { nodes: unknown[] }).nodes : []; return this.reactions(awards); } const awards = arr(await this.transport({ method: "GET", path: `${restIssue(p)}/notes/${ref.id}/award_emoji`, paginate: true }), "GitLab awards"); return this.reactions(awards); }
-  async listComments(ref: NodeRef): Promise<NodeComment[]> { const p = parts(ref); if (p.sigil === "&") { const response = await this.transport({ method: "POST", path: "graphql", body: { query: `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){widgets{type ... on WorkItemWidgetNotes{notes(first:100){nodes{id body author{username} createdAt url system} pageInfo{hasNextPage}}}}}}}`, variables: { fullPath: p.path, iid: String(p.iid) } } }); const namespace = rec(gqlValue(response, "namespace"), "Epic namespace"); const item = rec(namespace.workItem, "Epic work item"); const widgets = arr(item.widgets, "Epic widgets").map((value) => rec(value, "Epic widget")); const notes = widgets.find((widget) => widget.type === "NOTES")?.notes; const notePage = notes === undefined ? { nodes: [] } : rec(notes, "Epic notes"); if (notePage.pageInfo !== undefined && rec(notePage.pageInfo, "Epic note page").hasNextPage === true) throw new WorkGraphError("backend", `GitLab Epic comments for ${ref.id} are paginated; refusing partial receipt history`); return arr(notePage.nodes, "Epic notes").filter((note) => rec(note, "GitLab note").system !== true).map((note) => { const value = rec(note, "GitLab note"); return { id: str(value, "id", "GitLab note"), author: username(value.author), body: typeof value.body === "string" ? value.body : "", ...(typeof value.createdAt === "string" ? { createdAt: value.createdAt } : {}), ...(typeof value.url === "string" ? { url: value.url } : {}) }; }); } const notes = arr(await this.transport({ method: "GET", path: `${restIssue(p)}/notes?sort=asc&per_page=100`, paginate: true }), "GitLab notes"); return notes.filter((note) => rec(note, "GitLab note").system !== true).map((note) => { const value = rec(note, "GitLab note"); return { id: String(num(value, "id", "GitLab note")), author: username(value.author), body: typeof value.body === "string" ? value.body : "", ...(typeof value.created_at === "string" ? { createdAt: value.created_at } : {}), ...(typeof value.web_url === "string" ? { url: value.web_url } : {}) }; }); }
+  async listComments(ref: NodeRef): Promise<NodeComment[]> {
+    const p = parts(ref);
+    const response = await this.transport({ method: "POST", path: "graphql", body: { query: `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){widgets{type ... on WorkItemWidgetNotes{notes(first:100){nodes{id body author{username} createdAt url system} pageInfo{hasNextPage}}}}}}}`, variables: { fullPath: p.path, iid: String(p.iid) } } });
+    const namespace = rec(gqlValue(response, "namespace"), "GitLab namespace");
+    const item = rec(namespace.workItem, "GitLab work item");
+    const widgets = arr(item.widgets, "GitLab widgets").map((value) => rec(value, "GitLab widget"));
+    const notes = widgets.find((widget) => widget.type === "NOTES")?.notes;
+    const notePage = notes === undefined ? { nodes: [] } : rec(notes, "GitLab notes");
+    if (notePage.pageInfo !== undefined && rec(notePage.pageInfo, "GitLab note page").hasNextPage === true) {
+      throw new WorkGraphError("backend", `GitLab comments for ${ref.id} exceed the bounded receipt-history read`);
+    }
+    return arr(notePage.nodes, "GitLab notes").filter((note) => rec(note, "GitLab note").system !== true).map((note) => {
+      const value = rec(note, "GitLab note");
+      return { id: str(value, "id", "GitLab note"), author: username(value.author), body: typeof value.body === "string" ? value.body : "", ...(typeof value.createdAt === "string" ? { createdAt: value.createdAt } : {}), ...(typeof value.url === "string" ? { url: value.url } : {}) };
+    });
+  }
   async readRawBody(ref: NodeRef): Promise<string> { const p = parts(ref); if (p.sigil === "&") return (await this.item(ref)).description; const issue = rec(await this.transport({ method: "GET", path: restIssue(p) }), "GitLab issue"); return typeof issue.description === "string" ? issue.description : ""; }
   async writeRawBody(ref: NodeRef, body: string): Promise<void> { const p = parts(ref); if (p.sigil === "&") { await this.updateEpic(ref, body); return; } await this.transport({ method: "PUT", path: restIssue(p), body: { description: body } }); }
   async close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void> { const item = await this.item(ref); const state = stateFrom(item); const hash = hashGatedNodeFields(state.node); if (expectedGatedNodeHash !== undefined && hash !== expectedGatedNodeHash) throw new WorkGraphError("invalid-node", `node ${ref.id} changed after close validation`); const boundReceipt = { ...receipt, autonomy: state.node.autonomy, gatedNodeHash: hash }; const posted = await this.postComment(ref, renderCloseReceipt(boundReceipt)); if (posted.author === undefined || posted.author.length === 0) throw new WorkGraphError("backend", "posted close receipt has no authenticated author"); const completion = { receiptCommentId: posted.id, checkpointId: receipt.checkpointId, autonomy: receipt.autonomy ?? state.node.autonomy, closer: posted.author, closedAt: boundReceipt.at, gatedNodeHash: hash, ...(state.node.autonomy === "auto" ? { autoProbeKeys: (state.node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}), ...(receipt.ci === undefined ? {} : { ciCheckRunId: receipt.ci.checkRunId, ciHeadSha: receipt.ci.headSha }) }; const body = [state.body, encodeNodeBlock({ ...state.node, title: state.node.title, completion }), ...(item.homeProject === undefined ? [] : [encodeGitLabRoute(item.homeProject)])].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n\n"); const p = parts(ref); if (p.sigil === "&") { await this.updateEpic(ref, body, true); return; } await this.transport({ method: "PUT", path: restIssue(p), body: { description: body, state_event: "close" } }); }
 }
-export function createGitLabGraphStore(options: GitLabGraphStoreOptions): GraphStore { return new GitLabGraphStore(options); }
+export function createGitLabGraphStore(options: GitLabGraphStoreOptions): GraphStore<GitLabCreateData> { return new GitLabGraphStore(options); }

@@ -53,18 +53,28 @@ const CODEX_CONTRACT_PROJECTION_PATH = "memories/soma/communication.md";
 export async function configureCodexAgentsImport(codexHome: string): Promise<string[]> {
   const path = join(codexHome, "AGENTS.md");
   const existing = await readFile(path, "utf8").catch(() => "");
-  const existingLines = new Set(existing.split("\n").map((line) => line.trim()));
   // Runs after the home projection is written, so disk is the authority on
   // whether the contract was projected at all.
-  const wanted = (await pathExists(join(codexHome, CODEX_CONTRACT_PROJECTION_PATH)))
+  const hasContract = await pathExists(join(codexHome, CODEX_CONTRACT_PROJECTION_PATH));
+  const wanted = hasContract
     ? [...CODEX_AGENTS_IMPORTS, CODEX_AGENTS_CONTRACT_IMPORT]
     : [...CODEX_AGENTS_IMPORTS];
+  // This is the one conditional import Soma owns. A later projection can omit
+  // its file, in which case retaining the import would leave AGENTS dangling.
+  const withoutStaleContract = hasContract
+    ? existing
+    : existing.split("\n").filter((line) => line.trim() !== CODEX_AGENTS_CONTRACT_IMPORT).join("\n");
+  const existingLines = new Set(withoutStaleContract.split("\n").map((line) => line.trim()));
   const missingImports = wanted.filter((line) => !existingLines.has(line));
+  let updated = withoutStaleContract;
 
   if (missingImports.length > 0) {
-    const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+    const separator = updated.length === 0 || updated.endsWith("\n") ? "" : "\n";
+    updated = `${updated}${separator}${missingImports.join("\n")}\n`;
+  }
+  if (updated !== existing) {
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${existing}${separator}${missingImports.join("\n")}\n`, "utf8");
+    await writeFile(path, updated, "utf8");
   }
 
   return [path];
