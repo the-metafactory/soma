@@ -623,7 +623,7 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
                                    # validated; --checkpoint is REQUIRED, since a
                                    # node without one can never close and no verb
                                    # attaches one later
-soma graph chart ...               # create a typed map root; GitLab requires
+soma graph chart ...               # create a typed graph root; GitLab requires
                                    # --home <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;
                                    # --gist records the map index's one-line entry

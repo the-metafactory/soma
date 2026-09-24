@@ -166,6 +166,8 @@ export interface NodeRef {
 export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id" | "completion"> & {
   body?: string;
   parent?: NodeRef;
+  /** Backend-only native provenance relation, supplied by WorkGraph after validation. */
+  relatedTo?: NodeRef;
   labels?: readonly string[];
 };
 
@@ -655,8 +657,6 @@ export interface GraphStore {
   checkConfinement(): Promise<ConfinementResult>;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
   createNode(spec: CreateNodeSpec): Promise<NodeRef>;
-  /** Native provenance relation used when contract placement reaches a hierarchy floor. */
-  addRelatedEdge?(source: NodeRef, related: NodeRef): Promise<void>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
@@ -940,6 +940,9 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
   if ("id" in record && record.id !== undefined) {
     throw new WorkGraphError("invalid-node", `"id" is assigned by the store — never caller-supplied`);
   }
+  if ("relatedTo" in record && record.relatedTo !== undefined) {
+    throw new WorkGraphError("invalid-node", "relatedTo is WorkGraph-owned and cannot be supplied at creation");
+  }
 
   const title = requireString(record, "title", "invalid-node", "node spec");
   const autonomy = parseAutonomy(record.autonomy);
@@ -1003,7 +1006,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
  * second home for facts that already have one.
  */
 export function toNode(id: string, spec: CreateNodeSpec): WorkGraphNode {
-  const { body: _body, parent: _parent, labels: _labels, ...rest } = spec;
+  const { body: _body, parent: _parent, relatedTo: _relatedTo, labels: _labels, ...rest } = spec;
   return { ...rest, id };
 }
 
@@ -1386,9 +1389,7 @@ export class WorkGraph {
     while (parent !== undefined) {
       const candidate = await this.store.readNode(parent);
       if (candidate.trackerType !== undefined && this.store.allowedParentTypes.includes(candidate.trackerType)) {
-        if (this.store.addRelatedEdge === undefined) throw new WorkGraphError("backend", "store declares a hierarchy floor but cannot retain the required provenance relation");
-        const created = await this.store.createNode({ ...parsed, parent: candidate.ref });
-        await this.store.addRelatedEdge(requested.ref, created);
+        const created = await this.store.createNode({ ...parsed, parent: candidate.ref, relatedTo: requested.ref });
         return { ...created, rehomedFrom: requested.ref, rehomedTo: candidate.ref };
       }
       parent = candidate.parent;

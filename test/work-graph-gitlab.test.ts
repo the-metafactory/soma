@@ -42,27 +42,31 @@ test("GitLab creates an Issue in an Epic root's declared home project", async ()
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(request);
     if (calls.length === 1) return { data: { namespace: { workItem: epic } } };
-    return { data: { workItemCreate: { workItem: { iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" } }, errors: [] } } };
+    return { data: { workItemCreate: { workItem: { iid: "2", workItemType: { name: "Issue" }, namespace: { fullPath: "saca/secacademy" } }, errors: [] } } };
   };
   const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).createNode(parseNodeSpec({ title: "route", autonomy: "approve", checkpointId: "cp", parent: { id: "saca&1" } }));
   expect(ref).toEqual({ id: "saca/secacademy#2" });
   const input = (calls[1]?.body?.variables as { input: Record<string, unknown> }).input;
   expect(input).toMatchObject({ projectPath: "saca/secacademy", workItemTypeId: "gid://gitlab/WorkItems::Type/1", hierarchyWidget: { parentId: "gid://gitlab/WorkItem/1" } });
+  expect(String(calls[1]?.body?.query)).toContain("workItemType{name}");
 });
 
 test("close writes the receipt note before one description-and-state PUT", async () => {
   const calls: string[] = [];
+  let closeBody: Record<string, unknown> | undefined;
   const item = { id: "gid://gitlab/WorkItem/12", iid: "12", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "body", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(`${request.method} ${request.path}`);
     if (request.path === "graphql") return { data: { namespace: { workItem: item } } };
     if (request.method === "POST") return { id: 9, author: { username: "ivy" } };
     if (request.method === "GET") return { description: "body" };
-    if (request.method === "PUT") return {};
+    if (request.method === "PUT") { closeBody = request.body; return {}; }
     throw new Error("unexpected request");
   };
   await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).close(REF, { checkpointId: "cp", autonomy: "propose", closedBy: "ivy", at: "2026-09-23T00:00:00.000Z", evidence: [], probeResults: [], attestation: "unverified" });
   expect(calls.slice(-3)).toEqual(["POST projects/saca%2Fsecacademy/issues/12/notes", "GET projects/saca%2Fsecacademy/issues/12", "PUT projects/saca%2Fsecacademy/issues/12"]);
+  expect(String(closeBody?.description)).toContain('"receiptCommentId": "9"');
+  expect(String(closeBody?.description)).toContain('"closer": "ivy"');
 });
 
 test("an Epic root closes through work-item mutations, never an issue REST path", async () => {
@@ -87,6 +91,17 @@ test("unparseable GitLab sudo probe downgrades confinement", async () => {
     runCommand: async (request) => request.argv?.join(" ").includes("personal_access_tokens") ? { exitCode: 0, stdout: "not-json", stderr: "", timedOut: false } : { exitCode: 1, stdout: "", stderr: "", timedOut: false },
   }, "gitlab-int.switch.ch");
   expect(result.reachableIdentities).toContain("impersonation:unknown");
+});
+
+test("GitLab confinement probes strip ambient host overrides", async () => {
+  const environments: Record<string, string | undefined>[] = [];
+  await checkGitLabConfinement({
+    env: { PATH: "/usr/bin", HOME: "/tmp", GITLAB_API_HOST: "evil.invalid", GLAB_HOST: "evil.invalid", GITLAB_HOST: "evil.invalid" }, platform: "darwin", now: () => new Date("2026-09-23T00:00:00.000Z"),
+    runCommand: async (request) => { environments.push(request.env ?? {}); return { exitCode: 1, stdout: "", stderr: "", timedOut: false }; },
+  }, "gitlab-int.switch.ch");
+  for (const env of environments) expect(env).not.toHaveProperty("GITLAB_API_HOST");
+  for (const env of environments) expect(env).not.toHaveProperty("GLAB_HOST");
+  for (const env of environments) expect(env).not.toHaveProperty("GITLAB_HOST");
 });
 
 test("malformed GitLab node ids refuse before transport", async () => {
