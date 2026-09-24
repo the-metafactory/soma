@@ -45,7 +45,6 @@ interface WorkGraphNodeBase {
   id: string;            // backend-native identity (GitHub: issue number),
                          // assigned by the store — never caller-supplied
   title: string;
-  home?: string;        // GitLab Epic root's project binding; distinct from Soma home
   kind?: string;         // free-form doctrine tag (e.g. research, grilling);
                          // the runtime never interprets its MEANING but
                          // normalizes its FORM in createNode validation:
@@ -74,6 +73,11 @@ type WorkGraphNode =
     // (§1 clause 1)
   | (WorkGraphNodeBase & { autonomy: "propose" | "approve"; probes?: Probe[] });
 ```
+
+The GitLab store extends the persisted node block with `home` for Epic roots;
+the shared node type does not interpret it. `NodeState.storeFields` carries that
+store-owned binding through reads and the close hash. The GitLab codec writes
+the same value to the route comment for older clients.
 
 - `autonomy` is the only classification the runtime enforces (#485). The
   work-kind vocabulary (research / prototype / grilling / task) is doctrine

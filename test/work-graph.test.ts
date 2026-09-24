@@ -29,10 +29,10 @@ import {
   type WorkGraphNode,
 } from "../src/index";
 
-test("the close hash binds a GitLab root's home without changing other node hashes", () => {
+test("the close hash binds store-owned home without changing other node hashes", () => {
   const base = { autonomy: "approve" as const };
-  expect(hashGatedNodeFields({ ...base, home: "group/one" })).not.toBe(hashGatedNodeFields({ ...base, home: "group/two" }));
-  expect(hashGatedNodeFields(base)).toBe(hashGatedNodeFields({ ...base, home: undefined }));
+  expect(hashGatedNodeFields(base, { home: "group/one" })).not.toBe(hashGatedNodeFields(base, { home: "group/two" }));
+  expect(hashGatedNodeFields(base)).toBe(hashGatedNodeFields(base, {}));
 });
 import { readFile } from "node:fs/promises";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";

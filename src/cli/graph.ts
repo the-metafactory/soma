@@ -800,6 +800,7 @@ function renderNodeState(state: NodeState): string {
     `autonomy: ${node.autonomy}`,
     `kind: ${node.kind ?? "—"}`,
     `checkpoint: ${node.checkpointId ?? "—"}`,
+    ...(typeof state.storeFields?.home === "string" ? [`home: ${state.storeFields.home}`] : []),
     `author: ${state.author.length > 0 ? state.author : "—"}`,
     `assignees: ${state.assignees.length > 0 ? state.assignees.join(", ") : "—"}`,
     `parent: ${state.parent?.id ?? "—"}`,
