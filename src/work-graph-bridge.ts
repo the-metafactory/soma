@@ -189,7 +189,7 @@ export function createGraphStore(repo: RepoRef): GraphStore {
     case "github":
       return createGitHubGraphStore({ repo: repo.path, host: repo.host });
     case "gitlab":
-      return createGitLabGraphStore({ host: repo.host, repo: repo.path });
+      return createGitLabGraphStore({ host: repo.host });
   }
 }
 

@@ -74,7 +74,7 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
   };
 }
 
-export interface GitLabGraphStoreOptions { host: string; repo?: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
+export interface GitLabGraphStoreOptions { host: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
 export interface GitLabCreateData extends StoreCreationData { readonly capability: "gitlab"; readonly homeProject?: string; readonly scopeProject?: string; }
 interface Parts { path: string; iid: number; sigil: "#" | "&"; }
 interface Item { id: string; iid: number; path: string; type: string; title: string; description: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
