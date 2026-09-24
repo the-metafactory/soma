@@ -593,7 +593,7 @@ interface GraphStore {
   different login on each forge, and a credential for one forge cannot forge an
   award on the other, so each store names its acting identity and runs its own
   forge's conjunct-2 probe set, scoped to its host.
-- **GitLab maps are Epic → Issue → Task** (#534). `soma graph chart` creates a
+- **GitLab work graphs are Epic → Issue → Task** (#534). `soma graph chart` creates a
   typed root; a GitLab root must declare `home: <group/project>`, under its
   Epic group. New route nodes go to that home project and scaffolds inherit
   their Issue's project. At the Task floor, `add` re-homes to the nearest Issue

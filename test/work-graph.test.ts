@@ -379,7 +379,6 @@ class FakeStore implements GraphStore {
   readonly edges: [string, string][] = [];
   readonly related: [string, string][] = [];
   readonly claims: string[] = [];
-  createNodeWithPlacement?: GraphStore["createNodeWithPlacement"];
   private nextId = 1000;
 
   add(id: string, overrides: Partial<NodeState> = {}, blockers: string[] = []): void {
@@ -483,11 +482,9 @@ test("createNode validates before the store is ever touched", async () => {
 
 test("a Task parent re-homes to its nearest Issue and retains native provenance", async () => {
   const store = new FakeStore();
-  store.createNodeWithPlacement = async (spec) => {
-    const created = await store.createNode({ ...spec, parent: { id: "issue" } });
-    await store.addRelatedEdge({ id: "task" }, created);
-    return { ...created, rehomedFrom: { id: "task" }, rehomedTo: { id: "issue" } };
-  };
+  Object.defineProperty(store, "allowedParentTypes", { value: ["Issue"] });
+  store.add("issue", { trackerType: "Issue" });
+  store.add("task", { trackerType: "Task", parent: { id: "issue" } });
   const created = await new WorkGraph(store).createNode({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: "task" } });
   expect(store.created[0]?.parent).toEqual({ id: "issue" });
   expect(store.related).toEqual([["task", created.id]]);

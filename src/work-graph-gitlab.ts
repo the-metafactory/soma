@@ -85,7 +85,7 @@ function projectPath(path: string): string { return encodeURIComponent(path); }
 function restIssue(parts: Parts): string { if (parts.sigil !== "#") throw new WorkGraphError("backend", "GitLab epic has no project issue REST endpoint"); return `projects/${projectPath(parts.path)}/issues/${parts.iid}`; }
 function gqlValue(value: unknown, field: string): unknown { const root = rec(value, "GraphQL response"); const data = rec(root.data, "GraphQL response data"); const result = data[field]; if (result === undefined || result === null) throw new WorkGraphError("backend", `GraphQL response has no ${field}`); return result; }
 function nodeId(path: string, iid: number, sigil: "#" | "&" = "#"): NodeRef { return { id: `${path}${sigil}${iid}` }; }
-function itemRef(item: Item): NodeRef { return nodeId(item.path, item.iid, item.type === "Epic" ? "&" : "#"); }
+function typeName(value: unknown): string { return typeof value === "string" ? value : value !== null && typeof value === "object" && typeof (value as Record<string, unknown>).name === "string" ? (value as Record<string, unknown>).name as string : ""; }
 function limitConcurrency(limit: number): <T>(fn: () => Promise<T>) => Promise<T> { let active = 0; const waiting: (() => void)[] = []; return async <T>(fn: () => Promise<T>): Promise<T> => { if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve)); active += 1; try { return await fn(); } finally { active -= 1; waiting.shift()?.(); } }; }
 function mutation(response: unknown, field: string): Record<string, unknown> {
   const result = rec(gqlValue(response, field), field);
@@ -111,14 +111,14 @@ function itemFrom(value: unknown, context: string, fallbackPath: string): Item {
   const parentNamespace = parentRecord?.namespace && typeof parentRecord.namespace === "object" ? parentRecord.namespace as Record<string, unknown> : undefined;
   const parentIid = parentRecord?.iid;
   const parent = parentRecord !== undefined && typeof parentNamespace?.fullPath === "string" && (typeof parentIid === "number" || typeof parentIid === "string" && /^\d+$/u.test(parentIid))
-    ? nodeId(parentNamespace.fullPath, Number(parentIid), parentRecord.workItemType === "Epic" ? "&" : "#") : undefined;
+    ? nodeId(parentNamespace.fullPath, Number(parentIid), typeName(parentRecord.workItemType) === "Epic" ? "&" : "#") : undefined;
   const childrenRecord = hierarchy.children && typeof hierarchy.children === "object" ? hierarchy.children as Record<string, unknown> : undefined;
   const childNodes = Array.isArray(childrenRecord?.nodes)
-    ? (hierarchy.children as { nodes: unknown[] }).nodes.flatMap((child) => { const r = rec(child, `${context} child`); const childNamespace = r.namespace && typeof r.namespace === "object" ? r.namespace as Record<string, unknown> : {}; return typeof r.iid === "string" && typeof childNamespace.fullPath === "string" ? [nodeId(childNamespace.fullPath, Number(r.iid), r.workItemType === "Epic" ? "&" : "#")] : []; }) : [];
+    ? (hierarchy.children as { nodes: unknown[] }).nodes.flatMap((child) => { const r = rec(child, `${context} child`); const childNamespace = r.namespace && typeof r.namespace === "object" ? r.namespace as Record<string, unknown> : {}; return typeof r.iid === "string" && typeof childNamespace.fullPath === "string" ? [nodeId(childNamespace.fullPath, Number(r.iid), typeName(r.workItemType) === "Epic" ? "&" : "#")] : []; }) : [];
   const links = widget("LINKED_ITEMS");
   const blocked = links.linkedItems && typeof links.linkedItems === "object" && Array.isArray((links.linkedItems as Record<string, unknown>).nodes)
     ? (links.linkedItems as { nodes: unknown[] }).nodes.flatMap((entry) => { const r = rec(entry, `${context} link`); const linked = r.workItem && typeof r.workItem === "object" ? r.workItem as Record<string, unknown> : {}; const linkedNamespace = linked.namespace && typeof linked.namespace === "object" ? linked.namespace as Record<string, unknown> : {}; return r.linkType === "IS_BLOCKED_BY" && typeof linked.iid === "string" && typeof linkedNamespace.fullPath === "string" ? [{ id: nodeId(linkedNamespace.fullPath, Number(linked.iid)).id, status: linked.state === "CLOSED" ? "closed" as const : "open" as const }] : []; }) : [];
-  const type = typeof item.workItemType === "string" ? item.workItemType : "";
+  const type = typeName(item.workItemType);
   const childrenTruncated = childrenRecord?.pageInfo !== undefined && rec(childrenRecord.pageInfo, `${context} child page`).hasNextPage === true;
   const linkedRecord = links.linkedItems && typeof links.linkedItems === "object" ? links.linkedItems as Record<string, unknown> : undefined;
   const linksTruncated = linkedRecord?.pageInfo !== undefined && rec(linkedRecord.pageInfo, `${context} linked page`).hasNextPage === true;
@@ -131,7 +131,7 @@ function stateFrom(item: Item): NodeState {
   catch (error) { return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
 }
 
-const ITEM_QUERY = `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){id iid title description state workItemType namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType} children(first:100){nodes{iid namespace{fullPath} workItemType} pageInfo{hasNextPage}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state}} pageInfo{hasNextPage}}}}}}}`;
+const ITEM_QUERY = `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}} children(first:100){nodes{iid namespace{fullPath} workItemType{name}} pageInfo{hasNextPage}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state}} pageInfo{hasNextPage}}}}}}}`;
 function defaultConfinement(): ConfinementDeps { return { runCommand, env: process.env, platform: process.platform, now: () => new Date() }; }
 
 export async function checkGitLabConfinement(deps: ConfinementDeps, host: string): Promise<ConfinementResult> {
@@ -180,28 +180,11 @@ class GitLabGraphStore implements GraphStore {
     }
     const created = mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemCreateInput!){workItemCreate(input:$input){workItem{id iid namespace{fullPath} workItemType} errors}}`, variables: { input } } }), "workItemCreate");
     const item = rec(created.workItem, "created work item"); const namespace = rec(item.namespace, "created work item namespace"); const iid = item.iid;
-    return nodeId(str(namespace, "fullPath", "created work item namespace"), typeof iid === "string" ? Number(iid) : num(item, "iid", "created work item"), item.workItemType === "Epic" ? "&" : "#");
-  }
-  async createNodeWithPlacement(spec: CreateNodeSpec): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }> {
-    if (spec.parent === undefined) return await this.createNode(spec);
-    const requested = await this.item(spec.parent);
-    if (requested.type !== "Task") return await this.createNode(spec);
-    let ancestor = requested.parent;
-    while (ancestor !== undefined) {
-      const candidate = await this.item(ancestor);
-      if (candidate.type === "Issue") {
-        const parent = itemRef(candidate);
-        const created = await this.createNode({ ...spec, parent });
-        await this.addRelatedEdge(itemRef(requested), created);
-        return { ...created, rehomedFrom: itemRef(requested), rehomedTo: parent };
-      }
-      ancestor = candidate.parent;
-    }
-    throw new WorkGraphError("invalid-node", `cannot re-home Task parent ${spec.parent.id}: no Issue ancestor`);
+    return nodeId(str(namespace, "fullPath", "created work item namespace"), typeof iid === "string" ? Number(iid) : num(item, "iid", "created work item"), typeName(item.workItemType) === "Epic" ? "&" : "#");
   }
   private async addLinkedEdge(source: NodeRef, related: NodeRef, linkType: "BLOCKS" | "RELATES_TO"): Promise<void> { const left = await this.item(source); const right = await this.item(related); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($source:WorkItemID!,$target:WorkItemID!,$linkType:WorkItemLinkType!){workItemAddLinkedItems(input:{workItemId:$source,workItemIds:[$target],linkType:$linkType}){errors}}`, variables: { source: left.id, target: right.id, linkType } } }), "workItemAddLinkedItems"); }
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> { await this.addLinkedEdge(blocker, blocked, "BLOCKS"); }
-  private async addRelatedEdge(source: NodeRef, related: NodeRef): Promise<void> { await this.addLinkedEdge(source, related, "RELATES_TO"); }
+  async addRelatedEdge(source: NodeRef, related: NodeRef): Promise<void> { await this.addLinkedEdge(source, related, "RELATES_TO"); }
   async readSubtree(root: NodeRef): Promise<NodeState[]> { const seen = new Set<string>([root.id]); const bounded = limitConcurrency(8); const visit = async (ref: NodeRef, parent: NodeRef): Promise<NodeState[]> => { if (seen.has(ref.id)) return []; seen.add(ref.id); const item = await bounded(async () => await this.item(ref)); if (item.childrenTruncated) throw new WorkGraphError("backend", `GitLab subtree ${ref.id} is paginated; refusing a partial membership walk`); const descendants = await Promise.all(item.children.map((child) => visit(child, ref))); return [{ ...stateFrom(item), parent }, ...descendants.flat()]; }; const rootItem = await bounded(async () => await this.item(root)); if (rootItem.childrenTruncated) throw new WorkGraphError("backend", `GitLab subtree ${root.id} is paginated; refusing a partial membership walk`); return (await Promise.all(rootItem.children.map((child) => visit(child, root)))).flat(); }
   async claim(ref: NodeRef, identity: string): Promise<ClaimResult> { const before = await this.item(ref); if (before.status === "closed") throw new WorkGraphError("node-closed", `node ${ref.id} is closed — nothing to claim`); await this.updateAssignees(parts(ref), "APPEND", identity); const after = await this.item(ref); const { held, holder } = resolveClaimRace(identity, after.assignees); if (!held && after.assignees.includes(identity)) await this.updateAssignees(parts(ref), "REMOVE", identity); return { held, identity, holder, assignees: held ? after.assignees : after.assignees.filter((name) => name !== identity) }; }
   async release(ref: NodeRef, identity: string): Promise<ReleaseResult> { const before = await this.item(ref); if (before.status === "closed") throw new WorkGraphError("node-closed", `node ${ref.id} is closed — nothing to release`); if (!before.assignees.includes(identity)) return { released: false, identity, assignees: before.assignees }; await this.updateAssignees(parts(ref), "REMOVE", identity); const after = await this.item(ref); return { released: true, identity, assignees: after.assignees.filter((name) => name !== identity) }; }

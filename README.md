@@ -365,7 +365,7 @@ soma graph audit <root>      # what the gates cannot see
 soma graph decisions <root>  # the map's resolutions, collected
 ```
 
-The store is a seam; GitHub and GitLab work items are supported, and the
+The store is a seam; GitHub and GitLab route/scaffold work items are supported (GitLab Epic roots are orchestration-only and are not claimable), and the
 tracker stays the sole authoritative record — Soma keeps no parallel copy of
 the graph.
 

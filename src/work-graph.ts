@@ -655,8 +655,8 @@ export interface GraphStore {
   checkConfinement(): Promise<ConfinementResult>;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
   createNode(spec: CreateNodeSpec): Promise<NodeRef>;
-  /** Optional backend topology placement, reported without exposing tracker types to the contract layer. */
-  createNodeWithPlacement?(spec: CreateNodeSpec): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }>;
+  /** Native provenance relation used when contract placement reaches a hierarchy floor. */
+  addRelatedEdge?(source: NodeRef, related: NodeRef): Promise<void>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
@@ -1379,7 +1379,21 @@ export class WorkGraph {
   /** Validate at the boundary, then create. Additive mutation — free after structural validation (§1 clause 2). */
   async createNode(spec: unknown): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }> {
     const parsed = parseNodeSpec(spec);
-    return await (this.store.createNodeWithPlacement?.(parsed) ?? this.store.createNode(parsed));
+    if (parsed.parent === undefined || this.store.allowedParentTypes === undefined) return await this.store.createNode(parsed);
+    const requested = await this.store.readNode(parsed.parent);
+    if (requested.trackerType !== "Task") return await this.store.createNode(parsed);
+    let parent = requested.parent;
+    while (parent !== undefined) {
+      const candidate = await this.store.readNode(parent);
+      if (candidate.trackerType !== undefined && this.store.allowedParentTypes.includes(candidate.trackerType)) {
+        if (this.store.addRelatedEdge === undefined) throw new WorkGraphError("backend", "store declares a hierarchy floor but cannot retain the required provenance relation");
+        const created = await this.store.createNode({ ...parsed, parent: candidate.ref });
+        await this.store.addRelatedEdge(requested.ref, created);
+        return { ...created, rehomedFrom: requested.ref, rehomedTo: candidate.ref };
+      }
+      parent = candidate.parent;
+    }
+    throw new WorkGraphError("invalid-node", `cannot re-home parent ${requested.ref.id}: no allowed ancestor`);
   }
 
   async readNode(ref: NodeRef): Promise<NodeState> {
