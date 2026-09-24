@@ -107,9 +107,15 @@ test("close writes the receipt note before one description-and-state PUT", async
     throw new Error("unexpected request");
   };
   await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).close(REF, { checkpointId: "cp", autonomy: "propose", closedBy: "ivy", at: "2026-09-23T00:00:00.000Z", evidence: [], probeResults: [], attestation: "unverified" });
-  expect(calls.slice(-3)).toEqual(["POST projects/saca%2Fsecacademy/issues/12/notes", "GET projects/saca%2Fsecacademy/issues/12", "PUT projects/saca%2Fsecacademy/issues/12"]);
+  expect(calls.slice(-3)).toEqual(["POST graphql", "POST projects/saca%2Fsecacademy/issues/12/notes", "PUT projects/saca%2Fsecacademy/issues/12"]);
   expect(String(closeBody?.description)).toContain('"receiptCommentId": "9"');
   expect(String(closeBody?.description)).toContain('"closer": "ivy"');
+});
+
+test("GitLab route metadata never appears in a node body", async () => {
+  const item = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `Human text\n\n<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: item } } }) });
+  expect((await store.readNode({ id: "saca&1" })).body).toBe("Human text");
 });
 
 test("an Epic root closes through work-item mutations, never an issue REST path", async () => {
