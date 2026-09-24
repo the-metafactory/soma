@@ -192,11 +192,27 @@ function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraph
   return { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }), ...(ciCheckRunId === undefined ? {} : { ciCheckRunId: ciCheckRunId as string, ciHeadSha: ciHeadSha as string }) } };
 }
 
+function typedNodeFrom(item: Item, ref: NodeRef): { node: WorkGraphNode; typed: boolean } {
+  if (item.nodeBlockError !== undefined) throw new WorkGraphError("invalid-node", item.nodeBlockError);
+  const raw = item.nodeBlockData;
+  if (raw === undefined) return { node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false };
+  const fields = { ...raw };
+  const completion = fields.completion;
+  delete fields.completion;
+  delete fields.home;
+  const parsed = toNode(ref.id, parseNodeSpec({ ...fields, title: item.title }));
+  return { node: completion === undefined ? parsed : withPersistedCompletion(parsed, completion), typed: true };
+}
+
 function stateFrom(item: Item): NodeState {
   const decoded = item.nodeBlock;
   const ref = nodeId(item.path, item.iid, item.type === "Epic" ? "&" : "#");
-  try { if (item.nodeBlockError !== undefined) throw new WorkGraphError("invalid-node", item.nodeBlockError); const raw = item.nodeBlockData === undefined ? undefined : { ...item.nodeBlockData }; const completion = raw?.completion; if (raw !== undefined) { delete raw.completion; delete raw.home; } const parsed = raw === undefined ? { id: ref.id, title: item.title, autonomy: "approve" as const } : toNode(ref.id, parseNodeSpec({ ...raw, title: item.title })); const node = completion === undefined ? parsed : withPersistedCompletion(parsed, completion); return { ref, node, ...(item.type === "Epic" && item.homeProject !== undefined ? { storeFields: { home: item.homeProject } } : {}), typed: raw !== undefined, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
-  catch (error) { return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
+  try {
+    const { node, typed } = typedNodeFrom(item, ref);
+    return { ref, node, ...(item.type === "Epic" && item.homeProject !== undefined ? { storeFields: { home: item.homeProject } } : {}), typed, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) };
+  } catch (error) {
+    return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) };
+  }
 }
 
 const ITEM_FIELDS = `id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}}`;
