@@ -44,7 +44,7 @@ test("GitLab creates an Issue in an Epic root's declared home project", async ()
     if (calls.length === 1) return { data: { namespace: { workItem: epic } } };
     return { data: { workItemCreate: { workItem: { iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" } }, errors: [] } } };
   };
-  const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", scope: "saca", transport }).createNode(parseNodeSpec({ title: "route", autonomy: "approve", checkpointId: "cp", parent: { id: "saca&1" } }));
+  const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).createNode(parseNodeSpec({ title: "route", autonomy: "approve", checkpointId: "cp", parent: { id: "saca&1" } }));
   expect(ref).toEqual({ id: "saca/secacademy#2" });
   const input = (calls[1]?.body?.variables as { input: Record<string, unknown> }).input;
   expect(input).toMatchObject({ projectPath: "saca/secacademy", workItemTypeId: "gid://gitlab/WorkItems::Type/1", hierarchyWidget: { parentId: "gid://gitlab/WorkItem/1" } });

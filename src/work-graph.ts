@@ -657,8 +657,6 @@ export interface GraphStore {
   createNode(spec: CreateNodeSpec): Promise<NodeRef>;
   /** Optional backend topology placement, reported without exposing tracker types to the contract layer. */
   createNodeWithPlacement?(spec: CreateNodeSpec): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }>;
-  /** Native provenance edge used when a backend's hierarchy reaches its floor. */
-  addRelatedEdge?(source: NodeRef, related: NodeRef): Promise<void>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
