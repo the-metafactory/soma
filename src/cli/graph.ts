@@ -62,7 +62,7 @@ import {
   type WorkGraphEvidenceKind,
 } from "../work-graph";
 import { deriveAttestation, findGraphRoot } from "../work-graph-attestation";
-import { displayRepo, type RepoRef } from "../work-graph-ref";
+import { displayRepo, parseLocatedNodeId, type RepoRef } from "../work-graph-ref";
 import {
   isProbeRefusal,
   loadProbeRegistry as defaultLoadProbeRegistry,
@@ -929,7 +929,8 @@ async function runAdd(
   const { bodyFile, ...rest } = parsed.options.spec;
   const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
 
-  const storeData = repo.forge !== "gitlab" ? rest.storeData : { ...(rest.storeData !== undefined && typeof rest.storeData === "object" ? rest.storeData as Record<string, unknown> : {}), scopeProject: repo.path };
+  const isGitLabEpic = repo.forge === "gitlab" && parseLocatedNodeId(parsed.target)?.sigil === "&";
+  const storeData = repo.forge !== "gitlab" ? rest.storeData : { ...(rest.storeData !== undefined && typeof rest.storeData === "object" ? rest.storeData as Record<string, unknown> : {}), ...(isGitLabEpic ? {} : { scopeProject: repo.path }) };
   const created = await graph.createNode({
     ...rest,
     ...(storeData === undefined ? {} : { storeData }),

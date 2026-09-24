@@ -6,7 +6,7 @@ import {
   createGitLabGraphStore,
   type GitLabApiRequest,
 } from "../src/index";
-import { glabApiArgs, parseGitLabCreateData, parseGlabApiOutput } from "../src/work-graph-gitlab";
+import { gitLabCliEnvironment, glabApiArgs, parseGitLabCreateData, parseGlabApiOutput } from "../src/work-graph-gitlab";
 import { parseNodeSpec } from "../src/work-graph";
 
 const REF = { id: "saca/secacademy#12" };
@@ -16,6 +16,10 @@ test("glab transport pins the host and flattens paginated output", () => {
   const request: GitLabApiRequest = { method: "GET", path: "projects/x/issues/1/notes", paginate: true };
   expect(glabApiArgs(request, "gitlab-int.switch.ch")).toEqual(["api", request.path, "--hostname", "gitlab-int.switch.ch", "--method", "GET", "--paginate", "--slurp"]);
   expect(parseGlabApiOutput("[[{\"id\":1}],[{\"id\":2}]]", request)).toEqual([{ id: 1 }, { id: 2 }]);
+});
+
+test("GitLab CLI transport strips ambient tokens and host routing", () => {
+  expect(gitLabCliEnvironment({ PATH: "/bin", GLAB_TOKEN: "secret", GITLAB_TOKEN: "secret", GITLAB_ACCESS_TOKEN: "secret", OAUTH_TOKEN: "secret", CI_JOB_TOKEN: "secret", GITLAB_API_HOST: "evil.example", GLAB_HOST: "evil.example", GITLAB_HOST: "evil.example", GITLAB_URI: "https://evil.example" })).toEqual({ PATH: "/bin" });
 });
 
 test("GitLab system notes are excluded and thumb tones normalize at the store boundary", async () => {

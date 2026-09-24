@@ -58,6 +58,8 @@ export function parseGlabApiOutput(stdout: string, request: GitLabApiRequest): u
     return request.paginate && Array.isArray(value) && value.every(Array.isArray) ? value.flat() : value;
   } catch { throw new WorkGraphError("backend", `glab api ${request.method} ${request.path} returned unparseable JSON`); }
 }
+/** The transport never forwards ambient GitLab credentials or host routing. */
+export function gitLabCliEnvironment(env: Readonly<Record<string, string | undefined>>): Record<string, string> { return envWithoutTokens(env, TOKEN_KEYS); }
 export function createGlabCliTransport(options: GlabCliTransportOptions): GitLabApiTransport {
   const binary = options.binary ?? "glab";
   return async (request) => {
@@ -66,7 +68,7 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
       stdout: "pipe", stderr: "pipe", ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       // The ref supplies the host. Keep glab's configured credential lookup,
       // but never forward a process-wide token to an arbitrary GitLab host.
-      env: envWithoutTokens(process.env, TOKEN_KEYS),
+      env: gitLabCliEnvironment(process.env),
     });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     if (exitCode !== 0) throw new WorkGraphError("backend", `glab api ${request.method} ${request.path} failed (exit ${exitCode}): ${stderr.trim()}`);

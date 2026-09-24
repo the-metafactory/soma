@@ -522,6 +522,17 @@ test("add refuses an auto node with no probes — zero machine-checkable evidenc
   expect(store.created).toHaveLength(0);
 });
 
+test("GitLab Epic parents retain their declared home-project route", async () => {
+  const store = new FakeStore();
+  (store as unknown as { parseCreateData: (value: unknown) => { capability: "gitlab"; scopeProject?: string } }).parseCreateData = (value) => ({ capability: "gitlab", ...(value as Record<string, unknown>) });
+  await run(
+    ["graph", "add", "gitlab:gitlab-int.switch.ch/saca&1", "--title", "route", "--autonomy", "approve", "--checkpoint", "cp-route"],
+    store,
+    { resolveRepo: async () => ({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "saca" }) },
+  );
+  expect((store.created[0]?.storeData as Record<string, unknown> | undefined)?.scopeProject).toBeUndefined();
+});
+
 // --- close ------------------------------------------------------------------
 
 function autoGraph(): FakeStore {
