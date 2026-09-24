@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 import {
   WorkGraph,
   WorkGraphError,
@@ -34,8 +36,10 @@ test("the close hash binds store-owned home without changing other node hashes",
   expect(hashGatedNodeFields(base, { home: "group/one" })).not.toBe(hashGatedNodeFields(base, { home: "group/two" }));
   expect(hashGatedNodeFields(base)).toBe(hashGatedNodeFields(base, {}));
 });
-import { readFile } from "node:fs/promises";
-import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
+
+test("creation refuses top-level home instead of dropping store-owned routing data", () => {
+  expect(() => parseNodeSpec({ title: "child", autonomy: "approve", parent: { id: "map" }, home: "group/project" })).toThrow(/home is store-owned/u);
+});
 
 const PASSING_PROBE: Probe = { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 };
 

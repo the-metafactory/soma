@@ -950,12 +950,14 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
   if ("id" in record && record.id !== undefined) {
     throw new WorkGraphError("invalid-node", `"id" is assigned by the store — never caller-supplied`);
   }
+  if ("home" in record) {
+    throw new WorkGraphError("invalid-node", "home is store-owned; use the store's creation data (GitLab: --home-project)");
+  }
 
   const title = requireString(record, "title", "invalid-node", "node spec");
   const autonomy = parseAutonomy(record.autonomy);
   const kind = normalizeKind(record.kind);
   const checkpointId = optionalString(record, "checkpointId", "invalid-node", "node spec");
-  const home = optionalString(record, "home", "invalid-node", "node spec");
   const storeData = record.storeData === undefined
     ? undefined
     : parseCreateData === undefined
@@ -988,7 +990,6 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
     title,
     ...(kind === undefined ? {} : { kind }),
     ...(checkpointId === undefined ? {} : { checkpointId }),
-    ...(home === undefined ? {} : { home }),
     ...(storeData === undefined ? {} : { storeData }),
     ...(budget === undefined ? {} : { budget }),
     ...(body === undefined ? {} : { body }),
