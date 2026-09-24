@@ -103,6 +103,8 @@ export interface WorkGraphNodeBase {
   /** Backend-native identity (GitHub: issue number), assigned by the store — never caller-supplied. */
   id: string;
   title: string;
+  /** GitLab map root's project binding; absent for other nodes and stores. */
+  home?: string;
   /** Backend-persisted close binding; absent until a gated close completes. */
   completion?: NodeCompletionBinding;
   /**
@@ -953,6 +955,7 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
   const autonomy = parseAutonomy(record.autonomy);
   const kind = normalizeKind(record.kind);
   const checkpointId = optionalString(record, "checkpointId", "invalid-node", "node spec");
+  const home = optionalString(record, "home", "invalid-node", "node spec");
   const storeData = record.storeData === undefined
     ? undefined
     : parseCreateData === undefined
@@ -985,6 +988,7 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
     title,
     ...(kind === undefined ? {} : { kind }),
     ...(checkpointId === undefined ? {} : { checkpointId }),
+    ...(home === undefined ? {} : { home }),
     ...(storeData === undefined ? {} : { storeData }),
     ...(budget === undefined ? {} : { budget }),
     ...(body === undefined ? {} : { body }),

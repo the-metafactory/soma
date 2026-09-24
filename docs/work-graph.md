@@ -415,7 +415,7 @@ Declaration rules, all deny-by-default:
   when it is not.
 - Adding an entry is a **loosening** mutation (§4), so it stays identity-bound
   and fail-closed: the adopter edits the document. `soma policy probes
-  [--repo <owner/name>]` shows what is declared and where; soma ships no verb
+  [--repo <forge>:<host>/<path>]` shows what is declared and where; soma ships no verb
   that writes it, because a gate the agent can widen is not a gate.
 
 The rule is **uniform** — same for every autonomy class and for the phase-2
@@ -598,7 +598,7 @@ interface GraphStore {
   award on the other, so each store names its acting identity and runs its own
   forge's conjunct-2 probe set, scoped to its host.
 - **GitLab work graphs are Epic → Issue → Task** (#534). `soma graph chart` creates a
-  typed root; a GitLab root must declare `homeProject: <group/project>`, under its
+  typed root; a GitLab root's node block declares `home: <group/project>`, under its
   Epic group. New route nodes go to that home project and scaffolds inherit
   their Issue's project. At the Task floor, the GitLab GraphStore requests re-homing to
   the nearest Issue and a native `relates_to` provenance edge. This behavior is
@@ -920,8 +920,10 @@ ratified this* — not merely that two logins appear. All four must hold:
    identity reachable from the session. On GitHub: the token env stripped
    (`GH_TOKEN` and friends), then `gh auth status --hostname <host>`,
    `gh auth token --hostname <host>` and the `gh:<host>` OS keychain item. Each
-   forge supplies its own set (#537 D2); a set shaped for one forge never runs
-   against another. **Downgrade-only:**
+   On GitLab: token env stripped, then `glab auth status --hostname <host>`,
+   `glab config get token --host <host>`, config readability, and admin/sudo
+   impersonation checks. Each forge supplies its own set (#537 D2); a set
+   shaped for one forge never runs against another. **Downgrade-only:**
    reachability forces `unverified`; non-reachability never manufactures a
    `verified` by itself.
 3. **Distinct authorship** — ratifier author ≠ proposal comment author, both

@@ -108,7 +108,7 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
     resolve:
       "Usage: soma algorithm resolve --id <run-id> --code <F1> --verdict <kept|rejected|answered|done|dropped> [--note <text>] [--home-dir <dir>] [--soma-home <dir>]",
     step:
-      "Usage: soma algorithm step --id <run-id> --step-id <id> (--status <open|done|blocked> [--evidence <text>] | (--node <node-id> | --sync) [--repo <owner/name>]). " +
+      "Usage: soma algorithm step --id <run-id> --step-id <id> (--status <open|done|blocked> [--evidence <text>] | (--node <node-id> | --sync) [--repo <forge>:<host>/<path>]). " +
       "--node bridges the step to a work-graph node and derives its status from it; --sync re-derives an already-bridged step. " +
       "The bridged arm takes NEITHER --status nor --evidence — both are derived from the node, which is the step's one authoritative home (docs/work-graph.md §2.7).",
     verify: "Usage: soma algorithm verify --id <run-id> --criterion-id <id> --status <passed|failed|dropped|deferred-probe> --evidence <text> [--evidence-kind <specified|probed|tested>] [--substrate <id>]",

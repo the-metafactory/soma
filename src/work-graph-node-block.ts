@@ -8,6 +8,7 @@ export function encodeNodeBlock(spec: CreateNodeSpec & { completion?: WorkGraphN
   const payload: Record<string, unknown> = { autonomy: spec.autonomy };
   if (spec.kind !== undefined) payload.kind = spec.kind;
   if (spec.checkpointId !== undefined) payload.checkpointId = spec.checkpointId;
+  if (spec.home !== undefined) payload.home = spec.home;
   if (spec.budget !== undefined) payload.budget = spec.budget;
   if (spec.probes !== undefined && spec.probes.length > 0) payload.probes = spec.probes;
   if (spec.completion !== undefined) payload.completion = spec.completion;

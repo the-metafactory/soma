@@ -68,7 +68,7 @@ the user how they'd like to proceed.
 
 ## 3. Create the map
 
-The map is the root node: an issue whose body carries Destination, Constraints,
+The map is the typed root node: a GitHub issue or GitLab Epic whose body carries Destination, Constraints,
 and Notes filled in, Decisions-so-far empty, and the fog sketched into **Not yet
 specified**. The body template is in `references/map.md`. Label it
 `orienteer:map` — that label is how anyone finds this map again.
@@ -78,6 +78,16 @@ domain, the skills to consult, standing preferences, and any override of the
 plan-don't-do default. Notes orient the session; anything an *answer* could
 violate is a constraint, and belongs in Constraints where a later session will
 check its options against it.
+
+```bash
+soma graph chart --title "…" --autonomy approve --checkpoint <id> \
+  --body-file <path> --label orienteer:map \
+  [--repo <forge>:<host>/<path>] [--home-project <group/project>]
+```
+
+On GitLab, `--home-project` is required. Its project must sit under the Epic's
+group; the typed root records it as `home`, and every new route node goes there.
+Use `--repo` for that same project when charting outside its checkout.
 
 ## 4. Create the nodes you can specify now
 
