@@ -971,7 +971,8 @@ async function runAdd(
 async function runChart(parsed: ParsedGraphChartArgs, graph: WorkGraph, repo: string, deps: GraphCliDeps): Promise<string> {
   const { bodyFile, ...rest } = parsed.options.spec;
   const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
-  const created = await graph.createNode({ ...rest, ...(body === undefined ? {} : { body }) });
+  const storeData = rest.storeData === undefined || typeof rest.storeData !== "object" ? rest.storeData : { ...(rest.storeData as Record<string, unknown>), scopeProject: repo };
+  const created = await graph.createNode({ ...rest, ...(storeData === undefined ? {} : { storeData }), ...(body === undefined ? {} : { body }) });
   if (parsed.options.json === true) return JSON.stringify({ repo, node: created.id }, null, 2);
   return `Created typed graph root ${created.id} (${repo}).`;
 }

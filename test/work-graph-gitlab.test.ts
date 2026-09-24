@@ -91,7 +91,7 @@ test("GitLab refuses a homeProject without a project segment", async () => {
 
 test("GitLab root creation cannot route outside the selected repository", async () => {
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", repo: REPO, transport: async () => { throw new Error("must not call GitLab"); } });
-  await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", storeData: { homeProject: "other/project" } }, parseGitLabCreateData))).rejects.toThrow(/must match the selected repository/u);
+  await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", storeData: { homeProject: "other/project", scopeProject: REPO } }, parseGitLabCreateData))).rejects.toThrow(/must match the selected repository/u);
 });
 
 test("GitLab preserves an Epic blocker id", async () => {

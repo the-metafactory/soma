@@ -73,8 +73,8 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
   };
 }
 
-export interface GitLabGraphStoreOptions { host: string; repo: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
-export interface GitLabCreateData extends StoreCreationData { readonly capability: "gitlab"; readonly homeProject: string; }
+export interface GitLabGraphStoreOptions { host: string; repo?: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
+export interface GitLabCreateData extends StoreCreationData { readonly capability: "gitlab"; readonly homeProject: string; readonly scopeProject?: string; }
 interface Parts { path: string; iid: number; sigil: "#" | "&"; }
 interface Item { id: string; iid: number; path: string; type: string; title: string; description: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
 const THUMBS_UP = /^thumbsup(?:_tone[1-5])?$/u;
@@ -98,7 +98,7 @@ function encodeGitLabRoute(homeProject: string): string { return `${GITLAB_ROUTE
 export function parseGitLabCreateData(value: unknown): GitLabCreateData {
   const data = rec(value, "node spec: GitLab creation data");
   if (typeof data.homeProject !== "string" || data.homeProject.trim().length === 0) throw new WorkGraphError("invalid-node", "node spec: GitLab homeProject must be a non-empty string");
-  return { capability: "gitlab", homeProject: data.homeProject.trim() };
+  return { capability: "gitlab", homeProject: data.homeProject.trim(), ...(typeof data.scopeProject === "string" ? { scopeProject: data.scopeProject } : {}) };
 }
 function createHomeProject(spec: CreateNodeSpec<GitLabCreateData>): string | undefined { return spec.storeData?.homeProject; }
 function limitConcurrency(limit: number): <T>(fn: () => Promise<T>) => Promise<T> { let active = 0; const waiting: (() => void)[] = []; return async <T>(fn: () => Promise<T>): Promise<T> => { if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve)); active += 1; try { return await fn(); } finally { active -= 1; waiting.shift()?.(); } }; }
@@ -181,8 +181,8 @@ export async function checkGitLabConfinement(deps: ConfinementDeps, host: string
 class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   readonly attestation: AttestationCapability = "verifiable";
   readonly parseCreateData = parseGitLabCreateData;
-  private readonly host: string; private readonly repo: string; private readonly transport: GitLabApiTransport; private readonly confinement: ConfinementDeps; private readonly workItemTypeIds = new Map<string, Promise<string>>();
-  constructor(options: GitLabGraphStoreOptions) { const checked = validateRepoRef({ forge: "gitlab", host: options.host, path: options.repo }); this.host = checked.host; this.repo = checked.path; this.transport = options.transport ?? createGlabCliTransport({ hostname: this.host }); this.confinement = options.confinement ?? defaultConfinement(); }
+  private readonly host: string; private readonly transport: GitLabApiTransport; private readonly confinement: ConfinementDeps; private readonly workItemTypeIds = new Map<string, Promise<string>>();
+  constructor(options: GitLabGraphStoreOptions) { this.host = validateRepoRef({ forge: "gitlab", host: options.host, path: "group" }).host; this.transport = options.transport ?? createGlabCliTransport({ hostname: this.host }); this.confinement = options.confinement ?? defaultConfinement(); }
   async actingIdentity(): Promise<string> { const user = rec(await this.transport({ method: "GET", path: "user" }), "GitLab user"); return str(user, "username", "GitLab user"); }
   async checkConfinement(): Promise<ConfinementResult> { return await checkGitLabConfinement(this.confinement, this.host); }
   private async workItemTypeId(namespacePath: string, name: "Epic" | "Issue" | "Task"): Promise<string> { const key = `${namespacePath}\u0000${name}`; let cached = this.workItemTypeIds.get(key); if (cached === undefined) { cached = (async () => { const response = await this.transport({ method: "POST", path: "graphql", body: { query: `query($fullPath:ID!){namespace(fullPath:$fullPath){workItemTypes(name:${typeEnum(name)}){nodes{id name}}}}`, variables: { fullPath: namespacePath } } }); const namespace = rec(gqlValue(response, "namespace"), "work item type namespace"); const types = rec(namespace.workItemTypes, "work item types"); const found = arr(types.nodes, "work item types").map((value) => rec(value, "work item type")).find((type) => typeName(type) === name); if (found === undefined) throw new WorkGraphError("backend", `GitLab namespace ${namespacePath} has no ${name} work-item type`); return str(found, "id", `${name} work item type`); })(); this.workItemTypeIds.set(key, cached); } return await cached; }
@@ -201,13 +201,13 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
       if (homeProject === undefined) throw new WorkGraphError("invalid-node", "GitLab graph roots require --home-project <group/project>");
       const separator = homeProject.lastIndexOf("/"); const group = homeProject.slice(0, separator); const project = homeProject.slice(separator + 1);
       if (group.length === 0 || project.length === 0) throw new WorkGraphError("invalid-node", "GitLab homeProject must name both a group and project");
-      if (homeProject !== this.repo) throw new WorkGraphError("invalid-node", `GitLab homeProject ${homeProject} must match the selected repository ${this.repo}`);
+      if (spec.storeData?.scopeProject !== undefined && homeProject !== spec.storeData.scopeProject) throw new WorkGraphError("invalid-node", `GitLab homeProject ${homeProject} must match the selected repository ${spec.storeData.scopeProject}`);
       input = { namespacePath: group, workItemTypeId: await this.workItemTypeId(group, "Epic"), title: spec.title, descriptionWidget: { description } };
     } else {
       const type = parent.type === "Epic" ? "Issue" : parent.type === "Issue" ? "Task" : undefined;
       if (type === undefined) throw new WorkGraphError("invalid-node", `GitLab cannot create a child below ${parent.type || "this"} work item`);
       const parentHomeProject = parent.type === "Epic" ? parent.homeProject : parent.path;
-      if (parentHomeProject === undefined || parent.type === "Epic" && !parentHomeProject.startsWith(`${parent.path}/`)) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under ${parent.path}`);
+      if (parentHomeProject === undefined || parent.type === "Epic" && !parentHomeProject.startsWith(`${parent.path}/`) || spec.storeData?.scopeProject !== undefined && parentHomeProject !== spec.storeData.scopeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under the selected repository`);
       input = { projectPath: parentHomeProject, workItemTypeId: await this.workItemTypeId(parentHomeProject, type), title: spec.title, descriptionWidget: { description }, hierarchyWidget: { parentId: parent.id }, ...(related === undefined ? {} : { linkedItemsWidget: { linkType: "RELATES_TO", workItemsIds: [related.id] } }) };
     }
     const created = mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemCreateInput!){workItemCreate(input:$input){workItem{id iid namespace{fullPath} workItemType{name}} errors}}`, variables: { input } } }), "workItemCreate");
