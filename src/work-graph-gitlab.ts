@@ -116,41 +116,50 @@ function mutation(response: unknown, field: string): Record<string, unknown> {
   return result;
 }
 
+function widget(widgets: readonly Record<string, unknown>[], type: string): Record<string, unknown> { return widgets.find((entry) => entry.type === type) ?? {}; }
+function parseAssignees(widgets: readonly Record<string, unknown>[]): string[] {
+  const assignees = widget(widgets, "ASSIGNEES").assignees;
+  return assignees && typeof assignees === "object" && Array.isArray((assignees as Record<string, unknown>).nodes)
+    ? (assignees as { nodes: unknown[] }).nodes.map(username).filter(Boolean) : [];
+}
+function parseHierarchy(widgets: readonly Record<string, unknown>[], context: string): Pick<Item, "parent" | "children" | "childrenTruncated"> {
+  const hierarchy = widget(widgets, "HIERARCHY");
+  const parentRecord = hierarchy.parent && typeof hierarchy.parent === "object" ? hierarchy.parent as Record<string, unknown> : undefined;
+  const parentNamespace = parentRecord?.namespace && typeof parentRecord.namespace === "object" ? parentRecord.namespace as Record<string, unknown> : undefined;
+  const parentIid = parentRecord?.iid;
+  const parent = parentRecord !== undefined && typeof parentNamespace?.fullPath === "string" && (typeof parentIid === "number" || typeof parentIid === "string" && /^\d+$/u.test(parentIid))
+    ? nodeId(parentNamespace.fullPath, Number(parentIid), typeName(parentRecord.workItemType) === "Epic" ? "&" : "#") : undefined;
+  const children = hierarchy.children && typeof hierarchy.children === "object" ? hierarchy.children as Record<string, unknown> : undefined;
+  const childNodes = Array.isArray(children?.nodes)
+    ? (children as { nodes: unknown[] }).nodes.flatMap((child) => { const record = rec(child, `${context} child`); const namespace = record.namespace && typeof record.namespace === "object" ? record.namespace as Record<string, unknown> : {}; return typeof record.iid === "string" && typeof namespace.fullPath === "string" ? [nodeId(namespace.fullPath, Number(record.iid), typeName(record.workItemType) === "Epic" ? "&" : "#")] : []; }) : [];
+  const childrenTruncated = children?.pageInfo !== undefined && rec(children.pageInfo, `${context} child page`).hasNextPage === true;
+  return { ...(parent === undefined ? {} : { parent }), children: childNodes, childrenTruncated };
+}
+function parseLinkedItems(widgets: readonly Record<string, unknown>[], context: string): Pick<Item, "blockers" | "linksTruncated"> {
+  const linkedItems = widget(widgets, "LINKED_ITEMS").linkedItems;
+  const links = linkedItems && typeof linkedItems === "object" ? linkedItems as Record<string, unknown> : undefined;
+  const blockers = Array.isArray(links?.nodes)
+    ? (links as { nodes: unknown[] }).nodes.flatMap((entry) => { const record = rec(entry, `${context} link`); const linked = record.workItem && typeof record.workItem === "object" ? record.workItem as Record<string, unknown> : {}; const namespace = linked.namespace && typeof linked.namespace === "object" ? linked.namespace as Record<string, unknown> : {}; return record.linkType === "IS_BLOCKED_BY" && typeof linked.iid === "string" && typeof namespace.fullPath === "string" ? [{ id: nodeId(namespace.fullPath, Number(linked.iid), typeName(linked.workItemType) === "Epic" ? "&" : "#").id, status: linked.state === "CLOSED" ? "closed" as const : "open" as const }] : []; }) : [];
+  const linksTruncated = links?.pageInfo !== undefined && rec(links.pageInfo, `${context} linked page`).hasNextPage === true;
+  return { blockers, linksTruncated };
+}
+
 function itemFrom(value: unknown, context: string, fallbackPath: string): Item {
   const item = rec(value, context);
   const rawIid = item.iid; const iid = typeof rawIid === "number" ? rawIid : typeof rawIid === "string" && /^\d+$/u.test(rawIid) ? Number(rawIid) : num(item, "iid", context); const title = typeof item.title === "string" ? item.title : "";
   const rawDescription = typeof item.description === "string" ? item.description : ""; const route = decodeGitLabRoute(rawDescription); const description = route.text;
   const namespace = item.namespace && typeof item.namespace === "object" ? item.namespace as Record<string, unknown> : {};
   const path = typeof namespace.fullPath === "string" ? namespace.fullPath : fallbackPath;
-  const widgets = Array.isArray(item.widgets) ? item.widgets.map((widget) => rec(widget, `${context} widget`)) : [];
-  const widget = (type: string): Record<string, unknown> => widgets.find((entry) => entry.type === type) ?? {};
-  const assigneeWidget = widget("ASSIGNEES");
-  const assignees = assigneeWidget.assignees && typeof assigneeWidget.assignees === "object" && Array.isArray((assigneeWidget.assignees as Record<string, unknown>).nodes)
-    ? (assigneeWidget.assignees as { nodes: unknown[] }).nodes.map(username).filter(Boolean) : [];
-  const hierarchy = widget("HIERARCHY");
-  const parentRaw = hierarchy.parent;
-  const parentRecord = parentRaw && typeof parentRaw === "object" ? parentRaw as Record<string, unknown> : undefined;
-  const parentNamespace = parentRecord?.namespace && typeof parentRecord.namespace === "object" ? parentRecord.namespace as Record<string, unknown> : undefined;
-  const parentIid = parentRecord?.iid;
-  const parent = parentRecord !== undefined && typeof parentNamespace?.fullPath === "string" && (typeof parentIid === "number" || typeof parentIid === "string" && /^\d+$/u.test(parentIid))
-    ? nodeId(parentNamespace.fullPath, Number(parentIid), typeName(parentRecord.workItemType) === "Epic" ? "&" : "#") : undefined;
-  const childrenRecord = hierarchy.children && typeof hierarchy.children === "object" ? hierarchy.children as Record<string, unknown> : undefined;
-  const childNodes = Array.isArray(childrenRecord?.nodes)
-    ? (hierarchy.children as { nodes: unknown[] }).nodes.flatMap((child) => { const r = rec(child, `${context} child`); const childNamespace = r.namespace && typeof r.namespace === "object" ? r.namespace as Record<string, unknown> : {}; return typeof r.iid === "string" && typeof childNamespace.fullPath === "string" ? [nodeId(childNamespace.fullPath, Number(r.iid), typeName(r.workItemType) === "Epic" ? "&" : "#")] : []; }) : [];
-  const links = widget("LINKED_ITEMS");
-  const blocked = links.linkedItems && typeof links.linkedItems === "object" && Array.isArray((links.linkedItems as Record<string, unknown>).nodes)
-    ? (links.linkedItems as { nodes: unknown[] }).nodes.flatMap((entry) => { const r = rec(entry, `${context} link`); const linked = r.workItem && typeof r.workItem === "object" ? r.workItem as Record<string, unknown> : {}; const linkedNamespace = linked.namespace && typeof linked.namespace === "object" ? linked.namespace as Record<string, unknown> : {}; return r.linkType === "IS_BLOCKED_BY" && typeof linked.iid === "string" && typeof linkedNamespace.fullPath === "string" ? [{ id: nodeId(linkedNamespace.fullPath, Number(linked.iid), typeName(linked.workItemType) === "Epic" ? "&" : "#").id, status: linked.state === "CLOSED" ? "closed" as const : "open" as const }] : []; }) : [];
-  const type = typeName(item.workItemType);
-  const childrenTruncated = childrenRecord?.pageInfo !== undefined && rec(childrenRecord.pageInfo, `${context} child page`).hasNextPage === true;
-  const linkedRecord = links.linkedItems && typeof links.linkedItems === "object" ? links.linkedItems as Record<string, unknown> : undefined;
-  const linksTruncated = linkedRecord?.pageInfo !== undefined && rec(linkedRecord.pageInfo, `${context} linked page`).hasNextPage === true;
-  return { id: str(item, "id", context), iid, path, type, title, description, rawDescription, status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees, ...(route.homeProject === undefined ? {} : { homeProject: route.homeProject }), ...(parent === undefined ? {} : { parent }), blockers: blocked, children: childNodes, childrenTruncated, linksTruncated };
+  const widgets = Array.isArray(item.widgets) ? item.widgets.map((entry) => rec(entry, `${context} widget`)) : [];
+  const hierarchy = parseHierarchy(widgets, context);
+  const linkedItems = parseLinkedItems(widgets, context);
+  return { id: str(item, "id", context), iid, path, type: typeName(item.workItemType), title, description, rawDescription, status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees: parseAssignees(widgets), ...(route.homeProject === undefined ? {} : { homeProject: route.homeProject }), ...hierarchy, ...linkedItems };
 }
 function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraphNode {
   const completion = rec(value, "node completion"); const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt", "gatedNodeHash"] as const;
   if (fields.some((field) => typeof completion[field] !== "string") || !["auto", "propose", "approve"].includes(String(completion.autonomy))) throw new WorkGraphError("invalid-node", "invalid persisted completion binding");
   const autoProbeKeys = completion.autoProbeKeys; if (autoProbeKeys !== undefined && (!Array.isArray(autoProbeKeys) || autoProbeKeys.some((key) => typeof key !== "string"))) throw new WorkGraphError("invalid-node", "invalid persisted completion probe keys");
-  const ciCheckRunId = completion.ciCheckRunId; const ciHeadSha = completion.ciHeadSha; if ((ciCheckRunId !== undefined && typeof ciCheckRunId !== "string") || (ciHeadSha !== undefined && typeof ciHeadSha !== "string")) throw new WorkGraphError("invalid-node", "invalid persisted completion CI binding");
+  const ciCheckRunId = completion.ciCheckRunId; const ciHeadSha = completion.ciHeadSha; if ((ciCheckRunId === undefined) !== (ciHeadSha === undefined) || (ciCheckRunId !== undefined && typeof ciCheckRunId !== "string") || (ciHeadSha !== undefined && typeof ciHeadSha !== "string")) throw new WorkGraphError("invalid-node", "invalid persisted completion CI binding");
   return { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }), ...(ciCheckRunId === undefined ? {} : { ciCheckRunId: ciCheckRunId as string, ciHeadSha: ciHeadSha as string }) } };
 }
 

@@ -190,6 +190,13 @@ test("closed GitLab nodes retain their typed completion binding", async () => {
   expect(state.node.completion?.receiptCommentId).toBe("9");
 });
 
+test("GitLab rejects a partial persisted completion CI binding", async () => {
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: `<!-- soma:work-graph-node\n{"autonomy":"approve","completion":{"receiptCommentId":"9","checkpointId":"cp","autonomy":"approve","closer":"ivy","closedAt":"2026-09-24T00:00:00.000Z","gatedNodeHash":"hash","ciCheckRunId":"42"}}\n-->`, state: "CLOSED", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const state = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: item } } }) }).readNode(REF);
+  expect(state.typed).toBe(false);
+  expect(state.parseError).toMatch(/invalid persisted completion CI binding/u);
+});
+
 test("Epic receipt reads refuse a note that is not attached to that Epic", async () => {
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async (request) => {
     expect(String(request.body?.query)).not.toContain("note(id:$id)");
