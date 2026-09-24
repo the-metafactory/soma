@@ -64,8 +64,10 @@ test("GitLab resolves the Epic type in the target group before creating a graph 
 
 test("GitLab preserves an Epic blocker id", async () => {
   const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [{ linkType: "IS_BLOCKED_BY", workItem: { iid: "1", namespace: { fullPath: "saca" }, state: "OPEN", workItemType: { name: "Epic" } } }] } }] };
-  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: item } } }) });
+  const calls: GitLabApiRequest[] = [];
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => { calls.push(request); return { data: { namespace: { workItem: item } } }; } });
   expect((await store.readNode(REF)).blockedBy).toEqual([{ id: "saca&1", status: "open" }]);
+  expect(String(calls[0]?.body?.query)).not.toContain("children(first:100)");
 });
 
 test("GitLab batches every subtree hierarchy level", async () => {

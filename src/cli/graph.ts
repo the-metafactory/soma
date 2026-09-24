@@ -372,6 +372,7 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
 
 function parseChartArgs(rest: string[]): ParsedGraphChartArgs {
   const parsed = parseAddArgs("__chart__", rest);
+  if (parsed.options.blockedBy.length > 0) throw new Error("soma graph chart does not support --blocked-by");
   const { blockedBy: _blockedBy, ...options } = parsed.options;
   return { command: "graph", action: "chart", options };
 }

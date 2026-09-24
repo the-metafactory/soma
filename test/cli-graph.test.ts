@@ -267,6 +267,10 @@ test("add refuses a node with no checkpoint — it could never close, and no ver
   );
 });
 
+test("chart refuses blockers rather than silently dropping them", () => {
+  expect(() => parseGraphArgs(["graph", "chart", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t", "--blocked-by", "495"])).toThrow(/chart does not support --blocked-by/u);
+});
+
 test("a verb without a target is a usage error, not a request against node 'undefined'", () => {
   expect(() => parseGraphArgs(["graph", "node"])).toThrow(/soma graph node/u);
   expect(() => parseGraphArgs(["graph", "node", "--json"])).toThrow(/soma graph node/u);
