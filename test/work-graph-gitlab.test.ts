@@ -56,6 +56,16 @@ test("GitLab re-home reuses the Task and Issue reads for creation", async () => 
   const created = await new WorkGraph(store).createNode({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: `${REPO}#3` } });
   expect(created).toMatchObject({ id: `${REPO}#4`, rehomedFrom: { id: `${REPO}#3` }, rehomedTo: { id: `${REPO}#2` } });
   expect(calls.filter((call) => String(call.body?.query).includes("workItem(iid"))).toHaveLength(2);
+  expect((calls.find((call) => String(call.body?.query).includes("workItemCreate"))?.body?.variables as { input: Record<string, unknown> }).input).toMatchObject({ linkedItemsWidget: { linkType: "RELATES_TO", workItemsIds: [task.id] } });
+});
+
+test("GitLab refuses non-decimal Issue receipt ids before REST reads", async () => {
+  const calls: GitLabApiRequest[] = [];
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => { calls.push(request); return {}; } });
+  const ref = { id: "../../../issues/99/notes/1", nodeId: REF.id, author: "ivy" };
+  await expect(store.readComment(ref)).rejects.toThrow(/positive decimal integer/u);
+  await expect(store.readCommentReactions(ref)).rejects.toThrow(/positive decimal integer/u);
+  expect(calls).toEqual([]);
 });
 
 test("GitLab claim and release refuse an identity other than the authenticated account", async () => {

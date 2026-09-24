@@ -172,8 +172,6 @@ export type CreateNodeSpec<TStoreData extends StoreCreationData = StoreCreationD
   parent?: NodeRef;
   /** Store-specific, validated creation data. It is never encoded into the typed node. */
   storeData?: TStoreData;
-  /** Backend-only native provenance relation, supplied by WorkGraph after validation. */
-  relatedTo?: NodeRef;
   labels?: readonly string[];
 };
 
@@ -636,7 +634,6 @@ function redactAll(text: string, root: string): string {
  */
 export interface RehomeSelection {
   readonly parent: NodeRef;
-  readonly relatedTo: NodeRef;
   /** Store-private, operation-scoped hydration. Never persisted or user input. */
   readonly context?: unknown;
 }
@@ -951,9 +948,6 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
   if ("id" in record && record.id !== undefined) {
     throw new WorkGraphError("invalid-node", `"id" is assigned by the store — never caller-supplied`);
   }
-  if ("relatedTo" in record && record.relatedTo !== undefined) {
-    throw new WorkGraphError("invalid-node", "relatedTo is WorkGraph-owned and cannot be supplied at creation");
-  }
 
   const title = requireString(record, "title", "invalid-node", "node spec");
   const autonomy = parseAutonomy(record.autonomy);
@@ -1021,7 +1015,7 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
  * second home for facts that already have one.
  */
 export function toNode(id: string, spec: CreateNodeSpec): WorkGraphNode {
-  const { body: _body, parent: _parent, storeData: _storeData, relatedTo: _relatedTo, labels: _labels, ...rest } = spec;
+  const { body: _body, parent: _parent, storeData: _storeData, labels: _labels, ...rest } = spec;
   return { ...rest, id };
 }
 
@@ -1401,7 +1395,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     const requested = await this.store.readNode(parsed.parent);
     const rehome = await this.store.selectRehomeParent(requested);
     if (rehome === undefined) return await this.store.createNode(parsed);
-    const created = await this.store.createNode({ ...parsed, parent: rehome.parent, relatedTo: rehome.relatedTo }, rehome);
+    const created = await this.store.createNode({ ...parsed, parent: rehome.parent }, rehome);
     return { ...created, rehomedFrom: requested.ref, rehomedTo: rehome.parent };
   }
 
