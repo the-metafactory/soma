@@ -176,6 +176,13 @@ test("GitLab route metadata never appears in a node body", async () => {
   expect((await store.readNode({ id: "saca&1" })).body).toBe("Human text");
 });
 
+test("GitLab raw Epic bodies retain route metadata for later writes", async () => {
+  const description = `Human text\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`;
+  const item = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: item } } }) });
+  await expect(store.readRawBody({ id: "saca&1" })).resolves.toBe(description);
+});
+
 test("closed GitLab nodes retain their typed completion binding", async () => {
   const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: `<!-- soma:work-graph-node\n{"autonomy":"approve","completion":{"receiptCommentId":"9","checkpointId":"cp","autonomy":"approve","closer":"ivy","closedAt":"2026-09-24T00:00:00.000Z","gatedNodeHash":"hash"}}\n-->`, state: "CLOSED", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const state = await createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async () => ({ data: { namespace: { workItem: item } } }) }).readNode(REF);
