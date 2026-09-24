@@ -42,13 +42,24 @@ test("GitLab creates an Issue in an Epic root's declared home project", async ()
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(request);
     if (calls.length === 1) return { data: { namespace: { workItem: epic } } };
+    if (String(request.body?.query).includes("workItemTypes")) return { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-issue", name: "Issue" }] } } } };
     return { data: { workItemCreate: { workItem: { iid: "2", workItemType: { name: "Issue" }, namespace: { fullPath: "saca/secacademy" } }, errors: [] } } };
   };
   const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).createNode(parseNodeSpec({ title: "route", autonomy: "approve", checkpointId: "cp", parent: { id: "saca&1" } }));
   expect(ref).toEqual({ id: "saca/secacademy#2" });
-  const input = (calls[1]?.body?.variables as { input: Record<string, unknown> }).input;
-  expect(input).toMatchObject({ projectPath: "saca/secacademy", workItemTypeId: "gid://gitlab/WorkItems::Type/1", descriptionWidget: { description: expect.any(String) }, hierarchyWidget: { parentId: "gid://gitlab/WorkItem/1" } });
-  expect(String(calls[1]?.body?.query)).toContain("workItemType{name}");
+  const input = (calls[2]?.body?.variables as { input: Record<string, unknown> }).input;
+  expect(input).toMatchObject({ projectPath: "saca/secacademy", workItemTypeId: "gid://gitlab/WorkItems::Type/instance-issue", descriptionWidget: { description: expect.any(String) }, hierarchyWidget: { parentId: "gid://gitlab/WorkItem/1" } });
+  expect(String(calls[2]?.body?.query)).toContain("workItemType{name}");
+  expect(String(calls[1]?.body?.query)).toContain("workItemTypes(name:ISSUE)");
+});
+
+test("GitLab resolves the Epic type in the target group before creating a graph root", async () => {
+  const calls: GitLabApiRequest[] = [];
+  const transport = async (request: GitLabApiRequest): Promise<unknown> => { calls.push(request); return String(request.body?.query).includes("workItemTypes") ? { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-epic", name: "Epic" }] } } } } : { data: { workItemCreate: { workItem: { iid: "1", workItemType: { name: "Epic" }, namespace: { fullPath: "saca" } }, errors: [] } } }; };
+  const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", homeProject: "saca/secacademy" }));
+  expect(ref).toEqual({ id: "saca&1" });
+  expect(String(calls[0]?.body?.query)).toContain("workItemTypes(name:EPIC)");
+  expect((calls[1]?.body?.variables as { input: Record<string, unknown> }).input).toMatchObject({ namespacePath: "saca", workItemTypeId: "gid://gitlab/WorkItems::Type/instance-epic" });
 });
 
 test("GitLab preserves an Epic blocker id", async () => {
