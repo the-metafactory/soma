@@ -3,10 +3,9 @@ import {
   WorkGraphError,
   checkGitLabConfinement,
   createGitLabGraphStore,
-  glabApiArgs,
-  parseGlabApiOutput,
   type GitLabApiRequest,
 } from "../src/index";
+import { glabApiArgs, parseGlabApiOutput } from "../src/work-graph-gitlab";
 import { parseNodeSpec } from "../src/work-graph";
 
 const REF = { id: "saca/secacademy#12" };
@@ -60,6 +59,11 @@ test("GitLab resolves the Epic type in the target group before creating a graph 
   expect(ref).toEqual({ id: "saca&1" });
   expect(String(calls[0]?.body?.query)).toContain("workItemTypes(name:EPIC)");
   expect((calls[1]?.body?.variables as { input: Record<string, unknown> }).input).toMatchObject({ namespacePath: "saca", workItemTypeId: "gid://gitlab/WorkItems::Type/instance-epic" });
+});
+
+test("GitLab refuses a homeProject without a project segment", async () => {
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => { throw new Error("must not call GitLab"); } });
+  await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", homeProject: "saca/" }))).rejects.toThrow(/both a group and project/u);
 });
 
 test("GitLab preserves an Epic blocker id", async () => {

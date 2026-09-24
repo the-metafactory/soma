@@ -799,8 +799,6 @@ export {
   checkGitLabConfinement,
   createGlabCliTransport,
   createGitLabGraphStore,
-  glabApiArgs,
-  parseGlabApiOutput,
   type GitLabApiRequest,
   type GitLabApiTransport,
   type GitLabGraphStoreOptions,

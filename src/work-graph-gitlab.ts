@@ -180,8 +180,8 @@ class GitLabGraphStore implements GraphStore {
     let input: Record<string, unknown>;
     if (parent === undefined) {
       if (spec.homeProject === undefined) throw new WorkGraphError("invalid-node", "GitLab graph roots require --home-project <group/project>");
-      const group = spec.homeProject.slice(0, spec.homeProject.lastIndexOf("/"));
-      if (group.length === 0) throw new WorkGraphError("invalid-node", "GitLab homeProject must be a project path under the Epic group");
+      const separator = spec.homeProject.lastIndexOf("/"); const group = spec.homeProject.slice(0, separator); const project = spec.homeProject.slice(separator + 1);
+      if (group.length === 0 || project.length === 0) throw new WorkGraphError("invalid-node", "GitLab homeProject must name both a group and project");
       input = { namespacePath: group, workItemTypeId: await this.workItemTypeId(group, "Epic"), title: spec.title, descriptionWidget: { description } };
     } else {
       const type = parent.type === "Epic" ? "Issue" : parent.type === "Issue" ? "Task" : undefined;
