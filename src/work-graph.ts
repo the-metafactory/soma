@@ -161,9 +161,17 @@ export interface NodeRef {
  *   what a verb decides. That is what keeps a second input from becoming a
  *   second authority. A backend with no index concept ignores them.
  */
-export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id" | "completion"> & {
+/** A typed, backend-declared creation capability. */
+export interface StoreCreationData {
+  /** Discriminates a store's creation-data contract without coupling core to a forge. */
+  readonly capability: string;
+}
+
+export type CreateNodeSpec<TStoreData extends StoreCreationData = StoreCreationData> = DistributiveOmit<WorkGraphNode, "id" | "completion"> & {
   body?: string;
   parent?: NodeRef;
+  /** Store-specific, validated creation data. It is never encoded into the typed node. */
+  storeData?: TStoreData;
   labels?: readonly string[];
 };
 
@@ -184,6 +192,8 @@ export interface NodeState {
   /** Read from the backend's API author field, never from body text (§3.2 conjunct 3). */
   author: string;
   parent?: NodeRef;
+  /** Native work-item type, supplied by stores for capability routing only. */
+  trackerType?: string;
   body?: string;
   url?: string;
   /**
@@ -622,9 +632,17 @@ function redactAll(text: string, root: string): string {
  * A graph records its backend at creation and lives there forever; moving is a
  * one-way export into a fresh graph.
  */
-export interface GraphStore {
+export interface RehomeSelection {
+  readonly parent: NodeRef;
+  /** Store-private, operation-scoped hydration. Never persisted or user input. */
+  readonly context?: unknown;
+}
+
+export interface GraphStore<TStoreData extends StoreCreationData = StoreCreationData> {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
+  /** Store-native re-home policy. The core only applies the selected parent. */
+  selectRehomeParent?(requested: NodeState): Promise<RehomeSelection | undefined>;
   /**
    * The identity this session acts as **on this store's forge** (#537 D2). One
    * session can be `jcfischer` on GitHub and `jens-christian.fischer` on GitLab,
@@ -643,8 +661,10 @@ export interface GraphStore {
    * check reports `checked: false`, which reads as unconfined.
    */
   checkConfinement(): Promise<ConfinementResult>;
+  /** Parse this store's optional creation capability from untrusted CLI/API input. */
+  parseCreateData?(value: unknown): TStoreData;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
-  createNode(spec: CreateNodeSpec): Promise<NodeRef>;
+  createNode(spec: CreateNodeSpec<TStoreData>, rehome?: RehomeSelection): Promise<NodeRef>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
@@ -920,7 +940,7 @@ function parseLabels(value: unknown): string[] {
  * Validate an untrusted node spec at the store boundary. This — not the TS
  * tuple type — is what makes an `auto` node without probes impossible (§2.1).
  */
-export function parseNodeSpec(input: unknown): CreateNodeSpec {
+export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreationData>(input: unknown, parseCreateData?: (value: unknown) => TStoreData): CreateNodeSpec<TStoreData> {
   const record = asRecord(input, "invalid-node", "node spec");
   if ("completion" in record) {
     throw new WorkGraphError("invalid-node", "completion is backend-owned and cannot be supplied at creation");
@@ -933,6 +953,11 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
   const autonomy = parseAutonomy(record.autonomy);
   const kind = normalizeKind(record.kind);
   const checkpointId = optionalString(record, "checkpointId", "invalid-node", "node spec");
+  const storeData = record.storeData === undefined
+    ? undefined
+    : parseCreateData === undefined
+      ? (() => { throw new WorkGraphError("invalid-node", "node spec: storeData requires a store-declared creation capability"); })()
+      : parseCreateData(record.storeData);
   const budget = record.budget === undefined || record.budget === null ? undefined : parseBudget(record.budget);
   const body = optionalString(record, "body", "invalid-node", "node spec");
   const parentId = record.parent === undefined || record.parent === null
@@ -960,6 +985,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     title,
     ...(kind === undefined ? {} : { kind }),
     ...(checkpointId === undefined ? {} : { checkpointId }),
+    ...(storeData === undefined ? {} : { storeData }),
     ...(budget === undefined ? {} : { budget }),
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),
@@ -989,7 +1015,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
  * second home for facts that already have one.
  */
 export function toNode(id: string, spec: CreateNodeSpec): WorkGraphNode {
-  const { body: _body, parent: _parent, labels: _labels, ...rest } = spec;
+  const { body: _body, parent: _parent, storeData: _storeData, labels: _labels, ...rest } = spec;
   return { ...rest, id };
 }
 
@@ -1350,10 +1376,10 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
  * The rules, over any {@link GraphStore}. Verbs (`soma graph …`, #498) call
  * this; nothing here knows what a tracker is.
  */
-export class WorkGraph {
-  private readonly store: GraphStore;
+export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData> {
+  private readonly store: GraphStore<TStoreData>;
 
-  constructor(store: GraphStore) {
+  constructor(store: GraphStore<TStoreData>) {
     this.store = store;
   }
 
@@ -1363,8 +1389,14 @@ export class WorkGraph {
   }
 
   /** Validate at the boundary, then create. Additive mutation — free after structural validation (§1 clause 2). */
-  async createNode(spec: unknown): Promise<NodeRef> {
-    return await this.store.createNode(parseNodeSpec(spec));
+  async createNode(spec: unknown): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }> {
+    const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
+    if (parsed.parent === undefined || this.store.selectRehomeParent === undefined) return await this.store.createNode(parsed);
+    const requested = await this.store.readNode(parsed.parent);
+    const rehome = await this.store.selectRehomeParent(requested);
+    if (rehome === undefined) return await this.store.createNode(parsed);
+    const created = await this.store.createNode({ ...parsed, parent: rehome.parent }, rehome);
+    return { ...created, rehomedFrom: requested.ref, rehomedTo: rehome.parent };
   }
 
   async readNode(ref: NodeRef): Promise<NodeState> {

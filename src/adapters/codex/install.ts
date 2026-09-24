@@ -4,6 +4,7 @@ import { configureCodexInstall } from "./config";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import { CODEX_DEFAULT_HOME, codexMemoryPrivateRoots, codexProjectionPrivateRoots } from "../private-roots";
+import { pathExists } from "../../fs-utils";
 import { isCodexSkillProjectionPath, projectCodexHome } from "./adapter";
 
 export const CODEX_HOME_FILES = [
@@ -35,16 +36,45 @@ export const CODEX_HOME_FILES = [
 
 export const CODEX_AGENTS_IMPORTS = ["@./memories/soma/context.md", "@./skills/the-algorithm/SKILL.md", "@./memories/soma/startup-context.md"] as const;
 
+/**
+ * The communication contract is conditional (no `profile/communication.md`, no
+ * projected file), so it is not part of the unconditional import list: an `@`
+ * line pointing at a file the projection omitted is exactly the unwired-file
+ * case the contract guard exists to prevent. Codex discovers skills on demand,
+ * so the `skills/soma/SKILL.md` pointer the contract guard checks only reaches
+ * the model once that skill is loaded, and nothing codex always loads named the
+ * contract: claude-code and cursor auto-load it from their rules dirs, pi-dev
+ * gets it in the extension system prompt, and grok/dsh/anthropic-cowork at
+ * least name the soma skill from their entrypoint. Codex named nothing.
+ */
+export const CODEX_AGENTS_CONTRACT_IMPORT = "@./memories/soma/communication.md";
+const CODEX_CONTRACT_PROJECTION_PATH = "memories/soma/communication.md";
+
 export async function configureCodexAgentsImport(codexHome: string): Promise<string[]> {
   const path = join(codexHome, "AGENTS.md");
   const existing = await readFile(path, "utf8").catch(() => "");
-  const existingLines = new Set(existing.split("\n").map((line) => line.trim()));
-  const missingImports = CODEX_AGENTS_IMPORTS.filter((line) => !existingLines.has(line));
+  // Runs after the home projection is written, so disk is the authority on
+  // whether the contract was projected at all.
+  const hasContract = await pathExists(join(codexHome, CODEX_CONTRACT_PROJECTION_PATH));
+  const wanted = hasContract
+    ? [...CODEX_AGENTS_IMPORTS, CODEX_AGENTS_CONTRACT_IMPORT]
+    : [...CODEX_AGENTS_IMPORTS];
+  // This is the one conditional import Soma owns. A later projection can omit
+  // its file, in which case retaining the import would leave AGENTS dangling.
+  const withoutStaleContract = hasContract
+    ? existing
+    : existing.split("\n").filter((line) => line.trim() !== CODEX_AGENTS_CONTRACT_IMPORT).join("\n");
+  const existingLines = new Set(withoutStaleContract.split("\n").map((line) => line.trim()));
+  const missingImports = wanted.filter((line) => !existingLines.has(line));
+  let updated = withoutStaleContract;
 
   if (missingImports.length > 0) {
-    const separator = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+    const separator = updated.length === 0 || updated.endsWith("\n") ? "" : "\n";
+    updated = `${updated}${separator}${missingImports.join("\n")}\n`;
+  }
+  if (updated !== existing) {
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${existing}${separator}${missingImports.join("\n")}\n`, "utf8");
+    await writeFile(path, updated, "utf8");
   }
 
   return [path];

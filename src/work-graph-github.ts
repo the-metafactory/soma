@@ -41,12 +41,11 @@ import {
   type ConfinementProbeRecord,
   type ConfinementResult,
 } from "./work-graph";
+import { decodeNodeBlock, encodeNodeBlock } from "./work-graph-node-block";
+export { decodeNodeBlock, encodeNodeBlock, type DecodedBody } from "./work-graph-node-block";
 import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation";
 import { runCommand } from "./work-graph-probes";
 import { GITHUB_DOTCOM, validateRepoRef } from "./work-graph-ref";
-
-const NODE_BLOCK_OPEN = "<!-- soma:work-graph-node";
-const NODE_BLOCK_CLOSE = "-->";
 
 export interface GitHubApiRequest {
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -554,33 +553,6 @@ function readComment(value: unknown, context: string): GitHubComment {
 }
 
 /** The typed half of a node, as stored in the issue body. Title lives in the issue title; parent is a native edge. */
-export function encodeNodeBlock(spec: CreateNodeSpec & { completion?: WorkGraphNode["completion"] }): string {
-  const payload: Record<string, unknown> = { autonomy: spec.autonomy };
-  if (spec.kind !== undefined) payload.kind = spec.kind;
-  if (spec.checkpointId !== undefined) payload.checkpointId = spec.checkpointId;
-  if (spec.budget !== undefined) payload.budget = spec.budget;
-  if (spec.probes !== undefined && spec.probes.length > 0) payload.probes = spec.probes;
-  if (spec.completion !== undefined) payload.completion = spec.completion;
-  return `${NODE_BLOCK_OPEN}\n${JSON.stringify(payload, null, 2)}\n${NODE_BLOCK_CLOSE}`;
-}
-
-export interface DecodedBody {
-  /** Issue body with the node block removed — the human-readable question. */
-  text: string;
-  /** Raw JSON found in the block, still untrusted; undefined when the issue carries no block. */
-  raw?: string;
-}
-
-export function decodeNodeBlock(body: string): DecodedBody {
-  const open = body.lastIndexOf(NODE_BLOCK_OPEN);
-  if (open === -1) return { text: body.trim() };
-  const close = body.indexOf(NODE_BLOCK_CLOSE, open + NODE_BLOCK_OPEN.length);
-  if (close === -1) return { text: body.trim() };
-  return {
-    text: `${body.slice(0, open)}${body.slice(close + NODE_BLOCK_CLOSE.length)}`.trim(),
-    raw: body.slice(open + NODE_BLOCK_OPEN.length, close).trim(),
-  };
-}
 
 /**
  * An issue with no readable node block still has to answer `readNode` — the

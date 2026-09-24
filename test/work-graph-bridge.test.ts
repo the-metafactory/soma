@@ -148,11 +148,9 @@ test("a GitLab remote's nested path survives resolution", async () => {
 
 // --- store selection (#535 D1) ------------------------------------------------------
 
-test("the ref's forge picks the store; a GitLab ref refuses until the backend exists", () => {
+test("the ref's forge picks its backend", () => {
   expect(createGraphStore(SOMA).attestation).toBe("verifiable");
-  expect(() => createGraphStore({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" })).toThrow(
-    /no GitLab work-graph backend/,
-  );
+  expect(createGraphStore({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" }).attestation).toBe("verifiable");
 });
 
 test("the v2 probe registry key keeps same-path repos on different hosts separate", () => {

@@ -735,6 +735,8 @@ The typed primitive for cross-session effort topology: **nodes** of work joined 
 
 **Where a graph lives:** a **ref** names the tracker by **forge** (`github`, `gitlab`), host and path — `github:github.com/owner/name#N`, `gitlab:<host>/<group>&N` — and the ref selects the **graph store** (`GraphStore`), the backend that forge needs (#535, #536) — not a Memory store. The tracker is the place; the graph store is soma's I/O to it. One GitHub graph store is one repository; one GitLab graph store is one host, since an epic lives in a group and its nodes in the group's projects — so `gitlab:h/csoc/a` and `gitlab:h/csoc/b#3` are the same store.
 
+**GitLab routing:** a GitLab root stores its `homeProject` as route metadata, fixing the project where its descendant Issues are created; it is operational store state, not graph topology. GitLab only natively nests Epic → Issue → Task. When a requested parent is a Task, the store creates the child under the nearest Issue and keeps the requested Task as native `RELATES_TO` provenance; the core reports that re-home without adding a third graph relation.
+
 **Two relations, and conflating them is the classic error:**
 
 - A **blocking edge** says *this must close before that is takeable*. It gates. The frontier reads it.

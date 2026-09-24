@@ -109,7 +109,7 @@ class FakeStore implements GraphStore {
   async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
     this.created.push(spec);
     const id = String(this.nextId++);
-    this.nodes.set(id, { node: { ...spec, id } as WorkGraphNode });
+    this.nodes.set(id, { node: { ...spec, id } });
     return { id };
   }
 
@@ -244,17 +244,17 @@ function autoNode(id: string, overrides: Partial<WorkGraphNode> = {}): WorkGraph
 
 // --- parsing ---------------------------------------------------------------
 
-test("the parser accepts exactly the verbs of §2.6, release included", () => {
-  for (const action of ["frontier", "node", "claim", "release", "add", "close", "audit", "decisions"]) {
+test("the parser accepts exactly the verbs of §2.6, including chart", () => {
+  for (const action of ["frontier", "node", "claim", "release", "add", "chart", "close", "audit", "decisions"]) {
     const parsed = parseGraphArgs(
-      action === "add"
-        ? ["graph", action, "495", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
+      action === "add" || action === "chart"
+        ? ["graph", action, ...(action === "add" ? ["495"] : []), "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
         : ["graph", action, "495"],
     );
     expect(parsed.action).toBe(action as never);
   }
   expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(
-    /frontier\|node\|claim\|release\|add\|close\|audit\|decisions/u,
+    /frontier\|node\|claim\|release\|add\|chart\|close\|audit\|decisions/u,
   );
 });
 
@@ -265,6 +265,10 @@ test("add refuses a node with no checkpoint — it could never close, and no ver
   expect(() => parseGraphArgs(["graph", "add", "495", "--title", "t", "--autonomy", "approve"])).toThrow(
     /--checkpoint.*never close/u,
   );
+});
+
+test("chart refuses blockers rather than silently dropping them", () => {
+  expect(() => parseGraphArgs(["graph", "chart", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t", "--blocked-by", "495"])).toThrow(/chart does not support --blocked-by/u);
 });
 
 test("a verb without a target is a usage error, not a request against node 'undefined'", () => {
@@ -516,6 +520,17 @@ test("add refuses an auto node with no probes — zero machine-checkable evidenc
 
   expect(message).toContain("at least one probe");
   expect(store.created).toHaveLength(0);
+});
+
+test("GitLab Epic parents retain their declared home-project route", async () => {
+  const store = new FakeStore();
+  (store as unknown as { parseCreateData: (value: unknown) => { capability: "gitlab"; scopeProject?: string } }).parseCreateData = (value) => ({ capability: "gitlab", ...(value as Record<string, unknown>) });
+  await run(
+    ["graph", "add", "gitlab:gitlab-int.switch.ch/saca&1", "--title", "route", "--autonomy", "approve", "--checkpoint", "cp-route"],
+    store,
+    { resolveRepo: async () => ({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "saca" }) },
+  );
+  expect((store.created[0]?.storeData as Record<string, unknown> | undefined)?.scopeProject).toBeUndefined();
 });
 
 // --- close ------------------------------------------------------------------

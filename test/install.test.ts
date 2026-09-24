@@ -5,7 +5,7 @@ import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
-import { codexInstallSpec } from "../src/adapters/codex/install";
+import { codexInstallSpec, configureCodexAgentsImport } from "../src/adapters/codex/install";
 import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/adapters/anthropic-cowork";
 import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
 import {
@@ -274,6 +274,32 @@ test("codex install appends AGENTS imports idempotently", async () => {
     expect(agents.startsWith("# User rules\n\nKeep this line.\n")).toBe(true);
     expect(agents.match(/^@\.\/skills\/the-algorithm\/SKILL\.md$/gm)).toHaveLength(1);
     expect(agents.match(/^@\.\/memories\/soma\/startup-context\.md$/gm)).toHaveLength(1);
+    // The contract reaches codex only through AGENTS.md: skills load on demand,
+    // so the `skills/soma/SKILL.md` pointer is not always-on context.
+    expect(agents.match(/^@\.\/memories\/soma\/communication\.md$/gm)).toHaveLength(1);
+  });
+});
+
+test("codex AGENTS import follows the contract: appended when projected, omitted when not", async () => {
+  await withTempHome(async (homeDir) => {
+    const codexHome = join(homeDir, ".codex");
+    await mkdir(join(codexHome, "memories/soma"), { recursive: true });
+
+    // No projected contract — importing it would point AGENTS.md at a missing file.
+    await configureCodexAgentsImport(codexHome);
+    expect(await readFile(join(codexHome, "AGENTS.md"), "utf8")).not.toContain("@./memories/soma/communication.md");
+
+    await writeFile(join(codexHome, "memories/soma/communication.md"), "# Communication Contract\n", "utf8");
+    await configureCodexAgentsImport(codexHome);
+    await configureCodexAgentsImport(codexHome);
+
+    const agents = await readFile(join(codexHome, "AGENTS.md"), "utf8");
+    expect(agents.match(/^@\.\/memories\/soma\/communication\.md$/gm)).toHaveLength(1);
+    expect(agents.match(/^@\.\/memories\/soma\/context\.md$/gm)).toHaveLength(1);
+
+    await rm(join(codexHome, "memories/soma/communication.md"));
+    await configureCodexAgentsImport(codexHome);
+    expect(await readFile(join(codexHome, "AGENTS.md"), "utf8")).not.toContain("@./memories/soma/communication.md");
   });
 });
 

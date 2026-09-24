@@ -475,6 +475,17 @@ test("createNode validates before the store is ever touched", async () => {
   expect(store.created).toHaveLength(1);
 });
 
+test("a Task parent re-homes to its nearest Issue and retains native provenance", async () => {
+  const store = new FakeStore();
+  Object.defineProperty(store, "selectRehomeParent", { value: async (requested: NodeState) => requested.trackerType === "Task" ? { parent: { id: "issue" } } : undefined });
+  store.add("issue", { trackerType: "Issue" });
+  store.add("task", { trackerType: "Task", parent: { id: "issue" } });
+  const created = await new WorkGraph(store).createNode({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: "task" } });
+  expect(store.created[0]?.parent).toEqual({ id: "issue" });
+  expect(created.rehomedFrom).toEqual({ id: "task" });
+  expect(created.rehomedTo).toEqual({ id: "issue" });
+});
+
 test("a node cannot block itself", async () => {
   const store = new FakeStore();
   store.add("1");

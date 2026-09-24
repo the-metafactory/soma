@@ -771,6 +771,7 @@ export {
   type ProbeType,
   type Ratification,
   type Reaction,
+  type RehomeSelection,
   type ReceiptScan,
   type WorkGraphAutonomy,
   type WorkGraphErrorCode,
@@ -795,6 +796,15 @@ export {
   type GitHubApiTransport,
   type GitHubGraphStoreOptions,
 } from "./work-graph-github";
+export {
+  checkGitLabConfinement,
+  createGlabCliTransport,
+  createGitLabGraphStore,
+  type GitLabApiRequest,
+  type GitLabApiTransport,
+  type GitLabGraphStoreOptions,
+  type GlabCliTransportOptions,
+} from "./work-graph-gitlab";
 export {
   allProbesPassed,
   authorizeProbeTree,
