@@ -186,6 +186,8 @@ export type NodeStatus = "open" | "closed";
 export interface NodeState {
   ref: NodeRef;
   node: WorkGraphNode;
+  /** Store-owned fields that affect close or routing, kept outside the shared node schema. */
+  storeFields?: Readonly<Record<string, unknown>>;
   status: NodeStatus;
   assignees: readonly string[];
   blockedBy: readonly BlockingRef[];
@@ -948,6 +950,9 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
   if ("id" in record && record.id !== undefined) {
     throw new WorkGraphError("invalid-node", `"id" is assigned by the store — never caller-supplied`);
   }
+  if ("home" in record) {
+    throw new WorkGraphError("invalid-node", "home is store-owned; use the store's creation data (GitLab: --home-project)");
+  }
 
   const title = requireString(record, "title", "invalid-node", "node spec");
   const autonomy = parseAutonomy(record.autonomy);
@@ -1224,7 +1229,7 @@ export function estimateReceiptChars(input: { resolution?: string; probeCount: n
 export const CLOSE_RECEIPT_MARKER = "## Close receipt";
 
 /** Deterministic SHA-256 commitment to the fields that the close gate authorizes. */
-export function hashGatedNodeFields(node: Pick<WorkGraphNode, "checkpointId" | "autonomy" | "probes">): string {
+export function hashGatedNodeFields(node: Pick<WorkGraphNode, "checkpointId" | "autonomy" | "probes">, storeFields?: Readonly<Record<string, unknown>>): string {
   const canonicalize = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(canonicalize);
     if (value !== null && typeof value === "object") {
@@ -1232,7 +1237,7 @@ export function hashGatedNodeFields(node: Pick<WorkGraphNode, "checkpointId" | "
     }
     return value;
   };
-  const canonical = canonicalize({ checkpointId: node.checkpointId ?? null, autonomy: node.autonomy, probes: node.probes ?? [] });
+  const canonical = canonicalize({ checkpointId: node.checkpointId ?? null, autonomy: node.autonomy, probes: node.probes ?? [], ...(storeFields === undefined || Object.keys(storeFields).length === 0 ? {} : { storeFields }) });
   return createHash("sha256").update(JSON.stringify(canonical), "utf8").digest("hex");
 }
 
@@ -1553,6 +1558,6 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
       throw new WorkGraphError("node-closed", `node ${ref.id} is already closed`);
     }
     assertClosable(state.node, receipt);
-    await this.store.close(ref, { ...receipt, autonomy: state.node.autonomy }, hashGatedNodeFields(state.node));
+    await this.store.close(ref, { ...receipt, autonomy: state.node.autonomy }, hashGatedNodeFields(state.node, state.storeFields));
   }
 }

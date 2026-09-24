@@ -271,6 +271,23 @@ test("chart refuses blockers rather than silently dropping them", () => {
   expect(() => parseGraphArgs(["graph", "chart", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t", "--blocked-by", "495"])).toThrow(/chart does not support --blocked-by/u);
 });
 
+test("chart creates a typed root for either forge and carries GitLab home to its store", async () => {
+  const github = new FakeStore();
+  await run(["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map"], github);
+  expect(github.created[0]).toMatchObject({ title: "map", autonomy: "approve", checkpointId: "cp-map" });
+  expect(github.created[0]?.parent).toBeUndefined();
+
+  const gitlab = new FakeStore();
+  (gitlab as unknown as { parseCreateData: (value: unknown) => unknown }).parseCreateData = (value) => ({ capability: "gitlab", ...(value as Record<string, unknown>) });
+  await run(
+    ["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map", "--home-project", "saca/secacademy"],
+    gitlab,
+    { resolveRepo: async () => ({ forge: "gitlab", host: "gitlab-int.switch.ch", path: "saca/secacademy" }) },
+  );
+  expect(gitlab.created[0]?.storeData).toMatchObject({ homeProject: "saca/secacademy", scopeProject: "saca/secacademy" });
+  expect(gitlab.created[0]?.parent).toBeUndefined();
+});
+
 test("a verb without a target is a usage error, not a request against node 'undefined'", () => {
   expect(() => parseGraphArgs(["graph", "node"])).toThrow(/soma graph node/u);
   expect(() => parseGraphArgs(["graph", "node", "--json"])).toThrow(/soma graph node/u);

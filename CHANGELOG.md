@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **GitLab graph chart and home binding** (#694): `soma graph chart` creates
+  typed roots on both forges. GitLab Epic roots record `home` in the typed node
+  block and mirror it in the legacy route comment; conflicting copies refuse.
+  Child creation refuses missing, malformed, or out-of-group home paths, child
+  home overrides, and unsupported labels. GitLab map discovery uses Epic refs.
+
 - **A work-graph ref names its forge, and the ref selects the store** (#535,
   #536; slice 1 of #539). Refs read `github:github.com/owner/name#N`, and
   `--repo` / `SOMA_GRAPH_REPO` take the qualified `github:github.com/owner/name`.

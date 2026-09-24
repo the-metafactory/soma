@@ -52,8 +52,8 @@ charting surfaces no fog, say so and stop.
 Every graph operation is a `soma graph` verb. **Never reach past them to the
 tracker's own CLI** — the verbs carry the rules (structural validation, cycle
 rejection, claim tie-break, the hollow-close refusal), and a raw tracker write is
-those rules not running. The backend hides behind the CLI, which is what makes
-this doctrine tracker-agnostic by construction.
+those rules not running. The backend hides behind the CLI; creation flags still
+reflect each forge's capabilities.
 
 | Verb | What it does |
 | --- | --- |
@@ -62,6 +62,7 @@ this doctrine tracker-agnostic by construction.
 | `soma graph claim <id>` | assign, re-read, tie-break on race |
 | `soma graph release <id>` | identity-bound self-release: abandon your own claim (the claim-race loser's DELETE-self, promoted to a verb); only ever unassigns the acting identity |
 | `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges), structurally validated; refuses without a checkpoint |
+| `soma graph chart … --checkpoint <id>` | create a typed map root; GitLab requires `--home-project <group/project>` |
 | `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close |
 | `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |
 | `soma graph decisions <root> [--write]` | the map's decision index, derived from receipts; `--write` splices it into the map body |

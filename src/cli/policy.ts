@@ -77,7 +77,7 @@ const POLICY_INSPECT_USAGE =
 const POLICY_GUARD_USAGE =
   "Usage: soma policy guard --substrate <id> --tool-name <name> --tool-input-env <name> [--cwd <dir>] [--soma-home <dir>] [--home-dir <dir>] [--private-root <dir>]… [--record <all|deny|none>] [--json]";
 const POLICY_PROBES_USAGE =
-  "Usage: soma policy probes [--repo <owner/name>] [--soma-home <dir>] [--home-dir <dir>] [--json]";
+  "Usage: soma policy probes [--repo <forge>:<host>/<path>] [--soma-home <dir>] [--home-dir <dir>] [--json]";
 
 export const POLICY_COMMAND_HELP: { usage: string; subcommands: Record<ParsedPolicyArgs["action"], string> } = {
   usage: [POLICY_CHECK_USAGE, POLICY_SCAN_USAGE, POLICY_PROMOTE_USAGE, POLICY_INSPECT_USAGE, POLICY_GUARD_USAGE, POLICY_PROBES_USAGE].join("\n"),

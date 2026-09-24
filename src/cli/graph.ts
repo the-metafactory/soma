@@ -93,17 +93,17 @@ const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed",
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
   usage: "Usage: soma graph <frontier|node|claim|release|add|chart|close|audit|decisions> ...",
   subcommands: {
-    frontier: "Usage: soma graph frontier <root> [--repo <owner/name>] [--json]",
-    node: "Usage: soma graph node <id> [--repo <owner/name>] [--json]",
-    claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <owner/name>] [--json]",
+    frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--json]",
+    node: "Usage: soma graph node <id> [--repo <forge>:<host>/<path>] [--json]",
+    claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
-      "Usage: soma graph release <id> [--identity <login>] [--repo <owner/name>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
-    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home-project <group/project>] [--body <text>|--body-file <path>] [--repo <forge:host/path>] [--json]",
+      "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <forge>:<host>/<path>] [--json]",
+    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
-      "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
-    audit: "Usage: soma graph audit <root> [--repo <owner/name>] [--json]",
-    decisions: "Usage: soma graph decisions <root> [--write] [--repo <owner/name>] [--json]",
+      "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <forge>:<host>/<path>]",
+    audit: "Usage: soma graph audit <root> [--repo <forge>:<host>/<path>] [--json]",
+    decisions: "Usage: soma graph decisions <root> [--write] [--repo <forge>:<host>/<path>] [--json]",
   },
 };
 
@@ -800,6 +800,7 @@ function renderNodeState(state: NodeState): string {
     `autonomy: ${node.autonomy}`,
     `kind: ${node.kind ?? "—"}`,
     `checkpoint: ${node.checkpointId ?? "—"}`,
+    ...(typeof state.storeFields?.home === "string" ? [`home: ${state.storeFields.home}`] : []),
     `author: ${state.author.length > 0 ? state.author : "—"}`,
     `assignees: ${state.assignees.length > 0 ? state.assignees.join(", ") : "—"}`,
     `parent: ${state.parent?.id ?? "—"}`,

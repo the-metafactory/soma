@@ -4,13 +4,17 @@ import type { CreateNodeSpec, WorkGraphNode } from "./work-graph";
 const NODE_BLOCK_OPEN = "<!-- soma:work-graph-node";
 const NODE_BLOCK_CLOSE = "-->";
 
-export function encodeNodeBlock(spec: CreateNodeSpec & { completion?: WorkGraphNode["completion"] }): string {
+export function encodeNodeBlock(spec: CreateNodeSpec & { completion?: WorkGraphNode["completion"] }, storeFields: Readonly<Record<string, unknown>> = {}): string {
   const payload: Record<string, unknown> = { autonomy: spec.autonomy };
   if (spec.kind !== undefined) payload.kind = spec.kind;
   if (spec.checkpointId !== undefined) payload.checkpointId = spec.checkpointId;
   if (spec.budget !== undefined) payload.budget = spec.budget;
   if (spec.probes !== undefined && spec.probes.length > 0) payload.probes = spec.probes;
   if (spec.completion !== undefined) payload.completion = spec.completion;
+  for (const [key, value] of Object.entries(storeFields)) {
+    if (["autonomy", "kind", "checkpointId", "budget", "probes", "completion"].includes(key)) throw new Error(`store field ${key} conflicts with the typed node contract`);
+    payload[key] = value;
+  }
   return `${NODE_BLOCK_OPEN}\n${JSON.stringify(payload, null, 2)}\n${NODE_BLOCK_CLOSE}`;
 }
 

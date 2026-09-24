@@ -51,7 +51,7 @@ destination. The registry lives in soma-home
 (`~/.soma/policy/probe-registry.json`), scoped by repo identity; read it with:
 
 ```bash
-soma policy probes [--repo <owner/name>]
+soma policy probes [--repo <forge>:<host>/<path>]
 ```
 
 - `command` — refused unless the exact `run` string **and** the resolved

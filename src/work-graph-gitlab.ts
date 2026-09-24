@@ -80,7 +80,7 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
 export interface GitLabGraphStoreOptions { host: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
 export interface GitLabCreateData extends StoreCreationData { readonly capability: "gitlab"; readonly homeProject?: string; readonly scopeProject?: string; }
 interface Parts { path: string; iid: number; sigil: "#" | "&"; }
-interface Item { id: string; iid: number; path: string; type: string; title: string; description: string; rawDescription: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
+interface Item { id: string; iid: number; path: string; type: string; title: string; rawDescription: string; nodeBlock: ReturnType<typeof decodeNodeBlock>; nodeBlockData?: Record<string, unknown>; nodeBlockError?: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
 const GITLAB_ITEM = Symbol("gitlab-item");
 const GITLAB_REHOME = Symbol("gitlab-rehome");
 type HydratedNodeState = NodeState & { [GITLAB_ITEM]?: Item };
@@ -111,6 +111,18 @@ export function parseGitLabCreateData(value: unknown): GitLabCreateData {
   return { capability: "gitlab", ...(typeof data.homeProject === "string" ? { homeProject: data.homeProject.trim() } : {}), ...(typeof data.scopeProject === "string" ? { scopeProject: data.scopeProject.trim() } : {}) };
 }
 function createHomeProject(spec: CreateNodeSpec<GitLabCreateData>): string | undefined { return spec.storeData?.homeProject; }
+function validHomeProject(host: string, path: string, epicGroup?: string): string {
+  let home: string;
+  try { home = validateRepoRef({ forge: "gitlab", host, path }).path; }
+  catch { throw new WorkGraphError("invalid-node", `GitLab home project ${JSON.stringify(path)} has an invalid path`); }
+  const segments = home.split("/");
+  if (segments.length < 2) throw new WorkGraphError("invalid-node", "GitLab homeProject must name both a group and project");
+  if (epicGroup !== undefined) {
+    const group = epicGroup.split("/");
+    if (segments.length <= group.length || group.some((segment, index) => segments[index] !== segment)) throw new WorkGraphError("invalid-node", `GitLab home ${home} is outside Epic group ${epicGroup}`);
+  }
+  return home;
+}
 function limitConcurrency(limit: number): <T>(fn: () => Promise<T>) => Promise<T> { let active = 0; const waiting: (() => void)[] = []; return async <T>(fn: () => Promise<T>): Promise<T> => { if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve)); active += 1; try { return await fn(); } finally { active -= 1; waiting.shift()?.(); } }; }
 function mutation(response: unknown, field: string): Record<string, unknown> {
   const result = rec(gqlValue(response, field), field);
@@ -151,12 +163,26 @@ function itemFrom(value: unknown, context: string, fallbackPath: string): Item {
   const item = rec(value, context);
   const rawIid = item.iid; const iid = typeof rawIid === "number" ? rawIid : typeof rawIid === "string" && /^\d+$/u.test(rawIid) ? Number(rawIid) : num(item, "iid", context); const title = typeof item.title === "string" ? item.title : "";
   const rawDescription = typeof item.description === "string" ? item.description : ""; const route = decodeGitLabRoute(rawDescription); const description = route.text;
+  const block = decodeNodeBlock(description);
+  let boundHome: string | undefined;
+  let nodeBlockData: Record<string, unknown> | undefined;
+  let nodeBlockError: string | undefined;
+  if (block.raw !== undefined) {
+    try {
+      nodeBlockData = rec(JSON.parse(block.raw) as unknown, "node block");
+      if ("home" in nodeBlockData) {
+        if (typeof nodeBlockData.home !== "string" || nodeBlockData.home.trim().length === 0) throw new WorkGraphError("invalid-node", "node block: home must be a non-empty string");
+        boundHome = nodeBlockData.home;
+      }
+    } catch (error) { nodeBlockError = error instanceof Error ? error.message : String(error); }
+  }
   const namespace = item.namespace && typeof item.namespace === "object" ? item.namespace as Record<string, unknown> : {};
   const path = typeof namespace.fullPath === "string" ? namespace.fullPath : fallbackPath;
   const widgets = Array.isArray(item.widgets) ? item.widgets.map((entry) => rec(entry, `${context} widget`)) : [];
   const hierarchy = parseHierarchy(widgets, context);
   const linkedItems = parseLinkedItems(widgets, context);
-  return { id: str(item, "id", context), iid, path, type: typeName(item.workItemType), title, description, rawDescription, status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees: parseAssignees(widgets), ...(route.homeProject === undefined ? {} : { homeProject: route.homeProject }), ...hierarchy, ...linkedItems };
+  if (boundHome !== undefined && route.homeProject !== undefined && boundHome !== route.homeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${path}&${iid} has conflicting typed and route home bindings`);
+  return { id: str(item, "id", context), iid, path, type: typeName(item.workItemType), title, rawDescription, nodeBlock: block, ...(nodeBlockData === undefined ? {} : { nodeBlockData }), ...(nodeBlockError === undefined ? {} : { nodeBlockError }), status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees: parseAssignees(widgets), ...((boundHome ?? route.homeProject) === undefined ? {} : { homeProject: boundHome ?? route.homeProject }), ...hierarchy, ...linkedItems };
 }
 function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraphNode {
   const completion = rec(value, "node completion"); const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt", "gatedNodeHash"] as const;
@@ -166,11 +192,27 @@ function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraph
   return { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }), ...(ciCheckRunId === undefined ? {} : { ciCheckRunId: ciCheckRunId as string, ciHeadSha: ciHeadSha as string }) } };
 }
 
+function typedNodeFrom(item: Item, ref: NodeRef): { node: WorkGraphNode; typed: boolean } {
+  if (item.nodeBlockError !== undefined) throw new WorkGraphError("invalid-node", item.nodeBlockError);
+  const raw = item.nodeBlockData;
+  if (raw === undefined) return { node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false };
+  const fields = { ...raw };
+  const completion = fields.completion;
+  delete fields.completion;
+  delete fields.home;
+  const parsed = toNode(ref.id, parseNodeSpec({ ...fields, title: item.title }));
+  return { node: completion === undefined ? parsed : withPersistedCompletion(parsed, completion), typed: true };
+}
+
 function stateFrom(item: Item): NodeState {
-  const decoded = decodeNodeBlock(item.description);
+  const decoded = item.nodeBlock;
   const ref = nodeId(item.path, item.iid, item.type === "Epic" ? "&" : "#");
-  try { const raw = decoded.raw === undefined ? undefined : rec(JSON.parse(decoded.raw) as unknown, "node block"); const completion = raw?.completion; if (raw !== undefined) delete raw.completion; const parsed = raw === undefined ? { id: ref.id, title: item.title, autonomy: "approve" as const } : toNode(ref.id, parseNodeSpec({ ...raw, title: item.title })); const node = completion === undefined ? parsed : withPersistedCompletion(parsed, completion); return { ref, node, typed: raw !== undefined, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
-  catch (error) { return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
+  try {
+    const { node, typed } = typedNodeFrom(item, ref);
+    return { ref, node, ...(item.type === "Epic" && item.homeProject !== undefined ? { storeFields: { home: item.homeProject } } : {}), typed, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) };
+  } catch (error) {
+    return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) };
+  }
 }
 
 const ITEM_FIELDS = `id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}}`;
@@ -213,23 +255,28 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   private async item(ref: NodeRef): Promise<Item> { return (await this.items([ref]))[0]!; }
   async readNode(ref: NodeRef): Promise<NodeState> { const item = await this.item(ref); const state = stateFrom(item) as HydratedNodeState; Object.defineProperty(state, GITLAB_ITEM, { value: item }); return state; }
   async createNode(spec: CreateNodeSpec<GitLabCreateData>, rehome?: RehomeSelection): Promise<NodeRef> {
+    if (spec.labels !== undefined && spec.labels.length > 0) throw new WorkGraphError("invalid-node", "GitLab GraphStore does not support labels; use the Epic or node ref");
+    if (spec.parent !== undefined && spec.storeData?.homeProject !== undefined) throw new WorkGraphError("invalid-node", "GitLab home belongs on the map root, not a child node");
     const context = rehome?.context;
     const hydrated = rehome !== undefined && typeof context === "object" && context !== null && (context as Partial<GitLabRehomeContext>)[GITLAB_REHOME] === true && rehome.parent.id === spec.parent?.id ? context as GitLabRehomeContext : undefined;
     const parent = spec.parent === undefined ? undefined : hydrated?.parent ?? await this.item(spec.parent);
     const related = hydrated?.related;
-    const homeProject = createHomeProject(spec); const description = [spec.body ?? "", encodeNodeBlock(spec), ...(homeProject === undefined ? [] : [encodeGitLabRoute(homeProject)])].filter(Boolean).join("\n\n");
+    const homeProject = createHomeProject(spec);
+    const description = [spec.body ?? "", encodeNodeBlock(spec, spec.parent === undefined && homeProject !== undefined ? { home: homeProject } : {}), ...(spec.parent === undefined && homeProject !== undefined ? [encodeGitLabRoute(homeProject)] : [])].filter(Boolean).join("\n\n");
     let input: Record<string, unknown>;
     if (parent === undefined) {
       if (homeProject === undefined) throw new WorkGraphError("invalid-node", "GitLab graph roots require --home-project <group/project>");
-      const separator = homeProject.lastIndexOf("/"); const group = homeProject.slice(0, separator); const project = homeProject.slice(separator + 1);
-      if (group.length === 0 || project.length === 0) throw new WorkGraphError("invalid-node", "GitLab homeProject must name both a group and project");
+      validHomeProject(this.host, homeProject);
+      const separator = homeProject.lastIndexOf("/"); const group = homeProject.slice(0, separator);
       if (spec.storeData?.scopeProject !== undefined && homeProject !== spec.storeData.scopeProject) throw new WorkGraphError("invalid-node", `GitLab homeProject ${homeProject} must match the selected repository ${spec.storeData.scopeProject}`);
       input = { namespacePath: group, workItemTypeId: await this.workItemTypeId(group, "Epic"), title: spec.title, descriptionWidget: { description } };
     } else {
       const type = parent.type === "Epic" ? "Issue" : parent.type === "Issue" ? "Task" : undefined;
       if (type === undefined) throw new WorkGraphError("invalid-node", `GitLab cannot create a child below ${parent.type || "this"} work item`);
+      if (parent.type === "Epic" && parent.nodeBlockError !== undefined) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has an invalid typed node block: ${parent.nodeBlockError}`);
       const parentHomeProject = parent.type === "Epic" ? parent.homeProject : parent.path;
-      if (parentHomeProject === undefined || parent.type === "Epic" && !parentHomeProject.startsWith(`${parent.path}/`) || spec.storeData?.scopeProject !== undefined && parentHomeProject !== spec.storeData.scopeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under the selected repository`);
+      if (parentHomeProject === undefined || spec.storeData?.scopeProject !== undefined && parentHomeProject !== spec.storeData.scopeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under the selected repository`);
+      validHomeProject(this.host, parentHomeProject, parent.type === "Epic" ? parent.path : undefined);
       input = { projectPath: parentHomeProject, workItemTypeId: await this.workItemTypeId(parentHomeProject, type), title: spec.title, descriptionWidget: { description }, hierarchyWidget: { parentId: parent.id }, ...(related === undefined ? {} : { linkedItemsWidget: { linkType: "RELATED", workItemsIds: [related.id] } }) };
     }
     const created = mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemCreateInput!){workItemCreate(input:$input){workItem{id iid namespace{fullPath} workItemType{name}} errors}}`, variables: { input } } }), "workItemCreate");
@@ -280,6 +327,6 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   }
   async readRawBody(ref: NodeRef): Promise<string> { const p = parts(ref); if (p.sigil === "&") return (await this.item(ref)).rawDescription; const issue = rec(await this.transport({ method: "GET", path: restIssue(p) }), "GitLab issue"); return typeof issue.description === "string" ? issue.description : ""; }
   async writeRawBody(ref: NodeRef, body: string): Promise<void> { const p = parts(ref); if (p.sigil === "&") { await this.updateEpic(ref, body); return; } await this.transport({ method: "PUT", path: restIssue(p), body: { description: body } }); }
-  async close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void> { const item = await this.item(ref); const state = stateFrom(item); const hash = hashGatedNodeFields(state.node); if (expectedGatedNodeHash !== undefined && hash !== expectedGatedNodeHash) throw new WorkGraphError("invalid-node", `node ${ref.id} changed after close validation`); const boundReceipt = { ...receipt, autonomy: state.node.autonomy, gatedNodeHash: hash }; const posted = await this.postComment(ref, renderCloseReceipt(boundReceipt), item); if (posted.author === undefined || posted.author.length === 0) throw new WorkGraphError("backend", "posted close receipt has no authenticated author"); const completion = { receiptCommentId: posted.id, checkpointId: receipt.checkpointId, autonomy: state.node.autonomy, closer: posted.author, closedAt: boundReceipt.at, gatedNodeHash: hash, ...(state.node.autonomy === "auto" ? { autoProbeKeys: (state.node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}), ...(receipt.ci === undefined ? {} : { ciCheckRunId: receipt.ci.checkRunId, ciHeadSha: receipt.ci.headSha }) }; const body = [state.body, encodeNodeBlock({ ...state.node, title: state.node.title, completion }), ...(item.homeProject === undefined ? [] : [encodeGitLabRoute(item.homeProject)])].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n\n"); const p = parts(ref); if (p.sigil === "&") { await this.updateEpic(ref, body, true, item); return; } await this.transport({ method: "PUT", path: restIssue(p), body: { description: body, state_event: "close" } }); }
+  async close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void> { const item = await this.item(ref); const state = stateFrom(item); const hash = hashGatedNodeFields(state.node, state.storeFields); if (expectedGatedNodeHash !== undefined && hash !== expectedGatedNodeHash) throw new WorkGraphError("invalid-node", `node ${ref.id} changed after close validation`); const boundReceipt = { ...receipt, autonomy: state.node.autonomy, gatedNodeHash: hash }; const posted = await this.postComment(ref, renderCloseReceipt(boundReceipt), item); if (posted.author === undefined || posted.author.length === 0) throw new WorkGraphError("backend", "posted close receipt has no authenticated author"); const completion = { receiptCommentId: posted.id, checkpointId: receipt.checkpointId, autonomy: state.node.autonomy, closer: posted.author, closedAt: boundReceipt.at, gatedNodeHash: hash, ...(state.node.autonomy === "auto" ? { autoProbeKeys: (state.node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}), ...(receipt.ci === undefined ? {} : { ciCheckRunId: receipt.ci.checkRunId, ciHeadSha: receipt.ci.headSha }) }; const body = [state.body, encodeNodeBlock({ ...state.node, title: state.node.title, completion }, state.storeFields), ...(item.type === "Epic" && item.homeProject !== undefined ? [encodeGitLabRoute(item.homeProject)] : [])].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n\n"); const p = parts(ref); if (p.sigil === "&") { await this.updateEpic(ref, body, true, item); return; } await this.transport({ method: "PUT", path: restIssue(p), body: { description: body, state_event: "close" } }); }
 }
 export function createGitLabGraphStore(options: GitLabGraphStoreOptions): GraphStore<GitLabCreateData> { return new GitLabGraphStore(options); }
