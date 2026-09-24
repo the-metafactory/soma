@@ -40,6 +40,14 @@ test("GitLab exposes Issue as its only Task-parent capability", () => {
   expect(store.allowedParentTypes).toEqual(["Issue"]);
 });
 
+test("GitLab claim and release refuse an identity other than the authenticated account", async () => {
+  const calls: GitLabApiRequest[] = [];
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => { calls.push(request); return { username: "jc" }; } });
+  await expect(store.claim(REF, "ivy")).rejects.toThrow(/does not match the authenticated GitLab identity/u);
+  await expect(store.release(REF, "ivy")).rejects.toThrow(/does not match the authenticated GitLab identity/u);
+  expect(calls).toEqual([{ method: "GET", path: "user" }, { method: "GET", path: "user" }]);
+});
+
 test("GitLab creates an Issue in an Epic root's declared home project", async () => {
   const calls: GitLabApiRequest[] = [];
   const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };

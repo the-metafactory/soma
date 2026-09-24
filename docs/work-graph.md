@@ -596,8 +596,10 @@ interface GraphStore {
 - **GitLab work graphs are Epic → Issue → Task** (#534). `soma graph chart` creates a
   typed root; a GitLab root must declare `homeProject: <group/project>`, under its
   Epic group. New route nodes go to that home project and scaffolds inherit
-  their Issue's project. At the Task floor, `add` re-homes to the nearest Issue
-  and records a native `relates_to` provenance edge.
+  their Issue's project. At the Task floor, the adapter requests re-homing to
+  the nearest Issue and a native `relates_to` provenance edge. This behavior is
+  covered by fake-transport tests; live GitLab Task-floor re-home behavior
+  remains unverified.
 - Day-one backend: **GitHub** (attestation capability: `verifiable` — the
   backend can attest reaction/comment authorship via its API). Backend
   capability is necessary, not sufficient: a *receipt* is marked verified
