@@ -33,6 +33,7 @@ import { parseLocatedNodeId, validateRepoRef } from "./work-graph-ref";
 // A ref-provided host must be the only route that glab can use. Strip both
 // process-wide credentials and host overrides that could route to another host.
 const TOKEN_KEYS = ["GITLAB_TOKEN", "GLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "CI_JOB_TOKEN", "GITLAB_API_HOST", "GLAB_HOST", "GITLAB_HOST", "GITLAB_URI"] as const;
+const GLAB_ENV_KEYS = new Set(["PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "TEMP", "TMP", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "GLAB_CONFIG_DIR"]);
 
 export interface GitLabApiRequest {
   method: "GET" | "POST" | "PUT";
@@ -58,8 +59,8 @@ export function parseGlabApiOutput(stdout: string, request: GitLabApiRequest): u
     return request.paginate && Array.isArray(value) && value.every(Array.isArray) ? value.flat() : value;
   } catch { throw new WorkGraphError("backend", `glab api ${request.method} ${request.path} returned unparseable JSON`); }
 }
-/** The transport never forwards ambient GitLab credentials or host routing. */
-export function gitLabCliEnvironment(env: Readonly<Record<string, string | undefined>>): Record<string, string> { return envWithoutTokens(env, TOKEN_KEYS); }
+/** The transport forwards only glab's non-secret runtime and config locations. */
+export function gitLabCliEnvironment(env: Readonly<Record<string, string | undefined>>): Record<string, string> { return Object.fromEntries(Object.entries(env).filter(([key, value]) => value !== undefined && GLAB_ENV_KEYS.has(key))) as Record<string, string>; }
 export function createGlabCliTransport(options: GlabCliTransportOptions): GitLabApiTransport {
   const binary = options.binary ?? "glab";
   return async (request) => {
@@ -229,13 +230,13 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
       if (type === undefined) throw new WorkGraphError("invalid-node", `GitLab cannot create a child below ${parent.type || "this"} work item`);
       const parentHomeProject = parent.type === "Epic" ? parent.homeProject : parent.path;
       if (parentHomeProject === undefined || parent.type === "Epic" && !parentHomeProject.startsWith(`${parent.path}/`) || spec.storeData?.scopeProject !== undefined && parentHomeProject !== spec.storeData.scopeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under the selected repository`);
-      input = { projectPath: parentHomeProject, workItemTypeId: await this.workItemTypeId(parentHomeProject, type), title: spec.title, descriptionWidget: { description }, hierarchyWidget: { parentId: parent.id }, ...(related === undefined ? {} : { linkedItemsWidget: { linkType: "RELATES_TO", workItemsIds: [related.id] } }) };
+      input = { projectPath: parentHomeProject, workItemTypeId: await this.workItemTypeId(parentHomeProject, type), title: spec.title, descriptionWidget: { description }, hierarchyWidget: { parentId: parent.id }, ...(related === undefined ? {} : { linkedItemsWidget: { linkType: "RELATED", workItemsIds: [related.id] } }) };
     }
     const created = mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemCreateInput!){workItemCreate(input:$input){workItem{id iid namespace{fullPath} workItemType{name}} errors}}`, variables: { input } } }), "workItemCreate");
     const item = rec(created.workItem, "created work item"); const namespace = rec(item.namespace, "created work item namespace"); const iid = item.iid;
     return nodeId(str(namespace, "fullPath", "created work item namespace"), typeof iid === "string" ? Number(iid) : num(item, "iid", "created work item"), typeName(item.workItemType) === "Epic" ? "&" : "#");
   }
-  private async addLinkedEdge(source: NodeRef, related: NodeRef, linkType: "BLOCKS" | "RELATES_TO"): Promise<void> { const [left, right] = await Promise.all([this.item(source), this.item(related)]); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($source:WorkItemID!,$target:WorkItemID!,$linkType:WorkItemLinkType!){workItemAddLinkedItems(input:{workItemId:$source,workItemIds:[$target],linkType:$linkType}){errors}}`, variables: { source: left.id, target: right.id, linkType } } }), "workItemAddLinkedItems"); }
+  private async addLinkedEdge(source: NodeRef, related: NodeRef, linkType: "BLOCKS" | "RELATED"): Promise<void> { const [left, right] = await Promise.all([this.item(source), this.item(related)]); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($source:WorkItemID!,$target:WorkItemID!,$linkType:WorkItemRelatedLinkType!){workItemAddLinkedItems(input:{id:$source,workItemIds:[$target],linkType:$linkType}){errors}}`, variables: { source: left.id, target: right.id, linkType } } }), "workItemAddLinkedItems"); }
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> { await this.addLinkedEdge(blocker, blocked, "BLOCKS"); }
   async selectRehomeParent(requested: NodeState): Promise<RehomeSelection | undefined> { if (requested.trackerType !== "Task") return undefined; const related = (requested as HydratedNodeState)[GITLAB_ITEM] ?? await this.item(requested.ref); let parent = requested.parent; while (parent !== undefined) { const candidate = await this.readNode(parent) as HydratedNodeState; if (candidate.trackerType === "Issue") { const parentItem = candidate[GITLAB_ITEM]; if (parentItem === undefined) throw new WorkGraphError("backend", `GitLab re-home parent ${candidate.ref.id} was not hydrated`); return { parent: candidate.ref, context: { [GITLAB_REHOME]: true, parent: parentItem, related } satisfies GitLabRehomeContext }; } parent = candidate.parent; } throw new WorkGraphError("invalid-node", `cannot re-home parent ${requested.ref.id}: no allowed ancestor`); }
   async readSubtree(root: NodeRef): Promise<NodeState[]> { const seen = new Set<string>([root.id]); const records = new Map<string, { item: Item; parent?: NodeRef }>(); const bounded = limitConcurrency(8); let frontier: { ref: NodeRef; parent?: NodeRef }[] = [{ ref: root }]; while (frontier.length > 0) { const current = frontier; frontier = []; const batches = Array.from({ length: Math.ceil(current.length / 50) }, (_, index) => current.slice(index * 50, (index + 1) * 50)); const items = (await Promise.all(batches.map((batch) => bounded(async () => await this.items(batch.map((entry) => entry.ref), true))))).flat(); for (const [index, item] of items.entries()) { const entry = current[index]!; if (item.childrenTruncated) throw new WorkGraphError("backend", `GitLab subtree ${entry.ref.id} is paginated; refusing a partial membership walk`); records.set(entry.ref.id, { item, ...(entry.parent === undefined ? {} : { parent: entry.parent }) }); for (const child of item.children) if (!seen.has(child.id)) { seen.add(child.id); frontier.push({ ref: child, parent: entry.ref }); } } }

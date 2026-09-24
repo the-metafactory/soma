@@ -18,8 +18,8 @@ test("glab transport pins the host and flattens paginated output", () => {
   expect(parseGlabApiOutput("[[{\"id\":1}],[{\"id\":2}]]", request)).toEqual([{ id: 1 }, { id: 2 }]);
 });
 
-test("GitLab CLI transport strips ambient tokens and host routing", () => {
-  expect(gitLabCliEnvironment({ PATH: "/bin", GLAB_TOKEN: "secret", GITLAB_TOKEN: "secret", GITLAB_ACCESS_TOKEN: "secret", OAUTH_TOKEN: "secret", CI_JOB_TOKEN: "secret", GITLAB_API_HOST: "evil.example", GLAB_HOST: "evil.example", GITLAB_HOST: "evil.example", GITLAB_URI: "https://evil.example" })).toEqual({ PATH: "/bin" });
+test("GitLab CLI transport allow-lists only its runtime and config environment", () => {
+  expect(gitLabCliEnvironment({ PATH: "/bin", HOME: "/home/jc", GLAB_CONFIG_DIR: "/home/jc/.config/glab-cli", OPENAI_API_KEY: "secret", GLAB_TOKEN: "secret", GITLAB_TOKEN: "secret", GITLAB_ACCESS_TOKEN: "secret", OAUTH_TOKEN: "secret", CI_JOB_TOKEN: "secret", GITLAB_API_HOST: "evil.example", GLAB_HOST: "evil.example", GITLAB_HOST: "evil.example", GITLAB_URI: "https://evil.example" })).toEqual({ PATH: "/bin", HOME: "/home/jc", GLAB_CONFIG_DIR: "/home/jc/.config/glab-cli" });
 });
 
 test("GitLab system notes are excluded and thumb tones normalize at the store boundary", async () => {
@@ -60,7 +60,18 @@ test("GitLab re-home reuses the Task and Issue reads for creation", async () => 
   const created = await new WorkGraph(store).createNode({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: `${REPO}#3` } });
   expect(created).toMatchObject({ id: `${REPO}#4`, rehomedFrom: { id: `${REPO}#3` }, rehomedTo: { id: `${REPO}#2` } });
   expect(calls.filter((call) => String(call.body?.query).includes("workItem(iid"))).toHaveLength(2);
-  expect((calls.find((call) => String(call.body?.query).includes("workItemCreate"))?.body?.variables as { input: Record<string, unknown> }).input).toMatchObject({ linkedItemsWidget: { linkType: "RELATES_TO", workItemsIds: [task.id] } });
+  expect((calls.find((call) => String(call.body?.query).includes("workItemCreate"))?.body?.variables as { input: Record<string, unknown> }).input).toMatchObject({ linkedItemsWidget: { linkType: "RELATED", workItemsIds: [task.id] } });
+});
+
+test("GitLab writes blocking edges through the linked-item mutation contract", async () => {
+  const calls: GitLabApiRequest[] = [];
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => { calls.push(request); if (String(request.body?.query).includes("workItemAddLinkedItems")) return { data: { workItemAddLinkedItems: { errors: [] } } }; return { data: { namespace: { workItem: item } } }; } });
+  await store.addBlockingEdge({ id: `${REPO}#1` }, { id: `${REPO}#2` });
+  const request = calls.find((call) => String(call.body?.query).includes("workItemAddLinkedItems"));
+  expect(String(request?.body?.query)).toContain("$linkType:WorkItemRelatedLinkType!");
+  expect(String(request?.body?.query)).toContain("input:{id:$source,workItemIds:[$target],linkType:$linkType}");
+  expect(request?.body?.variables).toMatchObject({ source: item.id, target: item.id, linkType: "BLOCKS" });
 });
 
 test("GitLab refuses non-decimal Issue receipt ids before REST reads", async () => {
