@@ -21,8 +21,8 @@ test("glab transport pins the host and flattens paginated output", () => {
 test("GitLab system notes are excluded and thumb tones normalize at the store boundary", async () => {
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     if (request.path === "graphql") return { data: { namespace: { workItem: { widgets: [{ type: "NOTES", notes: { nodes: [
-      { id: "1", system: true, body: "mentioned in commit", author: { username: "ivy" } },
-      { id: "2", system: false, body: "human", author: { username: "jc" } },
+      { id: "gid://gitlab/Note/1", databaseId: 1, system: true, body: "mentioned in commit", author: { username: "ivy" } },
+      { id: "gid://gitlab/Note/2", databaseId: 2, system: false, body: "human", author: { username: "jc" } },
     ], pageInfo: { hasNextPage: false } } }] } } } };
     if (request.path.endsWith("/notes/2/award_emoji")) return [{ id: 3, name: "thumbsup_tone3", user: { username: "jc" } }, { id: 4, name: "thumbsdown", user: { username: "ada" } }];
     throw new Error(`unexpected ${request.method} ${request.path}`);
