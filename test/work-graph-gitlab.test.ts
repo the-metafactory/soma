@@ -65,6 +65,22 @@ test("close writes the receipt note before one description-and-state PUT", async
   expect(calls.slice(-3)).toEqual(["POST projects/saca%2Fsecacademy/issues/12/notes", "GET projects/saca%2Fsecacademy/issues/12", "PUT projects/saca%2Fsecacademy/issues/12"]);
 });
 
+test("an Epic root closes through work-item mutations, never an issue REST path", async () => {
+  const calls: GitLabApiRequest[] = [];
+  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: "body", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const transport = async (request: GitLabApiRequest): Promise<unknown> => {
+    calls.push(request);
+    if (request.path !== "graphql") throw new Error(`Epic used REST: ${request.path}`);
+    const query = String(request.body?.query);
+    if (query.includes("createNote")) return { data: { createNote: { note: { id: "gid://gitlab/Note/1", author: { username: "ivy" } }, errors: [] } } };
+    if (query.includes("workItemUpdate")) return { data: { workItemUpdate: { errors: [] } } };
+    return { data: { namespace: { workItem: epic } } };
+  };
+  await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).close({ id: "saca&1" }, { checkpointId: "cp", autonomy: "approve", closedBy: "ivy", at: "2026-09-24T00:00:00.000Z", evidence: [], probeResults: [], attestation: "unverified" });
+  expect(calls.map((call) => String(call.body?.query)).some((query) => query.includes("createNote"))).toBe(true);
+  expect(calls.map((call) => String(call.body?.query)).some((query) => query.includes("workItemUpdate"))).toBe(true);
+});
+
 test("unparseable GitLab sudo probe downgrades confinement", async () => {
   const result = await checkGitLabConfinement({
     env: { PATH: "/usr/bin", HOME: "/tmp" }, platform: "darwin", now: () => new Date("2026-09-23T00:00:00.000Z"),
