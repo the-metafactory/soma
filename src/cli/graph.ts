@@ -303,7 +303,7 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
         index += 1;
         break;
       case "--home-project":
-        options.spec.homeProject = readOption(rest, index, arg);
+        options.spec.storeData = { homeProject: readOption(rest, index, arg) };
         index += 1;
         break;
       case "--body":

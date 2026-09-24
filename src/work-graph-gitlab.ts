@@ -73,7 +73,7 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
 
 export interface GitLabGraphStoreOptions { host: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
 interface Parts { path: string; iid: number; sigil: "#" | "&"; }
-interface Item { id: string; iid: number; path: string; type: string; title: string; description: string; status: NodeStatus; author: string; assignees: string[]; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
+interface Item { id: string; iid: number; path: string; type: string; title: string; description: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
 const THUMBS_UP = /^thumbsup(?:_tone[1-5])?$/u;
 const THUMBS_DOWN = /^thumbsdown(?:_tone[1-5])?$/u;
 
@@ -89,6 +89,10 @@ function gqlValue(value: unknown, field: string): unknown { const root = rec(val
 function nodeId(path: string, iid: number, sigil: "#" | "&" = "#"): NodeRef { return { id: `${path}${sigil}${iid}` }; }
 function typeName(value: unknown): string { return typeof value === "string" ? value : value !== null && typeof value === "object" && typeof (value as Record<string, unknown>).name === "string" ? (value as Record<string, unknown>).name as string : ""; }
 function typeEnum(name: "Epic" | "Issue" | "Task"): "EPIC" | "ISSUE" | "TASK" { return name.toUpperCase() as "EPIC" | "ISSUE" | "TASK"; }
+const GITLAB_ROUTE_OPEN = "<!-- soma:gitlab-work-graph-route\n";
+function gitLabHomeProject(description: string): string | undefined { const start = description.lastIndexOf(GITLAB_ROUTE_OPEN); if (start === -1) return undefined; const end = description.indexOf("-->", start); if (end === -1) return undefined; try { const value = rec(JSON.parse(description.slice(start + GITLAB_ROUTE_OPEN.length, end).trim()) as unknown, "GitLab route metadata"); return typeof value.homeProject === "string" && value.homeProject.length > 0 ? value.homeProject : undefined; } catch { return undefined; } }
+function encodeGitLabRoute(homeProject: string): string { return `${GITLAB_ROUTE_OPEN}${JSON.stringify({ homeProject })}\n-->`; }
+function createHomeProject(spec: CreateNodeSpec): string | undefined { const value = spec.storeData?.homeProject; return typeof value === "string" ? value : undefined; }
 function limitConcurrency(limit: number): <T>(fn: () => Promise<T>) => Promise<T> { let active = 0; const waiting: (() => void)[] = []; return async <T>(fn: () => Promise<T>): Promise<T> => { if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve)); active += 1; try { return await fn(); } finally { active -= 1; waiting.shift()?.(); } }; }
 function mutation(response: unknown, field: string): Record<string, unknown> {
   const result = rec(gqlValue(response, field), field);
@@ -125,7 +129,8 @@ function itemFrom(value: unknown, context: string, fallbackPath: string): Item {
   const childrenTruncated = childrenRecord?.pageInfo !== undefined && rec(childrenRecord.pageInfo, `${context} child page`).hasNextPage === true;
   const linkedRecord = links.linkedItems && typeof links.linkedItems === "object" ? links.linkedItems as Record<string, unknown> : undefined;
   const linksTruncated = linkedRecord?.pageInfo !== undefined && rec(linkedRecord.pageInfo, `${context} linked page`).hasNextPage === true;
-  return { id: str(item, "id", context), iid, path, type, title, description, status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees, ...(parent === undefined ? {} : { parent }), blockers: blocked, children: childNodes, childrenTruncated, linksTruncated };
+  const homeProject = gitLabHomeProject(description);
+  return { id: str(item, "id", context), iid, path, type, title, description, status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees, ...(homeProject === undefined ? {} : { homeProject }), ...(parent === undefined ? {} : { parent }), blockers: blocked, children: childNodes, childrenTruncated, linksTruncated };
 }
 function stateFrom(item: Item): NodeState {
   const decoded = decodeNodeBlock(item.description);
@@ -176,19 +181,19 @@ class GitLabGraphStore implements GraphStore {
   async readNode(ref: NodeRef): Promise<NodeState> { return stateFrom(await this.item(ref)); }
   async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
     const [parent, related] = await Promise.all([spec.parent === undefined ? undefined : this.item(spec.parent), spec.relatedTo === undefined ? undefined : this.item(spec.relatedTo)]);
-    const description = [spec.body ?? "", encodeNodeBlock(spec)].filter(Boolean).join("\n\n");
+    const homeProject = createHomeProject(spec); const description = [spec.body ?? "", encodeNodeBlock(spec), ...(homeProject === undefined ? [] : [encodeGitLabRoute(homeProject)])].filter(Boolean).join("\n\n");
     let input: Record<string, unknown>;
     if (parent === undefined) {
-      if (spec.homeProject === undefined) throw new WorkGraphError("invalid-node", "GitLab graph roots require --home-project <group/project>");
-      const separator = spec.homeProject.lastIndexOf("/"); const group = spec.homeProject.slice(0, separator); const project = spec.homeProject.slice(separator + 1);
+      if (homeProject === undefined) throw new WorkGraphError("invalid-node", "GitLab graph roots require --home-project <group/project>");
+      const separator = homeProject.lastIndexOf("/"); const group = homeProject.slice(0, separator); const project = homeProject.slice(separator + 1);
       if (group.length === 0 || project.length === 0) throw new WorkGraphError("invalid-node", "GitLab homeProject must name both a group and project");
       input = { namespacePath: group, workItemTypeId: await this.workItemTypeId(group, "Epic"), title: spec.title, descriptionWidget: { description } };
     } else {
       const type = parent.type === "Epic" ? "Issue" : parent.type === "Issue" ? "Task" : undefined;
       if (type === undefined) throw new WorkGraphError("invalid-node", `GitLab cannot create a child below ${parent.type || "this"} work item`);
-      const homeProject = parent.type === "Epic" ? stateFrom(parent).node.homeProject : parent.path;
-      if (!homeProject?.startsWith(`${parent.path}/`)) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under ${parent.path}`);
-      input = { projectPath: homeProject, workItemTypeId: await this.workItemTypeId(homeProject, type), title: spec.title, descriptionWidget: { description }, hierarchyWidget: { parentId: parent.id }, ...(related === undefined ? {} : { linkedItemsWidget: { linkType: "RELATES_TO", workItemsIds: [related.id] } }) };
+      const parentHomeProject = parent.type === "Epic" ? parent.homeProject : parent.path;
+      if (parentHomeProject === undefined || parent.type === "Epic" && !parentHomeProject.startsWith(`${parent.path}/`)) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under ${parent.path}`);
+      input = { projectPath: parentHomeProject, workItemTypeId: await this.workItemTypeId(parentHomeProject, type), title: spec.title, descriptionWidget: { description }, hierarchyWidget: { parentId: parent.id }, ...(related === undefined ? {} : { linkedItemsWidget: { linkType: "RELATES_TO", workItemsIds: [related.id] } }) };
     }
     const created = mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemCreateInput!){workItemCreate(input:$input){workItem{id iid namespace{fullPath} workItemType{name}} errors}}`, variables: { input } } }), "workItemCreate");
     const item = rec(created.workItem, "created work item"); const namespace = rec(item.namespace, "created work item namespace"); const iid = item.iid;

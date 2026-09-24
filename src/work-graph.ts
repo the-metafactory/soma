@@ -119,9 +119,6 @@ export interface WorkGraphNodeBase {
    */
   checkpointId?: string;
   budget?: NodeBudget;
-  /** GitLab Epic maps declare their one creation project (#535 D5). */
-  /** GitLab project that receives an Epic root's Issue children. */
-  homeProject?: string;
 }
 
 /**
@@ -167,6 +164,8 @@ export interface NodeRef {
 export type CreateNodeSpec = DistributiveOmit<WorkGraphNode, "id" | "completion"> & {
   body?: string;
   parent?: NodeRef;
+  /** Opaque store-specific creation data. It is never encoded into the typed node. */
+  storeData?: Readonly<Record<string, unknown>>;
   /** Backend-only native provenance relation, supplied by WorkGraph after validation. */
   relatedTo?: NodeRef;
   labels?: readonly string[];
@@ -949,7 +948,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
   const autonomy = parseAutonomy(record.autonomy);
   const kind = normalizeKind(record.kind);
   const checkpointId = optionalString(record, "checkpointId", "invalid-node", "node spec");
-  const homeProject = optionalString(record, "homeProject", "invalid-node", "node spec");
+  const storeData = record.storeData === undefined ? undefined : asRecord(record.storeData, "invalid-node", "node spec: storeData");
   const budget = record.budget === undefined || record.budget === null ? undefined : parseBudget(record.budget);
   const body = optionalString(record, "body", "invalid-node", "node spec");
   const parentId = record.parent === undefined || record.parent === null
@@ -977,7 +976,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     title,
     ...(kind === undefined ? {} : { kind }),
     ...(checkpointId === undefined ? {} : { checkpointId }),
-    ...(homeProject === undefined ? {} : { homeProject }),
+    ...(storeData === undefined ? {} : { storeData }),
     ...(budget === undefined ? {} : { budget }),
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),
@@ -1007,7 +1006,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
  * second home for facts that already have one.
  */
 export function toNode(id: string, spec: CreateNodeSpec): WorkGraphNode {
-  const { body: _body, parent: _parent, relatedTo: _relatedTo, labels: _labels, ...rest } = spec;
+  const { body: _body, parent: _parent, storeData: _storeData, relatedTo: _relatedTo, labels: _labels, ...rest } = spec;
   return { ...rest, id };
 }
 

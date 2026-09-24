@@ -37,7 +37,7 @@ test("GitLab exposes Issue as its only Task-parent capability", () => {
 
 test("GitLab creates an Issue in an Epic root's declared home project", async () => {
   const calls: GitLabApiRequest[] = [];
-  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `<!-- soma:work-graph-node\n{"autonomy":"approve","homeProject":"saca/secacademy"}\n-->`, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(request);
     if (calls.length === 1) return { data: { namespace: { workItem: epic } } };
@@ -55,15 +55,24 @@ test("GitLab creates an Issue in an Epic root's declared home project", async ()
 test("GitLab resolves the Epic type in the target group before creating a graph root", async () => {
   const calls: GitLabApiRequest[] = [];
   const transport = async (request: GitLabApiRequest): Promise<unknown> => { calls.push(request); return String(request.body?.query).includes("workItemTypes") ? { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-epic", name: "Epic" }] } } } } : { data: { workItemCreate: { workItem: { iid: "1", workItemType: { name: "Epic" }, namespace: { fullPath: "saca" } }, errors: [] } } }; };
-  const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", homeProject: "saca/secacademy" }));
+  const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", storeData: { homeProject: "saca/secacademy" } }));
   expect(ref).toEqual({ id: "saca&1" });
   expect(String(calls[0]?.body?.query)).toContain("workItemTypes(name:EPIC)");
   expect((calls[1]?.body?.variables as { input: Record<string, unknown> }).input).toMatchObject({ namespacePath: "saca", workItemTypeId: "gid://gitlab/WorkItems::Type/instance-epic" });
 });
 
+test("GitLab creates a Task in its Issue parent's project", async () => {
+  const calls: GitLabApiRequest[] = [];
+  const issue = { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "route", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const transport = async (request: GitLabApiRequest): Promise<unknown> => { calls.push(request); if (calls.length === 1) return { data: { namespace: { workItem: issue } } }; if (String(request.body?.query).includes("workItemTypes")) return { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-task", name: "Task" }] } } } }; return { data: { workItemCreate: { workItem: { iid: "3", workItemType: { name: "Task" }, namespace: { fullPath: "saca/secacademy" } }, errors: [] } } }; };
+  const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).createNode(parseNodeSpec({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: "saca/secacademy#2" } }));
+  expect(ref).toEqual({ id: "saca/secacademy#3" });
+  expect((calls[2]?.body?.variables as { input: Record<string, unknown> }).input).toMatchObject({ projectPath: "saca/secacademy", hierarchyWidget: { parentId: "gid://gitlab/WorkItem/2" } });
+});
+
 test("GitLab refuses a homeProject without a project segment", async () => {
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => { throw new Error("must not call GitLab"); } });
-  await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", homeProject: "saca/" }))).rejects.toThrow(/both a group and project/u);
+  await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", storeData: { homeProject: "saca/" } }))).rejects.toThrow(/both a group and project/u);
 });
 
 test("GitLab preserves an Epic blocker id", async () => {
