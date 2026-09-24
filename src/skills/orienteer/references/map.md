@@ -154,9 +154,9 @@ The block is not *unreachable* — `gh issue list --search` matches body text, a
 `--json body` returns it, so a scripted reader can recover `kind` from unlabelled
 or legacy nodes. Labels buy the glance, not the only access path.
 
-That glance is the job: `gh issue list --label orienteer:map` finds every map in
-a repo, and scanning the list tells you which nodes are conversations and which
-are fact-finding.
+On GitHub, that glance is the job: `gh issue list --label orienteer:map` finds
+every map in a repo. GitLab's GraphStore refuses labels today; retain the
+Epic ref returned by `soma graph chart` and navigate with `soma graph node`.
 
 Suggested vocabulary — `orienteer:map` for the root, then one of
 `orienteer:grilling`, `orienteer:research`, `orienteer:prototype`,

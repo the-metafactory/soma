@@ -70,8 +70,9 @@ the user how they'd like to proceed.
 
 The map is the typed root node: a GitHub issue or GitLab Epic whose body carries Destination, Constraints,
 and Notes filled in, Decisions-so-far empty, and the fog sketched into **Not yet
-specified**. The body template is in `references/map.md`. Label it
-`orienteer:map` — that label is how anyone finds this map again.
+specified**. The body template is in `references/map.md`. On GitHub, label it
+`orienteer:map` for list discovery. On GitLab, retain the Epic ref returned by
+`chart`; GitLab chart refuses labels.
 
 Put in **Notes** what every later session needs before choosing a node: the
 domain, the skills to consult, standing preferences, and any override of the
@@ -81,9 +82,11 @@ check its options against it.
 
 ```bash
 soma graph chart --title "…" --autonomy approve --checkpoint <id> \
-  --body-file <path> --label orienteer:map \
+  --body-file <path> \
   [--repo <forge>:<host>/<path>] [--home-project <group/project>]
 ```
+
+On GitHub, also pass `--label orienteer:map`.
 
 On GitLab, `--home-project` is required. Its project must sit under the Epic's
 group; the typed root records it as `home`, and every new route node goes there.
@@ -95,16 +98,17 @@ Use `--repo` for that same project when charting outside its checkout.
 soma graph add <root> \
   --title "…" --autonomy <auto|propose|approve> --kind <research|prototype|grilling|task> \
   --checkpoint <id> --body-file <path> \
-  --label orienteer:<kind> \
   [--probe '{"type":"command","run":"…","timeoutSec":600,"expectExit":0}'] \
   [--blocked-by <id>]…
 ```
 
+On GitHub, also pass `--label orienteer:<kind>`.
 On GitHub an unknown label is created by the call rather than rejected by it, so
 there is no pre-step — but a typo silently adds a junk label instead of failing,
 so check what you wrote. Labels are write-only decoration, not a second source of
 truth (`references/map.md`); skipping them leaves the human with a list of
-indistinguishable rows.
+indistinguishable rows. GitLab currently refuses labels; record its Epic
+and child refs for navigation.
 
 Ids don't exist until create returns, so wire the edges you can and make a
 second pass for the rest. Wiring sorts the nodes into the frontier and the

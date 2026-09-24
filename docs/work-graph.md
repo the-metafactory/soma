@@ -417,6 +417,9 @@ Declaration rules, all deny-by-default:
   and fail-closed: the adopter edits the document. `soma policy probes
   [--repo <forge>:<host>/<path>]` shows what is declared and where; soma ships no verb
   that writes it, because a gate the agent can widen is not a gate.
+  The qualified form is recommended. A bare path remains accepted for
+  compatibility and takes the current checkout's origin forge and host; in a
+  GitHub checkout, bare `group/project` therefore resolves as GitHub.
 
 The rule is **uniform** — same for every autonomy class and for the phase-2
 headless tick (§5). A machine with no declaration refuses those closes;
@@ -603,7 +606,10 @@ interface GraphStore {
   their Issue's project. At the Task floor, the GitLab GraphStore requests re-homing to
   the nearest Issue and a native `relates_to` provenance edge. This behavior is
   intended for fake-transport coverage; live GitLab Task-floor re-home behavior
-  remains unverified.
+  remains unverified. Roots created before the typed `home` field still read their
+  route comment; close preserves it and writes `home` into the typed block.
+  New roots omit the route comment, so older clients do not read their binding.
+  GitLab's current creation path refuses labels; navigate maps by Epic ref.
 - Day-one backend: **GitHub** (attestation capability: `verifiable` — the
   backend can attest reaction/comment authorship via its API). Backend
   capability is necessary, not sufficient: a *receipt* is marked verified

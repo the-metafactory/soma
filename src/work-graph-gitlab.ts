@@ -177,7 +177,7 @@ function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraph
 function stateFrom(item: Item): NodeState {
   const decoded = decodeNodeBlock(item.description);
   const ref = nodeId(item.path, item.iid, item.type === "Epic" ? "&" : "#");
-  try { const raw = decoded.raw === undefined ? undefined : rec(JSON.parse(decoded.raw) as unknown, "node block"); const completion = raw?.completion; if (raw !== undefined) delete raw.completion; const parsed = raw === undefined ? { id: ref.id, title: item.title, autonomy: "approve" as const } : toNode(ref.id, parseNodeSpec({ ...raw, title: item.title })); const node = completion === undefined ? parsed : withPersistedCompletion(parsed, completion); return { ref, node, typed: raw !== undefined, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
+  try { const raw = decoded.raw === undefined ? undefined : rec(JSON.parse(decoded.raw) as unknown, "node block"); const completion = raw?.completion; if (raw !== undefined) delete raw.completion; const parsed = raw === undefined ? { id: ref.id, title: item.title, autonomy: "approve" as const } : toNode(ref.id, parseNodeSpec({ ...raw, title: item.title })); const completed = completion === undefined ? parsed : withPersistedCompletion(parsed, completion); const node = item.type === "Epic" && completed.home === undefined && item.homeProject !== undefined ? { ...completed, home: item.homeProject } : completed; return { ref, node, typed: raw !== undefined, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
   catch (error) { return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
 }
 
@@ -221,6 +221,8 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   private async item(ref: NodeRef): Promise<Item> { return (await this.items([ref]))[0]!; }
   async readNode(ref: NodeRef): Promise<NodeState> { const item = await this.item(ref); const state = stateFrom(item) as HydratedNodeState; Object.defineProperty(state, GITLAB_ITEM, { value: item }); return state; }
   async createNode(spec: CreateNodeSpec<GitLabCreateData>, rehome?: RehomeSelection): Promise<NodeRef> {
+    if (spec.labels !== undefined && spec.labels.length > 0) throw new WorkGraphError("invalid-node", "GitLab GraphStore does not support labels; use the Epic or node ref");
+    if (spec.parent !== undefined && (spec.home !== undefined || spec.storeData?.homeProject !== undefined)) throw new WorkGraphError("invalid-node", "GitLab home belongs on the map root, not a child node");
     const context = rehome?.context;
     const hydrated = rehome !== undefined && typeof context === "object" && context !== null && (context as Partial<GitLabRehomeContext>)[GITLAB_REHOME] === true && rehome.parent.id === spec.parent?.id ? context as GitLabRehomeContext : undefined;
     const parent = spec.parent === undefined ? undefined : hydrated?.parent ?? await this.item(spec.parent);
