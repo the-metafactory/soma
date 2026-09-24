@@ -80,7 +80,7 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
 export interface GitLabGraphStoreOptions { host: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
 export interface GitLabCreateData extends StoreCreationData { readonly capability: "gitlab"; readonly homeProject?: string; readonly scopeProject?: string; }
 interface Parts { path: string; iid: number; sigil: "#" | "&"; }
-interface Item { id: string; iid: number; path: string; type: string; title: string; description: string; rawDescription: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
+interface Item { id: string; iid: number; path: string; type: string; title: string; rawDescription: string; nodeBlock: ReturnType<typeof decodeNodeBlock>; nodeBlockData?: Record<string, unknown>; nodeBlockError?: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
 const GITLAB_ITEM = Symbol("gitlab-item");
 const GITLAB_REHOME = Symbol("gitlab-rehome");
 type HydratedNodeState = NodeState & { [GITLAB_ITEM]?: Item };
@@ -165,11 +165,16 @@ function itemFrom(value: unknown, context: string, fallbackPath: string): Item {
   const rawDescription = typeof item.description === "string" ? item.description : ""; const route = decodeGitLabRoute(rawDescription); const description = route.text;
   const block = decodeNodeBlock(description);
   let boundHome: string | undefined;
+  let nodeBlockData: Record<string, unknown> | undefined;
+  let nodeBlockError: string | undefined;
   if (block.raw !== undefined) {
     try {
-      const metadata = rec(JSON.parse(block.raw) as unknown, "node block");
-      if (typeof metadata.home === "string") boundHome = metadata.home;
-    } catch { /* stateFrom reports malformed node blocks; creation refuses missing home. */ }
+      nodeBlockData = rec(JSON.parse(block.raw) as unknown, "node block");
+      if ("home" in nodeBlockData) {
+        if (typeof nodeBlockData.home !== "string" || nodeBlockData.home.trim().length === 0) throw new WorkGraphError("invalid-node", "node block: home must be a non-empty string");
+        boundHome = nodeBlockData.home;
+      }
+    } catch (error) { nodeBlockError = error instanceof Error ? error.message : String(error); }
   }
   const namespace = item.namespace && typeof item.namespace === "object" ? item.namespace as Record<string, unknown> : {};
   const path = typeof namespace.fullPath === "string" ? namespace.fullPath : fallbackPath;
@@ -177,7 +182,7 @@ function itemFrom(value: unknown, context: string, fallbackPath: string): Item {
   const hierarchy = parseHierarchy(widgets, context);
   const linkedItems = parseLinkedItems(widgets, context);
   if (boundHome !== undefined && route.homeProject !== undefined && boundHome !== route.homeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${path}&${iid} has conflicting typed and route home bindings`);
-  return { id: str(item, "id", context), iid, path, type: typeName(item.workItemType), title, description, rawDescription, status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees: parseAssignees(widgets), ...((boundHome ?? route.homeProject) === undefined ? {} : { homeProject: boundHome ?? route.homeProject }), ...hierarchy, ...linkedItems };
+  return { id: str(item, "id", context), iid, path, type: typeName(item.workItemType), title, rawDescription, nodeBlock: block, ...(nodeBlockData === undefined ? {} : { nodeBlockData }), ...(nodeBlockError === undefined ? {} : { nodeBlockError }), status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees: parseAssignees(widgets), ...((boundHome ?? route.homeProject) === undefined ? {} : { homeProject: boundHome ?? route.homeProject }), ...hierarchy, ...linkedItems };
 }
 function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraphNode {
   const completion = rec(value, "node completion"); const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt", "gatedNodeHash"] as const;
@@ -188,9 +193,9 @@ function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraph
 }
 
 function stateFrom(item: Item): NodeState {
-  const decoded = decodeNodeBlock(item.description);
+  const decoded = item.nodeBlock;
   const ref = nodeId(item.path, item.iid, item.type === "Epic" ? "&" : "#");
-  try { const raw = decoded.raw === undefined ? undefined : rec(JSON.parse(decoded.raw) as unknown, "node block"); const completion = raw?.completion; if (raw !== undefined) delete raw.completion; const parsed = raw === undefined ? { id: ref.id, title: item.title, autonomy: "approve" as const } : toNode(ref.id, parseNodeSpec({ ...raw, title: item.title })); const completed = completion === undefined ? parsed : withPersistedCompletion(parsed, completion); const node = item.type === "Epic" && completed.home === undefined && item.homeProject !== undefined ? { ...completed, home: item.homeProject } : completed; return { ref, node, typed: raw !== undefined, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
+  try { if (item.nodeBlockError !== undefined) throw new WorkGraphError("invalid-node", item.nodeBlockError); const raw = item.nodeBlockData === undefined ? undefined : { ...item.nodeBlockData }; const completion = raw?.completion; if (raw !== undefined) delete raw.completion; const parsed = raw === undefined ? { id: ref.id, title: item.title, autonomy: "approve" as const } : toNode(ref.id, parseNodeSpec({ ...raw, title: item.title })); const completed = completion === undefined ? parsed : withPersistedCompletion(parsed, completion); const node = item.type === "Epic" && completed.home === undefined && item.homeProject !== undefined ? { ...completed, home: item.homeProject } : completed; return { ref, node, typed: raw !== undefined, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
   catch (error) { return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) }; }
 }
 
@@ -253,6 +258,7 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
     } else {
       const type = parent.type === "Epic" ? "Issue" : parent.type === "Issue" ? "Task" : undefined;
       if (type === undefined) throw new WorkGraphError("invalid-node", `GitLab cannot create a child below ${parent.type || "this"} work item`);
+      if (parent.type === "Epic" && parent.nodeBlockError !== undefined) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has an invalid typed node block: ${parent.nodeBlockError}`);
       const parentHomeProject = parent.type === "Epic" ? parent.homeProject : parent.path;
       if (parentHomeProject === undefined || spec.storeData?.scopeProject !== undefined && parentHomeProject !== spec.storeData.scopeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under the selected repository`);
       validHomeProject(this.host, parentHomeProject, parent.type === "Epic" ? parent.path : undefined);
