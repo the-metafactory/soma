@@ -131,6 +131,14 @@ test("GitLab route metadata never appears in a node body", async () => {
   expect((await store.readNode({ id: "saca&1" })).body).toBe("Human text");
 });
 
+test("Epic receipt reads refuse a note that is not attached to that Epic", async () => {
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {
+    expect(String(request.body?.query)).not.toContain("note(id:$id)");
+    return { data: { namespace: { workItem: { widgets: [{ type: "NOTES", notes: { nodes: [{ id: "gid://gitlab/Note/elsewhere", author: { username: "ivy" } }], pageInfo: { hasNextPage: false } } }] } } } };
+  } });
+  await expect(store.readComment({ id: "gid://gitlab/Note/receipt", nodeId: "saca&1", author: "ivy" })).rejects.toThrow(/is not attached to saca&1/u);
+});
+
 test("an Epic root closes through work-item mutations, never an issue REST path", async () => {
   const calls: GitLabApiRequest[] = [];
   const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: "body", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
@@ -143,6 +151,7 @@ test("an Epic root closes through work-item mutations, never an issue REST path"
     return { data: { namespace: { workItem: epic } } };
   };
   await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport }).close({ id: "saca&1" }, { checkpointId: "cp", autonomy: "approve", closedBy: "ivy", at: "2026-09-24T00:00:00.000Z", evidence: [], probeResults: [], attestation: "unverified" });
+  expect(calls).toHaveLength(3);
   expect(calls.map((call) => String(call.body?.query)).some((query) => query.includes("createNote"))).toBe(true);
   expect(calls.map((call) => String(call.body?.query)).some((query) => query.includes("workItemUpdate"))).toBe(true);
 });
