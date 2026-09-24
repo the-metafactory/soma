@@ -99,7 +99,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <owner/name>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <owner/name>] [--json]",
-    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home <group/project>] [--body <text>|--body-file <path>] [--repo <forge:host/path>] [--json]",
+    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home-project <group/project>] [--body <text>|--body-file <path>] [--repo <forge:host/path>] [--json]",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <owner/name>]",
     audit: "Usage: soma graph audit <root> [--repo <owner/name>] [--json]",
@@ -302,8 +302,8 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
         options.spec.kind = readOption(rest, index, arg);
         index += 1;
         break;
-      case "--home":
-        options.spec.home = readOption(rest, index, arg);
+      case "--home-project":
+        options.spec.homeProject = readOption(rest, index, arg);
         index += 1;
         break;
       case "--body":

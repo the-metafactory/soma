@@ -594,7 +594,7 @@ interface GraphStore {
   award on the other, so each store names its acting identity and runs its own
   forge's conjunct-2 probe set, scoped to its host.
 - **GitLab work graphs are Epic → Issue → Task** (#534). `soma graph chart` creates a
-  typed root; a GitLab root must declare `home: <group/project>`, under its
+  typed root; a GitLab root must declare `homeProject: <group/project>`, under its
   Epic group. New route nodes go to that home project and scaffolds inherit
   their Issue's project. At the Task floor, `add` re-homes to the nearest Issue
   and records a native `relates_to` provenance edge.
@@ -624,7 +624,7 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
                                    # node without one can never close and no verb
                                    # attaches one later
 soma graph chart ...               # create a typed graph root; GitLab requires
-                                   # --home <group/project>
+                                   # --home-project <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;
                                    # --gist records the map index's one-line entry
 soma graph audit <root>            # what the gates cannot see: closed nodes with

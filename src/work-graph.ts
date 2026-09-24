@@ -120,7 +120,8 @@ export interface WorkGraphNodeBase {
   checkpointId?: string;
   budget?: NodeBudget;
   /** GitLab Epic maps declare their one creation project (#535 D5). */
-  home?: string;
+  /** GitLab project that receives an Epic root's Issue children. */
+  homeProject?: string;
 }
 
 /**
@@ -948,7 +949,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
   const autonomy = parseAutonomy(record.autonomy);
   const kind = normalizeKind(record.kind);
   const checkpointId = optionalString(record, "checkpointId", "invalid-node", "node spec");
-  const home = optionalString(record, "home", "invalid-node", "node spec");
+  const homeProject = optionalString(record, "homeProject", "invalid-node", "node spec");
   const budget = record.budget === undefined || record.budget === null ? undefined : parseBudget(record.budget);
   const body = optionalString(record, "body", "invalid-node", "node spec");
   const parentId = record.parent === undefined || record.parent === null
@@ -976,7 +977,7 @@ export function parseNodeSpec(input: unknown): CreateNodeSpec {
     title,
     ...(kind === undefined ? {} : { kind }),
     ...(checkpointId === undefined ? {} : { checkpointId }),
-    ...(home === undefined ? {} : { home }),
+    ...(homeProject === undefined ? {} : { homeProject }),
     ...(budget === undefined ? {} : { budget }),
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),

@@ -358,7 +358,7 @@ walked one node at a time, closed only through a checkpoint gate.
 soma graph frontier <root>   # open, unassigned, unblocked nodes — anywhere in the subtree
 soma graph node <id>         # its state and body
 soma graph claim <id>        # take it
-soma graph chart --title "…" --autonomy approve --checkpoint <id>  # create a typed map root
+soma graph chart --title "…" --autonomy approve --checkpoint <id>  # create a typed graph root
 soma graph add <root> --title "…" --autonomy approve --checkpoint <id>
 soma graph close <id> --resolution-file <path>
 soma graph audit <root>      # what the gates cannot see
