@@ -523,6 +523,17 @@ Arc installs the `soma` CLI on PATH. Verify the shim before continuing:
 soma --version
 ```
 
+`soma install <substrate> --apply` also activates a content-addressed CLI runtime
+in `~/.soma/runtime/cli/current`. After that, Arc's `soma` launcher executes
+this snapshot for normal commands and verifies its hash before graph commands.
+Install, reproject, and `soma runtime`
+remain source-backed recovery commands. `soma graph close` refuses to run from
+a source checkout or an invalid runtime. Inspect it with
+`soma runtime status --target cli`; if an upgrade is interrupted, use
+`soma runtime rollback --target cli` or rerun the install.
+The integrity check governs the installed PATH entrypoint; directly executing
+modified artifact code bypasses that entrypoint's check.
+
 If `arc upgrade soma` resolves the new version but refuses to replace an older
 active install, use Arc's remove-then-install recovery path:
 

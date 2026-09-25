@@ -1229,6 +1229,18 @@ test("installed codex pre-tool hook blocks runtime policy ask decisions", async 
 test("installed codex hook uses the frozen runtime artifact", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCodex({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+    expect((await readFile(join(somaHome, "runtime/cli/current/src/cli.ts"), "utf8"))).toContain("packageJson.version");
+    const launched = spawnSync(process.execPath, [resolve("src/cli-launcher.ts"), "--version"], {
+      cwd: resolve("."), env: { ...process.env, SOMA_HOME: somaHome }, encoding: "utf8",
+    });
+    expect(launched.status).toBe(0);
+    expect(launched.stdout).toMatch(/soma \d+\.\d+\.\d+/);
+    const sourceClose = spawnSync(process.execPath, [resolve("src/cli.ts"), "graph", "close", "1", "--repo", "github:github.com/the-metafactory/soma", "--resolution-file", join(homeDir, "missing.md")], {
+      cwd: resolve("."), env: { ...process.env, SOMA_HOME: somaHome }, encoding: "utf8",
+    });
+    expect(sourceClose.status).toBe(1);
+    expect(sourceClose.stderr).toContain("source checkout cannot enforce its own close");
     // The projection preserves its source reference, while the guarded hook
     // executes only the installed runtime/current artifact.
     const config = JSON.parse(

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface RuntimeArtifactState {
   active: string;
@@ -11,6 +12,11 @@ export interface RuntimeArtifactState {
 
 export const GUARDED_RUNTIME_SUBSTRATES = ["claude-code", "codex", "grok"] as const;
 export type GuardedRuntimeSubstrate = (typeof GUARDED_RUNTIME_SUBSTRATES)[number];
+export const RUNTIME_ARTIFACT_TARGETS = ["cli", ...GUARDED_RUNTIME_SUBSTRATES] as const;
+export type RuntimeArtifactTarget = (typeof RUNTIME_ARTIFACT_TARGETS)[number];
+export function isRuntimeArtifactTarget(target: string): target is RuntimeArtifactTarget {
+  return (RUNTIME_ARTIFACT_TARGETS as readonly string[]).includes(target);
+}
 export function isGuardedRuntimeSubstrate(substrate: string): substrate is GuardedRuntimeSubstrate {
   return (GUARDED_RUNTIME_SUBSTRATES as readonly string[]).includes(substrate);
 }
@@ -23,12 +29,12 @@ function runtimeArtifactStoreRoot(somaHome: string): string {
   return join(runtimeArtifactRoot(somaHome), "artifacts");
 }
 
-export function runtimeArtifactStatePath(somaHome: string, substrate: GuardedRuntimeSubstrate): string {
+export function runtimeArtifactStatePath(somaHome: string, substrate: RuntimeArtifactTarget): string {
   return join(runtimeArtifactRoot(somaHome), substrate, "active.json");
 }
 
 /** Stable, substrate-scoped hook target; it atomically resolves to a read-only deployment snapshot. */
-export function runtimeArtifactActivePath(somaHome: string, substrate: GuardedRuntimeSubstrate): string {
+export function runtimeArtifactActivePath(somaHome: string, substrate: RuntimeArtifactTarget): string {
   return join(runtimeArtifactRoot(somaHome), substrate, "current");
 }
 
@@ -45,7 +51,7 @@ async function assertArtifactTargetRoot(path: string): Promise<boolean> {
   }
 }
 
-async function activateRuntimeArtifact(somaHome: string, substrate: GuardedRuntimeSubstrate, hash: string): Promise<void> {
+async function activateRuntimeArtifact(somaHome: string, substrate: RuntimeArtifactTarget, hash: string): Promise<void> {
   const lifecycleRoot = dirname(runtimeArtifactActivePath(somaHome, substrate));
   const target = join(runtimeArtifactStoreRoot(somaHome), hash);
   if (!(await assertArtifactTargetRoot(target))) throw new Error(`runtime artifact target is missing: ${target}`);
@@ -89,7 +95,7 @@ async function loadArtifact(entry: string): Promise<boolean> {
   }
 }
 
-async function writeRuntimeArtifactState(somaHome: string, substrate: GuardedRuntimeSubstrate, state: RuntimeArtifactState): Promise<void> {
+async function writeRuntimeArtifactState(somaHome: string, substrate: RuntimeArtifactTarget, state: RuntimeArtifactState): Promise<void> {
   const statePath = runtimeArtifactStatePath(somaHome, substrate);
   await mkdir(dirname(statePath), { recursive: true });
   const pending = statePath + ".tmp";
@@ -114,8 +120,8 @@ async function sealArtifact(root: string): Promise<void> {
   await chmod(root, 0o755);
 }
 
-/** Refuse links and special files before hashing or copying an enforcement runtime. */
-async function assertRuntimeSourceTree(sourceRoot: string): Promise<void> {
+/** Hash the complete runtime in deterministic path order, rejecting links and special files. */
+async function sourceHash(sourceRoot: string): Promise<string> {
   const srcPath = join(sourceRoot, "src");
   const srcStat = await lstat(srcPath);
   if (srcStat.isSymbolicLink() || !srcStat.isDirectory()) {
@@ -126,41 +132,35 @@ async function assertRuntimeSourceTree(sourceRoot: string): Promise<void> {
   if (packageStat.isSymbolicLink() || !packageStat.isFile()) {
     throw new Error("runtime artifact source package.json must be a regular file");
   }
-  async function visit(directory: string): Promise<void> {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isSymbolicLink()) throw new Error(`runtime artifact source contains symlink: ${path}`);
-      if (entry.isDirectory()) await visit(path);
-      else if (!entry.isFile()) throw new Error(`runtime artifact source contains unsupported entry: ${path}`);
-    }
-  }
-  await visit(join(sourceRoot, "src"));
-}
-
-async function sourceHash(sourceRoot: string): Promise<string> {
-  await assertRuntimeSourceTree(sourceRoot);
   const hash = createHash("sha256");
   const frame = (type: string, path: string, bytes: Uint8Array = new Uint8Array()): void => {
     hash.update(`${type.length}:${type}${path.length}:${path}${bytes.byteLength}:`, "utf8");
     hash.update(bytes);
   };
+  const frames: { type: "dir" | "file"; path: string }[] = [];
   async function visit(directory: string, relative: string): Promise<void> {
-    frame("dir", relative);
+    frames.push({ type: "dir", path: relative });
     const entries = await readdir(directory, { withFileTypes: true });
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       const path = join(directory, entry.name);
       const child = relative.length === 0 ? entry.name : `${relative}/${entry.name}`;
       if (entry.isDirectory()) await visit(path, child);
-      else if (entry.isFile()) frame("file", child, await readFile(path));
+      else if (entry.isFile()) frames.push({ type: "file", path: child });
+      else if (entry.isSymbolicLink()) throw new Error(`runtime artifact source contains symlink: ${path}`);
       else throw new Error(`runtime artifact source contains unsupported entry: ${path}`);
     }
   }
   await visit(join(sourceRoot, "src"), "src");
-  frame("file", "package.json", await readFile(join(sourceRoot, "package.json")));
+  frames.push({ type: "file", path: "package.json" });
+  for (let start = 0; start < frames.length; start += 32) {
+    const batch = frames.slice(start, start + 32);
+    const contents = await Promise.all(batch.map(async (entry) => entry.type === "file" ? await readFile(join(sourceRoot, entry.path)) : undefined));
+    batch.forEach((entry, index) => { frame(entry.type, entry.path, contents[index]); });
+  }
   return hash.digest("hex");
 }
 
-export async function readRuntimeArtifactState(somaHome: string, substrate: GuardedRuntimeSubstrate): Promise<RuntimeArtifactState | undefined> {
+export async function readRuntimeArtifactState(somaHome: string, substrate: RuntimeArtifactTarget): Promise<RuntimeArtifactState | undefined> {
   try {
     const value: unknown = JSON.parse(await readFile(runtimeArtifactStatePath(somaHome, substrate), "utf8"));
     if (!value || typeof value !== "object" || typeof (value as { active?: unknown }).active !== "string") return undefined;
@@ -172,7 +172,7 @@ export async function readRuntimeArtifactState(somaHome: string, substrate: Guar
 async function pruneUnreferencedArtifacts(somaHome: string): Promise<void> {
   const store = runtimeArtifactStoreRoot(somaHome);
   const retained = new Set<string>();
-  for (const substrate of GUARDED_RUNTIME_SUBSTRATES) {
+  for (const substrate of RUNTIME_ARTIFACT_TARGETS) {
     const state = await readRuntimeArtifactState(somaHome, substrate);
     if (state !== undefined) {
       retained.add(state.active);
@@ -193,7 +193,7 @@ async function pruneUnreferencedArtifacts(somaHome: string): Promise<void> {
 }
 
 /** Stages a source-complete, content-addressed policy runtime and atomically activates one substrate. */
-export async function stageRuntimeArtifact(input: { somaHome: string; substrate: GuardedRuntimeSubstrate; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
+export async function stageRuntimeArtifact(input: { somaHome: string; target: RuntimeArtifactTarget; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
   const hash = await sourceHash(input.sourceRoot);
   const store = runtimeArtifactStoreRoot(input.somaHome);
   const target = join(store, hash);
@@ -223,12 +223,13 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
       }
       await rm(displaced, { recursive: true, force: true });
     }
-    const current = await readRuntimeArtifactState(input.somaHome, input.substrate);
-    const state: RuntimeArtifactState = { active: hash, ...(current?.active !== hash ? { previous: current?.active } : current?.previous ? { previous: current.previous } : {}) };
-    await activateRuntimeArtifact(input.somaHome, input.substrate, hash);
-    await writeRuntimeArtifactState(input.somaHome, input.substrate, state);
+    const current = await readRuntimeArtifactState(input.somaHome, input.target);
+    const previous = current?.active === hash ? current.previous : current?.active;
+    const state: RuntimeArtifactState = { active: hash, ...(previous ? { previous } : {}) };
+    await activateRuntimeArtifact(input.somaHome, input.target, hash);
+    await writeRuntimeArtifactState(input.somaHome, input.target, state);
     await pruneUnreferencedArtifacts(input.somaHome);
-    return { path: runtimeArtifactActivePath(input.somaHome, input.substrate), hash, ...(state.previous ? { previous: state.previous } : {}) };
+    return { path: runtimeArtifactActivePath(input.somaHome, input.target), hash, ...(state.previous ? { previous: state.previous } : {}) };
   } finally {
     // The shared store stays writable between installs; individual payload files
     // are read-only. Same-UID permissions are best-effort hardening, not a
@@ -237,8 +238,10 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
   }
 }
 
-/** Explicit local recovery inspection; it never fetches or rebuilds an artifact. */
-export async function inspectRuntimeArtifact(somaHome: string, substrate: GuardedRuntimeSubstrate): Promise<{ state?: RuntimeArtifactState; status: "missing-state" | "missing-active" | "unloadable" | "ready" }> {
+interface RuntimeArtifactInspection { state?: RuntimeArtifactState; status: "missing-state" | "missing-active" | "unloadable" | "ready" }
+
+/** Resolve the active artifact without reading its payload; ordinary CLI calls use this fast path. */
+export async function locateRuntimeArtifact(somaHome: string, substrate: RuntimeArtifactTarget): Promise<RuntimeArtifactInspection> {
   const state = await readRuntimeArtifactState(somaHome, substrate);
   if (!state) return { status: "missing-state" };
   const entry = join(runtimeArtifactStoreRoot(somaHome), state.active, "src", "cli.ts");
@@ -248,22 +251,46 @@ export async function inspectRuntimeArtifact(somaHome: string, substrate: Guarde
     const expectedPath = await realpath(entry);
     const activePath = await realpath(activeEntry);
     if (expectedPath !== activePath) return { state, status: "missing-active" };
-    if (!(await isValidArtifact(join(runtimeArtifactStoreRoot(somaHome), state.active), state.active))) return { state, status: "unloadable" };
   } catch {
     return { state, status: "missing-active" };
   }
   return { state, status: "ready" };
 }
 
-async function isValidArtifact(root: string, expectedHash: string): Promise<boolean> {
+/** Explicit local recovery inspection; it never fetches or rebuilds an artifact. */
+export async function inspectRuntimeArtifact(somaHome: string, substrate: RuntimeArtifactTarget, options: { load?: boolean } = {}): Promise<RuntimeArtifactInspection> {
+  const located = await locateRuntimeArtifact(somaHome, substrate);
+  if (located.status !== "ready" || !located.state) return located;
+  if (!(await isValidArtifact(join(runtimeArtifactStoreRoot(somaHome), located.state.active), located.state.active, options.load !== false))) {
+    return { state: located.state, status: "unloadable" };
+  }
+  return located;
+}
+
+/** Bind an intact graph CLI to the active, hash-checked tree at close time.
+ * The Arc launcher supplies the external check for PATH invocation. Directly
+ * executing already modified code remains outside this entrypoint's trust boundary.
+ */
+export async function assertActiveCliRuntime(somaHome: string, moduleUrl: string): Promise<string> {
+  const inspected = await inspectRuntimeArtifact(somaHome, "cli", { load: false });
+  if (inspected.status !== "ready" || !inspected.state) {
+    throw new Error(`valid installed CLI runtime required (${inspected.status})`);
+  }
+  const expected = await realpath(join(runtimeArtifactActivePath(somaHome, "cli"), "src", "cli", "graph.ts"));
+  const actual = await realpath(fileURLToPath(moduleUrl));
+  if (actual !== expected) throw new Error("active installed CLI runtime required; source checkout cannot enforce its own close");
+  return inspected.state.active;
+}
+
+async function isValidArtifact(root: string, expectedHash: string, load = true): Promise<boolean> {
   try {
-    return await sourceHash(root) === expectedHash && await loadArtifact(join(root, "src", "cli.ts"));
+    return await sourceHash(root) === expectedHash && (!load || await loadArtifact(join(root, "src", "cli.ts")));
   } catch {
     return false;
   }
 }
 
-export async function rollbackRuntimeArtifact(somaHome: string, substrate: GuardedRuntimeSubstrate): Promise<RuntimeArtifactState> {
+export async function rollbackRuntimeArtifact(somaHome: string, substrate: RuntimeArtifactTarget): Promise<RuntimeArtifactState> {
   const current = await readRuntimeArtifactState(somaHome, substrate);
   if (!current?.previous) throw new Error("No previous runtime artifact is available for rollback.");
   const priorRoot = join(runtimeArtifactStoreRoot(somaHome), current.previous);

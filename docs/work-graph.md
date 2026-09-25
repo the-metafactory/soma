@@ -1035,7 +1035,8 @@ scheduler (r3 evidence, folded from #485 fog).
   is the adopter's hand: `soma policy probes` reads, and there is no verb that
   adds an entry.
 - Graph-mutation events are an inspection surface beside `governance_event`.
-  Enforcement sits where mutations are applied (installed binary now, auditor
+  Enforcement sits where mutations are applied (the active content-addressed
+  CLI runtime for `graph close`, auditor
   in phase 2) and never executes from the tree it guards.
 
 ## 5. Execution story: tracker + Claude Code harness

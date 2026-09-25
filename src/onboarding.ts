@@ -311,7 +311,7 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
         id: runtime.status === "unloadable" ? "runtime-artifact-unloadable" : "runtime-artifact-missing",
         severity: "error",
         message: `Active enforcement artifact is ${runtime.status.replace(/-/g, " ")}; guarded hooks fail closed until it is restored.`,
-        action: `soma install ${substrate} --apply --home-dir ${shellQuote(detected.homeDir)} --soma-home ${shellQuote(detected.somaHome)}; if a retained artifact exists, run soma runtime rollback --substrate ${substrate} --soma-home ${shellQuote(detected.somaHome)}`,
+        action: `soma install ${substrate} --apply --home-dir ${shellQuote(detected.homeDir)} --soma-home ${shellQuote(detected.somaHome)}; if a retained artifact exists, run soma runtime rollback --target ${substrate} --soma-home ${shellQuote(detected.somaHome)}`,
       });
     }
   }

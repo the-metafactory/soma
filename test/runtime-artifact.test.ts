@@ -2,10 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { inspectRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
+import { pathToFileURL } from "node:url";
+import { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, locateRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
 import { runRuntimeCli } from "../src/cli/runtime";
 
 const roots: string[] = [];
+test("CLI is a runtime target, not a substrate", () => {
+  expect(isRuntimeArtifactTarget("cli")).toBe(true);
+  expect(isGuardedRuntimeSubstrate("cli")).toBe(false);
+});
 async function makeWritable(path: string): Promise<void> {
   await chmod(path, 0o755).catch(() => undefined);
   for (const entry of await readdir(path, { withFileTypes: true }).catch(() => [])) {
@@ -30,7 +35,7 @@ test("refuses a symlinked runtime src root before hashing or staging", async () 
   await mkdir(outside);
   await rm(join(source, "src"), { recursive: true });
   await symlink(outside, join(source, "src"));
-  await expect(stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source })).rejects.toThrow(/src must be a non-symlink directory/);
+  await expect(stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source })).rejects.toThrow(/src must be a non-symlink directory/);
 });
 
 test("refuses a symlink in the runtime source tree before hashing or staging", async () => {
@@ -38,7 +43,7 @@ test("refuses a symlink in the runtime source tree before hashing or staging", a
   const outside = join(root, "outside.ts");
   await writeFile(outside, "export const escaped = true;\n");
   await symlink(outside, join(source, "src", "escaped.ts"));
-  await expect(stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source })).rejects.toThrow(/symlink/);
+  await expect(stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source })).rejects.toThrow(/symlink/);
   await expect(stat(join(home, "runtime"))).rejects.toThrow();
 });
 
@@ -48,7 +53,7 @@ test("refuses a symlinked runtime package manifest before hashing or staging", a
   await writeFile(outside, "{}\n");
   await rm(join(source, "package.json"));
   await symlink(outside, join(source, "package.json"));
-  await expect(stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source })).rejects.toThrow(/package.json must be a regular file/);
+  await expect(stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source })).rejects.toThrow(/package.json must be a regular file/);
 });
 
 test("framed runtime manifest distinguishes ambiguous path layouts", async () => {
@@ -58,33 +63,48 @@ test("framed runtime manifest distinguishes ambiguous path layouts", async () =>
   await writeFile(join(left.source, "src", "a", "bc"), "same");
   await mkdir(join(right.source, "src", "ab"));
   await writeFile(join(right.source, "src", "ab", "c"), "same");
-  const first = await stageRuntimeArtifact({ somaHome: left.home, substrate: "codex", sourceRoot: left.source });
-  const second = await stageRuntimeArtifact({ somaHome: right.home, substrate: "codex", sourceRoot: right.source });
+  const first = await stageRuntimeArtifact({ somaHome: left.home, target: "codex", sourceRoot: left.source });
+  const second = await stageRuntimeArtifact({ somaHome: right.home, target: "codex", sourceRoot: right.source });
   expect(first.hash).not.toBe(second.hash);
 });
 
 
 test("stages an immutable source-complete artifact and atomically activates it", async () => {
   const { source, home } = await fixture();
-  const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const staged = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   expect(await readFile(join(staged.path, "src", "cli.ts"), "utf8")).toContain("cli = true");
   expect((await readRuntimeArtifactState(home, "codex"))?.active).toBe(staged.hash);
   expect(await readFile(join(home, "runtime/codex/current/src/cli.ts"), "utf8")).toContain("cli = true");
 });
+
+test("graph close accepts only the active hash-checked CLI module", async () => {
+  const { source, home } = await fixture();
+  await mkdir(join(source, "src", "cli"));
+  await writeFile(join(source, "src", "cli", "graph.ts"), "export const graph = true;\n");
+  const staged = await stageRuntimeArtifact({ somaHome: home, target: "cli", sourceRoot: source });
+  const activeModule = pathToFileURL(join(staged.path, "src", "cli", "graph.ts")).href;
+  const sourceModule = pathToFileURL(join(source, "src", "cli", "graph.ts")).href;
+  expect(await assertActiveCliRuntime(home, activeModule)).toBe(staged.hash);
+  await expect(assertActiveCliRuntime(home, sourceModule)).rejects.toThrow(/source checkout/);
+  await makeWritable(staged.path);
+  await writeFile(join(staged.path, "src", "cli", "graph.ts"), "export const graph = false;\n");
+  expect((await locateRuntimeArtifact(home, "cli")).status).toBe("ready");
+  await expect(assertActiveCliRuntime(home, activeModule)).rejects.toThrow(/valid installed CLI runtime required/);
+});
 test("retains and explicitly rolls back the selected substrate predecessor", async () => {
   const { source, home } = await fixture();
-  const first = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const first = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await writeFile(join(source, "src", "cli.ts"), "export const cli = false;\n");
-  const second = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const second = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   expect(second.previous).toBe(first.hash);
   expect((await rollbackRuntimeArtifact(home, "codex")).active).toBe(first.hash);
-  expect(await runRuntimeCli({ command: "runtime", action: "rollback", substrate: "codex", somaHome: home })).toContain(second.hash);
+  expect(await runRuntimeCli({ command: "runtime", action: "rollback", target: "codex", somaHome: home })).toContain(second.hash);
 });
 test("keeps guarded substrate activations independent", async () => {
   const { source, home } = await fixture();
-  const codex = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const codex = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await writeFile(join(source, "src", "cli.ts"), "export const cli = false;\n");
-  const claude = await stageRuntimeArtifact({ somaHome: home, substrate: "claude-code", sourceRoot: source });
+  const claude = await stageRuntimeArtifact({ somaHome: home, target: "claude-code", sourceRoot: source });
   expect(await readFile(join(home, "runtime/codex/current/src/cli.ts"), "utf8")).toContain("cli = true");
   expect(await readFile(join(home, "runtime/claude-code/current/src/cli.ts"), "utf8")).toContain("cli = false");
   expect((await readRuntimeArtifactState(home, "codex"))?.active).toBe(codex.hash);
@@ -95,28 +115,28 @@ test("keeps guarded substrate activations independent", async () => {
 test("reports missing and unloadable active artifacts", async () => {
   const { source, home } = await fixture();
   expect((await inspectRuntimeArtifact(home, "codex")).status).toBe("missing-state");
-  const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const staged = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await makeWritable(staged.path);
   await writeFile(join(staged.path, "src", "cli.ts"), "this is not valid TypeScript");
   expect((await inspectRuntimeArtifact(home, "codex")).status).toBe("unloadable");
 });
 test("detects and replaces valid-TypeScript artifact tampering", async () => {
   const { source, home } = await fixture();
-  const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const staged = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await makeWritable(staged.path);
   await writeFile(join(staged.path, "src", "cli.ts"), "export const cli = false;\n");
   expect((await inspectRuntimeArtifact(home, "codex")).status).toBe("unloadable");
-  const restored = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const restored = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   expect(restored.hash).toBe(staged.hash);
   expect(await readFile(join(restored.path, "src", "cli.ts"), "utf8")).toContain("cli = true");
   expect((await inspectRuntimeArtifact(home, "codex")).status).toBe("ready");
 });
 test("replaces an incomplete existing target on reinstall", async () => {
   const { source, home } = await fixture();
-  const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const staged = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await makeWritable(staged.path);
   await rm(join(staged.path, "package.json"));
-  const restored = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const restored = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   expect(restored.hash).toBe(staged.hash);
   expect(await readFile(join(restored.path, "package.json"), "utf8")).toBe("{}\n");
   expect((await inspectRuntimeArtifact(home, "codex")).status).toBe("ready");
@@ -125,7 +145,7 @@ test("seals payload files read-only and keeps directories writable", async () =>
   const { source, home } = await fixture();
   await mkdir(join(source, "src", "nested"), { recursive: true });
   await writeFile(join(source, "src", "nested", "extra.ts"), "export const nested = true;\n");
-  const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const staged = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   // Payload files are read-only; directories stay writable so cleanup and atomic
   // replacement work. Same-UID permissions are detection, not prevention.
   for (const path of [join(staged.path, "src", "cli.ts"), join(staged.path, "package.json")]) {
@@ -138,9 +158,9 @@ test("seals payload files read-only and keeps directories writable", async () =>
 });
 test("refuses rollback to a corrupted predecessor and preserves the current pointer", async () => {
   const { source, home } = await fixture();
-  const first = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const first = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await writeFile(join(source, "src", "cli.ts"), "export const cli = false;\n");
-  const second = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const second = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await makeWritable(join(home, "runtime", "artifacts", first.hash));
   await writeFile(join(home, "runtime", "artifacts", first.hash, "src", "cli.ts"), "export const cli = 'tampered';\n");
   const before = await readRuntimeArtifactState(home, "codex");
@@ -153,11 +173,11 @@ test("refuses rollback to a corrupted predecessor and preserves the current poin
 
 test("prunes artifacts unreferenced by every guarded substrate state", async () => {
   const { source, home } = await fixture();
-  const first = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const first = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await writeFile(join(source, "src", "cli.ts"), "export const cli = 'second';\n");
-  const second = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const second = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   await writeFile(join(source, "src", "cli.ts"), "export const cli = 'third';\n");
-  const third = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
+  const third = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
   const hashes = (await readdir(join(home, "runtime", "artifacts"), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
   expect(hashes).toEqual([second.hash, third.hash].sort());

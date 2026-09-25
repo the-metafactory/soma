@@ -27,9 +27,11 @@
  * cannot substitute for either.
  */
 
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import packageJson from "../../package.json";
+import { assertActiveCliRuntime } from "../runtime-artifact";
 
 const SOMA_VERSION: string = packageJson.version;
 
@@ -567,9 +569,10 @@ export interface GraphCliDeps {
   describeProbeTree: (cwd: string) => Promise<ProbeTree>;
   readTextFile: (path: string) => Promise<string>;
   /** The receipt's `closedWith` stamp — version, source, best-effort commit. Injected so tests stay hermetic. */
-  describeTool: (fromDevTree: boolean) => Promise<string>;
+  describeTool: (fromDevTree: boolean, runtimeHash?: string) => Promise<string>;
   now: () => Date;
-  warn: (message: string) => void;
+  /** Fail before any close write unless this module is in the active, valid CLI artifact. */
+  assertInstalledRuntime: () => Promise<string | undefined>;
   /** True when the running CLI is the dev tree rather than the installed binary (§1 clause 5). */
   fromDevTree: boolean;
 }
@@ -749,10 +752,17 @@ function defaultDeps(): GraphCliDeps {
     readTextFile: async (path) => await Bun.file(path).text(),
     describeTool: defaultDescribeTool,
     now: () => new Date(),
-    warn: (message) => process.stderr.write(`${message}\n`),
-    // The dev tree ships `src/`; an installed soma does not run from one.
-    fromDevTree: import.meta.url.includes("/src/cli/"),
+    assertInstalledRuntime: defaultAssertInstalledRuntime,
+    fromDevTree: !import.meta.url.includes("/runtime/cli/current/") && !import.meta.url.includes("/runtime/artifacts/"),
   };
+}
+
+async function defaultAssertInstalledRuntime(): Promise<string> {
+  const somaHome = resolve(process.env.SOMA_HOME ?? `${homedir()}/.soma`);
+  try { return await assertActiveCliRuntime(somaHome, import.meta.url); }
+  catch (error) {
+    throw new SomaCliError(`soma graph close requires the active installed CLI runtime: ${error instanceof Error ? error.message : String(error)}. Run soma install <substrate> --apply or soma runtime rollback --target cli.`, 1);
+  }
 }
 
 /**
@@ -763,8 +773,9 @@ function defaultDeps(): GraphCliDeps {
  * "enforced" are different dates, and before this stamp the only way to tell
  * which rules produced a receipt was to grep the installed tree).
  */
-async function defaultDescribeTool(fromDevTree: boolean): Promise<string> {
+async function defaultDescribeTool(fromDevTree: boolean, runtimeHash?: string): Promise<string> {
   const source = fromDevTree ? "dev tree" : "installed";
+  if (!fromDevTree && runtimeHash) return `soma ${SOMA_VERSION} @ sha256:${runtimeHash.slice(0, 12)} (${source})`;
   // src/cli/graph.ts → the tree root is two directories up.
   const toolRoot = resolve(new URL(".", import.meta.url).pathname, "..", "..");
   try {
@@ -1015,6 +1026,7 @@ async function runClose(
   repoRef: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
+  const runtimeHash = await deps.assertInstalledRuntime();
   const repo = displayRepo(repoRef);
   const ref: NodeRef = { id: parsed.target };
   const state = await graph.readNode(ref);
@@ -1048,12 +1060,6 @@ async function runClose(
     ]
       .filter((line) => line !== undefined)
       .join("\n");
-  }
-
-  if (deps.fromDevTree) {
-    deps.warn(
-      "Warning: `soma graph close` is running from the dev tree. §1 clause 5 puts enforcement in the installed binary — a close gated by the tree it guards is not gated.",
-    );
   }
 
   // `assertClosable` counts any admissible-kind entry carrying a pointer, and it
@@ -1289,7 +1295,7 @@ async function runClose(
   const receipt: CloseReceipt = {
     checkpointId: parsed.options.checkpointId ?? state.node.checkpointId ?? "",
     closedBy: identity,
-    closedWith: await deps.describeTool(deps.fromDevTree),
+    closedWith: await deps.describeTool(deps.fromDevTree, runtimeHash),
     at: deps.now().toISOString(),
     ...(resolution === undefined ? {} : { resolution }),
     ...(parsed.options.gist === undefined ? {} : { gist: parsed.options.gist }),

@@ -22,7 +22,7 @@ runtime:
 provides:
   cli:
     - name: soma
-      command: bun src/cli.ts
+      command: bun src/cli-launcher.ts
       description: Soma CLI for initialization, projection, diagnosis, memory, and Algorithm runs.
   skill:
     - name: Soma

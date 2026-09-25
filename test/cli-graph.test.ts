@@ -201,7 +201,7 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
     // Hermetic: the default shells out to git for the tool stamp.
     describeTool: async () => "soma 0.0.0-test (dev tree)",
     now: () => AT,
-    warn: () => undefined,
+    assertInstalledRuntime: async () => undefined,
     fromDevTree: false,
     ...overrides,
   };
@@ -1469,15 +1469,13 @@ test("reading is not executing — node and frontier never consult the registry"
   expect(frontier).toContain("- 520");
 });
 
-test("closing from the dev tree warns that the gate is not where §1 clause 5 puts it", async () => {
+test("closing refuses before reading the node when the installed runtime is invalid", async () => {
   const store = autoGraph();
-  const warnings: string[] = [];
-  await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
-    fromDevTree: true,
-    warn: (message) => warnings.push(message),
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store, {
+    assertInstalledRuntime: async () => { throw new Error("installed runtime invalid"); },
   });
-
-  expect(warnings.join(" ")).toContain("installed binary");
+  expect(message).toContain("installed runtime invalid");
+  expect(store.closed).toHaveLength(0);
 });
 
 test("a closed node is not closed twice", async () => {
