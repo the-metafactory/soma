@@ -244,8 +244,10 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
   }
 }
 
-/** Explicit local recovery inspection; it never fetches or rebuilds an artifact. */
-export async function inspectRuntimeArtifact(somaHome: string, substrate: RuntimeArtifactTarget, options: { load?: boolean } = {}): Promise<{ state?: RuntimeArtifactState; status: "missing-state" | "missing-active" | "unloadable" | "ready" }> {
+interface RuntimeArtifactInspection { state?: RuntimeArtifactState; status: "missing-state" | "missing-active" | "unloadable" | "ready" }
+
+/** Resolve the active artifact without reading its payload; ordinary CLI calls use this fast path. */
+export async function locateRuntimeArtifact(somaHome: string, substrate: RuntimeArtifactTarget): Promise<RuntimeArtifactInspection> {
   const state = await readRuntimeArtifactState(somaHome, substrate);
   if (!state) return { status: "missing-state" };
   const entry = join(runtimeArtifactStoreRoot(somaHome), state.active, "src", "cli.ts");
@@ -255,11 +257,20 @@ export async function inspectRuntimeArtifact(somaHome: string, substrate: Runtim
     const expectedPath = await realpath(entry);
     const activePath = await realpath(activeEntry);
     if (expectedPath !== activePath) return { state, status: "missing-active" };
-    if (!(await isValidArtifact(join(runtimeArtifactStoreRoot(somaHome), state.active), state.active, options.load !== false))) return { state, status: "unloadable" };
   } catch {
     return { state, status: "missing-active" };
   }
   return { state, status: "ready" };
+}
+
+/** Explicit local recovery inspection; it never fetches or rebuilds an artifact. */
+export async function inspectRuntimeArtifact(somaHome: string, substrate: RuntimeArtifactTarget, options: { load?: boolean } = {}): Promise<RuntimeArtifactInspection> {
+  const located = await locateRuntimeArtifact(somaHome, substrate);
+  if (located.status !== "ready" || !located.state) return located;
+  if (!(await isValidArtifact(join(runtimeArtifactStoreRoot(somaHome), located.state.active), located.state.active, options.load !== false))) {
+    return { state: located.state, status: "unloadable" };
+  }
+  return located;
 }
 
 /** Bind a graph close to the exact, hash-checked CLI tree selected at invocation. */

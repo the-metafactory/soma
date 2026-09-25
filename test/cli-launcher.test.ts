@@ -26,7 +26,7 @@ test("Arc launcher executes the active CLI snapshot and fails closed without one
 
     await chmod(join(staged.path, "src", "cli.ts"), 0o644);
     await writeFile(join(staged.path, "src", "cli.ts"), "console.log('TAMPERED CLI');\n");
-    const tampered = spawnSync(process.execPath, [launcher, "graph", "node", "1"], { env, encoding: "utf8" });
+    const tampered = spawnSync(process.execPath, [launcher, "graph", "close", "1"], { env, encoding: "utf8" });
     expect(tampered.status).toBe(1);
     expect(tampered.stderr).toContain("CLI runtime is unloadable");
     expect(tampered.stdout).not.toContain("TAMPERED CLI");

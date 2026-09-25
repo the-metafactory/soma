@@ -3,7 +3,7 @@ import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
+import { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, locateRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
 import { runRuntimeCli } from "../src/cli/runtime";
 
 const roots: string[] = [];
@@ -88,6 +88,7 @@ test("graph close accepts only the active hash-checked CLI module", async () => 
   await expect(assertActiveCliRuntime(home, sourceModule)).rejects.toThrow(/source checkout/);
   await makeWritable(staged.path);
   await writeFile(join(staged.path, "src", "cli", "graph.ts"), "export const graph = false;\n");
+  expect((await locateRuntimeArtifact(home, "cli")).status).toBe("ready");
   await expect(assertActiveCliRuntime(home, activeModule)).rejects.toThrow(/valid installed CLI runtime required/);
 });
 test("retains and explicitly rolls back the selected substrate predecessor", async () => {
