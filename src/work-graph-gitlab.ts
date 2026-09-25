@@ -48,7 +48,8 @@ export interface GlabCliTransportOptions { binary?: string; cwd?: string; hostna
 export function glabApiArgs(request: GitLabApiRequest, hostname: string): string[] {
   const args = ["api", request.path, "--hostname", hostname, "--method", request.method];
   if (request.paginate) args.push("--paginate", "--slurp");
-  if (request.body !== undefined) args.push("--input", "-");
+  // glab sends a piped body without a JSON content type, which GitLab GraphQL reads as an empty document.
+  if (request.body !== undefined) args.push("--input", "-", "--header", "Content-Type: application/json");
   return args;
 }
 export function parseGlabApiOutput(stdout: string, request: GitLabApiRequest): unknown {
@@ -215,8 +216,8 @@ function stateFrom(item: Item): NodeState {
   }
 }
 
-const ITEM_FIELDS = `id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}}`;
-const SUBTREE_ITEM_FIELDS = `id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}} children(first:100){nodes{iid namespace{fullPath} workItemType{name}} pageInfo{hasNextPage}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}}`;
+const ITEM_FIELDS = `id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}`;
+const SUBTREE_ITEM_FIELDS = `id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}} children(first:100){nodes{iid namespace{fullPath} workItemType{name}} pageInfo{hasNextPage}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}`;
 const ITEM_QUERY = `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){${ITEM_FIELDS}}}}`;
 const SUBTREE_ITEM_QUERY = `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){${SUBTREE_ITEM_FIELDS}}}}`;
 function defaultConfinement(): ConfinementDeps { return { runCommand, env: process.env, platform: process.platform, now: () => new Date() }; }

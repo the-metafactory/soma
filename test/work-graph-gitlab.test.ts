@@ -352,3 +352,28 @@ test("malformed GitLab node ids refuse before transport", async () => {
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async () => { throw new Error("must not run"); } });
   expect(store.readNode({ id: "12" })).rejects.toThrow(WorkGraphError);
 });
+
+test("glab transport marks a piped body as JSON", () => {
+  // Without the header GitLab GraphQL reads the piped body as an empty document (live glab 1.80.4).
+  const request: GitLabApiRequest = { method: "POST", path: "graphql", body: { query: "query{currentUser{username}}" } };
+  expect(glabApiArgs(request, "gitlab-int.switch.ch")).toEqual(["api", "graphql", "--hostname", "gitlab-int.switch.ch", "--method", "POST", "--input", "-", "--header", "Content-Type: application/json"]);
+});
+
+test("every GraphQL document in the GitLab store is balanced", async () => {
+  // Fake transports never parse a query, so an unbalanced document only fails against a live server.
+  const source = await Bun.file(new URL("../src/work-graph-gitlab.ts", import.meta.url)).text();
+  const documents = [
+    ...[...source.matchAll(/const (\w+_FIELDS) = `([^`]*)`/gu)].map((match) => ({ name: match[1]!, text: match[2]! })),
+    ...[...source.matchAll(/`((?:query|mutation)[({][^`]*)`/gu)].map((match) => ({ name: match[1]!.slice(0, 40), text: match[1]! })),
+  ];
+  expect(documents.length).toBeGreaterThan(5);
+  for (const { name, text } of documents) {
+    let braces = 0; let parens = 0;
+    for (const char of text) {
+      braces += char === "{" ? 1 : char === "}" ? -1 : 0;
+      parens += char === "(" ? 1 : char === ")" ? -1 : 0;
+      expect({ name, braces: Math.min(braces, 0), parens: Math.min(parens, 0) }).toEqual({ name, braces: 0, parens: 0 });
+    }
+    expect({ name, braces, parens }).toEqual({ name, braces: 0, parens: 0 });
+  }
+});
