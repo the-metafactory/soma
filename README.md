@@ -528,8 +528,8 @@ in `~/.soma/runtime/cli/current`. After that, Arc's `soma` launcher executes
 this snapshot for normal commands. Install, reproject, and `soma runtime`
 remain source-backed recovery commands. `soma graph close` refuses to run from
 a source checkout or an invalid runtime. Inspect it with
-`soma runtime status --substrate cli`; if an upgrade is interrupted, use
-`soma runtime rollback --substrate cli` or rerun the install.
+`soma runtime status --target cli`; if an upgrade is interrupted, use
+`soma runtime rollback --target cli` or rerun the install.
 
 If `arc upgrade soma` resolves the new version but refuses to replace an older
 active install, use Arc's remove-then-install recovery path:

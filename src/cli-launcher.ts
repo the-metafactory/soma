@@ -8,16 +8,17 @@ const maintenance = new Set(["init", "install", "reproject", "upgrade", "runtime
 const sourceEntry = join(import.meta.dir, "cli.ts");
 const homeFlag = args.indexOf("--soma-home");
 const somaHome = resolve(homeFlag >= 0 && args[homeFlag + 1] ? args[homeFlag + 1] : process.env.SOMA_HOME ?? join(homedir(), ".soma"));
-const frozenEntry = join(somaHome, "runtime", "cli", "current", "src", "cli.ts");
-
-let entry = frozenEntry;
+let entry = sourceEntry;
 if (maintenance.has(args[0] ?? "")) entry = sourceEntry;
 else {
-  const runtime = await inspectRuntimeArtifact(somaHome, "cli");
-  if (runtime.status !== "ready") {
+  const runtime = await inspectRuntimeArtifact(somaHome, "cli", { load: false });
+  if (runtime.status === "ready" && runtime.state) {
+    // Pin the verified content hash; a concurrent activation cannot redirect this invocation.
+    entry = join(somaHome, "runtime", "artifacts", runtime.state.active, "src", "cli.ts");
+  } else {
     if (args.length === 0 || args[0] === "--help" || args[0] === "--version") entry = sourceEntry;
     else {
-      process.stderr.write(`Soma CLI runtime is ${runtime.status}. Run \`soma install <substrate> --apply\` or \`soma runtime rollback --substrate cli\` to recover.\n`);
+      process.stderr.write(`Soma CLI runtime is ${runtime.status}. Run \`soma install <substrate> --apply\` or \`soma runtime rollback --target cli\` to recover.\n`);
       process.exit(1);
     }
   }

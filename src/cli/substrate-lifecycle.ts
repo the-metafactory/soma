@@ -39,6 +39,7 @@ import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-o
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
 import { invocationCwd } from "../path-utils";
+import { isGuardedRuntimeSubstrate } from "../runtime-artifact";
 import { loadSomaHome } from "../soma-home";
 import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";
 import type {
@@ -758,7 +759,7 @@ export function formatInstallResult(result: SomaInstallResult): string {
     `substrate: ${result.substrate}`,
     `somaHome: ${result.somaHome.somaHome}`,
     `substrateHome: ${result.substrateHome.rootDir}`,
-    ...(result.runtimeArtifact ? [`runtimeArtifact: ${result.runtimeArtifact.hash} (${result.runtimeArtifact.path})`, `runtimeRollback: soma runtime rollback --soma-home ${result.somaHome.somaHome}`] : []),
+    ...(result.runtimeArtifact ? [`runtimeArtifact: ${result.runtimeArtifact.hash} (${result.runtimeArtifact.path})`, `runtimeRollback: soma runtime rollback --target ${isGuardedRuntimeSubstrate(result.substrate) ? result.substrate : "cli"} --soma-home ${result.somaHome.somaHome}`] : []),
     "",
     "Soma files:",
     ...result.somaHome.files.map((path) => `- ${path}`),

@@ -3,10 +3,14 @@ import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { assertActiveCliRuntime, inspectRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
+import { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
 import { runRuntimeCli } from "../src/cli/runtime";
 
 const roots: string[] = [];
+test("CLI is a runtime target, not a substrate", () => {
+  expect(isRuntimeArtifactTarget("cli")).toBe(true);
+  expect(isGuardedRuntimeSubstrate("cli")).toBe(false);
+});
 async function makeWritable(path: string): Promise<void> {
   await chmod(path, 0o755).catch(() => undefined);
   for (const entry of await readdir(path, { withFileTypes: true }).catch(() => [])) {
@@ -93,7 +97,7 @@ test("retains and explicitly rolls back the selected substrate predecessor", asy
   const second = await stageRuntimeArtifact({ somaHome: home, substrate: "codex", sourceRoot: source });
   expect(second.previous).toBe(first.hash);
   expect((await rollbackRuntimeArtifact(home, "codex")).active).toBe(first.hash);
-  expect(await runRuntimeCli({ command: "runtime", action: "rollback", substrate: "codex", somaHome: home })).toContain(second.hash);
+  expect(await runRuntimeCli({ command: "runtime", action: "rollback", target: "codex", somaHome: home })).toContain(second.hash);
 });
 test("keeps guarded substrate activations independent", async () => {
   const { source, home } = await fixture();

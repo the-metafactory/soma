@@ -763,7 +763,7 @@ async function defaultAssertInstalledRuntime(): Promise<string> {
   const somaHome = resolve(process.env.SOMA_HOME ?? `${homedir()}/.soma`);
   try { return await assertActiveCliRuntime(somaHome, import.meta.url); }
   catch (error) {
-    throw new SomaCliError(`soma graph close requires the active installed CLI runtime: ${error instanceof Error ? error.message : String(error)}. Run soma install <substrate> --apply or soma runtime rollback --substrate cli.`, 1);
+    throw new SomaCliError(`soma graph close requires the active installed CLI runtime: ${error instanceof Error ? error.message : String(error)}. Run soma install <substrate> --apply or soma runtime rollback --target cli.`, 1);
   }
 }
 
