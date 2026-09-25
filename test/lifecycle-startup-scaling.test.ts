@@ -74,3 +74,36 @@ test("session startup reconciles a long Algorithm history from the work index", 
     await rm(homeDir, { recursive: true, force: true });
   }
 });
+
+test("session startup sees a run changed during work-index construction", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-startup-index-race-"));
+  try {
+    await bootstrapSomaHome({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+    const run = createAlgorithmRun({
+      id: "racing-run",
+      prompt: "Race fixture",
+      intent: "Show a concurrent update",
+      currentState: "Complete",
+      goal: "Visible if reactivated",
+      criteria: [{ id: "C1", text: "Startup includes the run" }],
+    });
+    const complete = { ...run, vsa: { ...run.vsa, frontmatter: { ...run.vsa.frontmatter, phase: "complete" as const } } };
+    const runPath = (await writeAlgorithmRun(complete, { somaHome })).path;
+    const { path: indexPath } = await writeAlgorithmWorkIndex({ somaHome });
+    const index = JSON.parse(await readFile(indexPath, "utf8"));
+    index.scanStartedAt = new Date(Date.now() - 10_000).toISOString();
+
+    const active = { ...complete, updatedAt: "2026-10-03T00:00:00.000Z", vsa: { ...complete.vsa, frontmatter: { ...complete.vsa.frontmatter, phase: "observe" as const } } };
+    await writeAlgorithmRun(active, { somaHome });
+    await writeFile(indexPath, JSON.stringify(index), "utf8");
+    const later = new Date(Date.now() + 10_000);
+    await utimes(indexPath, later, later);
+
+    const startup = await buildSomaStartupContext({ somaHome });
+    expect(startup.activeRuns.map((summary) => summary.id)).toContain("racing-run");
+    expect(startup.activeRuns[0]?.path).toBe(runPath);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});

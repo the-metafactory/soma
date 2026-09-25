@@ -231,9 +231,11 @@ export async function buildSomaStartupContext(options: SomaLifecycleOptions = {}
 export async function writeAlgorithmWorkIndex(options: SomaLifecycleOptions = {}): Promise<{ path: string; activePath: string; index: AlgorithmWorkIndex }> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
+  const scanStartedAt = new Date().toISOString();
   const runs = await listAlgorithmRunSummaries({ somaHome });
   const index: AlgorithmWorkIndex = {
     updatedAt: timestamp,
+    scanStartedAt,
     runs,
   };
   const path = join(somaHome, "memory/STATE/algorithm-work-index.json");

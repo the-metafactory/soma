@@ -2614,6 +2614,8 @@ export interface SomaStartupContext {
 
 export interface AlgorithmWorkIndex {
   updatedAt: string;
+  /** Actual scan start, independent of caller-supplied event timestamps. */
+  scanStartedAt?: string;
   runs: AlgorithmRunSummary[];
 }
 

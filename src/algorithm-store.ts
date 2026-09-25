@@ -310,8 +310,10 @@ export async function listAlgorithmRunSummaries(options: AlgorithmStoreOptions =
 /**
  * SessionStart reads the already-produced work index and reconciles it with the
  * run directory. The common path stats each run but parses no run bodies; files
- * changed since the index was written are loaded individually. A missing or
- * malformed index falls back to the authoritative full scan.
+ * changed since the index scan began are loaded individually. A missing or
+ * legacy index without that scan boundary falls back to the authoritative
+ * full scan. The index file's write time is too late: a run can change after
+ * being scanned but before the index write finishes.
  */
 export async function listStartupAlgorithmRunSummaries(options: AlgorithmStoreOptions = {}): Promise<AlgorithmRunSummary[]> {
   const runsDir = resolveAlgorithmRunsDir(options);
@@ -320,7 +322,7 @@ export async function listStartupAlgorithmRunSummaries(options: AlgorithmStoreOp
   let indexedAt: bigint;
   try {
     const before = await stat(indexPath, { bigint: true });
-    const parsed = JSON.parse(await readFile(indexPath, "utf8")) as { runs?: unknown };
+    const parsed = JSON.parse(await readFile(indexPath, "utf8")) as { runs?: unknown; scanStartedAt?: unknown };
     const after = await stat(indexPath, { bigint: true });
     if (before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || before.size !== after.size) {
       return listAlgorithmRunSummaries(options);
@@ -328,8 +330,12 @@ export async function listStartupAlgorithmRunSummaries(options: AlgorithmStoreOp
     if (!Array.isArray(parsed.runs) || !parsed.runs.every((run) => isIndexedRunSummary(run, runsDir))) {
       return listAlgorithmRunSummaries(options);
     }
+    const scanStartedMs = typeof parsed.scanStartedAt === "string" ? Date.parse(parsed.scanStartedAt) : NaN;
+    if (!Number.isFinite(scanStartedMs) || BigInt(scanStartedMs) * 1_000_000n > after.mtimeNs) {
+      return listAlgorithmRunSummaries(options);
+    }
     cached = parsed.runs;
-    indexedAt = after.mtimeNs;
+    indexedAt = BigInt(scanStartedMs) * 1_000_000n;
   } catch {
     return listAlgorithmRunSummaries(options);
   }
