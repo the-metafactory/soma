@@ -152,8 +152,11 @@ async function sourceHash(sourceRoot: string): Promise<string> {
   }
   await visit(join(sourceRoot, "src"), "src");
   frames.push({ type: "file", path: "package.json" });
-  const contents = await Promise.all(frames.map(async (entry) => entry.type === "file" ? await readFile(join(sourceRoot, entry.path)) : undefined));
-  frames.forEach((entry, index) => { frame(entry.type, entry.path, contents[index]); });
+  for (let start = 0; start < frames.length; start += 32) {
+    const batch = frames.slice(start, start + 32);
+    const contents = await Promise.all(batch.map(async (entry) => entry.type === "file" ? await readFile(join(sourceRoot, entry.path)) : undefined));
+    batch.forEach((entry, index) => { frame(entry.type, entry.path, contents[index]); });
+  }
   return hash.digest("hex");
 }
 
@@ -264,9 +267,9 @@ export async function inspectRuntimeArtifact(somaHome: string, substrate: Runtim
   return located;
 }
 
-/** Bind a graph close to the exact, hash-checked CLI tree selected at invocation.
- * This check is independent of the Arc launcher: callers may invoke cli.ts
- * directly, and an inherited environment flag would be caller-forgeable.
+/** Bind an intact graph CLI to the active, hash-checked tree at close time.
+ * The Arc launcher supplies the external check for PATH invocation. Directly
+ * executing already modified code remains outside this entrypoint's trust boundary.
  */
 export async function assertActiveCliRuntime(somaHome: string, moduleUrl: string): Promise<string> {
   const inspected = await inspectRuntimeArtifact(somaHome, "cli", { load: false });
