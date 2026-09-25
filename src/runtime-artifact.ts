@@ -193,7 +193,7 @@ async function pruneUnreferencedArtifacts(somaHome: string): Promise<void> {
 }
 
 /** Stages a source-complete, content-addressed policy runtime and atomically activates one substrate. */
-export async function stageRuntimeArtifact(input: { somaHome: string; substrate: RuntimeArtifactTarget; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
+export async function stageRuntimeArtifact(input: { somaHome: string; target: RuntimeArtifactTarget; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
   const hash = await sourceHash(input.sourceRoot);
   const store = runtimeArtifactStoreRoot(input.somaHome);
   const target = join(store, hash);
@@ -223,13 +223,13 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
       }
       await rm(displaced, { recursive: true, force: true });
     }
-    const current = await readRuntimeArtifactState(input.somaHome, input.substrate);
+    const current = await readRuntimeArtifactState(input.somaHome, input.target);
     const previous = current?.active === hash ? current.previous : current?.active;
     const state: RuntimeArtifactState = { active: hash, ...(previous ? { previous } : {}) };
-    await activateRuntimeArtifact(input.somaHome, input.substrate, hash);
-    await writeRuntimeArtifactState(input.somaHome, input.substrate, state);
+    await activateRuntimeArtifact(input.somaHome, input.target, hash);
+    await writeRuntimeArtifactState(input.somaHome, input.target, state);
     await pruneUnreferencedArtifacts(input.somaHome);
-    return { path: runtimeArtifactActivePath(input.somaHome, input.substrate), hash, ...(state.previous ? { previous: state.previous } : {}) };
+    return { path: runtimeArtifactActivePath(input.somaHome, input.target), hash, ...(state.previous ? { previous: state.previous } : {}) };
   } finally {
     // The shared store stays writable between installs; individual payload files
     // are read-only. Same-UID permissions are best-effort hardening, not a

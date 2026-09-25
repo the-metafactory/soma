@@ -19,7 +19,7 @@ test("Arc launcher executes the active CLI snapshot and fails closed without one
     await mkdir(join(source, "src"), { recursive: true });
     await writeFile(join(source, "package.json"), "{}\n");
     await writeFile(join(source, "src", "cli.ts"), "console.log('FROZEN CLI');\n");
-    const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "cli", sourceRoot: source });
+    const staged = await stageRuntimeArtifact({ somaHome: home, target: "cli", sourceRoot: source });
     const active = spawnSync(process.execPath, [launcher, "--version"], { env, encoding: "utf8" });
     expect(active.status).toBe(0);
     expect(active.stdout).toContain("FROZEN CLI");

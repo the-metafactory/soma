@@ -163,10 +163,10 @@ async function installSomaForSubstrate(
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
   // Arc's PATH shim uses this separately activated snapshot for graph writes.
   // Stage it for every substrate so a Pi.dev-only install has the same gate.
-  const cliRuntime = await execution.run("stage-cli-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, substrate: "cli", sourceRoot: somaRepoPath }));
+  const cliRuntime = await execution.run("stage-cli-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: "cli", sourceRoot: somaRepoPath }));
   // Guarded substrates execute only the immutable artifact, never this editable checkout.
   const guardedRuntime = isGuardedRuntimeSubstrate(substrate)
-    ? await execution.run("stage-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, substrate, sourceRoot: somaRepoPath }))
+    ? await execution.run("stage-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: substrate, sourceRoot: somaRepoPath }))
     : undefined;
   execution.record({ runtimeArtifact: guardedRuntime ?? cliRuntime });
   const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;

@@ -11,6 +11,9 @@ const somaHome = resolve(homeFlag >= 0 && args[homeFlag + 1] ? args[homeFlag + 1
 let entry = sourceEntry;
 if (maintenance.has(args[0] ?? "")) entry = sourceEntry;
 else {
+  // Even read-only graph verbs load the same mutable-on-disk module. Verify all
+  // graph launches: a modified "node" handler could write despite its verb.
+  // The measured warm hash cost is ~10 ms for the current source tree.
   const graphCommand = args[0] === "graph";
   const runtime = graphCommand
     ? await inspectRuntimeArtifact(somaHome, "cli", { load: false })
