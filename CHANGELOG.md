@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-25
+
+### Added
+
+- **GitLab work-graph backend** (#693): native work-item hierarchy, blocking
+  links, claims, comments, and close receipts over a host-scoped `glab`
+  transport. GitLab API behavior has fake-transport coverage. Live server
+  acceptance, including Task-floor re-home, remains open in #539; GitLab
+  `auto` close citations are not independently checked against CI results.
+  See the [GitLab operator guide](docs/gitlab-work-graph.md).
+- **Host-qualified probe registry keys** (#692): authorization is bound to the
+  node's own host and project, so a GitHub declaration cannot authorize a
+  same-path GitLab project. Legacy host-less registry documents refuse
+  migration until their keys are made explicit.
+
 ### Changed
 
 - **GitLab graph chart and home binding** (#694): `soma graph chart` creates
@@ -1272,7 +1287,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.8.6...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/the-metafactory/soma/compare/v0.19.1...v0.20.0
 [0.8.6]: https://github.com/the-metafactory/soma/compare/v0.8.5...v0.8.6
 [0.8.1]: https://github.com/the-metafactory/soma/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/the-metafactory/soma/compare/v0.7.1...v0.8.0
