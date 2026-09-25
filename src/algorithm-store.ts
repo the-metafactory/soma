@@ -264,7 +264,7 @@ async function loadRunsFromDir(
   runsDir: string,
   accept?: (path: string) => Promise<boolean>,
 ): Promise<{ path: string; run: AlgorithmRun }[]> {
-  const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
+  const entries = await readRunDirectory(runsDir);
   const jsonPaths = entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
     .map((entry) => join(runsDir, entry.name));
@@ -340,7 +340,7 @@ export async function listStartupAlgorithmRunSummaries(options: AlgorithmStoreOp
     return listAlgorithmRunSummaries(options);
   }
 
-  const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
+  const entries = await readRunDirectory(runsDir);
   const paths = entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
     .map((entry) => join(runsDir, entry.name));
@@ -354,6 +354,15 @@ export async function listStartupAlgorithmRunSummaries(options: AlgorithmStoreOp
     return summarizeAlgorithmRun(await readAlgorithmRun(path), path);
   }));
   return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+async function readRunDirectory(runsDir: string) {
+  try {
+    return await readdir(runsDir, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
 }
 
 function isIndexedRunSummary(value: unknown, runsDir: string): value is AlgorithmRunSummary {

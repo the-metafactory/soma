@@ -10,6 +10,7 @@ import {
   writeAlgorithmRun,
   writeAlgorithmWorkIndex,
 } from "../src/index";
+import { listStartupAlgorithmRunSummaries } from "../src/algorithm-store";
 
 test("session startup reconciles a long Algorithm history from the work index", async () => {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-startup-history-"));
@@ -103,6 +104,31 @@ test("session startup sees a run changed during work-index construction", async 
     const startup = await buildSomaStartupContext({ somaHome });
     expect(startup.activeRuns.map((summary) => summary.id)).toContain("racing-run");
     expect(startup.activeRuns[0]?.path).toBe(runPath);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+});
+
+test("session startup reports a run-directory read failure", async () => {
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-startup-directory-error-"));
+  try {
+    await bootstrapSomaHome({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+    const runsDir = join(somaHome, "memory/WORK/algorithm-runs");
+    await writeAlgorithmRun(createAlgorithmRun({
+      id: "active-run",
+      prompt: "Directory error fixture",
+      intent: "Keep failures visible",
+      currentState: "Active",
+      goal: "Report read failure",
+      criteria: [{ id: "C1", text: "Read errors propagate" }],
+    }), { somaHome });
+    await writeAlgorithmWorkIndex({ somaHome });
+    await rm(runsDir, { recursive: true });
+    await writeFile(runsDir, "not a directory", "utf8");
+
+    await expect(listStartupAlgorithmRunSummaries({ somaHome })).rejects.toMatchObject({ code: "ENOTDIR" });
+    await expect(listAlgorithmRunSummaries({ somaHome })).rejects.toMatchObject({ code: "ENOTDIR" });
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }
