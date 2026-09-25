@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-09-25
+
+### Fixed
+
+- **Installed graph closes run from the active frozen CLI artifact.** The Arc
+  command now launches the active content-addressed CLI runtime for normal
+  commands. Graph commands verify its hash before execution; `graph close`
+  checks the active artifact again and records its hash in the receipt. Missing
+  or altered artifacts refuse graph execution. Runtime status and rollback now
+  accept the `cli` target. (#687, #705)
+
 ## [0.20.1] - 2026-09-25
 
 ### Fixed
