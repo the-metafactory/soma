@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The GitLab work graph works against a live server.** The first live walk
+  (GitLab 19.4.1-ee, glab 1.80.4) failed where the fake transports passed:
+  glab piped GraphQL bodies without a JSON content type; two field selections
+  closed one brace too many, so every item read failed to parse; comment reads
+  asked for `Note.databaseId`, which 19.4 lacks; the blocking-edge mutation
+  named `workItemIds` instead of `workItemsIds`; GitLab returns `linkType`
+  lowercase, so every blocker was invisible and the frontier offered blocked
+  nodes; and a subtree read aliased a whole map level into one query, over
+  GitLab's complexity cap of 250. Subtree reads now go six items per request,
+  with a level's batches running concurrently. `chart`, `add`, `close`,
+  `node`, `frontier`, `decisions --write`, `audit`, `claim`, and `release` ran
+  live. `--propose` ratification, receipts on an Epic, and Task-under-Task
+  re-home did not. A static check covers the store's `query` and `mutation`
+  literals and `*_FIELDS` selections in source; a runtime check covers the
+  batch queries as sent. (#702)
+
 ## [0.20.0] - 2026-09-25
 
 ### Added
