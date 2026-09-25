@@ -353,6 +353,9 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
           learningSources: {
             events: eventsPath,
           },
+          ...(options.workRegistryLockTimeoutMs !== undefined
+            ? { workRegistryLockTimeoutMs: options.workRegistryLockTimeoutMs }
+            : {}),
         })
       ).files;
     } catch (error: unknown) {

@@ -219,18 +219,26 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-async function isReclaimableWorkRegistryLock(lockPath: string): Promise<boolean> {
+async function isReclaimableWorkRegistryLock(
+  lockPath: string,
+  ownerlessTimeoutMs = STALE_WORK_REGISTRY_LOCK_MS,
+): Promise<boolean> {
   try {
     const lock = await stat(lockPath);
-    if (!lock.isDirectory() || Date.now() - lock.mtimeMs < STALE_WORK_REGISTRY_LOCK_MS) return false;
+    if (!lock.isDirectory()) return false;
 
     try {
       const owner = JSON.parse(await readFile(join(lockPath, WORK_REGISTRY_LOCK_OWNER_FILE), "utf8")) as unknown;
+      if (Date.now() - lock.mtimeMs < STALE_WORK_REGISTRY_LOCK_MS) return false;
       return isPlainRecord(owner) && owner.hostname === hostname() && typeof owner.pid === "number" && Number.isSafeInteger(owner.pid) && owner.pid > 0
         ? !isProcessAlive(owner.pid)
         : false;
-    } catch {
-      // An ownerless pre-metadata lock may still be held by an older process.
+    } catch (error: unknown) {
+      // A pre-metadata lock has no owner to validate. Only reclaim it once the
+      // caller's full acquisition deadline has elapsed since its last change.
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        return Date.now() - lock.mtimeMs >= ownerlessTimeoutMs;
+      }
       return false;
     }
   } catch (error: unknown) {
@@ -258,12 +266,12 @@ async function acquireReclaimGuard(reclaimPath: string): Promise<boolean> {
   }
 }
 
-async function reclaimStaleWorkRegistryLock(lockPath: string): Promise<boolean> {
+async function reclaimStaleWorkRegistryLock(lockPath: string, ownerlessTimeoutMs: number): Promise<boolean> {
   const reclaimPath = `${lockPath}${WORK_REGISTRY_LOCK_RECLAIM_SUFFIX}`;
   if (!(await acquireReclaimGuard(reclaimPath))) return false;
 
   try {
-    if (!(await isReclaimableWorkRegistryLock(lockPath))) return false;
+    if (!(await isReclaimableWorkRegistryLock(lockPath, ownerlessTimeoutMs))) return false;
 
     // The reclaim guard serializes stale-lock inspection and rename. Once moved,
     // later writers may acquire a fresh lock at `lockPath`; only this retired
@@ -311,7 +319,7 @@ async function withRegistryFileLock<T>(
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
       if (Date.now() >= nextReclaimAttemptAt) {
         nextReclaimAttemptAt = Date.now() + 1_000;
-        if (await reclaimStaleWorkRegistryLock(lockPath)) continue;
+        if (await reclaimStaleWorkRegistryLock(lockPath, timeout)) continue;
       }
       if (Date.now() - started > timeout) {
         throw new Error(`Timed out waiting for work registry lock at ${lockPath}`, { cause: error });
