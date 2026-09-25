@@ -349,14 +349,11 @@ export async function listStartupAlgorithmRunSummaries(options: AlgorithmStoreOp
 
   const summaries = await Promise.all(paths.map(async (path) => {
     const prior = cacheByPath.get(path);
-    const info = await stat(path, { bigint: true }).catch(() => undefined);
-    if (info === undefined) return undefined;
+    const info = await stat(path, { bigint: true });
     if (prior !== undefined && info.mtimeNs < indexedAt && info.ctimeNs < indexedAt) return prior;
     return summarizeAlgorithmRun(await readAlgorithmRun(path), path);
   }));
-  return summaries
-    .filter((run): run is AlgorithmRunSummary => run !== undefined)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 function isIndexedRunSummary(value: unknown, runsDir: string): value is AlgorithmRunSummary {
