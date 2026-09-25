@@ -198,8 +198,8 @@ test("GitLab root creation cannot route outside the selected repository", async 
   await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", storeData: { homeProject: "other/project", scopeProject: REPO } }, parseGitLabCreateData))).rejects.toThrow(/must match the selected repository/u);
 });
 
-test("GitLab preserves an Epic blocker id", async () => {
-  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [{ linkType: "IS_BLOCKED_BY", workItem: { iid: "1", namespace: { fullPath: "saca" }, state: "OPEN", workItemType: { name: "Epic" } } }] } }] };
+test("GitLab preserves an Epic blocker id, reading link types as GitLab returns them (lowercase)", async () => {
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [{ linkType: "is_blocked_by", workItem: { iid: "1", namespace: { fullPath: "saca" }, state: "OPEN", workItemType: { name: "Epic" } } }] } }] };
   const calls: GitLabApiRequest[] = [];
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async (request) => { calls.push(request); return { data: { namespace: { workItem: item } } }; } });
   expect((await store.readNode(REF)).blockedBy).toEqual([{ id: "saca&1", status: "open" }]);
