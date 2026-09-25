@@ -120,8 +120,8 @@ async function sealArtifact(root: string): Promise<void> {
   await chmod(root, 0o755);
 }
 
-/** Refuse links and special files before hashing or copying an enforcement runtime. */
-async function assertRuntimeSourceTree(sourceRoot: string): Promise<void> {
+/** Hash the complete runtime in deterministic path order, rejecting links and special files. */
+async function sourceHash(sourceRoot: string): Promise<string> {
   const srcPath = join(sourceRoot, "src");
   const srcStat = await lstat(srcPath);
   if (srcStat.isSymbolicLink() || !srcStat.isDirectory()) {
@@ -132,37 +132,28 @@ async function assertRuntimeSourceTree(sourceRoot: string): Promise<void> {
   if (packageStat.isSymbolicLink() || !packageStat.isFile()) {
     throw new Error("runtime artifact source package.json must be a regular file");
   }
-  async function visit(directory: string): Promise<void> {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isSymbolicLink()) throw new Error(`runtime artifact source contains symlink: ${path}`);
-      if (entry.isDirectory()) await visit(path);
-      else if (!entry.isFile()) throw new Error(`runtime artifact source contains unsupported entry: ${path}`);
-    }
-  }
-  await visit(join(sourceRoot, "src"));
-}
-
-async function sourceHash(sourceRoot: string): Promise<string> {
-  await assertRuntimeSourceTree(sourceRoot);
   const hash = createHash("sha256");
   const frame = (type: string, path: string, bytes: Uint8Array = new Uint8Array()): void => {
     hash.update(`${type.length}:${type}${path.length}:${path}${bytes.byteLength}:`, "utf8");
     hash.update(bytes);
   };
+  const frames: { type: "dir" | "file"; path: string }[] = [];
   async function visit(directory: string, relative: string): Promise<void> {
-    frame("dir", relative);
+    frames.push({ type: "dir", path: relative });
     const entries = await readdir(directory, { withFileTypes: true });
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       const path = join(directory, entry.name);
       const child = relative.length === 0 ? entry.name : `${relative}/${entry.name}`;
       if (entry.isDirectory()) await visit(path, child);
-      else if (entry.isFile()) frame("file", child, await readFile(path));
+      else if (entry.isFile()) frames.push({ type: "file", path: child });
+      else if (entry.isSymbolicLink()) throw new Error(`runtime artifact source contains symlink: ${path}`);
       else throw new Error(`runtime artifact source contains unsupported entry: ${path}`);
     }
   }
   await visit(join(sourceRoot, "src"), "src");
-  frame("file", "package.json", await readFile(join(sourceRoot, "package.json")));
+  frames.push({ type: "file", path: "package.json" });
+  const contents = await Promise.all(frames.map(async (entry) => entry.type === "file" ? await readFile(join(sourceRoot, entry.path)) : undefined));
+  frames.forEach((entry, index) => { frame(entry.type, entry.path, contents[index]); });
   return hash.digest("hex");
 }
 
