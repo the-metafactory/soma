@@ -77,7 +77,10 @@ export async function reprojectSubstrateMemoryProjection(
   if (!isRegisteredInstallSubstrate(options.substrate)) return { reindexed, projected: null };
 
   const somaHome = createPaths(options).root();
-  const profileInput = await loadSomaHome(somaHome);
+  // Only the memory file is written below. Loading and rewriting every skill
+  // while building a throwaway full bundle makes SessionStart scale with the
+  // entire skill corpus, even though no skill projection can be used here.
+  const profileInput = await loadSomaHome(somaHome, { includeSkills: false });
   const input: ProjectionInput = { ...profileInput, memory: { indexContent } };
 
   const projection = buildSubstrateHomeProjection(options.substrate, input, {
