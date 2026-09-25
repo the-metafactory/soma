@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.16.1-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.20.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -365,9 +365,23 @@ soma graph audit <root>      # what the gates cannot see
 soma graph decisions <root>  # the map's resolutions, collected
 ```
 
-The store is a seam; GitHub routing is supported. GitLab request/response behavior is covered by isolated transport-contract tests, but neither GitLab server compatibility nor Task-floor re-home behavior has been exercised against a live GitLab instance (GitLab Epic roots are orchestration-only and are not claimable). The
-tracker stays the sole authoritative record — Soma keeps no parallel copy of
-the graph.
+The store is a seam with GitHub and GitLab backends. On GitLab, a typed map root
+is a group Epic bound to a home project; its children are Issues and Tasks in
+that project. For example:
+
+```bash
+soma graph chart --repo gitlab:gitlab.example.com/acme/work \
+  --home-project acme/work --title "Service roadmap" \
+  --autonomy approve --checkpoint cp-roadmap
+soma graph frontier 'gitlab:gitlab.example.com/acme&17'
+```
+
+Replace the example Epic number with the one printed by `chart`. See the
+[GitLab work-graph guide](docs/gitlab-work-graph.md) for prerequisites, node
+creation, refs, close receipts, and current limitations. GitLab API behavior
+has fake-transport coverage, but server compatibility and Task-floor re-home
+have not yet been exercised against a live GitLab instance. The tracker stays
+the sole authoritative record — Soma keeps no parallel copy of the graph.
 
 **A node closes only through its gate.** Each carries an autonomy class
 (`auto` / `propose` / `approve`), a checkpoint, and — for anything machine-closable
@@ -653,6 +667,7 @@ writeback boundaries as substrate sessions. See
 - [docs/team-overlays.md](docs/team-overlays.md), read-only team overlays and shared-state boundaries
 - [docs/daemon-mode.md](docs/daemon-mode.md), daemon mode ownership and Myelin contract boundaries
 - [docs/work-graph.md](docs/work-graph.md), the work graph spec — node vocabulary, close gates, probes, and receipts
+- [docs/gitlab-work-graph.md](docs/gitlab-work-graph.md), the GitLab setup and operation guide
 - [docs/writeback-and-policy.md](docs/writeback-and-policy.md), projection, writeback, conflict, and policy semantics
 - [docs/portability-proof.md](docs/portability-proof.md), the first portability proof and evidence contract
 

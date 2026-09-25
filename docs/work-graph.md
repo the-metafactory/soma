@@ -1,7 +1,7 @@
 # Work graph — typed contracts and execution story
 
-**Status:** Phase 1 implemented, on `main`, and released in 0.15.0 (§2-§4). Map #495 closed 2026-08-11 through this spec's own gate — 27 nodes, receipt `unverified`. §5 phase 2 remains unbuilt. Locked by DD-16, wayfinder map #477
-**Date:** 2026-08-02, status refreshed 2026-08-11
+**Status:** Phase 1 implemented and released in 0.15.0 (§2-§4). GitLab GraphStore and chart support landed for 0.20.0; live GitLab acceptance remains open in #539. Map #495 closed 2026-08-11 through this spec's own gate — 27 nodes, receipt `unverified`. §5 phase 2 remains unbuilt. Locked by DD-16, wayfinder map #477
+**Date:** 2026-08-02, status refreshed 2026-09-25
 
 One destination clause of #495 did **not** land and is tracked rather than
 assumed: HITL receipts still read `unverified`, because a closing session
@@ -616,13 +616,19 @@ interface GraphStore {
   New roots write both fields for older clients; a mismatch refuses rather than
   silently choosing one. The route comment is a compatibility mirror of `home`.
   GitLab's current creation path refuses labels; navigate maps by Epic ref.
-- Day-one backend: **GitHub** (attestation capability: `verifiable` — the
-  backend can attest reaction/comment authorship via its API). Backend
+  GitLab `auto` closes require a CI citation, but the backend does not yet
+  independently verify the cited run's conclusion as the GitHub backend does;
+  do not treat that path as a verified auto gate.
+- Backends: **GitHub** and **GitLab** (attestation capability: `verifiable` —
+  each backend can read reaction/comment authorship via its API). GitLab's
+  request/response behavior has fake-transport coverage; its live walk and
+  Task-floor re-home remain unverified. See the
+  [GitLab operator guide](gitlab-work-graph.md). Backend
   capability is necessary, not sufficient: a *receipt* is marked verified
   only when the backend attests **and** credential separation exists (§3.2);
-  until then every HITL receipt carries `attestation: "unverified"` even on
-  a verifiable backend. A second backend lands only with its first real
-  consumer; a backend that cannot attest at all runs degraded permanently.
+  when those conditions fail, a HITL receipt carries `attestation:
+  "unverified"` even on a verifiable backend. A backend that cannot attest at
+  all runs degraded permanently.
 
 ### 2.6 CLI verbs
 
