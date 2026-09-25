@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { loadEventsWithCoverage } from "../scripts/harness-eval";
 
 const homes: string[] = [];
 const script = join(import.meta.dir, "../scripts/harness-eval.ts");
@@ -68,4 +70,16 @@ test("an empty event log reports unknown coverage and fails --check", async () =
   expect(result.exitCode).toBe(3);
   expect(result.output).toContain("First event: none");
   expect(result.output).toContain("INCOMPLETE COVERAGE:");
+});
+
+test("a read error after an old event cannot establish coverage", async () => {
+  const first = new Date(Date.now() - 61 * dayMs).toISOString();
+  const input = Readable.from((async function* () {
+    yield `${JSON.stringify({ timestamp: first, kind: "memory.recall" })}\n`;
+    throw new Error("read interrupted");
+  })());
+  const loaded = await loadEventsWithCoverage("unused", Date.now() - 60 * dayMs, input);
+  expect(loaded.firstEventAt).toBe(first);
+  expect(loaded.readError).toBe(true);
+  expect(loaded.coversWindow).toBe(false);
 });

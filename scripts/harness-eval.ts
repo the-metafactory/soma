@@ -19,6 +19,7 @@
 
 import { createReadStream, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+import type { Readable } from "node:stream";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -123,12 +124,19 @@ export function loadRuns(runsDir: string): RunDoc[] {
 interface LoadedEvents {
   events: EventDoc[];
   firstEventAt: string | null;
+  readError: boolean;
+  coversWindow: boolean;
 }
 
-async function loadEventsWithCoverage(eventsPath: string, sinceMs: number): Promise<LoadedEvents> {
+export async function loadEventsWithCoverage(
+  eventsPath: string,
+  sinceMs: number,
+  input: Readable = createReadStream(eventsPath, { encoding: "utf8" }),
+): Promise<LoadedEvents> {
   const events: EventDoc[] = [];
   let firstEventMs = Number.POSITIVE_INFINITY;
-  const rl = createInterface({ input: createReadStream(eventsPath, { encoding: "utf8" }), crlfDelay: Infinity });
+  let readError = false;
+  const rl = createInterface({ input, crlfDelay: Infinity });
   try {
     for await (const line of rl) {
       if (!line.trim()) continue;
@@ -144,9 +152,15 @@ async function loadEventsWithCoverage(eventsPath: string, sinceMs: number): Prom
       events.push(event);
     }
   } catch {
-    // Missing file or read error: return whatever was collected (empty on ENOENT).
+    // A partial stream cannot establish complete coverage, even if an old event was seen.
+    readError = true;
   }
-  return { events, firstEventAt: Number.isFinite(firstEventMs) ? new Date(firstEventMs).toISOString() : null };
+  return {
+    events,
+    firstEventAt: Number.isFinite(firstEventMs) ? new Date(firstEventMs).toISOString() : null,
+    readError,
+    coversWindow: !readError && firstEventMs <= sinceMs,
+  };
 }
 
 export async function loadEvents(eventsPath: string, sinceMs = Number.NEGATIVE_INFINITY): Promise<EventDoc[]> {
@@ -635,17 +649,22 @@ async function main(): Promise<void> {
   const loaded = await loadEventsWithCoverage(join(somaHome, "memory", "STATE", "events.jsonl"), sinceMs);
   const firstEventMs = loaded.firstEventAt ? Date.parse(loaded.firstEventAt) : null;
   const gapMs = firstEventMs === null ? null : Math.max(0, firstEventMs - sinceMs);
-  const coverageComplete = gapMs === 0;
+  const coverageComplete = loaded.coversWindow;
   const coverage = {
     windowStart: new Date(sinceMs).toISOString(),
     firstEvent: loaded.firstEventAt,
     gapDays: gapMs === null ? null : Number((gapMs / (24 * 60 * 60 * 1000)).toFixed(1)),
+    readError: loaded.readError,
     complete: coverageComplete,
   };
   const coverageLine =
     `Window start: ${coverage.windowStart} | First event: ${coverage.firstEvent ?? "none"} | ` +
     `Gap: ${coverage.gapDays === null ? "unknown" : coverage.gapDays === 0 ? "none" : `${coverage.gapDays} days`}` +
-    (coverageComplete ? "" : ` (earlier events may be in ${join(somaHome, "memory", "STATE", "events-snapshots")})`);
+    (loaded.readError
+      ? " (event log read failed before EOF)"
+      : gapMs !== 0
+        ? ` (earlier events may be in ${join(somaHome, "memory", "STATE", "events-snapshots")})`
+        : "");
   const data: HarnessData = {
     runs: loadRuns(join(somaHome, "memory", "WORK", "algorithm-runs")),
     events: loaded.events,
@@ -658,9 +677,11 @@ async function main(): Promise<void> {
     if (!coverageComplete) {
       console.error(coverageLine);
       console.error(
-        `INCOMPLETE COVERAGE: window starts ${coverage.windowStart}, first event ${coverage.firstEvent ?? "none"}; ` +
-          `gap ${coverage.gapDays ?? "unknown"} days. Earlier events may be in ` +
-          `${join(somaHome, "memory", "STATE", "events-snapshots")}. Cannot measure this window.`,
+        loaded.readError
+          ? "INCOMPLETE COVERAGE: event log read failed before EOF. Cannot measure this window."
+          : `INCOMPLETE COVERAGE: window starts ${coverage.windowStart}, first event ${coverage.firstEvent ?? "none"}; ` +
+              `gap ${coverage.gapDays ?? "unknown"} days. Earlier events may be in ` +
+              `${join(somaHome, "memory", "STATE", "events-snapshots")}. Cannot measure this window.`,
       );
       process.exit(3);
     }
