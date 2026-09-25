@@ -31,7 +31,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import packageJson from "../../package.json";
-import { assertActiveCliRuntime, readRuntimeArtifactState } from "../runtime-artifact";
+import { assertActiveCliRuntime } from "../runtime-artifact";
 
 const SOMA_VERSION: string = packageJson.version;
 
@@ -569,11 +569,11 @@ export interface GraphCliDeps {
   describeProbeTree: (cwd: string) => Promise<ProbeTree>;
   readTextFile: (path: string) => Promise<string>;
   /** The receipt's `closedWith` stamp — version, source, best-effort commit. Injected so tests stay hermetic. */
-  describeTool: (fromDevTree: boolean) => Promise<string>;
+  describeTool: (fromDevTree: boolean, runtimeHash?: string) => Promise<string>;
   now: () => Date;
   warn: (message: string) => void;
   /** Fail before any close write unless this module is in the active, valid CLI artifact. */
-  assertInstalledRuntime: () => Promise<void>;
+  assertInstalledRuntime: () => Promise<string | undefined>;
   /** True when the running CLI is the dev tree rather than the installed binary (§1 clause 5). */
   fromDevTree: boolean;
 }
@@ -759,9 +759,9 @@ function defaultDeps(): GraphCliDeps {
   };
 }
 
-async function defaultAssertInstalledRuntime(): Promise<void> {
+async function defaultAssertInstalledRuntime(): Promise<string> {
   const somaHome = resolve(process.env.SOMA_HOME ?? `${homedir()}/.soma`);
-  try { await assertActiveCliRuntime(somaHome, import.meta.url); }
+  try { return await assertActiveCliRuntime(somaHome, import.meta.url); }
   catch (error) {
     throw new SomaCliError(`soma graph close requires the active installed CLI runtime: ${error instanceof Error ? error.message : String(error)}. Run soma install <substrate> --apply or soma runtime rollback --substrate cli.`, 1);
   }
@@ -775,12 +775,9 @@ async function defaultAssertInstalledRuntime(): Promise<void> {
  * "enforced" are different dates, and before this stamp the only way to tell
  * which rules produced a receipt was to grep the installed tree).
  */
-async function defaultDescribeTool(fromDevTree: boolean): Promise<string> {
+async function defaultDescribeTool(fromDevTree: boolean, runtimeHash?: string): Promise<string> {
   const source = fromDevTree ? "dev tree" : "installed";
-  if (!fromDevTree) {
-    const state = await readRuntimeArtifactState(resolve(process.env.SOMA_HOME ?? `${homedir()}/.soma`), "cli");
-    if (state) return `soma ${SOMA_VERSION} @ sha256:${state.active.slice(0, 12)} (${source})`;
-  }
+  if (!fromDevTree && runtimeHash) return `soma ${SOMA_VERSION} @ sha256:${runtimeHash.slice(0, 12)} (${source})`;
   // src/cli/graph.ts → the tree root is two directories up.
   const toolRoot = resolve(new URL(".", import.meta.url).pathname, "..", "..");
   try {
@@ -1031,7 +1028,7 @@ async function runClose(
   repoRef: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
-  await deps.assertInstalledRuntime();
+  const runtimeHash = await deps.assertInstalledRuntime();
   const repo = displayRepo(repoRef);
   const ref: NodeRef = { id: parsed.target };
   const state = await graph.readNode(ref);
@@ -1300,7 +1297,7 @@ async function runClose(
   const receipt: CloseReceipt = {
     checkpointId: parsed.options.checkpointId ?? state.node.checkpointId ?? "",
     closedBy: identity,
-    closedWith: await deps.describeTool(deps.fromDevTree),
+    closedWith: await deps.describeTool(deps.fromDevTree, runtimeHash),
     at: deps.now().toISOString(),
     ...(resolution === undefined ? {} : { resolution }),
     ...(parsed.options.gist === undefined ? {} : { gist: parsed.options.gist }),
