@@ -359,7 +359,17 @@ test("glab transport marks a piped body as JSON", () => {
   expect(glabApiArgs(request, "gitlab-int.switch.ch")).toEqual(["api", "graphql", "--hostname", "gitlab-int.switch.ch", "--method", "POST", "--input", "-", "--header", "Content-Type: application/json"]);
 });
 
-test("every GraphQL document in the GitLab store is balanced", async () => {
+function expectBalancedGraphQL(name: string, text: string): void {
+  let braces = 0; let parens = 0;
+  for (const char of text) {
+    braces += char === "{" ? 1 : char === "}" ? -1 : 0;
+    parens += char === "(" ? 1 : char === ")" ? -1 : 0;
+    expect({ name, braces: Math.min(braces, 0), parens: Math.min(parens, 0) }).toEqual({ name, braces: 0, parens: 0 });
+  }
+  expect({ name, braces, parens }).toEqual({ name, braces: 0, parens: 0 });
+}
+
+test("the GitLab store's GraphQL literals and field selections are balanced in source", async () => {
   // Fake transports never parse a query, so an unbalanced document only fails against a live server.
   const source = await Bun.file(new URL("../src/work-graph-gitlab.ts", import.meta.url)).text();
   const documents = [
@@ -367,15 +377,7 @@ test("every GraphQL document in the GitLab store is balanced", async () => {
     ...[...source.matchAll(/`((?:query|mutation)[({][^`]*)`/gu)].map((match) => ({ name: match[1]!.slice(0, 40), text: match[1]! })),
   ];
   expect(documents.length).toBeGreaterThan(5);
-  for (const { name, text } of documents) {
-    let braces = 0; let parens = 0;
-    for (const char of text) {
-      braces += char === "{" ? 1 : char === "}" ? -1 : 0;
-      parens += char === "(" ? 1 : char === ")" ? -1 : 0;
-      expect({ name, braces: Math.min(braces, 0), parens: Math.min(parens, 0) }).toEqual({ name, braces: 0, parens: 0 });
-    }
-    expect({ name, braces, parens }).toEqual({ name, braces: 0, parens: 0 });
-  }
+  for (const { name, text } of documents) expectBalancedGraphQL(name, text);
 });
 
 test("GitLab splits a wide subtree read into batches under the query complexity cap", async () => {
@@ -385,8 +387,12 @@ test("GitLab splits a wide subtree read into batches under the query complexity 
   const root = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "root", description: "", state: "OPEN", author: { username: "jc" }, widgets: [...empty, { type: "HIERARCHY", children: { nodes: iids.map((iid) => ({ iid, namespace: { fullPath: "saca/p" }, workItemType: { name: "Issue" } })) } }] };
   const child = (iid: string) => ({ id: `gid://gitlab/WorkItem/${iid}`, iid, workItemType: "Issue", namespace: { fullPath: "saca/p" }, title: `child ${iid}`, description: "", state: "OPEN", author: { username: "jc" }, widgets: [...empty, { type: "HIERARCHY", children: { nodes: [] } }] });
   const calls: GitLabApiRequest[] = [];
+  let inFlight = 0; let peak = 0;
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {
     calls.push(request);
+    inFlight += 1; peak = Math.max(peak, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    inFlight -= 1;
     if (calls.length === 1) return { data: { namespace: { workItem: root } } };
     const variables = request.body?.variables as Record<string, string>;
     if ("iid" in variables) return { data: { namespace: { workItem: child(variables.iid!) } } };
@@ -395,4 +401,13 @@ test("GitLab splits a wide subtree read into batches under the query complexity 
   expect((await store.readSubtree({ id: "saca&1" })).map((state) => state.ref.id)).toEqual(iids.map((iid) => `saca/p#${iid}`));
   const batches = calls.slice(1).map((call) => Object.keys(call.body?.variables as object).filter((key) => key.startsWith("iid")).length);
   expect(batches).toEqual([6, 6, 1]);
+  // The level's batches share the concurrency bound rather than queueing one after another.
+  expect(peak).toBe(3);
+  // The source scan cannot see the aliased selections assembled at runtime; check what was actually sent.
+  for (const [index, call] of calls.entries()) expectBalancedGraphQL(`request ${index}`, String(call.body?.query));
+});
+
+test("GitLab refuses an issue note whose global id carries no REST note id", async () => {
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: { widgets: [{ type: "NOTES", notes: { nodes: [{ id: "gid://gitlab/WorkItem/2", system: false, body: "human", author: { username: "jc" } }], pageInfo: { hasNextPage: false } } }] } } } }) });
+  await expect(store.listComments(REF)).rejects.toThrow(/is not a note global id/u);
 });
