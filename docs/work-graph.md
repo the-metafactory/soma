@@ -1,6 +1,6 @@
 # Work graph — typed contracts and execution story
 
-**Status:** Phase 1 implemented and released in 0.15.0 (§2-§4). GitLab GraphStore and chart support landed for 0.20.0; live GitLab acceptance remains open in #539. Map #495 closed 2026-08-11 through this spec's own gate — 27 nodes, receipt `unverified`. §5 phase 2 remains unbuilt. Locked by DD-16, wayfinder map #477
+**Status:** Phase 1 implemented and released in 0.15.0 (§2-§4). GitLab GraphStore and chart support landed for 0.20.0; 0.20.1 makes it work against a live server, and [the GitLab guide](gitlab-work-graph.md) lists what has not run live. Map #495 closed 2026-08-11 through this spec's own gate — 27 nodes, receipt `unverified`. §5 phase 2 remains unbuilt. Locked by DD-16, wayfinder map #477
 **Date:** 2026-08-02, status refreshed 2026-09-25
 
 One destination clause of #495 did **not** land and is tracked rather than

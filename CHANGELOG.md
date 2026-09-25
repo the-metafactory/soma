@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-09-25
+
 ### Fixed
 
 - **The GitLab work graph works against a live server.** The first live walk
@@ -1305,7 +1307,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.20.1...HEAD
+[0.20.1]: https://github.com/the-metafactory/soma/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/the-metafactory/soma/compare/v0.19.1...v0.20.0
 [0.8.6]: https://github.com/the-metafactory/soma/compare/v0.8.5...v0.8.6
 [0.8.1]: https://github.com/the-metafactory/soma/compare/v0.8.0...v0.8.1
