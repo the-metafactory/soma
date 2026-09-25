@@ -86,6 +86,8 @@ const GITLAB_ITEM = Symbol("gitlab-item");
 const GITLAB_REHOME = Symbol("gitlab-rehome");
 type HydratedNodeState = NodeState & { [GITLAB_ITEM]?: Item };
 interface GitLabRehomeContext { readonly [GITLAB_REHOME]: true; readonly parent: Item; readonly related: Item; }
+// GitLab 19.4 has no Note.databaseId; the REST note id is the numeric tail of the global id.
+function noteDatabaseId(globalId: string): string { const match = /^gid:\/\/gitlab\/(?:Discussion)?Note\/([1-9]\d*)$/u.exec(globalId); if (match === null) throw new WorkGraphError("backend", `GitLab note id ${JSON.stringify(globalId)} is not a note global id`); return match[1]!; }
 const THUMBS_UP = /^thumbsup(?:_tone[1-5])?$/u;
 const THUMBS_DOWN = /^thumbsdown(?:_tone[1-5])?$/u;
 
@@ -312,7 +314,7 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   async readCommentReactions(ref: CommentRef): Promise<Reaction[]> { const p = parts({ id: ref.nodeId }); if (p.sigil === "&") { const note = await this.epicNote(ref); const awards = note.awardEmoji && typeof note.awardEmoji === "object" && Array.isArray((note.awardEmoji as Record<string, unknown>).nodes) ? (note.awardEmoji as { nodes: unknown[] }).nodes : []; return this.reactions(awards); } const awards = arr(await this.transport({ method: "GET", path: `${restIssue(p)}/notes/${issueCommentId(ref)}/award_emoji`, paginate: true }), "GitLab awards"); return this.reactions(awards); }
   async listComments(ref: NodeRef): Promise<NodeComment[]> {
     const p = parts(ref);
-    const response = await this.transport({ method: "POST", path: "graphql", body: { query: `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){widgets{type ... on WorkItemWidgetNotes{notes(first:100){nodes{id databaseId body author{username} createdAt url system} pageInfo{hasNextPage}}}}}}}`, variables: { fullPath: p.path, iid: String(p.iid) } } });
+    const response = await this.transport({ method: "POST", path: "graphql", body: { query: `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){widgets{type ... on WorkItemWidgetNotes{notes(first:100){nodes{id body author{username} createdAt url system} pageInfo{hasNextPage}}}}}}}`, variables: { fullPath: p.path, iid: String(p.iid) } } });
     const namespace = rec(gqlValue(response, "namespace"), "GitLab namespace");
     const item = rec(namespace.workItem, "GitLab work item");
     const widgets = arr(item.widgets, "GitLab widgets").map((value) => rec(value, "GitLab widget"));
@@ -323,7 +325,7 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
     }
     return arr(notePage.nodes, "GitLab notes").filter((note) => rec(note, "GitLab note").system !== true).map((note) => {
       const value = rec(note, "GitLab note");
-      return { id: p.sigil === "#" ? String(num(value, "databaseId", "GitLab issue note")) : str(value, "id", "GitLab note"), author: username(value.author), body: typeof value.body === "string" ? value.body : "", ...(typeof value.createdAt === "string" ? { createdAt: value.createdAt } : {}), ...(typeof value.url === "string" ? { url: value.url } : {}) };
+      return { id: p.sigil === "#" ? noteDatabaseId(str(value, "id", "GitLab issue note")) : str(value, "id", "GitLab note"), author: username(value.author), body: typeof value.body === "string" ? value.body : "", ...(typeof value.createdAt === "string" ? { createdAt: value.createdAt } : {}), ...(typeof value.url === "string" ? { url: value.url } : {}) };
     });
   }
   async readRawBody(ref: NodeRef): Promise<string> { const p = parts(ref); if (p.sigil === "&") return (await this.item(ref)).rawDescription; const issue = rec(await this.transport({ method: "GET", path: restIssue(p) }), "GitLab issue"); return typeof issue.description === "string" ? issue.description : ""; }
