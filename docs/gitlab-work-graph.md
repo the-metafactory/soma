@@ -6,10 +6,12 @@ route nodes are **Issues** and their scaffolds are **Tasks**. The Epic names one
 GitLab hierarchy and blocking links as the graph. GitLab remains the sole
 authority for node state; Soma keeps no synchronized copy.
 
-The backend and CLI are covered by fake-transport tests. **A complete walk has
-not yet been exercised against a live GitLab server**, including Task-floor
-re-home and close receipts. Use a scratch project for the first live walk and
-verify each returned work item before relying on it for production work.
+The backend and CLI are covered by fake-transport tests. `chart`, `add`,
+`close`, `node`, `frontier`, `decisions --write`, `audit`, `claim`, and
+`release` have run against a live server (GitLab 19.4.1-ee, glab 1.80.4).
+**Not yet exercised live:** `--propose` ratification by reaction, close
+receipts on an Epic, and Task-floor re-home. Verify the returned work items
+when you first rely on one of those paths.
 
 ## Before charting a map
 
@@ -99,6 +101,8 @@ requires a separate ratifier and credential isolation, as described in
 [the work-graph contract](work-graph.md#deriving-attestation-502).
 
 If a write fails after creating a child but before linking its blocker, the
-child remains in GitLab and the CLI names it for repair. Inspect the returned
-item and run `audit` before continuing. Do not assume an error rolled back a
+child remains in GitLab and the CLI names it for repair. No `soma graph` verb
+adds a blocking link afterwards, and `audit` does not check links: add each
+missing "blocked by" link on the named item in GitLab, then confirm with
+`soma graph node` that its blockers are listed. Do not assume an error rolled back a
 tracker write.
