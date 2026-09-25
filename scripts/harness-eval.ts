@@ -7,7 +7,7 @@
  *   bun run harness-eval                  # print metrics (trailing window + all-time)
  *   bun run harness-eval --json           # machine-readable output
  *   bun run harness-eval --explain        # include each metric's Goodhart mode + countermeasure
- *   bun run harness-eval --check          # compare window metrics to baseline, exit 1 on regression
+ *   bun run harness-eval --check          # exit 1 on regression, 3 on incomplete event coverage
  *   bun run harness-eval --write-baseline # capture current window metrics as the new baseline
  *   bun run harness-eval --window 30      # trailing window in days (default 60)
  *
@@ -19,6 +19,7 @@
 
 import { createReadStream, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+import type { Readable } from "node:stream";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -110,17 +111,32 @@ export function loadRuns(runsDir: string): RunDoc[] {
 
 /**
  * Stream the append-only event log line by line, retaining ONLY events at or
- * after `sinceMs`. The live log is tens of MiB and grows without bound, but
+ * after `sinceMs` while tracking the earliest valid timestamp. The live log is tens of MiB and grows without bound, but
  * every metric works on a trailing window — so loading and holding the whole
  * history (the previous `readFileSync` + `split`) wasted memory that scales with
  * all-time history, not the window. Streaming bounds peak memory to one line and
  * retention to the window. Events older than the cutoff, and events with an
  * unparseable timestamp, are dropped here — `inWindow()` would drop both anyway,
  * so per-metric results are unchanged; only out-of-window rows never get held.
+ * The earliest timestamp lets the CLI detect when the log starts after the
+ * requested window, even though older rows are not retained.
  */
-export async function loadEvents(eventsPath: string, sinceMs = Number.NEGATIVE_INFINITY): Promise<EventDoc[]> {
+interface LoadedEvents {
+  events: EventDoc[];
+  firstEventAt: string | null;
+  readError: boolean;
+  coversWindow: boolean;
+}
+
+export async function loadEventsWithCoverage(
+  eventsPath: string,
+  sinceMs: number,
+  input: Readable = createReadStream(eventsPath, { encoding: "utf8" }),
+): Promise<LoadedEvents> {
   const events: EventDoc[] = [];
-  const rl = createInterface({ input: createReadStream(eventsPath, { encoding: "utf8" }), crlfDelay: Infinity });
+  let firstEventMs = Number.POSITIVE_INFINITY;
+  let readError = false;
+  const rl = createInterface({ input, crlfDelay: Infinity });
   try {
     for await (const line of rl) {
       if (!line.trim()) continue;
@@ -130,16 +146,25 @@ export async function loadEvents(eventsPath: string, sinceMs = Number.NEGATIVE_I
       } catch {
         continue; // skip torn lines
       }
-      if (sinceMs !== Number.NEGATIVE_INFINITY) {
-        const t = event.timestamp ? Date.parse(event.timestamp) : Number.NaN;
-        if (!Number.isFinite(t) || t < sinceMs) continue; // out of window → never retained
-      }
+      const t = event.timestamp ? Date.parse(event.timestamp) : Number.NaN;
+      if (Number.isFinite(t)) firstEventMs = Math.min(firstEventMs, t);
+      if (sinceMs !== Number.NEGATIVE_INFINITY && (!Number.isFinite(t) || t < sinceMs)) continue;
       events.push(event);
     }
   } catch {
-    // Missing file or read error: return whatever was collected (empty on ENOENT).
+    // A partial stream cannot establish complete coverage, even if an old event was seen.
+    readError = true;
   }
-  return events;
+  return {
+    events,
+    firstEventAt: Number.isFinite(firstEventMs) ? new Date(firstEventMs).toISOString() : null,
+    readError,
+    coversWindow: !readError && firstEventMs <= sinceMs,
+  };
+}
+
+export async function loadEvents(eventsPath: string, sinceMs = Number.NEGATIVE_INFINITY): Promise<EventDoc[]> {
+  return (await loadEventsWithCoverage(eventsPath, sinceMs)).events;
 }
 
 // ---------------------------------------------------------------------------
@@ -621,13 +646,47 @@ async function main(): Promise<void> {
   // Only events within the trailing window can affect any metric, so drop older
   // rows at load time (see loadEvents) rather than holding all-time history.
   const sinceMs = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
+  const loaded = await loadEventsWithCoverage(join(somaHome, "memory", "STATE", "events.jsonl"), sinceMs);
+  const firstEventMs = loaded.firstEventAt ? Date.parse(loaded.firstEventAt) : null;
+  const gapMs = firstEventMs === null ? null : Math.max(0, firstEventMs - sinceMs);
+  const coverageComplete = loaded.coversWindow;
+  const coverage = {
+    windowStart: new Date(sinceMs).toISOString(),
+    firstEvent: loaded.firstEventAt,
+    gapDays: gapMs === null ? null : Number((gapMs / (24 * 60 * 60 * 1000)).toFixed(1)),
+    readError: loaded.readError,
+    complete: coverageComplete,
+  };
+  const coverageLine =
+    `Window start: ${coverage.windowStart} | First event: ${coverage.firstEvent ?? "none"} | ` +
+    `Gap: ${coverage.gapDays === null ? "unknown" : coverage.gapDays === 0 ? "none" : `${coverage.gapDays} days`}` +
+    (loaded.readError
+      ? " (event log read failed before EOF)"
+      : gapMs !== 0
+        ? ` (earlier events may be in ${join(somaHome, "memory", "STATE", "events-snapshots")})`
+        : "");
   const data: HarnessData = {
     runs: loadRuns(join(somaHome, "memory", "WORK", "algorithm-runs")),
-    events: await loadEvents(join(somaHome, "memory", "STATE", "events.jsonl"), sinceMs),
+    events: loaded.events,
     now,
     windowDays,
   };
   const results = computeMetrics(data);
+
+  if (flag("--check") || flag("--write-baseline")) {
+    if (!coverageComplete) {
+      if (flag("--json")) console.log(JSON.stringify({ windowDays, coverage, results }, null, 2));
+      else console.error(coverageLine);
+      console.error(
+        loaded.readError
+          ? "INCOMPLETE COVERAGE: event log read failed before EOF. Cannot measure this window."
+          : `INCOMPLETE COVERAGE: window starts ${coverage.windowStart}, first event ${coverage.firstEvent ?? "none"}; ` +
+              `gap ${coverage.gapDays ?? "unknown"} days. Earlier events may be in ` +
+              `${join(somaHome, "memory", "STATE", "events-snapshots")}. Cannot measure this window.`,
+      );
+      process.exit(3);
+    }
+  }
 
   if (flag("--write-baseline")) {
     const baseline: Baseline = {
@@ -643,9 +702,10 @@ async function main(): Promise<void> {
   }
 
   if (flag("--json")) {
-    console.log(JSON.stringify({ windowDays, results }, null, 2));
+    console.log(JSON.stringify({ windowDays, coverage, results }, null, 2));
   } else {
     console.log(`Harness eval — trailing ${windowDays}d window (${data.runs.length} runs, ${data.events.length} events in window)\n`);
+    console.log(`${coverageLine}\n`);
     for (const result of results) {
       const spec = METRICS.find((m) => m.id === result.id);
       console.log(`  ${result.name} [${result.direction} is better]`);
