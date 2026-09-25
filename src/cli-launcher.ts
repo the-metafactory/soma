@@ -1,7 +1,7 @@
 /** Arc's small bootstrap entrypoint. Graph operations execute from the frozen CLI. */
-import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { inspectRuntimeArtifact } from "./runtime-artifact";
 
 const args = process.argv.slice(2);
 const maintenance = new Set(["init", "install", "reproject", "upgrade", "runtime", "uninstall"]);
@@ -13,11 +13,11 @@ const frozenEntry = join(somaHome, "runtime", "cli", "current", "src", "cli.ts")
 let entry = frozenEntry;
 if (maintenance.has(args[0] ?? "")) entry = sourceEntry;
 else {
-  try { await access(frozenEntry); }
-  catch {
+  const runtime = await inspectRuntimeArtifact(somaHome, "cli");
+  if (runtime.status !== "ready") {
     if (args.length === 0 || args[0] === "--help" || args[0] === "--version") entry = sourceEntry;
     else {
-      process.stderr.write("Soma CLI runtime is missing. Run `soma install <substrate> --apply` to stage it.\n");
+      process.stderr.write(`Soma CLI runtime is ${runtime.status}. Run \`soma install <substrate> --apply\` or \`soma runtime rollback --substrate cli\` to recover.\n`);
       process.exit(1);
     }
   }
