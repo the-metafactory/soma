@@ -571,7 +571,6 @@ export interface GraphCliDeps {
   /** The receipt's `closedWith` stamp — version, source, best-effort commit. Injected so tests stay hermetic. */
   describeTool: (fromDevTree: boolean, runtimeHash?: string) => Promise<string>;
   now: () => Date;
-  warn: (message: string) => void;
   /** Fail before any close write unless this module is in the active, valid CLI artifact. */
   assertInstalledRuntime: () => Promise<string | undefined>;
   /** True when the running CLI is the dev tree rather than the installed binary (§1 clause 5). */
@@ -753,7 +752,6 @@ function defaultDeps(): GraphCliDeps {
     readTextFile: async (path) => await Bun.file(path).text(),
     describeTool: defaultDescribeTool,
     now: () => new Date(),
-    warn: (message) => process.stderr.write(`${message}\n`),
     assertInstalledRuntime: defaultAssertInstalledRuntime,
     fromDevTree: !import.meta.url.includes("/runtime/cli/current/") && !import.meta.url.includes("/runtime/artifacts/"),
   };

@@ -201,7 +201,6 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
     // Hermetic: the default shells out to git for the tool stamp.
     describeTool: async () => "soma 0.0.0-test (dev tree)",
     now: () => AT,
-    warn: () => undefined,
     assertInstalledRuntime: async () => undefined,
     fromDevTree: false,
     ...overrides,

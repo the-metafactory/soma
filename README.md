@@ -525,7 +525,8 @@ soma --version
 
 `soma install <substrate> --apply` also activates a content-addressed CLI runtime
 in `~/.soma/runtime/cli/current`. After that, Arc's `soma` launcher executes
-this snapshot for normal commands. Install, reproject, and `soma runtime`
+this snapshot for normal commands and verifies its hash before graph commands.
+Install, reproject, and `soma runtime`
 remain source-backed recovery commands. `soma graph close` refuses to run from
 a source checkout or an invalid runtime. Inspect it with
 `soma runtime status --target cli`; if an upgrade is interrupted, use

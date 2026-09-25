@@ -273,7 +273,10 @@ export async function inspectRuntimeArtifact(somaHome: string, substrate: Runtim
   return located;
 }
 
-/** Bind a graph close to the exact, hash-checked CLI tree selected at invocation. */
+/** Bind a graph close to the exact, hash-checked CLI tree selected at invocation.
+ * This check is independent of the Arc launcher: callers may invoke cli.ts
+ * directly, and an inherited environment flag would be caller-forgeable.
+ */
 export async function assertActiveCliRuntime(somaHome: string, moduleUrl: string): Promise<string> {
   const inspected = await inspectRuntimeArtifact(somaHome, "cli", { load: false });
   if (inspected.status !== "ready" || !inspected.state) {
