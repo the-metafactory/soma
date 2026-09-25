@@ -264,7 +264,7 @@ async function loadRunsFromDir(
   runsDir: string,
   accept?: (path: string) => Promise<boolean>,
 ): Promise<{ path: string; run: AlgorithmRun }[]> {
-  const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
+  const entries = await readRunDirectory(runsDir);
   const jsonPaths = entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
     .map((entry) => join(runsDir, entry.name));
@@ -305,4 +305,75 @@ export async function listAlgorithmRunSummaries(options: AlgorithmStoreOptions =
   const runs = await listAlgorithmRuns(options);
 
   return runs.map(({ path, run }) => summarizeAlgorithmRun(run, path));
+}
+
+/**
+ * SessionStart reads the already-produced work index and reconciles it with the
+ * run directory. The common path stats each run but parses no run bodies; files
+ * changed since the index scan began are loaded individually. A missing or
+ * legacy index without that scan boundary falls back to the authoritative
+ * full scan. The index file's write time is too late: a run can change after
+ * being scanned but before the index write finishes.
+ */
+export async function listStartupAlgorithmRunSummaries(options: AlgorithmStoreOptions = {}): Promise<AlgorithmRunSummary[]> {
+  const runsDir = resolveAlgorithmRunsDir(options);
+  const indexPath = join(dirname(dirname(runsDir)), "STATE", "algorithm-work-index.json");
+  let cached: AlgorithmRunSummary[];
+  let indexedAt: bigint;
+  try {
+    const before = await stat(indexPath, { bigint: true });
+    const parsed = JSON.parse(await readFile(indexPath, "utf8")) as { runs?: unknown; scanStartedAt?: unknown };
+    const after = await stat(indexPath, { bigint: true });
+    if (before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || before.size !== after.size) {
+      return listAlgorithmRunSummaries(options);
+    }
+    if (!Array.isArray(parsed.runs) || !parsed.runs.every((run) => isIndexedRunSummary(run, runsDir))) {
+      return listAlgorithmRunSummaries(options);
+    }
+    const scanStartedMs = typeof parsed.scanStartedAt === "string" ? Date.parse(parsed.scanStartedAt) : NaN;
+    if (!Number.isFinite(scanStartedMs) || BigInt(scanStartedMs) * 1_000_000n > after.mtimeNs) {
+      return listAlgorithmRunSummaries(options);
+    }
+    cached = parsed.runs;
+    indexedAt = BigInt(scanStartedMs) * 1_000_000n;
+  } catch {
+    return listAlgorithmRunSummaries(options);
+  }
+
+  const entries = await readRunDirectory(runsDir);
+  const paths = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => join(runsDir, entry.name));
+  const cacheByPath = new Map(cached.map((run) => [run.path, run]));
+  if (cacheByPath.size !== cached.length) return listAlgorithmRunSummaries(options);
+
+  const summaries = await Promise.all(paths.map(async (path) => {
+    const prior = cacheByPath.get(path);
+    const info = await stat(path, { bigint: true });
+    if (prior !== undefined && info.mtimeNs < indexedAt && info.ctimeNs < indexedAt) return prior;
+    return summarizeAlgorithmRun(await readAlgorithmRun(path), path);
+  }));
+  return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+async function readRunDirectory(runsDir: string) {
+  try {
+    return await readdir(runsDir, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function isIndexedRunSummary(value: unknown, runsDir: string): value is AlgorithmRunSummary {
+  if (typeof value !== "object" || value === null) return false;
+  const run = value as Partial<AlgorithmRunSummary>;
+  return typeof run.id === "string" && run.id.length > 0 &&
+    typeof run.path === "string" && run.path === join(runsDir, `${run.id}.json`) &&
+    typeof run.updatedAt === "string" && typeof run.phase === "string" &&
+    typeof run.effort === "string" && typeof run.goal === "string" &&
+    typeof run.progress === "string" &&
+    typeof run.openCriteria === "number" && typeof run.passedCriteria === "number" &&
+    typeof run.failedCriteria === "number" && typeof run.droppedCriteria === "number" &&
+    typeof run.deferredProbeCriteria === "number";
 }

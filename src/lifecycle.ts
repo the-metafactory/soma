@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { listAlgorithmRunSummaries, listAlgorithmRuns, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
+import { listAlgorithmRunSummaries, listAlgorithmRuns, listStartupAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { buildLearningReadback } from "./learning-readback";
 import { appendSomaMemoryEvent } from "./memory";
@@ -203,7 +203,7 @@ export async function buildSomaStartupContext(options: SomaLifecycleOptions = {}
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
   const profile = await loadSomaProfile(somaHome);
-  const summaries = await listAlgorithmRunSummaries({ somaHome });
+  const summaries = await listStartupAlgorithmRunSummaries({ somaHome });
   const activeRuns = summaries.filter((run) => run.phase !== "complete").slice(0, 8);
   const recentLearnings = await readRecentMarkdown(join(somaHome, "memory/LEARNING"), 8);
   const relationshipNotes = await readRecentMarkdown(join(somaHome, "memory/RELATIONSHIP"), 8);
@@ -231,9 +231,11 @@ export async function buildSomaStartupContext(options: SomaLifecycleOptions = {}
 export async function writeAlgorithmWorkIndex(options: SomaLifecycleOptions = {}): Promise<{ path: string; activePath: string; index: AlgorithmWorkIndex }> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
+  const scanStartedAt = new Date().toISOString();
   const runs = await listAlgorithmRunSummaries({ somaHome });
   const index: AlgorithmWorkIndex = {
     updatedAt: timestamp,
+    scanStartedAt,
     runs,
   };
   const path = join(somaHome, "memory/STATE/algorithm-work-index.json");
