@@ -856,11 +856,13 @@ never suffices alone. The receipt proves *existence + probe passage, not
 quality* — sound because `auto` work sits below the irreversibility line;
 quality ratifies when a downstream HITL node consumes the artifact (#485).
 
-An `auto` close must also cite a **successful CI check run** (`--ci
-<checkRunId>@<headSha>`): the receipt records the run, and the store verifies
-`conclusion: success` at the cited SHA when the bridge reads the node back.
-Check-run conclusions are written only by a GitHub App (GitHub Actions), so an
-issue editor who holds no push/CI-trigger authority cannot fabricate one.
+An `auto` close must also cite a CI check run (`--ci
+<checkRunId>@<headSha>`). On GitHub, the store verifies `conclusion: success`
+at the cited SHA when the bridge reads the node back. Check-run conclusions
+are written only by a GitHub App (GitHub Actions), so an issue editor who holds
+no push/CI-trigger authority cannot fabricate one. The GitLab store records
+the citation but does not independently verify its conclusion or SHA. Its
+`auto` close is therefore not an independently verified gate yet.
 
 **Detection, not prevention.** Both the run id and the SHA are supplied by the
 closer, so a collaborator who *can* push and trigger CI can still mint a passing

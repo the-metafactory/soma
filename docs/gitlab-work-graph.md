@@ -40,8 +40,10 @@ soma graph chart --repo gitlab:gitlab.example.com/acme/work \
 
 `chart` returns a group Epic id such as `acme&17`. Its typed node block carries
 `home: acme/work`. The `--repo` project and `--home-project` must agree, and the
-home project must sit under the Epic group. Missing, malformed, or conflicting
-home bindings refuse; existing Epics with a legacy route comment still read.
+home project must sit under the Epic group. A missing or malformed typed home
+refuses at creation; a mismatch between typed home and a valid legacy route
+comment refuses on read. An invalid legacy route comment is ignored when the
+typed home is valid. Existing Epics with a valid legacy route comment still read.
 Keep the returned id: GitLab issue numbers repeat across projects, so a node
 needs its path as well as its number. Quote Epic refs in a shell because `&`
 has shell meaning.
@@ -84,13 +86,15 @@ soma graph decisions 'gitlab:gitlab.example.com/acme&17'
 
 A close posts a receipt to GitLab and records the checkpoint, resolution,
 evidence, and attestation. GitLab command probes are authorized by the registry
-entry for the **node's own project**, keyed as `gitlab.example.com/acme/work`;
-`soma policy probes` shows the read-only registry. `auto` nodes require declared
+entry for the node's own location: the Epic uses its group key
+`gitlab.example.com/acme`, while Issues and Tasks in the home project use
+`gitlab.example.com/acme/work`. `soma policy probes` shows the read-only
+registry. `auto` nodes require declared
 probes and a `--ci <checkRunId>@<headSha>` citation, but the GitLab backend does
 not independently verify that CI run's result. Do not rely on `auto` closure as
 an independently verified gate on GitLab yet. A `propose` or `approve` node may
-close without a ratifying reaction;
-the receipt then reports `attestation: unverified`. A verified attestation
+close without a ratifying reaction; the receipt then reports
+`attestation: unverified`. A verified attestation
 requires a separate ratifier and credential isolation, as described in
 [the work-graph contract](work-graph.md#deriving-attestation-502).
 
