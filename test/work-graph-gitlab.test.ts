@@ -377,3 +377,22 @@ test("every GraphQL document in the GitLab store is balanced", async () => {
     expect({ name, braces, parens }).toEqual({ name, braces: 0, parens: 0 });
   }
 });
+
+test("GitLab splits a wide subtree read into batches under the query complexity cap", async () => {
+  // Live GitLab refuses one document aliasing a whole map level ("Query has complexity of 296, which exceeds max complexity of 250" at 8 items).
+  const iids = Array.from({ length: 13 }, (_, index) => String(index + 2));
+  const empty = [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }];
+  const root = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "root", description: "", state: "OPEN", author: { username: "jc" }, widgets: [...empty, { type: "HIERARCHY", children: { nodes: iids.map((iid) => ({ iid, namespace: { fullPath: "saca/p" }, workItemType: { name: "Issue" } })) } }] };
+  const child = (iid: string) => ({ id: `gid://gitlab/WorkItem/${iid}`, iid, workItemType: "Issue", namespace: { fullPath: "saca/p" }, title: `child ${iid}`, description: "", state: "OPEN", author: { username: "jc" }, widgets: [...empty, { type: "HIERARCHY", children: { nodes: [] } }] });
+  const calls: GitLabApiRequest[] = [];
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {
+    calls.push(request);
+    if (calls.length === 1) return { data: { namespace: { workItem: root } } };
+    const variables = request.body?.variables as Record<string, string>;
+    if ("iid" in variables) return { data: { namespace: { workItem: child(variables.iid!) } } };
+    return { data: Object.fromEntries(Object.keys(variables).filter((key) => key.startsWith("iid")).map((key) => [`item${key.slice(3)}`, { workItem: child(variables[key]!) }])) };
+  } });
+  expect((await store.readSubtree({ id: "saca&1" })).map((state) => state.ref.id)).toEqual(iids.map((iid) => `saca/p#${iid}`));
+  const batches = calls.slice(1).map((call) => Object.keys(call.body?.variables as object).filter((key) => key.startsWith("iid")).length);
+  expect(batches).toEqual([6, 6, 1]);
+});
