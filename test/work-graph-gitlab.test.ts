@@ -73,7 +73,7 @@ test("GitLab writes blocking edges through the linked-item mutation contract", a
   await store.addBlockingEdge({ id: `${REPO}#1` }, { id: `${REPO}#2` });
   const request = calls.find((call) => String(call.body?.query).includes("workItemAddLinkedItems"));
   expect(String(request?.body?.query)).toContain("$linkType:WorkItemRelatedLinkType!");
-  expect(String(request?.body?.query)).toContain("input:{id:$source,workItemIds:[$target],linkType:$linkType}");
+  expect(String(request?.body?.query)).toContain("input:{id:$source,workItemsIds:[$target],linkType:$linkType}");
   expect(request?.body?.variables).toMatchObject({ source: item.id, target: item.id, linkType: "BLOCKS" });
 });
 
