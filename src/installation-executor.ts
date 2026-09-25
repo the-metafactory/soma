@@ -5,6 +5,7 @@ export const SOMA_INSTALL_OPERATION_STAGES = {
   "require-bun": "environment",
   "bootstrap-soma-home": "soma-home",
   "stage-runtime-artifact": "environment",
+  "stage-cli-runtime-artifact": "environment",
   "prune-legacy-vsa-skill": "soma-home",
   "install-soma-home-vsa-skill": "soma-home",
   "install-bundled-skills": "soma-home",

@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { inspectRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
+import { pathToFileURL } from "node:url";
+import { assertActiveCliRuntime, inspectRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
 import { runRuntimeCli } from "../src/cli/runtime";
 
 const roots: string[] = [];
@@ -70,6 +71,20 @@ test("stages an immutable source-complete artifact and atomically activates it",
   expect(await readFile(join(staged.path, "src", "cli.ts"), "utf8")).toContain("cli = true");
   expect((await readRuntimeArtifactState(home, "codex"))?.active).toBe(staged.hash);
   expect(await readFile(join(home, "runtime/codex/current/src/cli.ts"), "utf8")).toContain("cli = true");
+});
+
+test("graph close accepts only the active hash-checked CLI module", async () => {
+  const { source, home } = await fixture();
+  await mkdir(join(source, "src", "cli"));
+  await writeFile(join(source, "src", "cli", "graph.ts"), "export const graph = true;\n");
+  const staged = await stageRuntimeArtifact({ somaHome: home, substrate: "cli", sourceRoot: source });
+  const activeModule = pathToFileURL(join(staged.path, "src", "cli", "graph.ts")).href;
+  const sourceModule = pathToFileURL(join(source, "src", "cli", "graph.ts")).href;
+  expect(await assertActiveCliRuntime(home, activeModule)).toBe(staged.hash);
+  await expect(assertActiveCliRuntime(home, sourceModule)).rejects.toThrow(/source checkout/);
+  await makeWritable(staged.path);
+  await writeFile(join(staged.path, "src", "cli", "graph.ts"), "export const graph = false;\n");
+  await expect(assertActiveCliRuntime(home, activeModule)).rejects.toThrow(/valid installed CLI runtime required/);
 });
 test("retains and explicitly rolls back the selected substrate predecessor", async () => {
   const { source, home } = await fixture();

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate, rollbackRuntimeArtifact, type GuardedRuntimeSubstrate } from "../runtime-artifact";
 
 export interface ParsedRuntimeArgs { command: "runtime"; action: "status" | "rollback"; substrate: GuardedRuntimeSubstrate; somaHome?: string; }
-export const RUNTIME_COMMAND_HELP = { usage: "Usage: soma runtime <status|rollback> --substrate <claude-code|codex|grok> [--soma-home <dir>]", subcommands: { status: "Usage: soma runtime status --substrate <claude-code|codex|grok> [--soma-home <dir>]", rollback: "Usage: soma runtime rollback --substrate <claude-code|codex|grok> [--soma-home <dir>]" } };
+export const RUNTIME_COMMAND_HELP = { usage: "Usage: soma runtime <status|rollback> --substrate <cli|claude-code|codex|grok> [--soma-home <dir>]", subcommands: { status: "Usage: soma runtime status --substrate <cli|claude-code|codex|grok> [--soma-home <dir>]", rollback: "Usage: soma runtime rollback --substrate <cli|claude-code|codex|grok> [--soma-home <dir>]" } };
 export function parseRuntimeArgs(args: string[]): ParsedRuntimeArgs {
   const [, action, ...rest] = args;
   if (action !== "status" && action !== "rollback") throw new Error(RUNTIME_COMMAND_HELP.usage);

@@ -3,13 +3,14 @@ import { createHash } from "node:crypto";
 import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface RuntimeArtifactState {
   active: string;
   previous?: string;
 }
 
-export const GUARDED_RUNTIME_SUBSTRATES = ["claude-code", "codex", "grok"] as const;
+export const GUARDED_RUNTIME_SUBSTRATES = ["cli", "claude-code", "codex", "grok"] as const;
 export type GuardedRuntimeSubstrate = (typeof GUARDED_RUNTIME_SUBSTRATES)[number];
 export function isGuardedRuntimeSubstrate(substrate: string): substrate is GuardedRuntimeSubstrate {
   return (GUARDED_RUNTIME_SUBSTRATES as readonly string[]).includes(substrate);
@@ -224,7 +225,8 @@ export async function stageRuntimeArtifact(input: { somaHome: string; substrate:
       await rm(displaced, { recursive: true, force: true });
     }
     const current = await readRuntimeArtifactState(input.somaHome, input.substrate);
-    const state: RuntimeArtifactState = { active: hash, ...(current?.active !== hash ? { previous: current?.active } : current?.previous ? { previous: current.previous } : {}) };
+    const previous = current?.active === hash ? current.previous : current?.active;
+    const state: RuntimeArtifactState = { active: hash, ...(previous ? { previous } : {}) };
     await activateRuntimeArtifact(input.somaHome, input.substrate, hash);
     await writeRuntimeArtifactState(input.somaHome, input.substrate, state);
     await pruneUnreferencedArtifacts(input.somaHome);
@@ -253,6 +255,18 @@ export async function inspectRuntimeArtifact(somaHome: string, substrate: Guarde
     return { state, status: "missing-active" };
   }
   return { state, status: "ready" };
+}
+
+/** Bind a graph close to the exact, hash-checked CLI tree selected at invocation. */
+export async function assertActiveCliRuntime(somaHome: string, moduleUrl: string): Promise<string> {
+  const inspected = await inspectRuntimeArtifact(somaHome, "cli");
+  if (inspected.status !== "ready" || !inspected.state) {
+    throw new Error(`valid installed CLI runtime required (${inspected.status})`);
+  }
+  const expected = await realpath(join(runtimeArtifactActivePath(somaHome, "cli"), "src", "cli", "graph.ts"));
+  const actual = await realpath(fileURLToPath(moduleUrl));
+  if (actual !== expected) throw new Error("active installed CLI runtime required; source checkout cannot enforce its own close");
+  return inspected.state.active;
 }
 
 async function isValidArtifact(root: string, expectedHash: string): Promise<boolean> {

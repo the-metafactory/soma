@@ -30,7 +30,7 @@ test("arc manifest version matches package.json", () => {
 
 test("arc manifest exposes the soma CLI shim", () => {
   const manifest = readFileSync(join(import.meta.dirname, "..", "arc-manifest.yaml"), "utf8");
-  expect(manifest).toContain("  cli:\n    - name: soma\n      command: bun src/cli.ts");
+  expect(manifest).toContain("  cli:\n    - name: soma\n      command: bun src/cli-launcher.ts");
 });
 
 test("arc bundle excludes local runtime directories", () => {
