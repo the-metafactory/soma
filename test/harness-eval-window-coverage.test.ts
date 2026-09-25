@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
 });
 
-async function runEval(eventTimes: string[], args: string[] = []): Promise<{ exitCode: number; output: string }> {
+async function runEval(eventTimes: string[], args: string[] = []): Promise<{ exitCode: number; output: string; stdout: string }> {
   const home = await mkdtemp(join(tmpdir(), "harness-eval-coverage-"));
   homes.push(home);
   const state = join(home, "memory", "STATE");
@@ -28,10 +28,8 @@ async function runEval(eventTimes: string[], args: string[] = []): Promise<{ exi
     stdout: "pipe",
     stderr: "pipe",
   });
-  return {
-    exitCode: proc.exitCode,
-    output: new TextDecoder().decode(proc.stdout) + new TextDecoder().decode(proc.stderr),
-  };
+  const stdout = new TextDecoder().decode(proc.stdout);
+  return { exitCode: proc.exitCode, stdout, output: stdout + new TextDecoder().decode(proc.stderr) };
 }
 
 test("reports a gap and --check distinguishes incomplete coverage from regression", async () => {
@@ -70,6 +68,19 @@ test("an empty event log reports unknown coverage and fails --check", async () =
   expect(result.exitCode).toBe(3);
   expect(result.output).toContain("First event: none");
   expect(result.output).toContain("INCOMPLETE COVERAGE:");
+});
+
+test("--check --json emits structured incomplete coverage before exiting 3", async () => {
+  const first = new Date(Date.now() - 2 * dayMs).toISOString();
+  const result = await runEval([first], ["--check", "--json"]);
+  expect(result.exitCode).toBe(3);
+  const report = JSON.parse(result.stdout) as {
+    coverage: { complete: boolean; firstEvent: string; gapDays: number; windowStart: string };
+  };
+  expect(report.coverage.complete).toBe(false);
+  expect(report.coverage.firstEvent).toBe(first);
+  expect(report.coverage.gapDays).toBeGreaterThan(57);
+  expect(report.coverage.windowStart).toBeDefined();
 });
 
 test("a read error after an old event cannot establish coverage", async () => {

@@ -675,7 +675,8 @@ async function main(): Promise<void> {
 
   if (flag("--check") || flag("--write-baseline")) {
     if (!coverageComplete) {
-      console.error(coverageLine);
+      if (flag("--json")) console.log(JSON.stringify({ windowDays, coverage, results }, null, 2));
+      else console.error(coverageLine);
       console.error(
         loaded.readError
           ? "INCOMPLETE COVERAGE: event log read failed before EOF. Cannot measure this window."
