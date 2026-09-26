@@ -1,8 +1,6 @@
-import { createReadStream } from "node:fs";
-import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./memory";
 import type {
   AlgorithmPhase,
@@ -64,25 +62,10 @@ async function streamTelemetryEvents(
   skippedMalformedLines: number;
 }> {
   const eventPath = somaMemoryEventsPath(somaHome);
-  const exists = await access(eventPath).then(
-    () => true,
-    (error: unknown) => {
-      if (isRecord(error) && error.code === "ENOENT") return false;
-      throw error;
-    },
-  );
-  if (!exists) {
-    return { eventPath, totalEvents: 0, skippedMalformedLines: 0 };
-  }
-
-  const lines = createInterface({
-    input: createReadStream(eventPath, { encoding: "utf8" }),
-    crlfDelay: Infinity,
-  });
   let totalEvents = 0;
   let skippedMalformedLines = 0;
 
-  for await (const line of lines) {
+  for await (const line of streamEventLines(eventPath)) {
     if (line.trim().length === 0) continue;
 
     const event = parseTelemetryLine(line);

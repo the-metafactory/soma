@@ -1,13 +1,30 @@
 # Observability V0
 
 Soma observability starts as a filesystem-native read model over the existing
-append-only event log:
+append-only event history:
 
 ```text
 <soma-home>/memory/STATE/events.jsonl
+<soma-home>/memory/STATE/events-index.json
+<soma-home>/memory/STATE/events-archive/events-000001.jsonl
+<soma-home>/memory/STATE/events-archive/events-000001.jsonl.gz
 ```
 
-Each line is a `SomaMemoryEvent`. V0 does not add a database, daemon, dashboard,
+Each line is a `SomaMemoryEvent`. Soma rotates the live file before an append
+would take it past 16 MiB. One cross-process lock covers all substrate writers,
+rotation, and reader snapshots. Closed plain segments are numbered in order and
+never appended again. An untracked high water mark detects loss of the last
+closed segment. Private Soma-home git stores gzip mirrors; live, index, and
+plain files remain gitignored. The pre-2026-08-24 archive becomes segment 1
+without changing its bytes. Readers also accept its old name before import.
+
+`streamEventRecords` in `src/event-log.ts` enumerates segments and live exactly
+once, pins handles and the live byte bound under the writer lock, then streams
+after releasing it. A missing segment or conflicting plain/gzip copy is an
+error, not a partial success. Gzip is used when a plain segment is absent.
+Daily live snapshots remain in place during the migration.
+
+V0 does not add a database, daemon, dashboard,
 or Signal dependency. It also does not harvest raw transcripts, prompts, or full
 tool payloads.
 

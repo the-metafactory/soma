@@ -1,6 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { open } from "node:fs/promises";
-import { createInterface } from "node:readline/promises";
+import { streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./memory";
 import type { SomaMemoryEvent, SomaMemoryRetrievalQuality } from "./types";
 
@@ -179,14 +178,8 @@ export async function streamJournalStats(eventsPath: string): Promise<{ eventLin
   let skippedEventLines = 0;
   const acc = newRetrievalAccumulator();
 
-  const handle = await open(eventsPath, NOFOLLOW_READ).catch(() => undefined);
-  if (handle === undefined) {
-    // absent, symlinked (ELOOP), or otherwise unopenable → empty journal
-    return { eventLines: 0, retrieval: finalizeRetrieval(acc, 0) };
-  }
-  try {
-    const lines = createInterface({ input: handle.createReadStream({ encoding: "utf8" }), crlfDelay: Infinity });
-    for await (const line of lines) {
+  {
+    for await (const line of streamEventLines(eventsPath)) {
       if (line.trim().length === 0) continue;
       eventLines += 1; // event-ratio counts every non-empty line, parseable or not
       const event = parseEventLine(line);
@@ -196,8 +189,6 @@ export async function streamJournalStats(eventsPath: string): Promise<{ eventLin
       }
       foldRetrievalEvent(acc, event);
     }
-  } finally {
-    await handle.close().catch(() => undefined);
   }
 
   return { eventLines, retrieval: finalizeRetrieval(acc, skippedEventLines) };
@@ -236,11 +227,8 @@ export async function computeNoteRetrievalCounts(somaHome: string): Promise<Map<
     counts.set(id, existing);
   };
 
-  const handle = await open(somaMemoryEventsPath(somaHome), NOFOLLOW_READ).catch(() => undefined);
-  if (handle === undefined) return counts; // absent/symlinked journal → no signal, same forgiving stance as the audit
-  try {
-    const lines = createInterface({ input: handle.createReadStream({ encoding: "utf8" }), crlfDelay: Infinity });
-    for await (const line of lines) {
+  {
+    for await (const line of streamEventLines(somaMemoryEventsPath(somaHome))) {
       if (line.trim().length === 0) continue;
       const event = parseEventLine(line); // malformed line → skipped, same shape as the retrieval-quality probe
       if (event === undefined) continue;
@@ -251,8 +239,6 @@ export async function computeNoteRetrievalCounts(somaHome: string): Promise<Map<
       const verifiedId = verifyEventNoteId(event);
       if (verifiedId !== undefined) bump(verifiedId, "verified");
     }
-  } finally {
-    await handle.close().catch(() => undefined);
   }
   return counts;
 }

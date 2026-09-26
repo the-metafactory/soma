@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { eventArchiveDir, eventIndexPath, withEventLogLock } from "./event-log";
 import packageJson from "../package.json";
 import { createPaths } from "./paths";
 import type {
@@ -49,7 +51,19 @@ const SNAPSHOT_GITIGNORE_RULES = [
 // snapshot has no reason to track its byte-for-byte churn (rebuilds re-stamp
 // "verified Nd ago" ages even when the underlying notes didn't change).
 const GENERATED_GITIGNORE_HEADER = "# Soma generated files";
-const GENERATED_GITIGNORE_RULES = ["memory/INDEX.md"] as const;
+const GENERATED_GITIGNORE_RULES = [
+  "memory/INDEX.md",
+  "memory/STATE/events.jsonl",
+  "memory/STATE/events-index.json",
+  "memory/STATE/.events.lock/",
+  "memory/STATE/.events.lock.reclaim/",
+  "memory/STATE/events-snapshots/",
+  "!memory/STATE/events-archive/",
+  "memory/STATE/events-archive/*.jsonl",
+  "memory/STATE/events-archive/*.tmp",
+  "memory/STATE/events-index.json.*.tmp",
+  "!memory/STATE/events-archive/*.jsonl.gz",
+] as const;
 
 interface SnapshotMetadata {
   ignoredPaths: string[];
@@ -101,8 +115,20 @@ async function ensureSnapshotRepo(somaHome: string): Promise<void> {
     runGit(somaHome, ["init"]);
   }
   await ensureSnapshotGitignore(somaHome);
+  untrackEventFiles(somaHome);
   runGit(somaHome, ["config", "user.name", "Soma Snapshot"]);
   runGit(somaHome, ["config", "user.email", "soma-snapshot@localhost"]);
+}
+
+function untrackEventFiles(somaHome: string): void {
+  // Ignore rules alone do not protect a path already present in the index.
+  // Remove it from future snapshots without touching the live working file.
+  runGit(somaHome, ["rm", "--cached", "--ignore-unmatch", "--", "memory/STATE/events.jsonl"]);
+  runGit(somaHome, ["rm", "--cached", "--ignore-unmatch", "--", "memory/STATE/events-index.json"]);
+  const trackedArchives = runGit(somaHome, ["ls-files", "--", "memory/STATE/events-archive"]).stdout
+    .split("\n")
+    .filter((path) => /^memory\/STATE\/events-archive\/[^/]+\.jsonl$/.test(path));
+  if (trackedArchives.length > 0) runGit(somaHome, ["rm", "--cached", "--ignore-unmatch", "--", ...trackedArchives]);
 }
 
 async function ensureSnapshotGitignore(somaHome: string): Promise<void> {
@@ -257,10 +283,40 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
   if (!subject.startsWith("soma snapshot: ")) {
     throw new Error(`Refusing to rollback to non-snapshot commit: ${options.snapshot}`);
   }
-  runGit(somaHome, ["reset", "--hard", id]);
-  const metadata = await readSnapshotMetadata(somaHome);
-  runGit(somaHome, ["clean", "-ffd"]);
-  await removeIgnoredAdditions(somaHome, metadata.ignoredPaths);
+  const eventsPath = createPaths(somaHome).events();
+  await withEventLogLock(eventsPath, async () => {
+    const backup = await mkdtemp(join(tmpdir(), "soma-event-rollback-"));
+    const archive = eventArchiveDir(eventsPath);
+    const index = eventIndexPath(eventsPath);
+    try {
+      if (await pathExists(eventsPath)) await copyFile(eventsPath, join(backup, "events.jsonl"));
+      if (await pathExists(index)) await copyFile(index, join(backup, "events-index.json"));
+      if (await pathExists(archive)) await cp(archive, join(backup, "events-archive"), { recursive: true });
+      runGit(somaHome, ["reset", "--hard", id]);
+      const metadata = await readSnapshotMetadata(somaHome);
+      runGit(somaHome, ["clean", "-ffd", "-e", "memory/STATE/events.jsonl", "-e", "memory/STATE/events-index.json", "-e", "memory/STATE/events-archive/", "-e", "memory/STATE/.events.lock/", "-e", "memory/STATE/.events.lock.reclaim/"]);
+      await removeIgnoredAdditions(somaHome, [
+        ...metadata.ignoredPaths,
+        "memory/STATE/events.jsonl",
+        "memory/STATE/events-index.json",
+        "memory/STATE/events-archive/",
+        "memory/STATE/.events.lock/",
+        "memory/STATE/.events.lock.reclaim/",
+        "memory/STATE/events-snapshots/",
+      ]);
+      if (await pathExists(join(backup, "events.jsonl"))) {
+        await mkdir(join(somaHome, "memory", "STATE"), { recursive: true });
+        await copyFile(join(backup, "events.jsonl"), eventsPath);
+      }
+      if (await pathExists(join(backup, "events-index.json"))) await copyFile(join(backup, "events-index.json"), index);
+      if (await pathExists(join(backup, "events-archive"))) {
+        await mkdir(archive, { recursive: true });
+        await cp(join(backup, "events-archive"), archive, { recursive: true, force: true });
+      }
+      await ensureSnapshotGitignore(somaHome);
+      untrackEventFiles(somaHome);
+    } finally { await rm(backup, { recursive: true, force: true }); }
+  });
   return {
     somaHome,
     id,

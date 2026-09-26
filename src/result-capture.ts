@@ -1,8 +1,6 @@
-import { createReadStream } from "node:fs";
-import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { createInterface } from "node:readline";
+import { streamEventRecords } from "./event-log";
 import { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
 import type {
   SomaMemoryEvent,
@@ -152,23 +150,8 @@ export async function searchSomaResults(options: SomaResultSearchOptions): Promi
     return { query, somaHome, matches: [] };
   }
 
-  const exists = await access(eventPath).then(
-    () => true,
-    () => false,
-  );
-  if (!exists) {
-    return { query, somaHome, matches: [] };
-  }
-
   const matches: SomaResultSearchResult["matches"] = [];
-  const lines = createInterface({
-    input: createReadStream(eventPath, { encoding: "utf8" }),
-    crlfDelay: Infinity,
-  });
-
-  let lineNumber = 0;
-  for await (const line of lines) {
-    lineNumber += 1;
+  for await (const { path, lineNumber, line } of streamEventRecords(eventPath)) {
     if (line.trim().length === 0) continue;
 
     let event: SomaMemoryEvent;
@@ -186,7 +169,7 @@ export async function searchSomaResults(options: SomaResultSearchOptions): Promi
     if (score === 0) continue;
 
     retainTopResultMatch(matches, {
-      eventPath,
+      eventPath: path,
       line: lineNumber,
       eventId: event.id,
       kind: event.kind,
