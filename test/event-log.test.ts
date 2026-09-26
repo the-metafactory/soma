@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { appendEventBatch, eventArchiveDir, eventIndexPath, eventSegmentPath, streamEventLines, streamEventRecords } from "../src/event-log";
 import { createSomaSnapshot, rollbackSomaSnapshot } from "../src/snapshots";
@@ -59,6 +59,16 @@ test("reader uses gzip fallback and reports missing or conflicting segments", as
   await rm(second);
   await rm(`${second}.gz`);
   await expect(lines(events)).rejects.toThrow(/Missing event segment 2/);
+});
+
+test("reader rejects an empty gzip fallback", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  const first = eventSegmentPath(events, 1);
+  await rm(first);
+  await writeFile(`${first}.gz`, "");
+  await expect(lines(events)).rejects.toThrow(/Empty gzip event segment/);
 });
 
 test("reader detects conflicting plain and gzip copies", async () => {
@@ -118,6 +128,17 @@ test("writer recovers an interrupted marked legacy import", async () => {
   await writeFile(events, "");
   await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([0, 1]);
+  expect(JSON.parse(await readFile(eventIndexPath(events), "utf8")).nextSegment).toBe(2);
+});
+
+test("writer recovers rotation after the live file was renamed", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await mkdir(eventArchiveDir(events), { recursive: true });
+  await writeFile(join(dirname(events), ".rotation-pending.json"), '{"number":1}\n');
+  await rename(events, eventSegmentPath(events, 1));
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([1, 2]);
   expect(JSON.parse(await readFile(eventIndexPath(events), "utf8")).nextSegment).toBe(2);
 });
 

@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { copyFile, cp, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eventArchiveDir, eventIndexPath, mirrorMissingEventSegments, withEventLogLock } from "./event-log";
+import { eventArchiveDir, eventIndexPath, mirrorMissingEventSegments, recoverPendingEventRotation, withEventLogLock } from "./event-log";
 import packageJson from "../package.json";
 import { createPaths } from "./paths";
 import type {
@@ -57,6 +57,7 @@ const GENERATED_GITIGNORE_RULES = [
   "memory/STATE/events-index.json",
   "memory/STATE/.events.lock/",
   "memory/STATE/.events.lock.reclaim/",
+  "memory/STATE/.rotation-pending.json",
   "memory/STATE/events-snapshots/",
   "!memory/STATE/events-archive/",
   "memory/STATE/events-archive/*.jsonl",
@@ -230,20 +231,25 @@ export async function createSomaSnapshot(options: SomaSnapshotOptions = {}): Pro
 
   await ensureSnapshotRepo(somaHome);
   const eventsPath = createPaths(somaHome).events();
-  const id = await withEventLogLock(eventsPath, async () => {
+  await writeSnapshotMetadata(somaHome);
+  runGit(somaHome, ["add", "-A"]);
+  await withEventLogLock(eventsPath, async () => {
+    await recoverPendingEventRotation(eventsPath);
     await mirrorMissingEventSegments(eventsPath);
-    await writeSnapshotMetadata(somaHome);
-    runGit(somaHome, ["add", "-A"]);
-    runGit(somaHome, [
-      "commit",
-      "--allow-empty",
-      "-m",
-      `soma snapshot: ${name}`,
-      "-m",
-      `trigger: ${trigger}\ncreated-at: ${createdAt}\nsoma-version: ${packageJson.version}`,
-    ]);
-    return runGit(somaHome, ["rev-parse", "HEAD"]).stdout.trim();
+    const archivePath = "memory/STATE/events-archive";
+    if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
+      runGit(somaHome, ["add", "-A", "--", archivePath]);
+    }
   });
+  runGit(somaHome, [
+    "commit",
+    "--allow-empty",
+    "-m",
+    `soma snapshot: ${name}`,
+    "-m",
+    `trigger: ${trigger}\ncreated-at: ${createdAt}\nsoma-version: ${packageJson.version}`,
+  ]);
+  const id = runGit(somaHome, ["rev-parse", "HEAD"]).stdout.trim();
   return { somaHome, id, name, trigger, createdAt };
 }
 
@@ -290,6 +296,7 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
   }
   const eventsPath = createPaths(somaHome).events();
   await withEventLogLock(eventsPath, async () => {
+    await recoverPendingEventRotation(eventsPath);
     const backup = await mkdtemp(join(tmpdir(), "soma-event-rollback-"));
     const archive = eventArchiveDir(eventsPath);
     const index = eventIndexPath(eventsPath);

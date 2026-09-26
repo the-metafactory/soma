@@ -12,6 +12,7 @@ export const EVENT_SEGMENT_LIMIT = 16 * 1024 * 1024;
 const LOCK_TIMEOUT_MS = 30_000;
 const ARCHIVE = "events-archive";
 const INDEX = "events-index.json";
+const ROTATION_PENDING = ".rotation-pending.json";
 const SEGMENT = /^events-(\d{6})\.jsonl(\.gz)?$/;
 const LEGACY = /^events-until-.*\.jsonl$/;
 const MAX_EXPANDED_ARCHIVE_BYTES = 256 * 1024 * 1024;
@@ -44,6 +45,25 @@ function alive(pid: number): boolean {
   catch (error) { return !(error instanceof Error && "code" in error && error.code === "ESRCH"); }
 }
 
+async function tryReclaimStaleLock(lock: string): Promise<boolean> {
+  const guard = `${lock}.reclaim`;
+  const guarded = await mkdir(guard).then(() => true).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+    throw error;
+  });
+  if (!guarded) return false;
+  try {
+    const age = Date.now() - (await stat(lock).then((s) => s.mtimeMs).catch(() => Date.now()));
+    if (age <= LOCK_TIMEOUT_MS) return false;
+    const owner = await readFile(join(lock, "owner.json"), "utf8").then((s) => JSON.parse(s) as { pid?: number; host?: string }).catch(() => null);
+    if (owner?.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return false;
+    const retired = `${lock}.stale-${process.pid}-${crypto.randomUUID()}`;
+    await rename(lock, retired).catch((error: unknown) => { if (!isGone(error)) throw error; });
+    await rm(retired, { recursive: true, force: true });
+    return true;
+  } finally { await rm(guard, { recursive: true, force: true }); }
+}
+
 /** One lock for append, rotation, reader snapshots and rollback. */
 export async function withEventLogLock<T>(eventsPath: string, action: () => Promise<T>): Promise<T> {
   await mkdir(dirname(eventsPath), { recursive: true });
@@ -59,26 +79,8 @@ export async function withEventLogLock<T>(eventsPath: string, action: () => Prom
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
       if (Date.now() - started > LOCK_TIMEOUT_MS) throw new Error(`Timed out waiting for event log lock: ${lock}`, { cause: error });
-      // Reclaim only a dead same-host owner. An ownerless or foreign-host lock
-      // remains closed: silently stealing it could split two appenders.
-      const guard = `${lock}.reclaim`;
-      const guarded = await mkdir(guard).then(() => true).catch((e: unknown) => { if (e instanceof Error && "code" in e && e.code === "EEXIST") return false; throw e; });
-      if (guarded) {
-        try {
-          const age = Date.now() - (await stat(lock).then((s) => s.mtimeMs).catch(() => Date.now()));
-          if (age > LOCK_TIMEOUT_MS) {
-            const owner = await readFile(join(lock, "owner.json"), "utf8").then((s) => JSON.parse(s) as { pid?: number; host?: string }).catch(() => null);
-            if (owner?.host === hostname() && typeof owner.pid === "number" && !alive(owner.pid)) {
-              const retired = `${lock}.stale-${process.pid}-${crypto.randomUUID()}`;
-              await rename(lock, retired).catch((e: unknown) => { if (!isGone(e)) throw e; });
-              await rm(retired, { recursive: true, force: true });
-              continue;
-            }
-          }
-        } finally {
-          await rm(guard, { recursive: true, force: true });
-        }
-      }
+      // Only a dead same-host owner may be reclaimed.
+      if (await tryReclaimStaleLock(lock)) continue;
       await sleep(15);
     }
   }
@@ -130,6 +132,30 @@ async function writeNextSegment(eventsPath: string, nextSegment: number): Promis
   await writeFile(temporary, `${JSON.stringify({ nextSegment })}\n`);
   try { await rename(temporary, path); }
   catch (error) { await rm(temporary, { force: true }); throw error; }
+}
+
+/** Complete or discard a rotation interrupted before its index and live file. */
+export async function recoverPendingEventRotation(eventsPath: string): Promise<void> {
+  const marker = join(dirname(eventsPath), ROTATION_PENDING);
+  const raw = await readFile(marker, "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+  if (raw === undefined) return;
+  let number: unknown;
+  try { number = (JSON.parse(raw) as { number?: unknown }).number; }
+  catch { throw new Error(`Malformed pending event rotation: ${marker}`); }
+  if (!Number.isSafeInteger(number) || typeof number !== "number" || number < 1) throw new Error(`Invalid pending event rotation: ${marker}`);
+  const closed = eventSegmentPath(eventsPath, number);
+  const closedExists = await stat(closed).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+  if (closedExists) {
+    const recorded = await recordedNextSegment(eventsPath);
+    if (recorded !== undefined && recorded !== number && recorded !== number + 1) throw new Error(`Conflicting pending event rotation: ${marker}`);
+    if (recorded !== number + 1) await writeNextSegment(eventsPath, number + 1);
+    const live = await stat(eventsPath).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+    if (!live) await writeFile(eventsPath, "", { flag: "wx", mode: 0o600 });
+  } else {
+    const live = await stat(eventsPath).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+    if (!live) throw new Error(`Missing live event log during rotation: ${eventsPath}`);
+  }
+  await rm(marker);
 }
 
 async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
@@ -205,6 +231,7 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
     from = i + 1;
   }
   const mirrors = await withEventLogLock(eventsPath, async () => {
+    await recoverPendingEventRotation(eventsPath);
     await importLegacyEventArchive(eventsPath);
     const segments = await checkedSegments(eventsPath);
     const pendingMirrors = segments.flatMap((segment) => segment.plain && !segment.gzip ? [segment.plain] : []);
@@ -232,8 +259,12 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
           if (writer) { await writer.close(); writer = undefined; }
           const closed = eventSegmentPath(eventsPath, nextNumber++);
           await mkdir(eventArchiveDir(eventsPath), { recursive: true });
+          const marker = join(dirname(eventsPath), ROTATION_PENDING);
+          await writeFile(marker, `${JSON.stringify({ number: nextNumber - 1 })}\n`);
           await rename(eventsPath, closed);
           await writeNextSegment(eventsPath, nextNumber);
+          await writeFile(eventsPath, "", { flag: "wx", mode: 0o600 });
+          await rm(marker);
           pendingMirrors.push(closed);
           currentSize = 0;
         }
@@ -260,6 +291,10 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
         if (!path) throw new Error(`Event segment ${item.number} has no readable copy`);
         const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
         const segment: OpenSegment = { path, handle, size: (await handle.stat()).size, gzip: !item.plain };
+        if (segment.gzip && segment.size === 0) {
+          await handle.close();
+          throw new Error(`Empty gzip event segment: ${path}`);
+        }
         opened.push(segment);
         if (item.plain && item.gzip) segment.mirror = await open(item.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
       }
