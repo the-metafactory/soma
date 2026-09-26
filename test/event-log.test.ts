@@ -68,7 +68,17 @@ test("reader rejects an empty gzip fallback", async () => {
   const first = eventSegmentPath(events, 1);
   await rm(first);
   await writeFile(`${first}.gz`, "");
-  await expect(lines(events)).rejects.toThrow(/Empty gzip event segment/);
+  await expect(lines(events)).rejects.toThrow(/Empty closed event segment/);
+});
+
+test("reader rejects an empty closed plain segment", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  const first = eventSegmentPath(events, 1);
+  await writeFile(first, "");
+  await rm(`${first}.gz`);
+  await expect(lines(events)).rejects.toThrow(/Empty closed event segment/);
 });
 
 test("mirror creation rejects a symlinked segment", async () => {

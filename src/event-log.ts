@@ -45,47 +45,33 @@ function alive(pid: number): boolean {
   catch (error) { return !(error instanceof Error && "code" in error && error.code === "ESRCH"); }
 }
 
-async function retireDeadGuard(guard: string): Promise<void> {
-  const age = Date.now() - (await stat(guard).then((s) => s.mtimeMs).catch(() => Date.now()));
-  if (age <= LOCK_TIMEOUT_MS) return;
-  const raw = await readFile(join(guard, "owner.json"), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+async function retireStaleOwnedDirectory(path: string): Promise<boolean> {
+  const age = Date.now() - (await stat(path).then((s) => s.mtimeMs).catch(() => Date.now()));
+  if (age <= LOCK_TIMEOUT_MS) return false;
+  const raw = await readFile(join(path, "owner.json"), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
   if (raw !== undefined) {
     let parsed: unknown;
-    try { parsed = JSON.parse(raw); } catch { return; }
-    if (typeof parsed !== "object" || parsed === null) return;
+    try { parsed = JSON.parse(raw); } catch { return false; }
+    if (typeof parsed !== "object" || parsed === null) return false;
     const owner = parsed as { host?: string; pid?: number };
-    if (owner.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return;
+    if (owner.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return false;
   }
-  const retired = `${guard}.stale-${process.pid}-${crypto.randomUUID()}`;
-  await rename(guard, retired).catch((error: unknown) => { if (!isGone(error)) throw error; });
+  const retired = `${path}.stale-${process.pid}-${crypto.randomUUID()}`;
+  await rename(path, retired).catch((error: unknown) => { if (!isGone(error)) throw error; });
   await rm(retired, { recursive: true, force: true });
+  return true;
 }
 
 async function tryReclaimStaleLock(lock: string): Promise<boolean> {
   const guard = `${lock}.reclaim`;
   const guarded = await mkdir(guard).then(() => true).catch(async (error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST") { await retireDeadGuard(guard); return false; }
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") { await retireStaleOwnedDirectory(guard); return false; }
     throw error;
   });
   if (!guarded) return false;
   try {
     await writeFile(join(guard, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname() }));
-    const age = Date.now() - (await stat(lock).then((s) => s.mtimeMs).catch(() => Date.now()));
-    if (age <= LOCK_TIMEOUT_MS) return false;
-    const rawOwner = await readFile(join(lock, "owner.json"), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
-    if (rawOwner !== undefined) {
-      let parsed: unknown;
-      try { parsed = JSON.parse(rawOwner); }
-      catch { return false; }
-      if (typeof parsed !== "object" || parsed === null) return false;
-      const owner = parsed as { pid?: number; host?: string };
-      if (owner.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return false;
-    }
-    // An ownerless lock older than the timeout is a crashed acquisition.
-    const retired = `${lock}.stale-${process.pid}-${crypto.randomUUID()}`;
-    await rename(lock, retired).catch((error: unknown) => { if (!isGone(error)) throw error; });
-    await rm(retired, { recursive: true, force: true });
-    return true;
+    return await retireStaleOwnedDirectory(lock);
   } finally { await rm(guard, { recursive: true, force: true }); }
 }
 
@@ -258,19 +244,7 @@ export async function mirrorMissingEventSegments(eventsPath: string): Promise<vo
   }
 }
 
-export async function appendEventBatch(eventsPath: string, payload: Buffer, limit = EVENT_SEGMENT_LIMIT): Promise<void> {
-  if (payload.length === 0) return;
-  if (payload[payload.length - 1] !== 10) throw new Error("Event batch must end with a newline");
-  const records: Buffer[] = [];
-  let from = 0;
-  for (let i = 0; i < payload.length; i++) {
-    if (payload[i] !== 10) continue;
-    const record = payload.subarray(from, i + 1);
-    if (record.length > limit) throw new Error(`Event record exceeds segment limit (${limit} bytes)`);
-    records.push(record);
-    from = i + 1;
-  }
-  const mirrors = await withEventLogLock(eventsPath, async () => {
+async function appendRecordsUnderLock(eventsPath: string, records: readonly Buffer[], limit: number): Promise<string[]> {
     await recoverPendingEventRotation(eventsPath);
     await importLegacyEventArchive(eventsPath);
     const segments = await checkedSegments(eventsPath);
@@ -311,7 +285,21 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
     }
     await flush();
     return pendingMirrors;
-  });
+}
+
+export async function appendEventBatch(eventsPath: string, payload: Buffer, limit = EVENT_SEGMENT_LIMIT): Promise<void> {
+  if (payload.length === 0) return;
+  if (payload[payload.length - 1] !== 10) throw new Error("Event batch must end with a newline");
+  const records: Buffer[] = [];
+  let from = 0;
+  for (let i = 0; i < payload.length; i++) {
+    if (payload[i] !== 10) continue;
+    const record = payload.subarray(from, i + 1);
+    if (record.length > limit) throw new Error(`Event record exceeds segment limit (${limit} bytes)`);
+    records.push(record);
+    from = i + 1;
+  }
+  const mirrors = await withEventLogLock(eventsPath, () => appendRecordsUnderLock(eventsPath, records, limit));
   // The records are already committed. A failed mirror is retried by the next
   // writer or snapshot; reporting append failure would invite duplicate retries.
   for (const path of mirrors) {
@@ -335,9 +323,9 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
         if (!path) throw new Error(`Event segment ${item.number} has no readable copy`);
         const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
         const segment: OpenSegment = { path, handle, size: (await handle.stat()).size, gzip: !item.plain };
-        if (segment.gzip && segment.size === 0) {
+        if (segment.size === 0) {
           await handle.close();
-          throw new Error(`Empty gzip event segment: ${path}`);
+          throw new Error(`Empty closed event segment: ${path}`);
         }
         opened.push(segment);
         if (item.plain && item.gzip) segment.mirror = await open(item.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
