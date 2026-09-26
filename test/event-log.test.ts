@@ -226,6 +226,21 @@ test("legacy archive import preserves bytes and rollback retains history and seq
   expect((await readdir(archive)).filter((name) => name.endsWith(".jsonl"))).toContain("events-000003.jsonl");
 });
 
+test("snapshot protects the legacy archive before its first import", async () => {
+  const { root, events } = await home();
+  await createSomaSnapshot({ somaHome: root, name: "baseline" });
+  const archive = eventArchiveDir(events);
+  await mkdir(archive, { recursive: true });
+  const legacy = join(archive, "events-until-2026-08-24T18-48-54Z.jsonl");
+  await writeFile(legacy, '{"i":0}\n');
+  await writeFile(events, "");
+  await createSomaSnapshot({ somaHome: root, name: "legacy-protected" });
+  expect(gunzipSync(await readFile(`${legacy}.gz`)).toString()).toBe('{"i":0}\n');
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  expect(gunzipSync(await readFile(`${eventSegmentPath(events, 1)}.gz`)).toString()).toBe('{"i":0}\n');
+  expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([0, 1]);
+});
+
 test("private snapshots track gzip mirrors but not active or plain archives", async () => {
   const { root, events } = await home();
   await createSomaSnapshot({ somaHome: root, name: "baseline" });
@@ -255,6 +270,16 @@ test("snapshot rejects an existing mirror that disagrees with plain history", as
   await oneClosedSegment(events);
   await writeFile(`${eventSegmentPath(events, 1)}.gz`, gzipSync('{"i":999}\n'));
   await expect(createSomaSnapshot({ somaHome: root, name: "corrupt" })).rejects.toThrow(/Conflicting event segment copies/);
+});
+
+test("snapshot refuses a missing final segment despite a surviving index", async () => {
+  const { root, events } = await home();
+  await createSomaSnapshot({ somaHome: root, name: "baseline" });
+  for (let i = 1; i <= 3; i++) await appendEventBatch(events, Buffer.from(`${JSON.stringify({ i })}\n`), 12);
+  const last = eventSegmentPath(events, 2);
+  await rm(last);
+  await rm(`${last}.gz`);
+  await expect(createSomaSnapshot({ somaHome: root, name: "incomplete" })).rejects.toThrow(/Missing event segment 2/);
 });
 
 test("rollback replaces snapshot archive with the protected live archive", async () => {

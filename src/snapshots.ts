@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -230,6 +231,14 @@ function assertSafeRevision(snapshot: string): void {
   }
 }
 
+async function restoreProtectedFile(source: string, destination: string): Promise<void> {
+  const temporary = `${destination}.rollback-${crypto.randomUUID()}.tmp`;
+  try {
+    await copyFile(source, temporary, fsConstants.COPYFILE_EXCL);
+    await rename(temporary, destination);
+  } finally { await rm(temporary, { force: true }); }
+}
+
 export async function createSomaSnapshot(options: SomaSnapshotOptions = {}): Promise<SomaSnapshotResult> {
   const somaHome = resolveSomaHome(options);
   const name = sanitizeSnapshotLabel(options.name, "manual");
@@ -324,13 +333,9 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
       ]);
       if (await pathExists(join(backup, "events.jsonl"))) {
         await mkdir(join(somaHome, "memory", "STATE"), { recursive: true });
-        const restoredLive = `${eventsPath}.rollback-${crypto.randomUUID()}.tmp`;
-        try {
-          await copyFile(join(backup, "events.jsonl"), restoredLive);
-          await rename(restoredLive, eventsPath);
-        } finally { await rm(restoredLive, { force: true }); }
+        await restoreProtectedFile(join(backup, "events.jsonl"), eventsPath);
       }
-      if (await pathExists(join(backup, "events-index.json"))) await copyFile(join(backup, "events-index.json"), index);
+      if (await pathExists(join(backup, "events-index.json"))) await restoreProtectedFile(join(backup, "events-index.json"), index);
       await rm(archive, { recursive: true, force: true });
       if (archiveMoved) { await rename(archiveBackup, archive); archiveMoved = false; }
       await ensureSnapshotGitignore(somaHome);

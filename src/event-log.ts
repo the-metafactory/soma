@@ -122,7 +122,11 @@ async function segmentNames(eventsPath: string): Promise<SegmentNames[]> {
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
   const found = new Map<number, SegmentNames>();
   const legacy = entries.filter((name) => LEGACY.test(name));
+  const legacyGzip = entries.filter((name) => name.endsWith(".gz") && LEGACY.test(name.slice(0, -3)));
   if (legacy.length > 1) throw new Error(`Conflicting legacy event archives in ${dir}`);
+  if (legacyGzip.length > 1 || (legacyGzip.length === 1 && legacyGzip[0] !== `${legacy[0]}.gz`)) {
+    throw new Error(`Conflicting legacy gzip archives in ${dir}`);
+  }
   for (const name of entries) {
     const match = SEGMENT.exec(name);
     if (!match) continue;
@@ -134,7 +138,7 @@ async function segmentNames(eventsPath: string): Promise<SegmentNames[]> {
     found.set(number, item);
   }
   if (legacy.length && found.has(1)) throw new Error(`Conflicting first event segments in ${dir}`);
-  if (legacy.length) found.set(1, { number: 1, plain: join(dir, legacy[0]) });
+  if (legacy.length) found.set(1, { number: 1, plain: join(dir, legacy[0]), ...(legacyGzip.length ? { gzip: join(dir, legacyGzip[0]) } : {}) });
   const ordered = [...found.values()].sort((a, b) => a.number - b.number);
   for (let i = 0; i < ordered.length; i++) {
     if (ordered[i].number !== i + 1) throw new Error(`Missing event segment ${i + 1} in ${dir}`);
@@ -229,10 +233,26 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
   const marker = join(dir, ".legacy-importing");
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
   const legacy = entries.filter((name) => LEGACY.test(name));
+  const legacyCompressed = entries.filter((name) => name.endsWith(".jsonl.gz") && LEGACY.test(name.slice(0, -3)));
+  const moveCompressed = async (legacyName: string): Promise<void> => {
+    const source = join(dir, `${legacyName}.gz`);
+    if (legacyCompressed.includes(`${legacyName}.gz`)) {
+      const target = `${eventSegmentPath(eventsPath, 1)}.gz`;
+      if (await stat(target).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; })) {
+        throw new Error(`Conflicting legacy compressed event copies in ${dir}`);
+      }
+      await rename(source, target);
+      const validation = validationPath(join(dir, legacyName));
+      const exists = await stat(validation).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+      if (exists) await rename(validation, validationPath(eventSegmentPath(eventsPath, 1)));
+    }
+  };
   if (entries.includes(".legacy-importing")) {
     const first = eventSegmentPath(eventsPath, 1);
     if (legacy.length === 1 && !entries.some((name) => SEGMENT.test(name))) await rename(join(dir, legacy[0]), first);
     else if (legacy.length > 0 || !entries.includes("events-000001.jsonl")) throw new Error(`Conflicting legacy event import in ${dir}`);
+    const compressedName = legacy.length === 1 ? legacy[0] : legacyCompressed[0]?.slice(0, -3);
+    if (compressedName) await moveCompressed(compressedName);
     if ((await recordedNextSegment(eventsPath)) === undefined) await writeNextSegment(eventsPath, 2);
     await rm(marker);
     return;
@@ -241,6 +261,7 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
   if (legacy.length !== 1 || entries.some((name) => SEGMENT.test(name))) throw new Error(`Conflicting event archives in ${dir}`);
   await createMetadataFile(marker, "importing\n");
   await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
+  await moveCompressed(legacy[0]);
   await writeNextSegment(eventsPath, 2);
   await rm(marker);
 }
@@ -268,8 +289,8 @@ export async function compressEventSegment(plainPath: string): Promise<void> {
 
 /** Called while snapshot staging holds the event lock. */
 export async function mirrorMissingEventSegments(eventsPath: string): Promise<void> {
-  for (const segment of await segmentNames(eventsPath)) {
-    if (!segment.plain || !SEGMENT.test(basename(segment.plain))) continue;
+  for (const segment of await checkedSegments(eventsPath)) {
+    if (!segment.plain) continue;
     if (!segment.gzip) { await compressEventSegment(segment.plain); continue; }
     const plain = await open(segment.plain, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     try {
@@ -341,7 +362,7 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
   const mirrors = await withEventLogLock(eventsPath, () => appendRecordsUnderLock(eventsPath, records, limit));
   // The records are already committed. A failed mirror is retried by the next
   // writer or snapshot; reporting append failure would invite duplicate retries.
-  for (const path of mirrors) {
+  for (const path of mirrors.slice(0, 1)) {
     try { await compressEventSegment(path); }
     catch (error) {
       process.emitWarning(`Event mirror pending for ${path}: ${error instanceof Error ? error.message : String(error)}`, "SomaEventMirrorWarning");
@@ -350,6 +371,11 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
 }
 
 interface OpenSegment { path: string; handle: FileHandle; size: number; gzip: boolean; mirror?: FileHandle }
+
+async function closeSegments(segments: readonly OpenSegment[]): Promise<void> {
+  const handles = segments.flatMap((segment) => [segment.handle, segment.mirror].filter((handle): handle is FileHandle => handle !== undefined));
+  await Promise.all(handles.map((handle) => handle.close().catch(() => undefined)));
+}
 
 /** Pin archive handles and the live byte bound under the writer lock. */
 async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
@@ -375,7 +401,7 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
       }
       if (live) opened.push({ path: eventsPath, handle: live, size: (await live.stat()).size, gzip: false });
       return opened;
-    } catch (error) { await Promise.all(opened.flatMap((item) => [item.handle, item.mirror].filter((handle): handle is FileHandle => handle !== undefined)).map((handle) => handle.close())); throw error; }
+    } catch (error) { await closeSegments(opened); throw error; }
   });
 }
 
@@ -432,7 +458,7 @@ async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: st
       }
       yield { path: item.path, boundary: true };
     }
-  } finally { await Promise.all(segments.flatMap((item) => [item.handle, item.mirror].filter((handle): handle is FileHandle => handle !== undefined)).map((handle) => handle.close().catch(() => undefined))); }
+  } finally { await closeSegments(segments); }
 }
 
 /** Ordered records retain real source path and per-file line for citations. */
