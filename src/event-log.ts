@@ -149,7 +149,11 @@ export async function withEventLogLock<T>(eventsPath: string, action: () => Prom
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
       if (Date.now() - started > LOCK_TIMEOUT_MS) throw new Error(`Timed out waiting for event log lock: ${lock}`, { cause: error });
       // Only a dead same-host owner may be reclaimed.
-      if (await tryReclaimStaleLock(lock)) continue;
+      const lockAge = Date.now() - await stat(lock).then((value) => value.mtimeMs).catch((probeError: unknown) => {
+        if (isGone(probeError)) return Date.now();
+        throw probeError;
+      });
+      if (lockAge > LOCK_TIMEOUT_MS && await tryReclaimStaleLock(lock)) continue;
       await sleep(15);
     }
   }
@@ -645,22 +649,6 @@ async function* streamBoundedSegmentBytes(item: OpenSegment, handle: FileHandle,
   if (item.gzip && expanded === 0) throw new Error(`Empty closed event segment: ${item.path}`);
 }
 
-/** Ordered byte streams; boundaries let the JSONL reader reject torn segments. */
-async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: string; bytes?: Buffer; boundary?: true }> {
-  const snapshot = await snapshotSegments(eventsPath);
-  try {
-    for (const item of snapshot.segments) {
-      const opened = await openReadableSegment(item);
-      try {
-        const { handle, size } = opened;
-        if (!item.handle && size === 0) throw new Error(`Empty closed event segment: ${item.path}`);
-        for await (const bytes of streamBoundedSegmentBytes(item, handle, size)) yield { path: item.path, bytes };
-        yield { path: item.path, boundary: true };
-      } finally { await opened.close(); }
-    }
-  } finally { await closeEventSnapshot(snapshot); }
-}
-
 function createEventLineFramer(): { push: (bytes: Uint8Array) => string[]; finish: (path: string) => void } {
   let pending = "";
   const decoder = new TextDecoder();
@@ -683,23 +671,29 @@ function createEventLineFramer(): { push: (bytes: Uint8Array) => string[]; finis
   };
 }
 
+async function* streamSegmentLines(item: OpenSegment, handle: FileHandle, size: number): AsyncGenerator<string> {
+  const framer = createEventLineFramer();
+  for await (const bytes of streamBoundedSegmentBytes(item, handle, size)) {
+    for (const line of framer.push(bytes)) yield line;
+  }
+  framer.finish(item.path);
+}
+
 /** Ordered records retain real source path and per-file line for citations. */
 export async function* streamEventRecords(eventsPath: string): AsyncGenerator<{ path: string; lineNumber: number; line: string }> {
-  const framer = createEventLineFramer();
-  const lineNumbers = new Map<string, number>();
-  for await (const item of streamEventChunks(eventsPath)) {
-    if (item.boundary) {
-      framer.finish(item.path);
-      continue;
+  const snapshot = await snapshotSegments(eventsPath);
+  try {
+    for (const item of snapshot.segments) {
+      const opened = await openReadableSegment(item);
+      try {
+        if (item.path !== eventsPath && opened.size === 0) throw new Error(`Empty closed event segment: ${item.path}`);
+        let lineNumber = 0;
+        for await (const line of streamSegmentLines(item, opened.handle, opened.size)) {
+          yield { path: item.path, lineNumber: ++lineNumber, line };
+        }
+      } finally { await opened.close(); }
     }
-    if (!item.bytes) continue;
-    for (const line of framer.push(item.bytes)) {
-      const lineNumber = (lineNumbers.get(item.path) ?? 0) + 1;
-      lineNumbers.set(item.path, lineNumber);
-      yield { path: item.path, lineNumber, line };
-    }
-  }
-  framer.finish(eventsPath);
+  } finally { await closeEventSnapshot(snapshot); }
 }
 
 export async function* streamEventLines(eventsPath: string): AsyncGenerator<string> {
@@ -721,20 +715,16 @@ async function scanSnapshotSegment<T>(
     let matched = 0;
     let totalEvents = 0;
     let skippedMalformedLines = 0;
-    const framer = createEventLineFramer();
-    for await (const bytes of streamBoundedSegmentBytes(item, handle, size)) {
-      for (const line of framer.push(bytes)) {
-        if (line.trim().length === 0) continue;
-        const value = parse(line);
-        if (value === undefined) { skippedMalformedLines++; continue; }
-        totalEvents++;
-        if (matches(value)) {
-          recent[matched % limit] = value;
-          matched++;
-        }
+    for await (const line of streamSegmentLines(item, handle, size)) {
+      if (line.trim().length === 0) continue;
+      const value = parse(line);
+      if (value === undefined) { skippedMalformedLines++; continue; }
+      totalEvents++;
+      if (matches(value)) {
+        recent[matched % limit] = value;
+        matched++;
       }
     }
-    framer.finish(item.path);
     const retained = Math.min(matched, limit);
     const oldest = matched > limit ? matched % limit : 0;
     const events = Array.from({ length: retained }, (_, offset) => recent[(oldest + offset) % limit]).reverse();
@@ -850,6 +840,18 @@ async function readCumulativeEventCounts(eventsPath: string, segments: readonly 
   return { ...fields, checksum: index.checksum };
 }
 
+async function validateSkippedMirrors(segments: readonly OpenSegment[]): Promise<void> {
+  const paired = segments.filter((item) => item.mirror !== undefined || item.mirrorPath !== undefined);
+  for (let start = 0; start < paired.length; start += 32) {
+    const checked = await Promise.allSettled(paired.slice(start, start + 32).map(async (item) => {
+      const opened = await openReadableSegment(item);
+      await opened.close();
+    }));
+    const failed = checked.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failed) throw failed.reason;
+  }
+}
+
 /** Read only the newest matching records; count older compressed segments from pinned metadata. */
 export async function queryRecentEventRecords<T>(
   eventsPath: string,
@@ -864,11 +866,12 @@ export async function queryRecentEventRecords<T>(
     const prefix = await readCumulativeEventCounts(eventsPath, closedSegments);
     let totalEvents = prefix?.totalEvents ?? 0;
     let skippedMalformedLines = prefix?.skippedMalformedLines ?? 0;
+    let skippedPrefixEnd = -1;
     for (let index = snapshot.segments.length - 1; index >= 0; index--) {
       const item = snapshot.segments[index];
       const closed = item.path !== eventsPath;
       const inPrefix = closed && prefix !== undefined && index < prefix.segmentCount;
-      if (inPrefix && events.length >= limit) break;
+      if (inPrefix && events.length >= limit) { skippedPrefixEnd = index; break; }
       const saved = closed && !inPrefix ? await savedSegmentCounts(item) : undefined;
       const scanned = events.length < limit || (!inPrefix && !saved)
         ? await scanSnapshotSegment(item, closed, limit - events.length || 1, parse, matches)
@@ -886,6 +889,7 @@ export async function queryRecentEventRecords<T>(
       }
       if (scanned && events.length < limit) events.push(...scanned.events.slice(0, limit - events.length));
     }
+    if (skippedPrefixEnd >= 0) await validateSkippedMirrors(closedSegments.slice(0, skippedPrefixEnd + 1));
     return { events, totalEvents, skippedMalformedLines };
   } finally { await closeEventSnapshot(snapshot); }
 }

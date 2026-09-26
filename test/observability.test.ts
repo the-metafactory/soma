@@ -1,6 +1,7 @@
 import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import { expect, test } from "bun:test";
 import {
   appendSomaMemoryEvent,
@@ -114,6 +115,8 @@ test("recent telemetry uses closed-segment counts and keeps exact totals", async
     const indexed = await querySomaTelemetryEvents({ homeDir, limit: 1, substrate: "codex" });
     expect(indexed.totalEvents).toBe(3);
     expect(indexed.skippedMalformedLines).toBe(1);
+    await writeFile(`${oldPath}.gz`, gzipSync(`${record("different")}\n`));
+    await expect(querySomaTelemetryEvents({ homeDir, limit: 1 })).rejects.toThrow(/Conflicting event segment copies/);
   });
 });
 
