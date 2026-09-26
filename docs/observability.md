@@ -34,9 +34,11 @@ staging creates and verifies gzip copies before committing them. Daily live snap
 remain in place during the migration.
 Compression also writes private per-segment event and malformed-row counts.
 Snapshots stage a cumulative closed-segment count checkpoint. Recent telemetry
-reads newest segments first and uses that checkpoint for older history; missing
-or stale counts fall back to reading the affected segments. The stats command
-still scans the complete history for its detailed aggregates.
+reads newest segments first and trusts that validated checkpoint for older
+immutable history. Archive listing changes invalidate it and trigger a full
+read. In-place edits to an older closed file after the checkpoint require a
+full-history read to detect; `soma telemetry stats` scans every segment for its
+detailed aggregates.
 
 V0 does not add a database, daemon, dashboard,
 or Signal dependency. It also does not harvest raw transcripts, prompts, or full

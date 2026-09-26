@@ -98,6 +98,14 @@ async function createMetadataFile(path: string, content: string): Promise<void> 
   finally { await handle.close(); }
 }
 
+async function writeAtomicMetadata(path: string, content: string): Promise<void> {
+  const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await createMetadataFile(temporary, content);
+    await rename(temporary, path);
+  } finally { await rm(temporary, { force: true }); }
+}
+
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (error) { return !(error instanceof Error && "code" in error && error.code === "ESRCH"); }
@@ -245,10 +253,7 @@ async function recordedNextSegment(eventsPath: string): Promise<number | undefin
 
 async function writeNextSegment(eventsPath: string, nextSegment: number): Promise<void> {
   const path = eventIndexPath(eventsPath);
-  const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await createMetadataFile(temporary, `${JSON.stringify({ nextSegment })}\n`);
-  try { await rename(temporary, path); }
-  catch (error) { await rm(temporary, { force: true }); throw error; }
+  await writeAtomicMetadata(path, `${JSON.stringify({ nextSegment })}\n`);
 }
 
 /** Complete or discard a rotation interrupted before its index and live file. */
@@ -378,19 +383,11 @@ export async function compressEventSegment(plainPath: string): Promise<void> {
     } finally { await compressed.close(); }
     await rename(temporary, target);
     const validation = validationPath(plainPath);
-    const temporaryValidation = `${validation}.${process.pid}.${crypto.randomUUID()}.tmp`;
-    try {
-      await createMetadataFile(temporaryValidation, `${await pairVersion(plainPath, target)}\n`);
-      await rename(temporaryValidation, validation);
-    } finally { await rm(temporaryValidation, { force: true }); }
+    await writeAtomicMetadata(validation, `${await pairVersion(plainPath, target)}\n`);
     const counts = countEventLines((await readFile(plainPath)).toString("utf8"));
     const countsTarget = countPath(plainPath);
-    const countsTemporary = `${countsTarget}.${process.pid}.${crypto.randomUUID()}.tmp`;
-    try {
-      const fields = { version: await pairVersion(plainPath, target), gzipVersion: fileVersion(await stat(target)), ...counts };
-      await createMetadataFile(countsTemporary, `${JSON.stringify({ ...fields, checksum: countChecksum(fields) })}\n`);
-      await rename(countsTemporary, countsTarget);
-    } finally { await rm(countsTemporary, { force: true }); }
+    const fields = { version: await pairVersion(plainPath, target), gzipVersion: fileVersion(await stat(target)), ...counts };
+    await writeAtomicMetadata(countsTarget, `${JSON.stringify({ ...fields, checksum: countChecksum(fields) })}\n`);
   }
   catch (error) { await rm(temporary, { force: true }); throw error; }
   finally { await source.close(); }
@@ -438,11 +435,7 @@ export async function ensureCompressedEventSegments(eventsPath: string, createMi
           if (bytes.length > 0) lastByte = bytes[bytes.length - 1];
         }
         if (lastByte !== 10) throw new Error(`Torn event record in ${segment.gzip}`);
-        const temporary = `${validation}.${process.pid}.${crypto.randomUUID()}.tmp`;
-        try {
-          await createMetadataFile(temporary, `${version}\n`);
-          await rename(temporary, validation);
-        } finally { await rm(temporary, { force: true }); }
+        await writeAtomicMetadata(validation, `${version}\n`);
       } finally { await handle.close(); }
       continue;
     }
@@ -775,6 +768,7 @@ interface CumulativeEventCounts {
   skippedMalformedLines: number;
   lastName: string;
   lastVersion: string;
+  listingVersion: string;
   checksum: string;
 }
 
@@ -807,13 +801,10 @@ export async function writeCumulativeEventCounts(eventsPath: string): Promise<vo
     skippedMalformedLines,
     lastName: lastPath ? basename(lastPath) : "",
     lastVersion: lastItem ? await segmentFileVersion(lastItem) : "",
+    listingVersion: await segmentListingVersion(eventsPath),
   };
   const target = eventCountsIndexPath(eventsPath);
-  const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    await createMetadataFile(temporary, `${JSON.stringify({ ...fields, checksum: cumulativeChecksum(fields) })}\n`);
-    await rename(temporary, target);
-  } finally { await rm(temporary, { force: true }); }
+  await writeAtomicMetadata(target, `${JSON.stringify({ ...fields, checksum: cumulativeChecksum(fields) })}\n`);
 }
 
 async function readCumulativeEventCounts(eventsPath: string, segments: readonly OpenSegment[]): Promise<CumulativeEventCounts | undefined> {
@@ -825,31 +816,20 @@ async function readCumulativeEventCounts(eventsPath: string, segments: readonly 
   const index = value as Partial<CumulativeEventCounts>;
   if (typeof index.segmentCount !== "number" || typeof index.totalEvents !== "number" ||
       typeof index.skippedMalformedLines !== "number" || typeof index.lastName !== "string" ||
-      typeof index.lastVersion !== "string" || typeof index.checksum !== "string" ||
+      typeof index.lastVersion !== "string" || typeof index.listingVersion !== "string" || typeof index.checksum !== "string" ||
       !Number.isSafeInteger(index.segmentCount) || !Number.isSafeInteger(index.totalEvents) ||
       !Number.isSafeInteger(index.skippedMalformedLines) || index.segmentCount < 1 ||
       index.totalEvents < 0 || index.skippedMalformedLines < 0 || index.segmentCount > segments.length) return undefined;
   const fields = {
     segmentCount: index.segmentCount, totalEvents: index.totalEvents,
     skippedMalformedLines: index.skippedMalformedLines,
-    lastName: index.lastName, lastVersion: index.lastVersion,
+    lastName: index.lastName, lastVersion: index.lastVersion, listingVersion: index.listingVersion,
   };
   if (index.checksum !== cumulativeChecksum(fields)) return undefined;
+  if ((await segmentListingVersion(eventsPath)) !== index.listingVersion) return undefined;
   const last = segments[index.segmentCount - 1];
   if (basename(last.path) !== index.lastName || (await segmentFileVersion(last)) !== index.lastVersion) return undefined;
   return { ...fields, checksum: index.checksum };
-}
-
-async function validateSkippedMirrors(segments: readonly OpenSegment[]): Promise<void> {
-  const paired = segments.filter((item) => item.mirror !== undefined || item.mirrorPath !== undefined);
-  for (let start = 0; start < paired.length; start += 32) {
-    const checked = await Promise.allSettled(paired.slice(start, start + 32).map(async (item) => {
-      const opened = await openReadableSegment(item);
-      await opened.close();
-    }));
-    const failed = checked.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (failed) throw failed.reason;
-  }
 }
 
 /** Read only the newest matching records; count older compressed segments from pinned metadata. */
@@ -866,14 +846,13 @@ export async function queryRecentEventRecords<T>(
     const prefix = await readCumulativeEventCounts(eventsPath, closedSegments);
     let totalEvents = prefix?.totalEvents ?? 0;
     let skippedMalformedLines = prefix?.skippedMalformedLines ?? 0;
-    let skippedPrefixEnd = -1;
     for (let index = snapshot.segments.length - 1; index >= 0; index--) {
       const item = snapshot.segments[index];
       const closed = item.path !== eventsPath;
       const inPrefix = closed && prefix !== undefined && index < prefix.segmentCount;
-      if (inPrefix && events.length >= limit) { skippedPrefixEnd = index; break; }
+      if (inPrefix && events.length >= limit) break;
       const saved = closed && !inPrefix ? await savedSegmentCounts(item) : undefined;
-      const scanned = events.length < limit || (!inPrefix && !saved)
+      const scanned = events.length < limit || !inPrefix
         ? await scanSnapshotSegment(item, closed, limit - events.length || 1, parse, matches)
         : undefined;
       const counts = saved ?? scanned;
@@ -889,7 +868,6 @@ export async function queryRecentEventRecords<T>(
       }
       if (scanned && events.length < limit) events.push(...scanned.events.slice(0, limit - events.length));
     }
-    if (skippedPrefixEnd >= 0) await validateSkippedMirrors(closedSegments.slice(0, skippedPrefixEnd + 1));
     return { events, totalEvents, skippedMalformedLines };
   } finally { await closeEventSnapshot(snapshot); }
 }
