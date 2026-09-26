@@ -291,6 +291,16 @@ test("snapshot rejects an existing mirror that disagrees with plain history", as
   await expect(createSomaSnapshot({ somaHome: root, name: "corrupt" })).rejects.toThrow(/Conflicting event segment copies/);
 });
 
+test("snapshot rejects a corrupt gzip-only segment", async () => {
+  const { root, events } = await home();
+  await createSomaSnapshot({ somaHome: root, name: "baseline" });
+  await oneClosedSegment(events);
+  const first = eventSegmentPath(events, 1);
+  await rm(first);
+  await writeFile(`${first}.gz`, "corrupt gzip");
+  await expect(createSomaSnapshot({ somaHome: root, name: "corrupt" })).rejects.toThrow();
+});
+
 test("snapshot refuses a missing final segment despite a surviving index", async () => {
   const { root, events } = await home();
   await createSomaSnapshot({ somaHome: root, name: "baseline" });

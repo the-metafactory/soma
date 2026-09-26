@@ -106,6 +106,12 @@ export async function withEventLogLock<T>(eventsPath: string, action: () => Prom
 }
 
 interface SegmentNames { number: number; plain?: string; gzip?: string }
+function legacyCopies(entries: readonly string[]): { plain: string[]; gzip: string[] } {
+  return {
+    plain: entries.filter((name) => LEGACY.test(name)),
+    gzip: entries.filter((name) => name.endsWith(".gz") && LEGACY.test(name.slice(0, -3))),
+  };
+}
 const segmentListingCache = new Map<string, { version: string; segments: SegmentNames[] }>();
 
 async function segmentListingVersion(eventsPath: string): Promise<string> {
@@ -121,8 +127,7 @@ async function segmentNames(eventsPath: string): Promise<SegmentNames[]> {
   const dir = eventArchiveDir(eventsPath);
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
   const found = new Map<number, SegmentNames>();
-  const legacy = entries.filter((name) => LEGACY.test(name));
-  const legacyGzip = entries.filter((name) => name.endsWith(".gz") && LEGACY.test(name.slice(0, -3)));
+  const { plain: legacy, gzip: legacyGzip } = legacyCopies(entries);
   if (legacy.length > 1) throw new Error(`Conflicting legacy event archives in ${dir}`);
   if (legacyGzip.length > 1 || (legacy.length === 1 && legacyGzip.length === 1 && legacyGzip[0] !== `${legacy[0]}.gz`)) {
     throw new Error(`Conflicting legacy gzip archives in ${dir}`);
@@ -237,8 +242,7 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
   const markerExists = await stat(marker).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
   if (!markerExists && (await recordedNextSegment(eventsPath)) !== undefined) return;
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
-  const legacy = entries.filter((name) => LEGACY.test(name));
-  const legacyCompressed = entries.filter((name) => name.endsWith(".jsonl.gz") && LEGACY.test(name.slice(0, -3)));
+  const { plain: legacy, gzip: legacyCompressed } = legacyCopies(entries);
   const moveCompressed = async (legacyName: string): Promise<void> => {
     const source = join(dir, `${legacyName}.gz`);
     if (legacyCompressed.includes(`${legacyName}.gz`)) {
@@ -293,8 +297,24 @@ export async function compressEventSegment(plainPath: string): Promise<void> {
 }
 
 /** Called while snapshot staging holds the event lock. */
-export async function mirrorMissingEventSegments(eventsPath: string): Promise<void> {
+export async function ensureCompressedEventSegments(eventsPath: string): Promise<void> {
   for (const segment of await checkedSegments(eventsPath)) {
+    if (!segment.plain && segment.gzip) {
+      const handle = await open(segment.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      try {
+        if ((await handle.stat()).size === 0) throw new Error(`Empty closed event segment: ${segment.gzip}`);
+        let expanded = 0;
+        let lastByte = -1;
+        for await (const chunk of handle.createReadStream({ autoClose: false }).pipe(createGunzip())) {
+          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          expanded += bytes.length;
+          if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${segment.gzip}`);
+          if (bytes.length > 0) lastByte = bytes[bytes.length - 1];
+        }
+        if (lastByte !== 10) throw new Error(`Torn event record in ${segment.gzip}`);
+      } finally { await handle.close(); }
+      continue;
+    }
     if (!segment.plain) continue;
     if (!segment.gzip) { await compressEventSegment(segment.plain); continue; }
     const plain = await open(segment.plain, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
