@@ -140,12 +140,11 @@ async function ensureSnapshotRepo(somaHome: string): Promise<void> {
 function untrackEventFiles(somaHome: string): void {
   // Ignore rules alone do not protect a path already present in the index.
   // Remove it from future snapshots without touching the live working file.
-  runGit(somaHome, ["rm", "--cached", "--ignore-unmatch", "--", "memory/STATE/events.jsonl"]);
-  runGit(somaHome, ["rm", "--cached", "--ignore-unmatch", "--", "memory/STATE/events-index.json"]);
-  const trackedArchives = runGit(somaHome, ["ls-files", "--", "memory/STATE/events-archive"]).stdout
+  const tracked = runGit(somaHome, ["ls-files", "--", "memory/STATE/events.jsonl", "memory/STATE/events-index.json", "memory/STATE/events-archive"]).stdout
     .split("\n")
-    .filter((path) => /^memory\/STATE\/events-archive\/[^/]+\.jsonl$/.test(path));
-  if (trackedArchives.length > 0) runGit(somaHome, ["rm", "--cached", "--ignore-unmatch", "--", ...trackedArchives]);
+    .filter((path) => path === "memory/STATE/events.jsonl" || path === "memory/STATE/events-index.json" ||
+      /^memory\/STATE\/events-archive\/[^/]+\.jsonl$/.test(path));
+  if (tracked.length > 0) runGit(somaHome, ["rm", "--cached", "--ignore-unmatch", "--", ...tracked]);
 }
 
 async function ensureSnapshotGitignore(somaHome: string): Promise<void> {
