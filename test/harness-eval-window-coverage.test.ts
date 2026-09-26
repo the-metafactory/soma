@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { loadEventsWithCoverage } from "../scripts/harness-eval";
+import { appendEventBatch } from "../src/event-log";
 
 const homes: string[] = [];
 const script = join(import.meta.dir, "../scripts/harness-eval.ts");
@@ -11,6 +12,31 @@ const dayMs = 24 * 60 * 60 * 1000;
 
 afterEach(async () => {
   await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
+});
+
+test("missing live file after rotation cannot certify archived coverage", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-eval-missing-live-"));
+  homes.push(home);
+  const events = join(home, "memory/STATE/events.jsonl");
+  const old = new Date(Date.now() - 61 * dayMs).toISOString();
+  const recent = new Date(Date.now() - dayMs).toISOString();
+  await appendEventBatch(events, Buffer.from(`${JSON.stringify({ timestamp: old, kind: "memory.recall" })}\n`), 80);
+  await appendEventBatch(events, Buffer.from(`${JSON.stringify({ timestamp: recent, kind: "memory.recall" })}\n`), 80);
+  await rm(events);
+  const loaded = await loadEventsWithCoverage(events, Date.now() - 60 * dayMs);
+  expect(loaded.readError).toBe(true);
+  expect(loaded.coversWindow).toBe(false);
+});
+
+test("complete-looking JSON without a newline cannot certify coverage", async () => {
+  const home = await mkdtemp(join(tmpdir(), "harness-eval-torn-live-"));
+  homes.push(home);
+  const events = join(home, "memory/STATE/events.jsonl");
+  await mkdir(join(home, "memory/STATE"), { recursive: true });
+  await writeFile(events, JSON.stringify({ timestamp: new Date(Date.now() - 61 * dayMs).toISOString(), kind: "memory.recall" }));
+  const loaded = await loadEventsWithCoverage(events, Date.now() - 60 * dayMs);
+  expect(loaded.readError).toBe(true);
+  expect(loaded.coversWindow).toBe(false);
 });
 
 async function runEval(eventTimes: string[], args: string[] = []): Promise<{ exitCode: number; output: string; stdout: string }> {

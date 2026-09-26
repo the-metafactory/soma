@@ -218,6 +218,9 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
         if (item.plain && item.gzip) segment.mirror = await open(item.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
       }
       const live = await open(eventsPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+      if (!live && (names.length > 0 || (await recordedNextSegment(eventsPath)) !== undefined)) {
+        throw new Error(`Missing live event log: ${eventsPath}`);
+      }
       if (live) opened.push({ path: eventsPath, handle: live, size: (await live.stat()).size, gzip: false });
       return opened;
     } catch (error) { await Promise.all(opened.flatMap((item) => [item.handle, item.mirror].filter((handle): handle is FileHandle => handle !== undefined)).map((handle) => handle.close())); throw error; }
@@ -260,14 +263,7 @@ export async function* streamEventRecords(eventsPath: string): AsyncGenerator<{ 
   for await (const item of streamEventChunks(eventsPath)) {
     if (item.boundary) {
       pending += decoder.decode();
-      if (pending.length > 0) {
-        try { JSON.parse(pending); }
-        catch { throw new Error(`Torn event record in ${eventsPath}`); }
-        const lineNumber = (lineNumbers.get(item.path) ?? 0) + 1;
-        lineNumbers.set(item.path, lineNumber);
-        yield { path: item.path, lineNumber, line: pending.replace(/\r$/, "") };
-        pending = "";
-      }
+      if (pending.length > 0) throw new Error(`Torn event record in ${item.path}`);
       continue;
     }
     if (!item.bytes) continue;

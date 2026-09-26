@@ -77,6 +77,21 @@ test("high water mark detects loss of the last closed segment", async () => {
   await expect(appendEventBatch(events, Buffer.from('{"i":4}\n'), 12)).rejects.toThrow(/Missing event segment 2/);
 });
 
+test("reader rejects loss of the live file after history was written", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await rm(events);
+  await expect(lines(events)).rejects.toThrow(/Missing live event log/);
+});
+
+test("reader rejects valid JSON without a terminating newline", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'));
+  await writeFile(events, '{"i":1}');
+  await expect(lines(events)).rejects.toThrow(/Torn event record/);
+});
+
 test("reader snapshot sees a rotating live file exactly once", async () => {
   const { events } = await home();
   await appendEventBatch(events, Buffer.from('{"i":1}\n'), 16);
