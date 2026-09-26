@@ -248,16 +248,7 @@ async function restoreProtectedPath(backupPath: string, destination: string, exi
   await restoreProtectedFile(backupPath, destination);
 }
 
-export async function createSomaSnapshot(options: SomaSnapshotOptions = {}): Promise<SomaSnapshotResult> {
-  const somaHome = resolveSomaHome(options);
-  const name = sanitizeSnapshotLabel(options.name, "manual");
-  const trigger = sanitizeSnapshotLabel(options.trigger, "manual");
-  const createdAt = new Date().toISOString();
-
-  await ensureSnapshotRepo(somaHome);
-  const eventsPath = createPaths(somaHome).events();
-  await writeSnapshotMetadata(somaHome);
-  runGit(somaHome, ["add", "-A"]);
+async function stageEventArchive(somaHome: string, eventsPath: string): Promise<void> {
   let stagedEvents = false;
   for (let attempt = 0; attempt < 5 && !stagedEvents; attempt++) {
     const prepared = await withEventLogLock(eventsPath, async () => {
@@ -291,6 +282,19 @@ export async function createSomaSnapshot(options: SomaSnapshotOptions = {}): Pro
     });
   }
   if (!stagedEvents) throw new Error("Event archive kept changing during snapshot compression");
+}
+
+export async function createSomaSnapshot(options: SomaSnapshotOptions = {}): Promise<SomaSnapshotResult> {
+  const somaHome = resolveSomaHome(options);
+  const name = sanitizeSnapshotLabel(options.name, "manual");
+  const trigger = sanitizeSnapshotLabel(options.trigger, "manual");
+  const createdAt = new Date().toISOString();
+
+  await ensureSnapshotRepo(somaHome);
+  const eventsPath = createPaths(somaHome).events();
+  await writeSnapshotMetadata(somaHome);
+  runGit(somaHome, ["add", "-A"]);
+  await stageEventArchive(somaHome, eventsPath);
   runGit(somaHome, [
     "commit",
     "--allow-empty",

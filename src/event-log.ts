@@ -6,7 +6,7 @@ import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
-import { createGunzip, createGzip, gunzipSync } from "node:zlib";
+import { createGunzip, createGzip } from "node:zlib";
 
 export const EVENT_SEGMENT_LIMIT = 16 * 1024 * 1024;
 const LOCK_TIMEOUT_MS = 30_000;
@@ -509,7 +509,7 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
   await withEventLogLock(eventsPath, () => appendRecordsUnderLock(eventsPath, records, limit));
 }
 
-interface OpenSegment { path: string; handle?: FileHandle; size?: number; gzip: boolean; mirror?: FileHandle; mirrorPath?: string; countsRaw?: string | null }
+interface OpenSegment { path: string; handle?: FileHandle; size?: number; gzip: boolean; mirror?: FileHandle; mirrorPath?: string }
 interface EventSnapshot { segments: OpenSegment[]; leasePath?: string }
 
 async function closeSegments(segments: readonly OpenSegment[]): Promise<void> {
@@ -542,8 +542,6 @@ async function openSegmentsSnapshot(eventsPath: string, allowLease: boolean): Pr
         }
         opened.push(segment);
         if (item.plain && item.gzip) segment.mirror = await open(item.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-        const plainPath = item.plain ?? item.gzip?.slice(0, -3);
-        if (plainPath) segment.countsRaw = await readFile(countPath(plainPath), "utf8").catch((error: unknown) => { if (isGone(error)) return null; throw error; });
       }
       const live = await open(eventsPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
       if (!live && (names.length > 0 || (await recordedNextSegment(eventsPath)) !== undefined)) {
@@ -676,38 +674,61 @@ export async function* streamEventLines(eventsPath: string): AsyncGenerator<stri
   for await (const record of streamEventRecords(eventsPath)) yield record.line;
 }
 
-async function pinnedBytes(handle: FileHandle, size: number): Promise<Buffer> {
-  if (size > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error("Event segment exceeds safety limit");
-  const bytes = Buffer.alloc(size);
-  let offset = 0;
-  while (offset < size) {
-    const read = await handle.read(bytes, offset, size - offset, offset);
-    if (read.bytesRead === 0) throw new Error("Event segment changed during read");
-    offset += read.bytesRead;
-  }
-  return bytes;
-}
-
-async function readSnapshotSegment(item: OpenSegment, closed: boolean): Promise<string[]> {
+async function scanSnapshotSegment<T>(
+  item: OpenSegment,
+  closed: boolean,
+  limit: number,
+  parse: (line: string) => T | undefined,
+  matches: (value: T) => boolean,
+): Promise<{ events: T[]; totalEvents: number; skippedMalformedLines: number }> {
   const opened = await openReadableSegment(item);
   try {
     const { handle, size } = opened;
     if (closed && size === 0) throw new Error(`Empty closed event segment: ${item.path}`);
-    const bytes = await pinnedBytes(handle, size);
-    const expanded = item.gzip ? gunzipSync(bytes, { maxOutputLength: MAX_EXPANDED_ARCHIVE_BYTES }) : bytes;
-    if (closed && expanded.length === 0) throw new Error(`Empty closed event segment: ${item.path}`);
-    if (expanded.length > 0 && expanded[expanded.length - 1] !== 10) throw new Error(`Torn event record in ${item.path}`);
-    const lines = expanded.toString("utf8").split("\n");
-    lines.pop();
-    return lines.map((line) => line.replace(/\r$/, ""));
+    const recent: T[] = [];
+    let matched = 0;
+    let totalEvents = 0;
+    let skippedMalformedLines = 0;
+    let expanded = 0;
+    let pending = "";
+    const decoder = new TextDecoder();
+    if (size > 0) {
+      const source = handle.createReadStream({ start: 0, end: size - 1, autoClose: false });
+      const stream = item.gzip ? source.pipe(createGunzip()) : source;
+      for await (const chunk of stream) {
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        expanded += bytes.length;
+        if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${item.path}`);
+        pending += decoder.decode(bytes, { stream: true });
+        for (;;) {
+          const end = pending.indexOf("\n");
+          if (end < 0) break;
+          const line = pending.slice(0, end).replace(/\r$/, "");
+          pending = pending.slice(end + 1);
+          if (line.trim().length === 0) continue;
+          const value = parse(line);
+          if (value === undefined) { skippedMalformedLines++; continue; }
+          totalEvents++;
+          if (matches(value)) {
+            recent[matched % limit] = value;
+            matched++;
+          }
+        }
+      }
+    }
+    pending += decoder.decode();
+    if (pending.length > 0) throw new Error(`Torn event record in ${item.path}`);
+    if (closed && expanded === 0) throw new Error(`Empty closed event segment: ${item.path}`);
+    const retained = Math.min(matched, limit);
+    const oldest = matched > limit ? matched % limit : 0;
+    const events = Array.from({ length: retained }, (_, offset) => recent[(oldest + offset) % limit]).reverse();
+    return { events, totalEvents, skippedMalformedLines };
   } finally { await opened.close(); }
 }
 
 async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: number; skippedMalformedLines: number } | undefined> {
   const plainPath = item.gzip ? item.path.slice(0, -3) : item.path;
-  const raw = item.countsRaw === undefined
-    ? await readFile(countPath(plainPath), "utf8").catch((error: unknown) => { if (isGone(error)) return null; throw error; })
-    : item.countsRaw;
+  const raw = await readFile(countPath(plainPath), "utf8").catch((error: unknown) => { if (isGone(error)) return null; throw error; });
   if (raw === null) return undefined;
   let value: unknown;
   try { value = JSON.parse(raw); } catch { return undefined; }
@@ -755,23 +776,19 @@ export async function queryRecentEventRecords<T>(
       const item = snapshot.segments[index];
       const closed = item.path !== eventsPath;
       const saved = closed ? await savedSegmentCounts(item) : undefined;
-      const lines = events.length < limit || !saved ? await readSnapshotSegment(item, closed) : undefined;
-      const counts = saved ?? countEventLines((lines ?? []).join("\n"));
-      if (saved && lines) {
-        const actual = countEventLines(lines.join("\n"));
-        if (actual.totalEvents !== saved.totalEvents || actual.skippedMalformedLines !== saved.skippedMalformedLines) {
+      const scanned = events.length < limit || !saved
+        ? await scanSnapshotSegment(item, closed, limit - events.length || 1, parse, matches)
+        : undefined;
+      const counts = saved ?? scanned;
+      if (!counts) throw new Error(`Missing event segment counts: ${item.path}`);
+      if (saved && scanned) {
+        if (scanned.totalEvents !== saved.totalEvents || scanned.skippedMalformedLines !== saved.skippedMalformedLines) {
           throw new Error(`Stale event segment counts: ${item.path}`);
         }
       }
       totalEvents += counts.totalEvents;
       skippedMalformedLines += counts.skippedMalformedLines;
-      if (!lines || events.length >= limit) continue;
-      for (let lineIndex = lines.length - 1; lineIndex >= 0 && events.length < limit; lineIndex--) {
-        const line = lines[lineIndex];
-        if (line.trim().length === 0) continue;
-        const value = parse(line);
-        if (value !== undefined && matches(value)) events.push(value);
-      }
+      if (scanned && events.length < limit) events.push(...scanned.events.slice(0, limit - events.length));
     }
     return { events, totalEvents, skippedMalformedLines };
   } finally { await closeEventSnapshot(snapshot); }
