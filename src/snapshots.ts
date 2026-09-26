@@ -332,6 +332,42 @@ export async function listSomaSnapshots(options: SomaSnapshotListOptions = {}): 
     });
 }
 
+async function withPreservedEventHistory(
+  somaHome: string,
+  eventsPath: string,
+  action: (archiveBackup: string) => Promise<void>,
+): Promise<void> {
+  const backup = await mkdtemp(join(tmpdir(), "soma-event-rollback-"));
+  const archive = eventArchiveDir(eventsPath);
+  const archiveBackup = join(somaHome, "memory", "STATE", `.events-archive-rollback-${crypto.randomUUID()}`);
+  const index = eventIndexPath(eventsPath);
+  const hadLive = await pathExists(eventsPath);
+  const hadIndex = await pathExists(index);
+  const hadArchive = await pathExists(archive);
+  let archiveMoved = false;
+  let operationError: unknown;
+  let operationFailed = false;
+  const restorationFailures: unknown[] = [];
+  try {
+    if (hadLive) await copyFile(eventsPath, join(backup, "events.jsonl"));
+    if (hadIndex) await copyFile(index, join(backup, "events-index.json"));
+    if (hadArchive) { await rename(archive, archiveBackup); archiveMoved = true; }
+    await action(archiveBackup);
+  } catch (error) { operationError = error; operationFailed = true; }
+  finally {
+    const attempt = async (restore: () => Promise<void>): Promise<void> => { try { await restore(); } catch (error) { restorationFailures.push(error); } };
+    await attempt(async () => {
+      if (archiveMoved || !hadArchive) await rm(archive, { recursive: true, force: true });
+      if (archiveMoved) { await rename(archiveBackup, archive); archiveMoved = false; }
+    });
+    await attempt(() => restoreProtectedPath(join(backup, "events.jsonl"), eventsPath, hadLive, backup));
+    await attempt(() => restoreProtectedPath(join(backup, "events-index.json"), index, hadIndex, backup));
+    if (restorationFailures.length === 0) await rm(backup, { recursive: true, force: true });
+  }
+  if (restorationFailures.length > 0) throw new AggregateError(operationFailed ? [operationError, ...restorationFailures] : restorationFailures, `Rollback event restoration failed; backup retained at ${backup}`);
+  if (operationFailed) throw operationError;
+}
+
 export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions): Promise<SomaSnapshotRollbackResult> {
   const somaHome = resolveSomaHome(options);
   assertSafeRevision(options.snapshot);
@@ -348,20 +384,7 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
   await withEventLogLock(eventsPath, async () => {
     await recoverPendingEventRotation(eventsPath);
     await waitForEventReaders(eventsPath);
-    const backup = await mkdtemp(join(tmpdir(), "soma-event-rollback-"));
-    const archive = eventArchiveDir(eventsPath);
-    const archiveBackup = join(somaHome, "memory", "STATE", `.events-archive-rollback-${crypto.randomUUID()}`);
-    const index = eventIndexPath(eventsPath);
-    let archiveMoved = false;
-    const hadLive = await pathExists(eventsPath);
-    const hadIndex = await pathExists(index);
-    let operationError: unknown;
-    let operationFailed = false;
-    const restorationFailures: unknown[] = [];
-    try {
-      if (hadLive) await copyFile(eventsPath, join(backup, "events.jsonl"));
-      if (hadIndex) await copyFile(index, join(backup, "events-index.json"));
-      if (await pathExists(archive)) { await rename(archive, archiveBackup); archiveMoved = true; }
+    await withPreservedEventHistory(somaHome, eventsPath, async (archiveBackup) => {
       runGit(somaHome, ["reset", "--hard", id]);
       const metadata = await readSnapshotMetadata(somaHome);
       runGit(somaHome, ["clean", "-ffd", ...PROTECTED_EVENT_PATHS.flatMap((path) => ["-e", path]), "-e", relative(somaHome, archiveBackup)]);
@@ -371,23 +394,7 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
         `${relative(somaHome, archiveBackup)}/`,
         "memory/STATE/events-snapshots/",
       ]);
-    } catch (error) { operationError = error; operationFailed = true; }
-    finally {
-      const attempt = async (action: () => Promise<void>): Promise<void> => { try { await action(); } catch (error) { restorationFailures.push(error); } };
-      await attempt(async () => {
-        await rm(archive, { recursive: true, force: true });
-        if (archiveMoved) { await rename(archiveBackup, archive); archiveMoved = false; }
-      });
-      await attempt(async () => {
-        await restoreProtectedPath(join(backup, "events.jsonl"), eventsPath, hadLive, backup);
-      });
-      await attempt(async () => {
-        await restoreProtectedPath(join(backup, "events-index.json"), index, hadIndex, backup);
-      });
-      if (restorationFailures.length === 0) await rm(backup, { recursive: true, force: true });
-    }
-    if (restorationFailures.length > 0) throw new AggregateError(operationFailed ? [operationError, ...restorationFailures] : restorationFailures, `Rollback event restoration failed; backup retained at ${backup}`);
-    if (operationFailed) throw operationError;
+    });
     await ensureSnapshotGitignore(somaHome);
     untrackEventFiles(somaHome);
   });

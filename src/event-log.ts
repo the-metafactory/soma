@@ -407,7 +407,12 @@ export async function ensureCompressedEventSegments(eventsPath: string, createMi
     if (!segment.plain && segment.gzip) {
       const handle = await open(segment.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
       try {
-        if ((await handle.stat()).size === 0) throw new Error(`Empty closed event segment: ${segment.gzip}`);
+        const file = await handle.stat();
+        if (file.size === 0) throw new Error(`Empty closed event segment: ${segment.gzip}`);
+        const validation = validationPath(segment.gzip.slice(0, -3));
+        const version = `gzip:${fileVersion(file)}`;
+        const persisted = await readFile(validation, "utf8").catch((error: unknown) => { if (isGone(error)) return ""; throw error; });
+        if (persisted.trim() === version) continue;
         let expanded = 0;
         let lastByte = -1;
         for await (const chunk of handle.createReadStream({ autoClose: false }).pipe(createGunzip())) {
@@ -417,6 +422,11 @@ export async function ensureCompressedEventSegments(eventsPath: string, createMi
           if (bytes.length > 0) lastByte = bytes[bytes.length - 1];
         }
         if (lastByte !== 10) throw new Error(`Torn event record in ${segment.gzip}`);
+        const temporary = `${validation}.${process.pid}.${crypto.randomUUID()}.tmp`;
+        try {
+          await createMetadataFile(temporary, `${version}\n`);
+          await rename(temporary, validation);
+        } finally { await rm(temporary, { force: true }); }
       } finally { await handle.close(); }
       continue;
     }
@@ -499,7 +509,7 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
   await withEventLogLock(eventsPath, () => appendRecordsUnderLock(eventsPath, records, limit));
 }
 
-interface OpenSegment { path: string; handle?: FileHandle; size?: number; gzip: boolean; mirror?: FileHandle; mirrorPath?: string }
+interface OpenSegment { path: string; handle?: FileHandle; size?: number; gzip: boolean; mirror?: FileHandle; mirrorPath?: string; countsRaw?: string | null }
 interface EventSnapshot { segments: OpenSegment[]; leasePath?: string }
 
 async function closeSegments(segments: readonly OpenSegment[]): Promise<void> {
@@ -532,6 +542,8 @@ async function openSegmentsSnapshot(eventsPath: string, allowLease: boolean): Pr
         }
         opened.push(segment);
         if (item.plain && item.gzip) segment.mirror = await open(item.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+        const plainPath = item.plain ?? item.gzip?.slice(0, -3);
+        if (plainPath) segment.countsRaw = await readFile(countPath(plainPath), "utf8").catch((error: unknown) => { if (isGone(error)) return null; throw error; });
       }
       const live = await open(eventsPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
       if (!live && (names.length > 0 || (await recordedNextSegment(eventsPath)) !== undefined)) {
@@ -693,8 +705,10 @@ async function readSnapshotSegment(item: OpenSegment, closed: boolean): Promise<
 
 async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: number; skippedMalformedLines: number } | undefined> {
   const plainPath = item.gzip ? item.path.slice(0, -3) : item.path;
-  const raw = await readFile(countPath(plainPath), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
-  if (raw === undefined) return undefined;
+  const raw = item.countsRaw === undefined
+    ? await readFile(countPath(plainPath), "utf8").catch((error: unknown) => { if (isGone(error)) return null; throw error; })
+    : item.countsRaw;
+  if (raw === null) return undefined;
   let value: unknown;
   try { value = JSON.parse(raw); } catch { return undefined; }
   if (typeof value !== "object" || value === null) return undefined;
@@ -710,8 +724,17 @@ async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: num
     skippedMalformedLines: counts.skippedMalformedLines,
   };
   if (counts.checksum !== countChecksum(fields)) return undefined;
-  const version = item.gzip ? fileVersion(await stat(item.path)) :
-    item.mirror || item.mirrorPath ? await pairVersion(item.path, item.mirrorPath ?? `${item.path}.gz`) : fileVersion(await stat(item.path));
+  const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  let mirror: FileHandle | undefined;
+  let version: string;
+  try {
+    mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
+    const source = fileVersion(await handle.stat());
+    version = mirror ? `${source}:${fileVersion(await mirror.stat())}` : source;
+  } finally {
+    if (!item.mirror && mirror) await mirror.close();
+    if (!item.handle) await handle.close();
+  }
   if ((item.gzip ? counts.gzipVersion : counts.version) !== version) return undefined;
   return { totalEvents: counts.totalEvents, skippedMalformedLines: counts.skippedMalformedLines };
 }

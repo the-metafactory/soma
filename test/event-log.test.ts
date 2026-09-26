@@ -354,6 +354,29 @@ test("snapshot rejects a corrupt gzip-only segment", async () => {
   await expect(createSomaSnapshot({ somaHome: root, name: "corrupt" })).rejects.toThrow();
 });
 
+test("snapshot caches validation for an unchanged gzip-only segment", async () => {
+  const { root, events } = await home();
+  await createSomaSnapshot({ somaHome: root, name: "baseline" });
+  await oneClosedSegment(events);
+  const first = eventSegmentPath(events, 1);
+  await rm(first);
+  await createSomaSnapshot({ somaHome: root, name: "gzip-only" });
+  expect(await readFile(`${first}.validation`, "utf8")).toMatch(/^gzip:/);
+  await createSomaSnapshot({ somaHome: root, name: "gzip-only-again" });
+});
+
+test("rollback preserves the archive if live backup fails before the archive moves", async () => {
+  const { root, events } = await home();
+  const baseline = await createSomaSnapshot({ somaHome: root, name: "baseline" });
+  await oneClosedSegment(events);
+  const first = eventSegmentPath(events, 1);
+  const original = await readFile(first);
+  await rm(events);
+  await mkdir(events);
+  await expect(rollbackSomaSnapshot({ somaHome: root, snapshot: baseline.id })).rejects.toThrow();
+  expect(await readFile(first)).toEqual(original);
+});
+
 test("snapshot refuses a missing final segment despite a surviving index", async () => {
   const { root, events } = await home();
   await createSomaSnapshot({ somaHome: root, name: "baseline" });
