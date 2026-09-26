@@ -35,10 +35,10 @@ remain in place during the migration.
 Compression also writes private per-segment event and malformed-row counts.
 Snapshots stage a cumulative closed-segment count checkpoint. Recent telemetry
 reads newest segments first and trusts that validated checkpoint for older
-immutable history after checking every saved segment version. A version change
-invalidates the checkpoint and triggers a full read; append-only growth retains
-the verified prefix. `soma telemetry stats` scans every segment for its detailed
-aggregates.
+immutable history after checking saved segment file versions. A version mismatch discards
+the checkpoint and makes the query use per-segment counts or scan affected
+segments; append-only growth retains a verified prefix. `soma telemetry stats`
+scans every segment for its detailed aggregates.
 
 V0 does not add a database, daemon, dashboard,
 or Signal dependency. It also does not harvest raw transcripts, prompts, or full

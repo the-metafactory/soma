@@ -760,11 +760,9 @@ async function scanSnapshotSegment<T>(
 }
 
 async function segmentFileVersion(item: OpenSegment): Promise<string> {
-  const opened = await openSegmentHandles(item);
-  try {
-    const source = fileVersion(await opened.handle.stat());
-    return opened.mirror ? `${source}:${fileVersion(await opened.mirror.stat())}` : source;
-  } finally { await opened.close(); }
+  const source = fileVersion(await (item.handle ? item.handle.stat() : stat(item.path)));
+  const mirror = item.mirror ? await item.mirror.stat() : item.mirrorPath ? await stat(item.mirrorPath) : undefined;
+  return mirror ? `${source}:${fileVersion(mirror)}` : source;
 }
 
 async function persistSegmentCounts(
