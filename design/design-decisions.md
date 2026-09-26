@@ -840,7 +840,9 @@ promotion/citation merge rules exist. Relationship is private by default, and
 raw and security scopes are off by default.
 
 Only stores with deterministic merge rules are auto-merged:
-`memory/STATE/events.jsonl` merges by event id, and DD-5/DD-6 work state may
+the logical state-event stream (closed numbered segments plus the live
+`memory/STATE/events.jsonl` tail) merges by event id when home replication is
+implemented; Git snapshots alone do not replicate the live tail. DD-5/DD-6 work state may
 merge by session id, run id, or pointer filename. Durable profile, Purpose,
 skill, policy, VSA body, knowledge, learning, relationship, and work artifacts
 surface conflicts instead of using last-writer-wins. Every pull or exchange

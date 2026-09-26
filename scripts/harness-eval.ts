@@ -17,11 +17,12 @@
  * and is committed so drift is reviewable in git history.
  */
 
-import { createReadStream, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { streamEventLines } from "../src/event-log";
 
 // ---------------------------------------------------------------------------
 // Data model (duck-typed against the run-corpus schema versions in the wild:
@@ -131,12 +132,12 @@ interface LoadedEvents {
 export async function loadEventsWithCoverage(
   eventsPath: string,
   sinceMs: number,
-  input: Readable = createReadStream(eventsPath, { encoding: "utf8" }),
+  input?: Readable,
 ): Promise<LoadedEvents> {
   const events: EventDoc[] = [];
   let firstEventMs = Number.POSITIVE_INFINITY;
   let readError = false;
-  const rl = createInterface({ input, crlfDelay: Infinity });
+  const rl = input ? createInterface({ input, crlfDelay: Infinity }) : streamEventLines(eventsPath);
   try {
     for await (const line of rl) {
       if (!line.trim()) continue;

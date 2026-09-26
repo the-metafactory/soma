@@ -1,7 +1,8 @@
-import { mkdir, appendFile, readFile, readdir, stat } from "node:fs/promises";
-import { basename, dirname, extname, join, sep } from "node:path";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { basename, extname, join, sep } from "node:path";
 import { memoryTerms } from "./memory-terms";
 import { createPaths } from "./paths";
+import { appendEventBatch } from "./event-log";
 import type {
   SomaMemoryEvent,
   SomaMemoryEventInput,
@@ -94,8 +95,7 @@ export async function appendSomaMemoryEvents(somaHome: string, inputs: readonly 
   });
   const eventPath = createPaths(somaHome).events();
 
-  await mkdir(dirname(eventPath), { recursive: true });
-  await appendFile(eventPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
+  await appendEventBatch(eventPath, Buffer.from(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8"));
 
   return events;
 }
@@ -166,7 +166,7 @@ async function resolveSearchRoots(somaHome: string, includeState: boolean): Prom
     // EACCES, EIO — must surface: swallowing it would silently reduce search to
     // two roots and report the empty result as an answer, which is the failure
     // mode this whole change exists to remove.
-    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return fixed;
   }
 

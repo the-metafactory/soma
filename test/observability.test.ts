@@ -1,13 +1,16 @@
-import { appendFile, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import { expect, test } from "bun:test";
 import {
   appendSomaMemoryEvent,
   bootstrapSomaHome,
+  createSomaSnapshot,
   querySomaTelemetryEvents,
   summarizeSomaTelemetry,
 } from "../src/index";
+import { appendEventBatch, compressEventSegment, eventSegmentPath } from "../src/event-log";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-observability-"));
@@ -71,6 +74,54 @@ test("telemetry query rejects non-integer limits", async () => {
     await expect(querySomaTelemetryEvents({ homeDir, limit: 1.5 })).rejects.toThrow(
       "Soma telemetry limit must be a positive integer.",
     );
+  });
+});
+
+test("recent telemetry uses closed-segment counts and keeps exact totals", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const eventsPath = join(somaHome, "memory/STATE/events.jsonl");
+    const record = (id: string, substrate = "codex") => JSON.stringify({
+      id, timestamp: "2026-05-26T08:00:00.000Z", substrate, kind: "test.event", summary: id,
+    });
+    await appendEventBatch(eventsPath, Buffer.from(`${record("old")}\n{broken}\n${record("middle", "pi-dev")}\n${record("new")}\n`), 150);
+    for (let number = 1; number <= 2; number++) {
+      const path = eventSegmentPath(eventsPath, number);
+      await compressEventSegment(path);
+      const saved = JSON.parse(await readFile(`${path}.counts.json`, "utf8")) as {
+        totalEvents: number; skippedMalformedLines: number;
+      };
+      expect(saved.totalEvents + saved.skippedMalformedLines).toBeGreaterThan(0);
+    }
+    const result = await querySomaTelemetryEvents({ homeDir, limit: 1, substrate: "codex" });
+    expect(result.events.map((event) => event.id)).toEqual(["new"]);
+    expect(result.totalEvents).toBe(3);
+    expect(result.skippedMalformedLines).toBe(1);
+    const oldPath = eventSegmentPath(eventsPath, 1);
+    const originalCounts = await readFile(`${oldPath}.counts.json`, "utf8");
+    const altered = JSON.parse(originalCounts) as { totalEvents: number };
+    altered.totalEvents = 99;
+    await writeFile(`${oldPath}.counts.json`, JSON.stringify(altered));
+    const recovered = await querySomaTelemetryEvents({ homeDir, limit: 1, substrate: "codex" });
+    expect(recovered.totalEvents).toBe(3);
+    await writeFile(`${oldPath}.counts.json`, originalCounts);
+    await createSomaSnapshot({ somaHome, name: "counts" });
+    const cumulative = JSON.parse(await readFile(join(somaHome, "memory/STATE/events-counts-index.json"), "utf8")) as {
+      totalEvents: number; skippedMalformedLines: number;
+    };
+    expect(cumulative.totalEvents).toBe(2);
+    expect(cumulative.skippedMalformedLines).toBe(1);
+    await writeFile(`${oldPath}.counts.json`, JSON.stringify(altered));
+    const indexed = await querySomaTelemetryEvents({ homeDir, limit: 1, substrate: "codex" });
+    expect(indexed.totalEvents).toBe(3);
+    expect(indexed.skippedMalformedLines).toBe(1);
+    await writeFile(`${oldPath}.gz`, gzipSync(`${record("different")}\n`));
+    await expect(querySomaTelemetryEvents({ homeDir, limit: 1 })).rejects.toThrow(/Conflicting event segment copies/);
+    await writeFile(`${oldPath}.gz.replacement`, gzipSync(`${record("different")}\n`));
+    await rename(`${oldPath}.gz.replacement`, `${oldPath}.gz`);
+    await expect(querySomaTelemetryEvents({ homeDir, limit: 1 })).rejects.toThrow(/Conflicting event segment copies/);
+    await appendEventBatch(eventsPath, Buffer.from(`${record("later")}\n`), 150);
+    await expect(querySomaTelemetryEvents({ homeDir, limit: 1 })).rejects.toThrow(/Conflicting event segment copies/);
   });
 });
 

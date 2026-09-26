@@ -105,7 +105,10 @@ the source note and `memory.promotion` event explicitly.
 
 `memory/STATE/events.jsonl` is the first writeback contract. Substrates append
 one JSON object per line with `id`, `timestamp`, `substrate`, `kind`, `summary`,
-and optional artifact paths or metadata. Consolidation into `KNOWLEDGE`,
+and optional artifact paths or metadata. The shared writer rotates complete
+records into numbered immutable plain segments at 16 MiB. Gzip mirrors are
+stored in private Soma-home git; readers enumerate segments and live in order.
+`soma rollback` preserves this history across reset and clean. Consolidation into `KNOWLEDGE`,
 `LEARNING`, or other durable stores is a later step.
 
 Durable memory writes outside the append-only `PROMOTED/` subspace are

@@ -199,11 +199,11 @@ Allowed levels are `enforced`, `advisory`, and `ingress-gated`. `enforced` means
 
 A detailed private [[Memory]] artifact for security review, override workflow, and incident reconstruction.
 
-Security traces live under `memory/SECURITY/`. They may expand on an [[observability event]], but the normalized cross-substrate event stream remains `memory/STATE/events.jsonl`.
+Security traces live under `memory/SECURITY/`. They may expand on an [[observability event]], but the normalized cross-substrate event stream is the ordered closed segments in `memory/STATE/events-archive/` followed by the live tail at `memory/STATE/events.jsonl`.
 
 **Not synonyms:** Do not call a security trace a transcript. Do not use `SECURITY/` as the canonical event stream.
 
-**Why:** Security work needs richer review material than a minimal event, but Soma's cross-substrate continuation contract depends on bounded append-only events in `STATE/events.jsonl`.
+**Why:** Security work needs richer review material than a minimal event, but Soma's cross-substrate continuation contract depends on bounded append-only events in the ordered `STATE/` stream.
 
 ---
 

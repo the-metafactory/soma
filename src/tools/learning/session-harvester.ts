@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { streamEventLines } from "../../event-log";
 import { listSomaWorkRegistryEntries, type SomaCurrentWorkPointer, type SomaWorkRegistryEntry } from "../../work-registry";
 import { isoTimestamp, pathsForLearningOptions, safeFileToken } from "./paths";
 import { transcriptContentToText } from "./transcript";
@@ -184,11 +185,7 @@ type EventIdsByPath = Map<string, EventIdsBySession>;
 async function readEventIdsBySession(eventsPath: string, sessionIds: ReadonlySet<string>, options: HarvestOptions): Promise<EventIdsBySession> {
   const paths = pathsForLearningOptions(options);
   const idsBySession: EventIdsBySession = new Map();
-  let lines: ReturnType<typeof createInterface>;
-
-  try {
-    lines = createInterface({ input: createReadStream(paths.resolve(eventsPath), { encoding: "utf8" }), crlfDelay: Infinity });
-    for await (const line of lines) {
+  for await (const line of streamEventLines(paths.resolve(eventsPath))) {
       if (!line.trim()) continue;
       let event: unknown;
       try {
@@ -204,9 +201,6 @@ async function readEventIdsBySession(eventsPath: string, sessionIds: ReadonlySet
       if (sessionId === undefined || !sessionIds.has(sessionId) || eventId === undefined) continue;
       idsBySession.set(sessionId, [...(idsBySession.get(sessionId) ?? []), eventId]);
     }
-  } catch {
-    return new Map();
-  }
 
   return idsBySession;
 }

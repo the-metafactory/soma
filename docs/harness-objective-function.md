@@ -19,7 +19,15 @@ Anything that can grow while these four stand still is a vanity metric.
 
 Run with `bun run harness-eval` (`--check` gates against `scripts/harness-eval-baseline.json`; `--explain` prints the Goodhart notes). Trailing 60-day window; baseline committed so drift is git-reviewable.
 
-The evaluator prints the window start, earliest event, and any gap. Until event readers enumerate archived segments, a short live log means `--check` exits 3 with `INCOMPLETE COVERAGE` and points to `memory/STATE/events-snapshots/`. Exit 1 remains a measured regression; the weekly wrapper records exit 3 as `could-not-run`. Baseline capture also refuses an incomplete window.
+The evaluator streams archived segments and the live file in order, then prints
+the window start, earliest event, and the gap from window start to earliest
+event, if any. This does not detect every missing event inside the window.
+Missing or conflicting segments,
+read failures, and a window older than the earliest event make `--check` exit 3
+with `INCOMPLETE COVERAGE`. Exit 1 remains a measured regression; the weekly
+wrapper records exit 3 as `could-not-run`. Baseline capture also refuses an
+incomplete window. Daily snapshots remain as migration backups, not the normal
+reader source.
 
 | Outcome | Metric | 2026-07-10 | Direction |
 |---|---|---|---|

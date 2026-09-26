@@ -69,6 +69,14 @@ Replication operates on explicit scopes. The first implementation should expose
 these scopes in status output and config instead of silently pushing the whole
 home.
 
+The `state-events` scope below is a contract for the future replication CLI;
+the Git snapshot repository is not that CLI. With numbered event segments,
+snapshots track closed gzip mirrors while the live tail and plain archives stay
+local. A replication implementation must export the ordered closed segments
+**and** a bounded copy of the live tail, then merge by event id. Publishing
+only the tracked snapshot files would omit current events and does not satisfy
+this scope. No `soma replicate` command currently ships.
+
 | Scope | Default | Merge rule |
 | --- | --- | --- |
 | `identity` | eligible | normal file, conflict surfaced |
@@ -132,7 +140,8 @@ Home replication has three conflict classes.
 
 ### Append-Only State
 
-`memory/STATE/events.jsonl` merges by event id. A merge keeps the first valid
+The logical event stream (numbered closed segments followed by
+`memory/STATE/events.jsonl`) merges by event id. A merge keeps the first valid
 event for an id, drops exact duplicate ids, preserves malformed rows in a
 conflict report, and writes a deterministic file order:
 

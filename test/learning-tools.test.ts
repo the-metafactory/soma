@@ -447,7 +447,7 @@ test("session harvester prefers current-work snapshots and cites pointer provena
           kind: "feedback.candidate",
           metadata: { sessionId: "current-session" },
         }),
-      ].join("\n"),
+      ].join("\n") + "\n",
       "utf8",
     );
 

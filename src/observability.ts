@@ -1,8 +1,6 @@
-import { createReadStream } from "node:fs";
-import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { parseTelemetryEventLine, queryRecentEventRecords, streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./memory";
 import type {
   AlgorithmPhase,
@@ -31,30 +29,6 @@ function resolveSomaHome(options: Pick<SomaTelemetryQueryOptions, "homeDir" | "s
   return resolve(options.somaHome ?? join(home, ".soma"));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isSomaMemoryEvent(value: unknown): value is SomaMemoryEvent {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.id === "string" &&
-    typeof value.timestamp === "string" &&
-    typeof value.substrate === "string" &&
-    typeof value.kind === "string" &&
-    typeof value.summary === "string"
-  );
-}
-
-function parseTelemetryLine(line: string): SomaMemoryEvent | undefined {
-  try {
-    const event = JSON.parse(line) as unknown;
-    return isSomaMemoryEvent(event) ? event : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 async function streamTelemetryEvents(
   somaHome: string,
   onEvent: (event: SomaMemoryEvent) => void,
@@ -64,28 +38,13 @@ async function streamTelemetryEvents(
   skippedMalformedLines: number;
 }> {
   const eventPath = somaMemoryEventsPath(somaHome);
-  const exists = await access(eventPath).then(
-    () => true,
-    (error: unknown) => {
-      if (isRecord(error) && error.code === "ENOENT") return false;
-      throw error;
-    },
-  );
-  if (!exists) {
-    return { eventPath, totalEvents: 0, skippedMalformedLines: 0 };
-  }
-
-  const lines = createInterface({
-    input: createReadStream(eventPath, { encoding: "utf8" }),
-    crlfDelay: Infinity,
-  });
   let totalEvents = 0;
   let skippedMalformedLines = 0;
 
-  for await (const line of lines) {
+  for await (const line of streamEventLines(eventPath)) {
     if (line.trim().length === 0) continue;
 
-    const event = parseTelemetryLine(line);
+    const event = parseTelemetryEventLine(line);
     if (event === undefined) {
       skippedMalformedLines += 1;
       continue;
@@ -114,24 +73,16 @@ function telemetryLimit(limit: number | undefined): number {
 
 export async function querySomaTelemetryEvents(options: SomaTelemetryQueryOptions = {}): Promise<SomaTelemetryQueryResult> {
   const somaHome = resolveSomaHome(options);
-  const events: SomaMemoryEvent[] = [];
   const boundedLimit = telemetryLimit(options.limit);
-  let matchedEvents = 0;
-  const read = await streamTelemetryEvents(somaHome, (event) => {
-    if (!matchesTelemetryQuery(event, options)) return;
-    events[matchedEvents % boundedLimit] = event;
-    matchedEvents += 1;
-  });
-  const retainedEvents = Math.min(matchedEvents, boundedLimit);
-  const oldestIndex = matchedEvents > boundedLimit ? matchedEvents % boundedLimit : 0;
-  const recentEvents = Array.from({ length: retainedEvents }, (_, offset) => events[(oldestIndex + offset) % boundedLimit]).reverse();
+  const eventPath = somaMemoryEventsPath(somaHome);
+  const read = await queryRecentEventRecords(eventPath, boundedLimit, parseTelemetryEventLine, (event) => matchesTelemetryQuery(event, options));
 
   return {
     somaHome,
-    eventPath: read.eventPath,
+    eventPath,
     totalEvents: read.totalEvents,
     skippedMalformedLines: read.skippedMalformedLines,
-    events: recentEvents,
+    events: read.events,
   };
 }
 

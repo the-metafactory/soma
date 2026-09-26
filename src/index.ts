@@ -549,6 +549,7 @@ export type {
 } from "./projection-self-repair";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { streamEventLines, streamEventRecords } from "./event-log";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
 // Public write surface only. Path/dedup helpers (memoryNotePath,
 // findDuplicateCandidates, MEMORY_DEDUP_JACCARD_THRESHOLD) stay module-private so

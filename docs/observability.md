@@ -1,13 +1,46 @@
 # Observability V0
 
 Soma observability starts as a filesystem-native read model over the existing
-append-only event log:
+append-only event history:
 
 ```text
 <soma-home>/memory/STATE/events.jsonl
+<soma-home>/memory/STATE/events-index.json
+<soma-home>/memory/STATE/events-archive/events-000001.jsonl
+<soma-home>/memory/STATE/events-archive/events-000001.jsonl.gz
 ```
 
-Each line is a `SomaMemoryEvent`. V0 does not add a database, daemon, dashboard,
+Each line is a `SomaMemoryEvent`. Soma rotates the live file before an append
+would take it past 16 MiB. After the updated Soma writer is installed for every
+substrate, one cross-process lock covers its writers, rotation, and reader
+snapshots. Older installed writers still append without this lock during
+migration; retain daily live snapshots until they are replaced. Closed plain segments are numbered in order and
+never appended again. The local high water mark detects loss of the last
+closed segment while the index survives; a missing index with surviving
+segments fails closed. Simultaneous loss of the index and all closed segments
+cannot be inferred from the remaining live file alone. Private Soma-home git
+stores compressed gzip copies; live, index, and
+plain files remain gitignored. The pre-2026-08-24 archive becomes segment 1
+without changing its bytes. Readers also accept its old name before import.
+
+`streamEventRecords` in `src/event-log.ts` enumerates segments and live exactly
+once. It pins archive handles and the live byte bound under the writer lock for
+small histories; larger histories register a reader lease and open archives one
+at a time. Rollback waits for those leases before replacing archive paths.
+A missing segment or conflicting plain/gzip copy is an
+error, not a partial success. Gzip is used when a plain segment is absent.
+An append commits plain closed segments without waiting for compression. Snapshot
+staging creates and verifies gzip copies before committing them. Daily live snapshots
+remain in place during the migration.
+Compression also writes private per-segment event and malformed-row counts.
+Snapshots stage a cumulative closed-segment count checkpoint. Recent telemetry
+reads newest segments first and trusts that validated checkpoint for older
+immutable history after checking saved segment file versions. A version mismatch discards
+the checkpoint and makes the query use per-segment counts or scan affected
+segments; append-only growth retains a verified prefix. `soma telemetry stats`
+scans every segment for its detailed aggregates.
+
+V0 does not add a database, daemon, dashboard,
 or Signal dependency. It also does not harvest raw transcripts, prompts, or full
 tool payloads.
 

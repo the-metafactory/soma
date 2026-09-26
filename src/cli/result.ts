@@ -221,7 +221,9 @@ function formatResultSearchResult(result: SomaResultSearchResult): string {
     ...(result.matches.length > 0
       ? result.matches.map((match) =>
           [
-            `- ${match.eventPath}:${match.line}`,
+            match.eventPath.endsWith(".gz")
+              ? `- ${match.eventPath} (decompressed line ${match.line})`
+              : `- ${match.eventPath}:${match.line}`,
             `[event ${match.eventId}]`,
             `[kind ${match.kind}]`,
             `[score ${match.score}]`,
