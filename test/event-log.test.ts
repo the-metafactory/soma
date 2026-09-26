@@ -142,6 +142,16 @@ test("writer recovers rotation after the live file was renamed", async () => {
   expect(JSON.parse(await readFile(eventIndexPath(events), "utf8")).nextSegment).toBe(2);
 });
 
+test("mirror failure does not report an already committed append as failed", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await mkdir(eventArchiveDir(events), { recursive: true });
+  await mkdir(`${eventSegmentPath(events, 1)}.validation`);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await rm(`${eventSegmentPath(events, 1)}.validation`, { recursive: true });
+  expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([1, 2]);
+});
+
 test("first legacy import refuses a missing live tail", async () => {
   const { events } = await home();
   const archive = eventArchiveDir(events);

@@ -55,8 +55,16 @@ async function tryReclaimStaleLock(lock: string): Promise<boolean> {
   try {
     const age = Date.now() - (await stat(lock).then((s) => s.mtimeMs).catch(() => Date.now()));
     if (age <= LOCK_TIMEOUT_MS) return false;
-    const owner = await readFile(join(lock, "owner.json"), "utf8").then((s) => JSON.parse(s) as { pid?: number; host?: string }).catch(() => null);
-    if (owner?.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return false;
+    const rawOwner = await readFile(join(lock, "owner.json"), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+    if (rawOwner !== undefined) {
+      let parsed: unknown;
+      try { parsed = JSON.parse(rawOwner); }
+      catch { return false; }
+      if (typeof parsed !== "object" || parsed === null) return false;
+      const owner = parsed as { pid?: number; host?: string };
+      if (owner.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return false;
+    }
+    // An ownerless lock older than the timeout is a crashed acquisition.
     const retired = `${lock}.stale-${process.pid}-${crypto.randomUUID()}`;
     await rename(lock, retired).catch((error: unknown) => { if (!isGone(error)) throw error; });
     await rm(retired, { recursive: true, force: true });
@@ -158,6 +166,18 @@ export async function recoverPendingEventRotation(eventsPath: string): Promise<v
   await rm(marker);
 }
 
+async function rotateLiveEventLog(eventsPath: string, number: number): Promise<string> {
+  const closed = eventSegmentPath(eventsPath, number);
+  await mkdir(eventArchiveDir(eventsPath), { recursive: true });
+  const marker = join(dirname(eventsPath), ROTATION_PENDING);
+  await writeFile(marker, `${JSON.stringify({ number })}\n`);
+  await rename(eventsPath, closed);
+  await writeNextSegment(eventsPath, number + 1);
+  await writeFile(eventsPath, "", { flag: "wx", mode: 0o600 });
+  await rm(marker);
+  return closed;
+}
+
 async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
   const segments = await segmentNames(eventsPath);
   const recorded = await recordedNextSegment(eventsPath);
@@ -252,30 +272,29 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
         if (tail[0] !== 10) throw new Error(`Refusing to append to torn event log: ${eventsPath}`);
       } finally { await existing.close(); }
     }
-    let writer: FileHandle | undefined;
-    try {
-      for (const record of records) {
-        if (currentSize > 0 && currentSize + record.length > limit) {
-          if (writer) { await writer.close(); writer = undefined; }
-          const closed = eventSegmentPath(eventsPath, nextNumber++);
-          await mkdir(eventArchiveDir(eventsPath), { recursive: true });
-          const marker = join(dirname(eventsPath), ROTATION_PENDING);
-          await writeFile(marker, `${JSON.stringify({ number: nextNumber - 1 })}\n`);
-          await rename(eventsPath, closed);
-          await writeNextSegment(eventsPath, nextNumber);
-          await writeFile(eventsPath, "", { flag: "wx", mode: 0o600 });
-          await rm(marker);
-          pendingMirrors.push(closed);
-          currentSize = 0;
-        }
-        writer ??= await open(eventsPath, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
-        await writer.writeFile(record);
-        currentSize += record.length;
+    let pending: Buffer[] = [];
+    const flush = async (): Promise<void> => {
+      if (pending.length === 0) return;
+      const writer = await open(eventsPath, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
+      try { await writer.writeFile(Buffer.concat(pending)); }
+      finally { await writer.close(); }
+      pending = [];
+    };
+    for (const record of records) {
+      if (currentSize > 0 && currentSize + record.length > limit) {
+        await flush();
+        pendingMirrors.push(await rotateLiveEventLog(eventsPath, nextNumber++));
+        currentSize = 0;
       }
-    } finally { if (writer) await writer.close(); }
+      pending.push(record);
+      currentSize += record.length;
+    }
+    await flush();
     return pendingMirrors;
   });
-  for (const path of mirrors) await mirrorEventSegment(path);
+  // The records are already committed. A failed mirror is retried by the next
+  // writer or snapshot; reporting append failure would invite duplicate retries.
+  for (const path of mirrors) await mirrorEventSegment(path).catch(() => undefined);
 }
 
 interface OpenSegment { path: string; handle: FileHandle; size: number; gzip: boolean; mirror?: FileHandle }

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { copyFile, cp, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { eventArchiveDir, eventIndexPath, mirrorMissingEventSegments, recoverPendingEventRotation, withEventLogLock } from "./event-log";
 import packageJson from "../package.json";
 import { createPaths } from "./paths";
@@ -299,19 +299,22 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
     await recoverPendingEventRotation(eventsPath);
     const backup = await mkdtemp(join(tmpdir(), "soma-event-rollback-"));
     const archive = eventArchiveDir(eventsPath);
+    const archiveBackup = join(somaHome, "memory", "STATE", `.events-archive-rollback-${crypto.randomUUID()}`);
     const index = eventIndexPath(eventsPath);
+    let archiveMoved = false;
     try {
       if (await pathExists(eventsPath)) await copyFile(eventsPath, join(backup, "events.jsonl"));
       if (await pathExists(index)) await copyFile(index, join(backup, "events-index.json"));
-      if (await pathExists(archive)) await cp(archive, join(backup, "events-archive"), { recursive: true });
+      if (await pathExists(archive)) { await rename(archive, archiveBackup); archiveMoved = true; }
       runGit(somaHome, ["reset", "--hard", id]);
       const metadata = await readSnapshotMetadata(somaHome);
-      runGit(somaHome, ["clean", "-ffd", "-e", "memory/STATE/events.jsonl", "-e", "memory/STATE/events-index.json", "-e", "memory/STATE/events-archive/", "-e", "memory/STATE/.events.lock/", "-e", "memory/STATE/.events.lock.reclaim/"]);
+      runGit(somaHome, ["clean", "-ffd", "-e", "memory/STATE/events.jsonl", "-e", "memory/STATE/events-index.json", "-e", "memory/STATE/events-archive/", "-e", relative(somaHome, archiveBackup), "-e", "memory/STATE/.events.lock/", "-e", "memory/STATE/.events.lock.reclaim/"]);
       await removeIgnoredAdditions(somaHome, [
         ...metadata.ignoredPaths,
         "memory/STATE/events.jsonl",
         "memory/STATE/events-index.json",
         "memory/STATE/events-archive/",
+        `${relative(somaHome, archiveBackup)}/`,
         "memory/STATE/.events.lock/",
         "memory/STATE/.events.lock.reclaim/",
         "memory/STATE/events-snapshots/",
@@ -322,13 +325,16 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
       }
       if (await pathExists(join(backup, "events-index.json"))) await copyFile(join(backup, "events-index.json"), index);
       await rm(archive, { recursive: true, force: true });
-      if (await pathExists(join(backup, "events-archive"))) {
-        await mkdir(archive, { recursive: true });
-        await cp(join(backup, "events-archive"), archive, { recursive: true, force: true });
-      }
+      if (archiveMoved) { await rename(archiveBackup, archive); archiveMoved = false; }
       await ensureSnapshotGitignore(somaHome);
       untrackEventFiles(somaHome);
-    } finally { await rm(backup, { recursive: true, force: true }); }
+    } finally {
+      if (archiveMoved && await pathExists(archiveBackup)) {
+        await rm(archive, { recursive: true, force: true });
+        await rename(archiveBackup, archive);
+      }
+      await rm(backup, { recursive: true, force: true });
+    }
   });
   return {
     somaHome,
