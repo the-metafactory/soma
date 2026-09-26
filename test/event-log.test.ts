@@ -87,6 +87,15 @@ test("reader rejects an empty gzip fallback", async () => {
   await expect(lines(events)).rejects.toThrow(/Empty closed event segment/);
 });
 
+test("reader rejects a valid gzip that expands to an empty segment", async () => {
+  const { events } = await home();
+  await oneClosedSegment(events);
+  const first = eventSegmentPath(events, 1);
+  await rm(first);
+  await writeFile(`${first}.gz`, gzipSync(""));
+  await expect(lines(events)).rejects.toThrow(/Empty closed event segment/);
+});
+
 test("reader rejects an empty closed plain segment", async () => {
   const { events } = await home();
   await oneClosedSegment(events);

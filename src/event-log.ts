@@ -6,7 +6,7 @@ import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
-import { createGunzip, createGzip } from "node:zlib";
+import { createGunzip, createGzip, gunzipSync } from "node:zlib";
 
 export const EVENT_SEGMENT_LIMIT = 16 * 1024 * 1024;
 const LOCK_TIMEOUT_MS = 30_000;
@@ -26,6 +26,27 @@ function fileVersion(file: { dev: number; ino: number; size: number; mtimeMs: nu
 }
 
 function validationPath(plainPath: string): string { return `${plainPath}.validation` }
+function countPath(plainPath: string): string { return `${plainPath}.counts.json`; }
+
+export function isTelemetryEventLine(line: string): boolean {
+  try {
+    const value: unknown = JSON.parse(line);
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const event = value as Record<string, unknown>;
+    return ["id", "timestamp", "substrate", "kind", "summary"].every((key) => typeof event[key] === "string");
+  } catch { return false; }
+}
+
+function countEventLines(content: string): { totalEvents: number; skippedMalformedLines: number } {
+  let totalEvents = 0;
+  let skippedMalformedLines = 0;
+  for (const line of content.split("\n")) {
+    if (line.trim().length === 0) continue;
+    if (isTelemetryEventLine(line.replace(/\r$/, ""))) totalEvents++;
+    else skippedMalformedLines++;
+  }
+  return { totalEvents, skippedMalformedLines };
+}
 
 async function pairVersion(plainPath: string, gzipPath: string): Promise<string> {
   const [plain, gzip] = await Promise.all([stat(plainPath), stat(gzipPath)]);
@@ -41,6 +62,10 @@ export function eventSegmentPath(eventsPath: string, number: number): string {
 
 function isGone(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  return stat(path).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
 }
 
 async function createMetadataFile(path: string, content: string): Promise<void> {
@@ -208,15 +233,15 @@ export async function recoverPendingEventRotation(eventsPath: string): Promise<v
   catch { throw new Error(`Malformed pending event rotation: ${marker}`); }
   if (!Number.isSafeInteger(number) || typeof number !== "number" || number < 1) throw new Error(`Invalid pending event rotation: ${marker}`);
   const closed = eventSegmentPath(eventsPath, number);
-  const closedExists = await stat(closed).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+  const closedExists = await pathExists(closed);
   if (closedExists) {
     const recorded = await recordedNextSegment(eventsPath);
     if (recorded !== undefined && recorded !== number && recorded !== number + 1) throw new Error(`Conflicting pending event rotation: ${marker}`);
     if (recorded !== number + 1) await writeNextSegment(eventsPath, number + 1);
-    const live = await stat(eventsPath).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+    const live = await pathExists(eventsPath);
     if (!live) await writeFile(eventsPath, "", { flag: "wx", mode: 0o600 });
   } else {
-    const live = await stat(eventsPath).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+    const live = await pathExists(eventsPath);
     if (!live) throw new Error(`Missing live event log during rotation: ${eventsPath}`);
   }
   await rm(marker);
@@ -266,7 +291,7 @@ async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
 export async function importLegacyEventArchive(eventsPath: string): Promise<void> {
   const dir = eventArchiveDir(eventsPath);
   const marker = join(dir, ".legacy-importing");
-  const markerExists = await stat(marker).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+  const markerExists = await pathExists(marker);
   if (!markerExists && (await recordedNextSegment(eventsPath)) !== undefined) return;
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
   const { plain: legacy, gzip: legacyCompressed } = legacyCopies(entries);
@@ -274,12 +299,12 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
     const source = join(dir, `${legacyName}.gz`);
     if (legacyCompressed.includes(`${legacyName}.gz`)) {
       const target = `${eventSegmentPath(eventsPath, 1)}.gz`;
-      if (await stat(target).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; })) {
+      if (await pathExists(target)) {
         throw new Error(`Conflicting legacy compressed event copies in ${dir}`);
       }
       await rename(source, target);
       const validation = validationPath(join(dir, legacyName));
-      const exists = await stat(validation).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+      const exists = await pathExists(validation);
       if (exists) await rename(validation, validationPath(eventSegmentPath(eventsPath, 1)));
     }
   };
@@ -309,8 +334,20 @@ export async function compressEventSegment(plainPath: string): Promise<void> {
   const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
   const source = await open(plainPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   try {
-    if (!(await source.stat()).isFile()) throw new Error(`Event segment is not a regular file: ${plainPath}`);
+    const sourceStat = await source.stat();
+    if (!sourceStat.isFile() || sourceStat.size === 0) throw new Error(`Event segment is not a nonempty regular file: ${plainPath}`);
+    const last = Buffer.alloc(1);
+    await source.read(last, 0, 1, sourceStat.size - 1);
+    if (last[0] !== 10) throw new Error(`Torn event record in ${plainPath}`);
     await pipeline(source.createReadStream({ autoClose: false }), createGzip(), createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
+    const compressed = await open(temporary, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    try {
+      const [plainHash, gzipHash] = await Promise.all([
+        digestStream(source.createReadStream({ start: 0, end: sourceStat.size - 1, autoClose: false })),
+        digestStream(compressed.createReadStream({ autoClose: false }).pipe(createGunzip())),
+      ]);
+      if (plainHash !== gzipHash) throw new Error(`Compressed event copy differs from source: ${plainPath}`);
+    } finally { await compressed.close(); }
     await rename(temporary, target);
     const validation = validationPath(plainPath);
     const temporaryValidation = `${validation}.${process.pid}.${crypto.randomUUID()}.tmp`;
@@ -318,13 +355,30 @@ export async function compressEventSegment(plainPath: string): Promise<void> {
       await createMetadataFile(temporaryValidation, `${await pairVersion(plainPath, target)}\n`);
       await rename(temporaryValidation, validation);
     } finally { await rm(temporaryValidation, { force: true }); }
+    const counts = countEventLines((await readFile(plainPath)).toString("utf8"));
+    const countsTarget = countPath(plainPath);
+    const countsTemporary = `${countsTarget}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    try {
+      await createMetadataFile(countsTemporary, `${JSON.stringify({ version: await pairVersion(plainPath, target), ...counts })}\n`);
+      await rename(countsTemporary, countsTarget);
+    } finally { await rm(countsTemporary, { force: true }); }
   }
   catch (error) { await rm(temporary, { force: true }); throw error; }
   finally { await source.close(); }
 }
 
 /** Called while snapshot staging holds the event lock. */
-export async function ensureCompressedEventSegments(eventsPath: string): Promise<void> {
+export async function pendingCompressedEventSegments(eventsPath: string): Promise<string[]> {
+  return (await checkedSegments(eventsPath)).flatMap((segment) => segment.plain && !segment.gzip ? [segment.plain] : []);
+}
+
+export async function prepareEventCompression(eventsPath: string): Promise<{ paths: string[]; release: () => Promise<void> }> {
+  const paths = await pendingCompressedEventSegments(eventsPath);
+  const lease = paths.length > 0 ? await createReaderLease(eventsPath) : undefined;
+  return { paths, release: async () => { if (lease) await rm(lease, { recursive: true, force: true }); } };
+}
+
+export async function ensureCompressedEventSegments(eventsPath: string, createMissing = true): Promise<void> {
   for (const segment of await checkedSegments(eventsPath)) {
     if (!segment.plain && segment.gzip) {
       const handle = await open(segment.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -343,7 +397,11 @@ export async function ensureCompressedEventSegments(eventsPath: string): Promise
       continue;
     }
     if (!segment.plain) continue;
-    if (!segment.gzip) { await compressEventSegment(segment.plain); continue; }
+    if (!segment.gzip) {
+      if (!createMissing) throw new Error(`Pending event compression: ${segment.plain}`);
+      await compressEventSegment(segment.plain);
+      continue;
+    }
     const plain = await open(segment.plain, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     try {
       const mirror = await open(segment.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -369,7 +427,7 @@ async function appendRecordsUnderLock(eventsPath: string, records: readonly Buff
     }
     let nextNumber = segments.length + 1;
     if (recorded === undefined && segments.length === 0) {
-      const liveExists = await stat(eventsPath).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+      const liveExists = await pathExists(eventsPath);
       if (!liveExists) await createMetadataFile(eventsPath, "");
     }
     if (recorded !== nextNumber) await writeNextSegment(eventsPath, nextNumber);
@@ -533,6 +591,7 @@ async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: st
             yield { path: item.path, bytes };
           }
         }
+        if (item.gzip && expanded === 0) throw new Error(`Empty closed event segment: ${item.path}`);
         yield { path: item.path, boundary: true };
       } finally {
         if (!item.mirror && mirror) await mirror.close();
@@ -570,4 +629,91 @@ export async function* streamEventRecords(eventsPath: string): AsyncGenerator<{ 
 
 export async function* streamEventLines(eventsPath: string): AsyncGenerator<string> {
   for await (const record of streamEventRecords(eventsPath)) yield record.line;
+}
+
+async function pinnedBytes(handle: FileHandle, size: number): Promise<Buffer> {
+  if (size > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error("Event segment exceeds safety limit");
+  const bytes = Buffer.alloc(size);
+  let offset = 0;
+  while (offset < size) {
+    const read = await handle.read(bytes, offset, size - offset, offset);
+    if (read.bytesRead === 0) throw new Error("Event segment changed during read");
+    offset += read.bytesRead;
+  }
+  return bytes;
+}
+
+async function readSnapshotSegment(item: OpenSegment, closed: boolean): Promise<string[]> {
+  const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  let mirror: FileHandle | undefined;
+  try {
+    mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
+    const size = item.size ?? (await handle.stat()).size;
+    if (closed && size === 0) throw new Error(`Empty closed event segment: ${item.path}`);
+    await validateMirror({ ...item, handle, size, ...(mirror ? { mirror } : {}) });
+    const bytes = await pinnedBytes(handle, size);
+    const expanded = item.gzip ? gunzipSync(bytes, { maxOutputLength: MAX_EXPANDED_ARCHIVE_BYTES }) : bytes;
+    if (closed && expanded.length === 0) throw new Error(`Empty closed event segment: ${item.path}`);
+    if (expanded.length > 0 && expanded[expanded.length - 1] !== 10) throw new Error(`Torn event record in ${item.path}`);
+    const lines = expanded.toString("utf8").split("\n");
+    lines.pop();
+    return lines.map((line) => line.replace(/\r$/, ""));
+  } finally {
+    if (!item.mirror && mirror) await mirror.close();
+    if (!item.handle) await handle.close();
+  }
+}
+
+async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: number; skippedMalformedLines: number } | undefined> {
+  const plainPath = item.gzip ? item.path.slice(0, -3) : item.path;
+  const raw = await readFile(countPath(plainPath), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+  if (raw === undefined) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { return undefined; }
+  if (typeof value !== "object" || value === null) return undefined;
+  const counts = value as { version?: unknown; totalEvents?: unknown; skippedMalformedLines?: unknown };
+  if (!Number.isSafeInteger(counts.totalEvents) || !Number.isSafeInteger(counts.skippedMalformedLines) ||
+      (counts.totalEvents as number) < 0 || (counts.skippedMalformedLines as number) < 0) return undefined;
+  const version = item.gzip ? fileVersion(await stat(item.path)) :
+    item.mirror || item.mirrorPath ? await pairVersion(item.path, item.mirrorPath ?? `${item.path}.gz`) : fileVersion(await stat(item.path));
+  if (counts.version !== version) return undefined;
+  return { totalEvents: counts.totalEvents as number, skippedMalformedLines: counts.skippedMalformedLines as number };
+}
+
+/** Read only the newest matching records; count older compressed segments from pinned metadata. */
+export async function queryRecentEventRecords<T>(
+  eventsPath: string,
+  limit: number,
+  parse: (line: string) => T | undefined,
+  matches: (value: T) => boolean,
+): Promise<{ events: T[]; totalEvents: number; skippedMalformedLines: number }> {
+  const snapshot = await snapshotSegments(eventsPath);
+  const events: T[] = [];
+  let totalEvents = 0;
+  let skippedMalformedLines = 0;
+  try {
+    for (let index = snapshot.segments.length - 1; index >= 0; index--) {
+      const item = snapshot.segments[index];
+      const closed = item.path !== eventsPath;
+      const saved = closed ? await savedSegmentCounts(item) : undefined;
+      const lines = events.length < limit || !saved ? await readSnapshotSegment(item, closed) : undefined;
+      const counts = saved ?? countEventLines((lines ?? []).join("\n"));
+      if (saved && lines) {
+        const actual = countEventLines(lines.join("\n"));
+        if (actual.totalEvents !== saved.totalEvents || actual.skippedMalformedLines !== saved.skippedMalformedLines) {
+          throw new Error(`Stale event segment counts: ${item.path}`);
+        }
+      }
+      totalEvents += counts.totalEvents;
+      skippedMalformedLines += counts.skippedMalformedLines;
+      if (!lines || events.length >= limit) continue;
+      for (let lineIndex = lines.length - 1; lineIndex >= 0 && events.length < limit; lineIndex--) {
+        const line = lines[lineIndex];
+        if (line.trim().length === 0) continue;
+        const value = parse(line);
+        if (value !== undefined && matches(value)) events.push(value);
+      }
+    }
+    return { events, totalEvents, skippedMalformedLines };
+  } finally { await closeEventSnapshot(snapshot); }
 }

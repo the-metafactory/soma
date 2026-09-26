@@ -32,6 +32,10 @@ error, not a partial success. Gzip is used when a plain segment is absent.
 An append commits plain closed segments without waiting for compression. Snapshot
 staging creates and verifies gzip copies before committing them. Daily live snapshots
 remain in place during the migration.
+Compression also writes private per-segment event and malformed-row counts.
+Recent telemetry reads newest segments first and uses those counts for older
+segments; missing or stale counts fall back to reading the segment. The stats
+command still scans the complete history for its detailed aggregates.
 
 V0 does not add a database, daemon, dashboard,
 or Signal dependency. It also does not harvest raw transcripts, prompts, or full

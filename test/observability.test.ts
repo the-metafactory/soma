@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
@@ -8,6 +8,7 @@ import {
   querySomaTelemetryEvents,
   summarizeSomaTelemetry,
 } from "../src/index";
+import { appendEventBatch, compressEventSegment, eventSegmentPath } from "../src/event-log";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-observability-"));
@@ -71,6 +72,29 @@ test("telemetry query rejects non-integer limits", async () => {
     await expect(querySomaTelemetryEvents({ homeDir, limit: 1.5 })).rejects.toThrow(
       "Soma telemetry limit must be a positive integer.",
     );
+  });
+});
+
+test("recent telemetry uses closed-segment counts and keeps exact totals", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const eventsPath = join(somaHome, "memory/STATE/events.jsonl");
+    const record = (id: string, substrate = "codex") => JSON.stringify({
+      id, timestamp: "2026-05-26T08:00:00.000Z", substrate, kind: "test.event", summary: id,
+    });
+    await appendEventBatch(eventsPath, Buffer.from(`${record("old")}\n{broken}\n${record("middle", "pi-dev")}\n${record("new")}\n`), 150);
+    for (let number = 1; number <= 2; number++) {
+      const path = eventSegmentPath(eventsPath, number);
+      await compressEventSegment(path);
+      const saved = JSON.parse(await readFile(`${path}.counts.json`, "utf8")) as {
+        totalEvents: number; skippedMalformedLines: number;
+      };
+      expect(saved.totalEvents + saved.skippedMalformedLines).toBeGreaterThan(0);
+    }
+    const result = await querySomaTelemetryEvents({ homeDir, limit: 1, substrate: "codex" });
+    expect(result.events.map((event) => event.id)).toEqual(["new"]);
+    expect(result.totalEvents).toBe(3);
+    expect(result.skippedMalformedLines).toBe(1);
   });
 });
 

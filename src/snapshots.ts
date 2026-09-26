@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { eventArchiveDir, eventIndexPath, ensureCompressedEventSegments, recoverPendingEventRotation, waitForEventReaders, withEventLogLock } from "./event-log";
+import { compressEventSegment, eventArchiveDir, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock } from "./event-log";
 import packageJson from "../package.json";
 import { createPaths } from "./paths";
 import type {
@@ -67,6 +67,7 @@ const GENERATED_GITIGNORE_RULES = [
   "memory/STATE/events-archive/*.tmp",
   "memory/STATE/events-index.json.*.tmp",
   "!memory/STATE/events-archive/*.jsonl.gz",
+  "!memory/STATE/events-archive/*.jsonl.counts.json",
 ] as const;
 const PROTECTED_EVENT_PATHS = [
   "memory/STATE/events.jsonl",
@@ -257,14 +258,25 @@ export async function createSomaSnapshot(options: SomaSnapshotOptions = {}): Pro
   const eventsPath = createPaths(somaHome).events();
   await writeSnapshotMetadata(somaHome);
   runGit(somaHome, ["add", "-A"]);
-  await withEventLogLock(eventsPath, async () => {
-    await recoverPendingEventRotation(eventsPath);
-    await ensureCompressedEventSegments(eventsPath);
-    const archivePath = "memory/STATE/events-archive";
-    if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
-      runGit(somaHome, ["add", "-A", "--", archivePath]);
-    }
-  });
+  let stagedEvents = false;
+  for (let attempt = 0; attempt < 5 && !stagedEvents; attempt++) {
+    const prepared = await withEventLogLock(eventsPath, async () => {
+      await recoverPendingEventRotation(eventsPath);
+      return prepareEventCompression(eventsPath);
+    });
+    try { for (const path of prepared.paths) await compressEventSegment(path); }
+    finally { await prepared.release(); }
+    stagedEvents = await withEventLogLock(eventsPath, async () => {
+      if ((await pendingCompressedEventSegments(eventsPath)).length > 0) return false;
+      await ensureCompressedEventSegments(eventsPath, false);
+      const archivePath = "memory/STATE/events-archive";
+      if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
+        runGit(somaHome, ["add", "-A", "--", archivePath]);
+      }
+      return true;
+    });
+  }
+  if (!stagedEvents) throw new Error("Event archive kept changing during snapshot compression");
   runGit(somaHome, [
     "commit",
     "--allow-empty",
