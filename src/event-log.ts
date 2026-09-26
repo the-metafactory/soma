@@ -331,31 +331,28 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
       const validation = validationPath(join(dir, legacyName));
       const exists = await pathExists(validation);
       if (exists) await rename(validation, validationPath(eventSegmentPath(eventsPath, 1)));
+      const counts = countPath(join(dir, legacyName));
+      if (await pathExists(counts)) await rename(counts, countPath(eventSegmentPath(eventsPath, 1)));
     }
   };
   if (entries.includes(".legacy-importing")) {
-    const first = eventSegmentPath(eventsPath, 1);
     if (legacy.length > 1 || legacyCompressed.length > 1 || (legacy.length === 1 && entries.includes("events-000001.jsonl"))) {
       throw new Error(`Conflicting legacy event import in ${dir}`);
     }
-    if (legacy.length === 1) await rename(join(dir, legacy[0]), first);
-    const compressedName = legacyCompressed[0]?.slice(0, -3);
-    if (compressedName) await moveCompressed(compressedName);
-    if (!(await pathExists(first)) && !(await pathExists(`${first}.gz`))) throw new Error(`Missing first event segment during legacy import in ${dir}`);
-    if ((await recordedNextSegment(eventsPath)) === undefined) await writeNextSegment(eventsPath, 2);
-    await rm(marker);
-    return;
+  } else {
+    if (legacy.length === 0 && legacyCompressed.length === 0) return;
+    if (legacy.length > 1 || legacyCompressed.length > 1 || entries.some((name) => SEGMENT.test(name)) ||
+        (legacy.length === 1 && legacyCompressed.length === 1 && legacyCompressed[0] !== `${legacy[0]}.gz`)) {
+      throw new Error(`Conflicting event archives in ${dir}`);
+    }
+    await createMetadataFile(marker, "importing\n");
   }
-  if (legacy.length === 0 && legacyCompressed.length === 0) return;
-  if (legacy.length > 1 || legacyCompressed.length > 1 || entries.some((name) => SEGMENT.test(name)) ||
-      (legacy.length === 1 && legacyCompressed.length === 1 && legacyCompressed[0] !== `${legacy[0]}.gz`)) {
-    throw new Error(`Conflicting event archives in ${dir}`);
-  }
-  await createMetadataFile(marker, "importing\n");
-  if (legacy.length === 1) await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
+  const first = eventSegmentPath(eventsPath, 1);
+  if (legacy.length === 1) await rename(join(dir, legacy[0]), first);
   const compressedName = legacyCompressed[0]?.slice(0, -3);
   if (compressedName) await moveCompressed(compressedName);
-  await writeNextSegment(eventsPath, 2);
+  if (!(await pathExists(first)) && !(await pathExists(`${first}.gz`))) throw new Error(`Missing first event segment during legacy import in ${dir}`);
+  if ((await recordedNextSegment(eventsPath)) === undefined) await writeNextSegment(eventsPath, 2);
   await rm(marker);
 }
 
@@ -385,9 +382,7 @@ export async function compressEventSegment(plainPath: string): Promise<void> {
     await rename(temporary, target);
     const validation = validationPath(plainPath);
     await writeAtomicMetadata(validation, `${await pairVersion(plainPath, target)}\n`);
-    const countsTarget = countPath(plainPath);
-    const fields = { version: await pairVersion(plainPath, target), gzipVersion: fileVersion(await stat(target)), ...counts };
-    await writeAtomicMetadata(countsTarget, `${JSON.stringify({ ...fields, checksum: countChecksum(fields) })}\n`);
+    await persistSegmentCounts({ path: plainPath, gzip: false, mirrorPath: target }, counts);
   }
   catch (error) { await rm(temporary, { force: true }); throw error; }
   finally { await source.close(); }
@@ -768,6 +763,17 @@ async function segmentFileVersion(item: OpenSegment): Promise<string> {
   } finally { await opened.close(); }
 }
 
+async function persistSegmentCounts(
+  item: OpenSegment,
+  counts: { totalEvents: number; skippedMalformedLines: number },
+): Promise<void> {
+  const version = await segmentFileVersion(item);
+  const gzipVersion = item.gzip ? version : item.mirrorPath ? fileVersion(await stat(item.mirrorPath)) : "";
+  const fields = { version, gzipVersion, ...counts };
+  const plainPath = item.gzip ? item.path.slice(0, -3) : item.path;
+  await writeAtomicMetadata(countPath(plainPath), `${JSON.stringify({ ...fields, checksum: countChecksum(fields) })}\n`);
+}
+
 async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: number; skippedMalformedLines: number } | undefined> {
   const plainPath = item.gzip ? item.path.slice(0, -3) : item.path;
   const raw = await readFile(countPath(plainPath), "utf8").catch((error: unknown) => { if (isGone(error)) return null; throw error; });
@@ -817,8 +823,13 @@ export async function writeCumulativeEventCounts(eventsPath: string): Promise<vo
     const path = segment.plain ?? segment.gzip;
     if (!path) throw new Error(`Event segment ${segment.number} has no readable copy`);
     const item: OpenSegment = { path, gzip: !segment.plain, ...(segment.gzip && segment.plain ? { mirrorPath: segment.gzip } : {}) };
-    const counts = await savedSegmentCounts(item) ??
-      await scanSnapshotSegment(item, true, 1, parseTelemetryEventLine, () => false);
+    let counts = await savedSegmentCounts(item);
+    if (!counts) {
+      const before = await segmentFileVersion(item);
+      counts = await scanSnapshotSegment(item, true, 1, parseTelemetryEventLine, () => false);
+      if ((await segmentFileVersion(item)) !== before) throw new Error(`Event segment changed while counting: ${item.path}`);
+      await persistSegmentCounts(item, counts);
+    }
     totalEvents += counts.totalEvents;
     skippedMalformedLines += counts.skippedMalformedLines;
     versions.push(await segmentFileVersion(item));

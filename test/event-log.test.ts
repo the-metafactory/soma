@@ -354,6 +354,21 @@ test("snapshot protects the legacy archive before its first import", async () =>
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([0, 1]);
 });
 
+test("snapshot saves counts after scanning a gzip-only legacy archive", async () => {
+  const { root, events } = await home();
+  const archive = eventArchiveDir(events);
+  await mkdir(archive, { recursive: true });
+  const legacy = join(archive, "events-until-2026-08-24T18-48-54Z.jsonl.gz");
+  await writeFile(legacy, gzipSync('{"i":0}\n'));
+  await writeFile(events, "");
+  await createSomaSnapshot({ somaHome: root, name: "legacy-counts" });
+  const countsPath = legacy.slice(0, -3) + ".counts.json";
+  const counts = await readFile(countsPath, "utf8");
+  expect(JSON.parse(counts) as { skippedMalformedLines: number }).toHaveProperty("skippedMalformedLines", 1);
+  await createSomaSnapshot({ somaHome: root, name: "legacy-counts-again" });
+  expect(await readFile(countsPath, "utf8")).toBe(counts);
+});
+
 test("private snapshots track gzip mirrors but not active or plain archives", async () => {
   const { root, events } = await home();
   await createSomaSnapshot({ somaHome: root, name: "baseline" });
