@@ -65,6 +65,16 @@ test("reader uses gzip fallback and reports missing or conflicting segments", as
   await expect(lines(events)).rejects.toThrow(/Missing event segment 2/);
 });
 
+test("reader uses the legacy gzip copy when its plain archive is gone", async () => {
+  const { events } = await home();
+  const archive = eventArchiveDir(events);
+  await mkdir(archive, { recursive: true });
+  const legacy = join(archive, "events-until-2026-08-24T18-48-54Z.jsonl.gz");
+  await writeFile(legacy, gzipSync('{"i":0}\n'));
+  await writeFile(events, '{"i":1}\n');
+  expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([0, 1]);
+});
+
 test("reader rejects an empty gzip fallback", async () => {
   const { events } = await home();
   await oneClosedSegment(events);
@@ -137,6 +147,13 @@ test("writer refuses to recreate a lost live file", async () => {
   await expect(appendEventBatch(events, Buffer.from('{"i":3}\n'), 12)).rejects.toThrow(/Missing live event log/);
 });
 
+test("writer refuses a missing live file before the first rotation", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'));
+  await rm(events);
+  await expect(appendEventBatch(events, Buffer.from('{"i":2}\n'))).rejects.toThrow(/Missing live event log/);
+});
+
 test("writer recovers an interrupted marked legacy import", async () => {
   const { events } = await home();
   const archive = eventArchiveDir(events);
@@ -204,8 +221,10 @@ test("reader snapshot sees a rotating live file exactly once", async () => {
 
 test("one large batch splits only at record boundaries", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n{"i":2}\n{"i":3}\n'), 16);
+  await appendEventBatch(events, Buffer.from('{"i":1}\n{"i":2}\n{"i":3}\n'), 8);
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([1, 2, 3]);
+  expect(await readFile(`${eventSegmentPath(events, 1)}.gz`)).toBeTruthy();
+  expect(await readFile(`${eventSegmentPath(events, 2)}.gz`)).toBeTruthy();
 });
 
 test("legacy archive import preserves bytes and rollback retains history and sequence", async () => {

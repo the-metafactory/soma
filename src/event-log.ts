@@ -124,7 +124,7 @@ async function segmentNames(eventsPath: string): Promise<SegmentNames[]> {
   const legacy = entries.filter((name) => LEGACY.test(name));
   const legacyGzip = entries.filter((name) => name.endsWith(".gz") && LEGACY.test(name.slice(0, -3)));
   if (legacy.length > 1) throw new Error(`Conflicting legacy event archives in ${dir}`);
-  if (legacyGzip.length > 1 || (legacyGzip.length === 1 && legacyGzip[0] !== `${legacy[0]}.gz`)) {
+  if (legacyGzip.length > 1 || (legacy.length === 1 && legacyGzip.length === 1 && legacyGzip[0] !== `${legacy[0]}.gz`)) {
     throw new Error(`Conflicting legacy gzip archives in ${dir}`);
   }
   for (const name of entries) {
@@ -137,8 +137,8 @@ async function segmentNames(eventsPath: string): Promise<SegmentNames[]> {
     else item.plain = join(dir, name);
     found.set(number, item);
   }
-  if (legacy.length && found.has(1)) throw new Error(`Conflicting first event segments in ${dir}`);
-  if (legacy.length) found.set(1, { number: 1, plain: join(dir, legacy[0]), ...(legacyGzip.length ? { gzip: join(dir, legacyGzip[0]) } : {}) });
+  if ((legacy.length || legacyGzip.length) && found.has(1)) throw new Error(`Conflicting first event segments in ${dir}`);
+  if (legacy.length || legacyGzip.length) found.set(1, { number: 1, ...(legacy.length ? { plain: join(dir, legacy[0]) } : {}), ...(legacyGzip.length ? { gzip: join(dir, legacyGzip[0]) } : {}) });
   const ordered = [...found.values()].sort((a, b) => a.number - b.number);
   for (let i = 0; i < ordered.length; i++) {
     if (ordered[i].number !== i + 1) throw new Error(`Missing event segment ${i + 1} in ${dir}`);
@@ -206,7 +206,10 @@ async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
   const cached = segmentListingCache.get(eventsPath);
   const segments = cached?.version === version ? cached.segments : await segmentNames(eventsPath);
   const recorded = await recordedNextSegment(eventsPath);
-  const unmigratedLegacy = segments.length === 1 && segments[0].plain !== undefined && LEGACY.test(basename(segments[0].plain));
+  const unmigratedLegacy = segments.length === 1 && (
+    (segments[0].plain !== undefined && LEGACY.test(basename(segments[0].plain))) ||
+    (segments[0].gzip !== undefined && LEGACY.test(basename(segments[0].gzip).slice(0, -3)))
+  );
   if (segments.length > 0 && recorded === undefined && !unmigratedLegacy) {
     throw new Error(`Missing event segment index: ${eventIndexPath(eventsPath)}`);
   }
@@ -231,6 +234,8 @@ async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
 export async function importLegacyEventArchive(eventsPath: string): Promise<void> {
   const dir = eventArchiveDir(eventsPath);
   const marker = join(dir, ".legacy-importing");
+  const markerExists = await stat(marker).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+  if (!markerExists && (await recordedNextSegment(eventsPath)) !== undefined) return;
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
   const legacy = entries.filter((name) => LEGACY.test(name));
   const legacyCompressed = entries.filter((name) => name.endsWith(".jsonl.gz") && LEGACY.test(name.slice(0, -3)));
@@ -304,19 +309,20 @@ export async function mirrorMissingEventSegments(eventsPath: string): Promise<vo
   }
 }
 
-async function appendRecordsUnderLock(eventsPath: string, records: readonly Buffer[], limit: number): Promise<string[]> {
+async function appendRecordsUnderLock(eventsPath: string, records: readonly Buffer[], limit: number): Promise<{ backlog: string[]; closedSegments: string[] }> {
     await recoverPendingEventRotation(eventsPath);
     await importLegacyEventArchive(eventsPath);
     const segments = await checkedSegments(eventsPath);
-    const pendingMirrors = segments.flatMap((segment) => segment.plain && !segment.gzip ? [segment.plain] : []);
-    if (segments.length > 0) {
+    const backlog = segments.flatMap((segment) => segment.plain && !segment.gzip ? [segment.plain] : []);
+    const recorded = await recordedNextSegment(eventsPath);
+    if (segments.length > 0 || recorded !== undefined) {
       await stat(eventsPath).catch((error: unknown) => {
         if (isGone(error)) throw new Error(`Missing live event log: ${eventsPath}`);
         throw error;
       });
     }
     let nextNumber = segments.length + 1;
-    if ((await recordedNextSegment(eventsPath)) !== nextNumber) await writeNextSegment(eventsPath, nextNumber);
+    if (recorded !== nextNumber) await writeNextSegment(eventsPath, nextNumber);
     let currentSize = await stat(eventsPath).then((s) => s.size).catch((error: unknown) => { if (isGone(error)) return 0; throw error; });
     if (currentSize > 0) {
       const existing = await open(eventsPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -327,6 +333,7 @@ async function appendRecordsUnderLock(eventsPath: string, records: readonly Buff
       } finally { await existing.close(); }
     }
     let pending: Buffer[] = [];
+    const closedSegments: string[] = [];
     const flush = async (): Promise<void> => {
       if (pending.length === 0) return;
       const writer = await open(eventsPath, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
@@ -337,14 +344,14 @@ async function appendRecordsUnderLock(eventsPath: string, records: readonly Buff
     for (const record of records) {
       if (currentSize > 0 && currentSize + record.length > limit) {
         await flush();
-        pendingMirrors.push(await rotateLiveEventLog(eventsPath, nextNumber++));
+        closedSegments.push(await rotateLiveEventLog(eventsPath, nextNumber++));
         currentSize = 0;
       }
       pending.push(record);
       currentSize += record.length;
     }
     await flush();
-    return pendingMirrors;
+    return { backlog, closedSegments };
 }
 
 export async function appendEventBatch(eventsPath: string, payload: Buffer, limit = EVENT_SEGMENT_LIMIT): Promise<void> {
@@ -362,11 +369,14 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
   const mirrors = await withEventLogLock(eventsPath, () => appendRecordsUnderLock(eventsPath, records, limit));
   // The records are already committed. A failed mirror is retried by the next
   // writer or snapshot; reporting append failure would invite duplicate retries.
-  for (const path of mirrors.slice(0, 1)) {
+  const pendingCompression = [...mirrors.closedSegments, ...mirrors.backlog.slice(0, 1)];
+  for (let offset = 0; offset < pendingCompression.length; offset += 2) {
+    await Promise.all(pendingCompression.slice(offset, offset + 2).map(async (path) => {
     try { await compressEventSegment(path); }
     catch (error) {
       process.emitWarning(`Event mirror pending for ${path}: ${error instanceof Error ? error.message : String(error)}`, "SomaEventMirrorWarning");
     }
+    }));
   }
 }
 
