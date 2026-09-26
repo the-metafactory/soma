@@ -250,6 +250,16 @@ async function restoreProtectedPath(backupPath: string, destination: string, exi
   await restoreProtectedFile(backupPath, destination);
 }
 
+async function stageVerifiedEventGeneration(somaHome: string, eventsPath: string, version: string): Promise<boolean> {
+  await writeCumulativeEventCounts(eventsPath);
+  const archivePath = "memory/STATE/events-archive";
+  if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
+    runGit(somaHome, ["add", "-A", "--", archivePath]);
+  }
+  runGit(somaHome, ["add", "--", relative(somaHome, eventCountsIndexPath(eventsPath))]);
+  return (await eventArchiveVersion(eventsPath)) === version;
+}
+
 async function stageEventArchive(somaHome: string, eventsPath: string): Promise<void> {
   let stagedEvents = false;
   for (let attempt = 0; attempt < 5 && !stagedEvents; attempt++) {
@@ -268,15 +278,7 @@ async function stageEventArchive(somaHome: string, eventsPath: string): Promise<
           if ((await pendingCompressedEventSegments(eventsPath)).length === 0) throw error;
         }
         const after = await eventArchiveVersion(eventsPath);
-        if (validated && before === after) {
-          await writeCumulativeEventCounts(eventsPath);
-          const archivePath = "memory/STATE/events-archive";
-          if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
-            runGit(somaHome, ["add", "-A", "--", archivePath]);
-          }
-          runGit(somaHome, ["add", "--", relative(somaHome, eventCountsIndexPath(eventsPath))]);
-          if ((await eventArchiveVersion(eventsPath)) === after) verifiedVersion = after;
-        }
+        if (validated && before === after && await stageVerifiedEventGeneration(somaHome, eventsPath, after)) verifiedVersion = after;
       }
     }
     finally { await prepared.release(); }

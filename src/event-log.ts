@@ -279,7 +279,7 @@ async function rotateLiveEventLog(eventsPath: string, number: number): Promise<v
   await rm(marker);
 }
 
-async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
+async function checkedSegmentsAndIndex(eventsPath: string): Promise<{ segments: SegmentNames[]; recorded: number | undefined }> {
   const version = await segmentListingVersion(eventsPath);
   const cached = segmentListingCache.get(eventsPath);
   const segments = cached?.version === version ? cached.segments : await segmentNames(eventsPath);
@@ -305,7 +305,11 @@ async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
       if (oldest !== undefined) segmentListingCache.delete(oldest);
     }
   }
-  return segments;
+  return { segments, recorded };
+}
+
+async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
+  return (await checkedSegmentsAndIndex(eventsPath)).segments;
 }
 
 /** Import the historical archive byte for byte when the first writer arrives. */
@@ -449,8 +453,7 @@ export async function ensureCompressedEventSegments(eventsPath: string, createMi
 async function appendRecordsUnderLock(eventsPath: string, records: readonly Buffer[], limit: number): Promise<void> {
     await recoverPendingEventRotation(eventsPath);
     await importLegacyEventArchive(eventsPath);
-    const segments = await checkedSegments(eventsPath);
-    const recorded = await recordedNextSegment(eventsPath);
+    const { segments, recorded } = await checkedSegmentsAndIndex(eventsPath);
     if (segments.length > 0 || recorded !== undefined) {
       await stat(eventsPath).catch((error: unknown) => {
         if (isGone(error)) throw new Error(`Missing live event log: ${eventsPath}`);
@@ -663,25 +666,28 @@ async function* streamBoundedSegmentBytes(item: OpenSegment, handle: FileHandle,
 }
 
 function createEventLineFramer(): { push: (bytes: Uint8Array) => string[]; finish: (path: string) => void } {
-  let pending = "";
+  let pendingParts: string[] = [];
   const decoder = new TextDecoder();
   return {
     push(bytes) {
-      const decoded = pending + decoder.decode(bytes, { stream: true });
+      const decoded = decoder.decode(bytes, { stream: true });
       const lines: string[] = [];
       let start = 0;
       for (;;) {
         const end = decoded.indexOf("\n", start);
         if (end < 0) break;
-        lines.push(decoded.slice(start, end).replace(/\r$/, ""));
+        const part = decoded.slice(start, end);
+        lines.push((pendingParts.length > 0 ? pendingParts.join("") + part : part).replace(/\r$/, ""));
+        pendingParts = [];
         start = end + 1;
       }
-      pending = decoded.slice(start);
+      if (start < decoded.length) pendingParts.push(decoded.slice(start));
       return lines;
     },
     finish(path) {
-      pending += decoder.decode();
-      if (pending.length > 0) throw new Error(`Torn event record in ${path}`);
+      const final = decoder.decode();
+      if (final.length > 0) pendingParts.push(final);
+      if (pendingParts.length > 0) throw new Error(`Torn event record in ${path}`);
     },
   };
 }
@@ -785,6 +791,7 @@ interface CumulativeEventCounts {
   skippedMalformedLines: number;
   lastName: string;
   lastVersion: string;
+  versions: string[];
   listingVersion: string;
   checksum: string;
 }
@@ -798,6 +805,7 @@ export async function writeCumulativeEventCounts(eventsPath: string): Promise<vo
   const names = await checkedSegments(eventsPath);
   let totalEvents = 0;
   let skippedMalformedLines = 0;
+  const versions: string[] = [];
   for (const segment of names) {
     const path = segment.plain ?? segment.gzip;
     if (!path) throw new Error(`Event segment ${segment.number} has no readable copy`);
@@ -806,18 +814,17 @@ export async function writeCumulativeEventCounts(eventsPath: string): Promise<vo
       await scanSnapshotSegment(item, true, 1, parseTelemetryEventLine, () => false);
     totalEvents += counts.totalEvents;
     skippedMalformedLines += counts.skippedMalformedLines;
+    versions.push(await segmentFileVersion(item));
   }
   const last = names.at(-1);
   const lastPath = last?.plain ?? last?.gzip;
-  const lastItem: OpenSegment | undefined = lastPath
-    ? { path: lastPath, gzip: !last?.plain, ...(last?.gzip && last.plain ? { mirrorPath: last.gzip } : {}) }
-    : undefined;
   const fields = {
     segmentCount: names.length,
     totalEvents,
     skippedMalformedLines,
     lastName: lastPath ? basename(lastPath) : "",
-    lastVersion: lastItem ? await segmentFileVersion(lastItem) : "",
+    lastVersion: versions.at(-1) ?? "",
+    versions,
     listingVersion: await segmentListingVersion(eventsPath),
   };
   const target = eventCountsIndexPath(eventsPath);
@@ -833,20 +840,29 @@ async function readCumulativeEventCounts(eventsPath: string, segments: readonly 
   const index = value as Partial<CumulativeEventCounts>;
   if (typeof index.segmentCount !== "number" || typeof index.totalEvents !== "number" ||
       typeof index.skippedMalformedLines !== "number" || typeof index.lastName !== "string" ||
-      typeof index.lastVersion !== "string" || typeof index.listingVersion !== "string" || typeof index.checksum !== "string" ||
+      typeof index.lastVersion !== "string" || !Array.isArray(index.versions) ||
+      typeof index.listingVersion !== "string" || typeof index.checksum !== "string" ||
       !Number.isSafeInteger(index.segmentCount) || !Number.isSafeInteger(index.totalEvents) ||
       !Number.isSafeInteger(index.skippedMalformedLines) || index.segmentCount < 1 ||
-      index.totalEvents < 0 || index.skippedMalformedLines < 0 || index.segmentCount > segments.length) return undefined;
+      index.totalEvents < 0 || index.skippedMalformedLines < 0 || index.segmentCount > segments.length ||
+      index.versions.length !== index.segmentCount || !index.versions.every((version) => typeof version === "string")) return undefined;
   const fields = {
     segmentCount: index.segmentCount, totalEvents: index.totalEvents,
     skippedMalformedLines: index.skippedMalformedLines,
-    lastName: index.lastName, lastVersion: index.lastVersion, listingVersion: index.listingVersion,
+    lastName: index.lastName, lastVersion: index.lastVersion,
+    versions: index.versions, listingVersion: index.listingVersion,
   };
   if (index.checksum !== cumulativeChecksum(fields)) return undefined;
   const listingChanged = (await segmentListingVersion(eventsPath)) !== index.listingVersion;
   if (listingChanged && segments.length <= index.segmentCount) return undefined;
   const last = segments[index.segmentCount - 1];
   if (basename(last.path) !== index.lastName || (await segmentFileVersion(last)) !== index.lastVersion) return undefined;
+  if (listingChanged) {
+    for (let start = 0; start < index.segmentCount; start += 32) {
+      const checked = await Promise.allSettled(segments.slice(start, Math.min(start + 32, index.segmentCount)).map(segmentFileVersion));
+      if (checked.some((result, offset) => result.status === "rejected" || result.value !== index.versions?.[start + offset])) return undefined;
+    }
+  }
   return { ...fields, checksum: index.checksum };
 }
 

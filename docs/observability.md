@@ -36,7 +36,8 @@ Compression also writes private per-segment event and malformed-row counts.
 Snapshots stage a cumulative closed-segment count checkpoint. Recent telemetry
 reads newest segments first and trusts that validated checkpoint for older
 immutable history. Archive listing changes invalidate it and trigger a full
-read. In-place edits to an older closed file after the checkpoint require a
+read unless the change is append-only growth and every saved prefix version
+still matches. In-place edits to an older closed file after the checkpoint require a
 full-history read to detect; `soma telemetry stats` scans every segment for its
 detailed aggregates.
 
