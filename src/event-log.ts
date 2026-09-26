@@ -60,17 +60,6 @@ export function parseTelemetryEventLine(line: string): SomaMemoryEvent | undefin
   } catch { return undefined; }
 }
 
-function countEventLines(content: string): { totalEvents: number; skippedMalformedLines: number } {
-  let totalEvents = 0;
-  let skippedMalformedLines = 0;
-  for (const line of content.split("\n")) {
-    if (line.trim().length === 0) continue;
-    if (isTelemetryEventLine(line.replace(/\r$/, ""))) totalEvents++;
-    else skippedMalformedLines++;
-  }
-  return { totalEvents, skippedMalformedLines };
-}
-
 async function pairVersion(plainPath: string, gzipPath: string): Promise<string> {
   const [plain, gzip] = await Promise.all([stat(plainPath), stat(gzipPath)]);
   return `${fileVersion(plain)}:${fileVersion(gzip)}`;
@@ -374,17 +363,18 @@ export async function compressEventSegment(plainPath: string): Promise<void> {
     if (last[0] !== 10) throw new Error(`Torn event record in ${plainPath}`);
     await pipeline(source.createReadStream({ autoClose: false }), createGzip(), createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
     const compressed = await open(temporary, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    let counts: { totalEvents: number; skippedMalformedLines: number };
     try {
-      const [plainHash, gzipHash] = await Promise.all([
-        digestStream(source.createReadStream({ start: 0, end: sourceStat.size - 1, autoClose: false })),
+      const [plain, gzipHash] = await Promise.all([
+        digestAndCountEventStream(source.createReadStream({ start: 0, end: sourceStat.size - 1, autoClose: false }), plainPath),
         digestStream(compressed.createReadStream({ autoClose: false }).pipe(createGunzip())),
       ]);
-      if (plainHash !== gzipHash) throw new Error(`Compressed event copy differs from source: ${plainPath}`);
+      if (plain.hash !== gzipHash) throw new Error(`Compressed event copy differs from source: ${plainPath}`);
+      counts = plain.counts;
     } finally { await compressed.close(); }
     await rename(temporary, target);
     const validation = validationPath(plainPath);
     await writeAtomicMetadata(validation, `${await pairVersion(plainPath, target)}\n`);
-    const counts = countEventLines((await readFile(plainPath)).toString("utf8"));
     const countsTarget = countPath(plainPath);
     const fields = { version: await pairVersion(plainPath, target), gzipVersion: fileVersion(await stat(target)), ...counts };
     await writeAtomicMetadata(countsTarget, `${JSON.stringify({ ...fields, checksum: countChecksum(fields) })}\n`);
@@ -589,6 +579,30 @@ async function digestStream(stream: AsyncIterable<Buffer | string>): Promise<str
   return hash.digest("hex");
 }
 
+async function digestAndCountEventStream(
+  stream: AsyncIterable<Buffer | string>,
+  path: string,
+): Promise<{ hash: string; counts: { totalEvents: number; skippedMalformedLines: number } }> {
+  const hash = createHash("sha256");
+  const framer = createEventLineFramer();
+  let bytesRead = 0;
+  let totalEvents = 0;
+  let skippedMalformedLines = 0;
+  for await (const chunk of stream) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytesRead += bytes.length;
+    if (bytesRead > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${path}`);
+    hash.update(bytes);
+    for (const line of framer.push(bytes)) {
+      if (line.trim().length === 0) continue;
+      if (isTelemetryEventLine(line)) totalEvents++;
+      else skippedMalformedLines++;
+    }
+  }
+  framer.finish(path);
+  return { hash: hash.digest("hex"), counts: { totalEvents, skippedMalformedLines } };
+}
+
 async function validateMirror(item: OpenSegment & { handle: FileHandle; size: number }): Promise<void> {
   if (!item.mirror) return;
   const [sourceStat, mirrorStat] = await Promise.all([item.handle.stat(), item.mirror.stat()]);
@@ -612,7 +626,7 @@ async function validateMirror(item: OpenSegment & { handle: FileHandle; size: nu
   }
 }
 
-async function openReadableSegment(item: OpenSegment): Promise<{ handle: FileHandle; size: number; close: () => Promise<void> }> {
+async function openSegmentHandles(item: OpenSegment): Promise<{ handle: FileHandle; mirror?: FileHandle; size: number; close: () => Promise<void> }> {
   const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   let mirror: FileHandle | undefined;
   const close = async (): Promise<void> => {
@@ -622,9 +636,16 @@ async function openReadableSegment(item: OpenSegment): Promise<{ handle: FileHan
   try {
     mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
     const size = item.size ?? (await handle.stat()).size;
-    await validateMirror({ ...item, handle, size, ...(mirror ? { mirror } : {}) });
-    return { handle, size, close };
+    return { handle, ...(mirror ? { mirror } : {}), size, close };
   } catch (error) { await close(); throw error; }
+}
+
+async function openReadableSegment(item: OpenSegment): Promise<{ handle: FileHandle; size: number; close: () => Promise<void> }> {
+  const opened = await openSegmentHandles(item);
+  try {
+    await validateMirror({ ...item, handle: opened.handle, size: opened.size, ...(opened.mirror ? { mirror: opened.mirror } : {}) });
+    return opened;
+  } catch (error) { await opened.close(); throw error; }
 }
 
 async function* streamBoundedSegmentBytes(item: OpenSegment, handle: FileHandle, size: number): AsyncGenerator<Buffer> {
@@ -647,14 +668,16 @@ function createEventLineFramer(): { push: (bytes: Uint8Array) => string[]; finis
   const decoder = new TextDecoder();
   return {
     push(bytes) {
-      pending += decoder.decode(bytes, { stream: true });
+      const decoded = pending + decoder.decode(bytes, { stream: true });
       const lines: string[] = [];
+      let start = 0;
       for (;;) {
-        const end = pending.indexOf("\n");
+        const end = decoded.indexOf("\n", start);
         if (end < 0) break;
-        lines.push(pending.slice(0, end).replace(/\r$/, ""));
-        pending = pending.slice(end + 1);
+        lines.push(decoded.slice(start, end).replace(/\r$/, ""));
+        start = end + 1;
       }
+      pending = decoded.slice(start);
       return lines;
     },
     finish(path) {
@@ -726,16 +749,11 @@ async function scanSnapshotSegment<T>(
 }
 
 async function segmentFileVersion(item: OpenSegment): Promise<string> {
-  const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  let mirror: FileHandle | undefined;
+  const opened = await openSegmentHandles(item);
   try {
-    mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
-    const source = fileVersion(await handle.stat());
-    return mirror ? `${source}:${fileVersion(await mirror.stat())}` : source;
-  } finally {
-    if (!item.mirror && mirror) await mirror.close();
-    if (!item.handle) await handle.close();
-  }
+    const source = fileVersion(await opened.handle.stat());
+    return opened.mirror ? `${source}:${fileVersion(await opened.mirror.stat())}` : source;
+  } finally { await opened.close(); }
 }
 
 async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: number; skippedMalformedLines: number } | undefined> {
