@@ -73,6 +73,7 @@ export function eventArchiveDir(eventsPath: string): string { return join(dirnam
 export function eventIndexPath(eventsPath: string): string { return join(dirname(eventsPath), INDEX); }
 export function eventCountsIndexPath(eventsPath: string): string { return join(dirname(eventsPath), COUNTS_INDEX); }
 function readerLeasesDir(eventsPath: string): string { return join(dirname(eventsPath), ".events.readers"); }
+function rollbackGateDir(eventsPath: string): string { return join(dirname(eventsPath), ".events.rollback"); }
 export function eventSegmentPath(eventsPath: string, number: number): string {
   return join(eventArchiveDir(eventsPath), `events-${String(number).padStart(6, "0")}.jsonl`);
 }
@@ -162,6 +163,7 @@ export async function withEventLogLock<T>(eventsPath: string, action: () => Prom
 }
 
 async function createReaderLease(eventsPath: string): Promise<string> {
+  if (await eventRollbackPending(eventsPath)) throw new EventRollbackPending();
   const root = readerLeasesDir(eventsPath);
   await mkdir(root, { recursive: true });
   const lease = join(root, crypto.randomUUID());
@@ -171,7 +173,28 @@ async function createReaderLease(eventsPath: string): Promise<string> {
   return lease;
 }
 
-/** Rollback calls this under the writer lock before replacing archive paths. */
+class EventRollbackPending extends Error {}
+
+async function eventRollbackPending(eventsPath: string): Promise<boolean> {
+  const gate = rollbackGateDir(eventsPath);
+  if (!await pathExists(gate)) return false;
+  await retireStaleOwnedDirectory(gate);
+  return pathExists(gate);
+}
+
+/** Establish a rollback reader gate under the writer lock, then drain leases outside it. */
+export async function beginEventRollback(eventsPath: string): Promise<() => Promise<void>> {
+  const gate = rollbackGateDir(eventsPath);
+  await withEventLogLock(eventsPath, async () => {
+    if (await eventRollbackPending(eventsPath)) throw new Error(`Event rollback already pending: ${gate}`);
+    await mkdir(gate);
+    try { await createMetadataFile(join(gate, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname() })); }
+    catch (error) { await rm(gate, { recursive: true, force: true }); throw error; }
+  });
+  return () => rm(gate, { recursive: true, force: true });
+}
+
+/** Rollback calls this after gating new readers and before replacing archive paths. */
 export async function waitForEventReaders(eventsPath: string): Promise<void> {
   const root = readerLeasesDir(eventsPath);
   const started = Date.now();
@@ -561,7 +584,15 @@ async function openSegmentsSnapshot(eventsPath: string, allowLease: boolean): Pr
 
 /** Pin archive handles and the live byte bound under the writer lock. */
 async function snapshotSegments(eventsPath: string): Promise<EventSnapshot> {
-  try { return await withEventLogLock(eventsPath, () => openSegmentsSnapshot(eventsPath, true)); }
+  try {
+    for (;;) {
+      try { return await withEventLogLock(eventsPath, () => openSegmentsSnapshot(eventsPath, true)); }
+      catch (error) {
+        if (!(error instanceof EventRollbackPending)) throw error;
+        await sleep(25);
+      }
+    }
+  }
   catch (error) {
     if (!(error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM" || error.code === "EROFS"))) throw error;
     // A read-only home cannot create the lock. Pin handles and reject listing

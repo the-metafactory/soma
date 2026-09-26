@@ -301,15 +301,25 @@ test("rollback waits for a leased archive reader", async () => {
   expect((await reader.next()).value?.line).toBe('{"i":0}');
   let finished = false;
   const rollback = rollbackSomaSnapshot({ somaHome: root, snapshot: target.id }).then(() => { finished = true; });
-  const lock = join(dirname(events), ".events.lock");
+  const gate = join(dirname(events), ".events.rollback");
   for (let i = 0; i < 100; i++) {
-    if (await stat(lock).then(() => true).catch(() => false)) break;
+    if (await stat(gate).then(() => true).catch(() => false)) break;
     await Bun.sleep(10);
   }
+  expect(await stat(gate).then(() => true).catch(() => false)).toBe(true);
   expect(finished).toBe(false);
+  await appendEventBatch(events, Buffer.from('{"i":66}\n'), 12);
+  const nextReader = streamEventRecords(events);
+  let nextReaderStarted = false;
+  const nextRead = nextReader.next().then((value) => { nextReaderStarted = true; return value; });
+  await Bun.sleep(50);
+  expect(nextReaderStarted).toBe(false);
   await reader.return(undefined);
   await rollback;
-  expect((await lines(events)).length).toBe(66);
+  expect((await nextRead).value?.line).toBe('{"i":0}');
+  await nextReader.return(undefined);
+  expect((await lines(events)).length).toBe(67);
+  expect(await stat(gate).then(() => true).catch(() => false)).toBe(false);
 });
 
 test("one large batch splits only at record boundaries", async () => {

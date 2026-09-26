@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { compressEventSegment, eventArchiveDir, eventArchiveVersion, eventCountsIndexPath, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock, writeCumulativeEventCounts } from "./event-log";
+import { beginEventRollback, compressEventSegment, eventArchiveDir, eventArchiveVersion, eventCountsIndexPath, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock, writeCumulativeEventCounts } from "./event-log";
 import packageJson from "../package.json";
 import { createPaths } from "./paths";
 import type {
@@ -407,23 +407,26 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
     throw new Error(`Refusing to rollback to non-snapshot commit: ${options.snapshot}`);
   }
   const eventsPath = createPaths(somaHome).events();
-  await withEventLogLock(eventsPath, async () => {
-    await recoverPendingEventRotation(eventsPath);
+  const releaseGate = await beginEventRollback(eventsPath);
+  try {
     await waitForEventReaders(eventsPath);
-    await withPreservedEventHistory(somaHome, eventsPath, async (archiveBackup) => {
-      runGit(somaHome, ["reset", "--hard", id]);
-      const metadata = await readSnapshotMetadata(somaHome);
-      runGit(somaHome, ["clean", "-ffd", ...PROTECTED_EVENT_PATHS.flatMap((path) => ["-e", path]), "-e", relative(somaHome, archiveBackup)]);
-      await removeIgnoredAdditions(somaHome, [
-        ...metadata.ignoredPaths,
-        ...PROTECTED_EVENT_PATHS,
-        `${relative(somaHome, archiveBackup)}/`,
-        "memory/STATE/events-snapshots/",
-      ]);
+    await withEventLogLock(eventsPath, async () => {
+      await recoverPendingEventRotation(eventsPath);
+      await withPreservedEventHistory(somaHome, eventsPath, async (archiveBackup) => {
+        runGit(somaHome, ["reset", "--hard", id]);
+        const metadata = await readSnapshotMetadata(somaHome);
+        runGit(somaHome, ["clean", "-ffd", ...PROTECTED_EVENT_PATHS.flatMap((path) => ["-e", path]), "-e", relative(somaHome, archiveBackup)]);
+        await removeIgnoredAdditions(somaHome, [
+          ...metadata.ignoredPaths,
+          ...PROTECTED_EVENT_PATHS,
+          `${relative(somaHome, archiveBackup)}/`,
+          "memory/STATE/events-snapshots/",
+        ]);
+      });
+      await ensureSnapshotGitignore(somaHome);
+      untrackEventFiles(somaHome);
     });
-    await ensureSnapshotGitignore(somaHome);
-    untrackEventFiles(somaHome);
-  });
+  } finally { await releaseGate(); }
   return {
     somaHome,
     id,
