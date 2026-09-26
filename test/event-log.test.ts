@@ -66,6 +66,7 @@ test("reader detects conflicting plain and gzip copies", async () => {
   await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
   await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
   const first = eventSegmentPath(events, 1);
+  expect(await lines(events)).toHaveLength(2);
   await writeFile(`${first}.gz`, gzipSync('{"i":999}\n'));
   await expect(lines(events)).rejects.toThrow(/Conflicting event segment copies/);
 });
@@ -91,6 +92,14 @@ test("reader and writer refuse segmented history with a missing index", async ()
   await expect(appendEventBatch(events, Buffer.from('{"i":3}\n'), 12)).rejects.toThrow(/Missing event segment index/);
 });
 
+test("reader rejects an index behind the discovered archive", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await writeFile(eventIndexPath(events), '{"nextSegment":1}\n');
+  await expect(lines(events)).rejects.toThrow(/index trails archive/);
+});
+
 test("writer refuses to recreate a lost live file", async () => {
   const { events } = await home();
   await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
@@ -109,6 +118,14 @@ test("writer recovers an interrupted marked legacy import", async () => {
   await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([0, 1]);
   expect(JSON.parse(await readFile(eventIndexPath(events), "utf8")).nextSegment).toBe(2);
+});
+
+test("first legacy import refuses a missing live tail", async () => {
+  const { events } = await home();
+  const archive = eventArchiveDir(events);
+  await mkdir(archive, { recursive: true });
+  await writeFile(join(archive, "events-until-2026-08-24T18-48-54Z.jsonl"), '{"i":0}\n');
+  await expect(appendEventBatch(events, Buffer.from('{"i":1}\n'), 12)).rejects.toThrow(/Missing live event log/);
 });
 
 test("reader rejects loss of the live file after history was written", async () => {
@@ -149,6 +166,7 @@ test("legacy archive import preserves bytes and rollback retains history and seq
   const archive = eventArchiveDir(events);
   await mkdir(archive, { recursive: true });
   await Bun.write(join(archive, "events-until-2026-08-24T18-48-54Z.jsonl"), '{"i":0}\n');
+  await writeFile(events, "");
   await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
   await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
   expect(await readFile(eventSegmentPath(events, 1), "utf8")).toBe('{"i":0}\n');
@@ -170,6 +188,20 @@ test("private snapshots track gzip mirrors but not active or plain archives", as
   expect(tracked).toContain("events-000001.jsonl.gz");
   expect(tracked).not.toMatch(/events-000001\.jsonl\n/);
   expect(tracked).not.toMatch(/events\.jsonl\n/);
+});
+
+test("rollback replaces snapshot archive with the protected live archive", async () => {
+  const { root, events } = await home();
+  await createSomaSnapshot({ somaHome: root, name: "baseline" });
+  for (let i = 1; i <= 4; i++) await appendEventBatch(events, Buffer.from(`${JSON.stringify({ i })}\n`), 12);
+  const target = await createSomaSnapshot({ somaHome: root, name: "three-segments" });
+  const third = eventSegmentPath(events, 3);
+  await rm(third);
+  await rm(`${third}.gz`);
+  await writeFile(eventIndexPath(events), '{"nextSegment":3}\n');
+  await rollbackSomaSnapshot({ somaHome: root, snapshot: target.id });
+  expect((await readdir(eventArchiveDir(events))).some((name) => name.startsWith("events-000003"))).toBe(false);
+  expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([1, 2, 4]);
 });
 
 test("reader rejects a torn archived record", async () => {

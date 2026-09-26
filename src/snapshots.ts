@@ -309,6 +309,7 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
         await copyFile(join(backup, "events.jsonl"), eventsPath);
       }
       if (await pathExists(join(backup, "events-index.json"))) await copyFile(join(backup, "events-index.json"), index);
+      await rm(archive, { recursive: true, force: true });
       if (await pathExists(join(backup, "events-archive"))) {
         await mkdir(archive, { recursive: true });
         await cp(join(backup, "events-archive"), archive, { recursive: true, force: true });

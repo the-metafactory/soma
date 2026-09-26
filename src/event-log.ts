@@ -15,6 +15,12 @@ const INDEX = "events-index.json";
 const SEGMENT = /^events-(\d{6})\.jsonl(\.gz)?$/;
 const LEGACY = /^events-until-.*\.jsonl$/;
 const MAX_EXPANDED_ARCHIVE_BYTES = 256 * 1024 * 1024;
+const validatedMirrors = new Map<string, string>();
+const VALIDATED_MIRROR_CACHE_LIMIT = 128;
+
+function fileVersion(file: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {
+  return `${file.dev}:${file.ino}:${file.size}:${file.mtimeMs}:${file.ctimeMs}`;
+}
 
 export function eventArchiveDir(eventsPath: string): string { return join(dirname(eventsPath), ARCHIVE); }
 export function eventIndexPath(eventsPath: string): string { return join(dirname(eventsPath), INDEX); }
@@ -129,11 +135,14 @@ async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
   if (recorded !== undefined && recorded > segments.length + 1) {
     throw new Error(`Missing event segment ${segments.length + 1} in ${eventArchiveDir(eventsPath)}`);
   }
+  if (recorded !== undefined && recorded < segments.length + 1) {
+    throw new Error(`Event segment index trails archive in ${eventArchiveDir(eventsPath)}`);
+  }
   return segments;
 }
 
 /** Import the historical archive byte for byte when the first writer arrives. */
-export async function importLegacyEventArchive(eventsPath: string): Promise<boolean> {
+export async function importLegacyEventArchive(eventsPath: string): Promise<void> {
   const dir = eventArchiveDir(eventsPath);
   const marker = join(dir, ".legacy-importing");
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
@@ -145,16 +154,15 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<bool
     await mirrorEventSegment(first);
     if ((await recordedNextSegment(eventsPath)) === undefined) await writeNextSegment(eventsPath, 2);
     await rm(marker);
-    return false;
+    return;
   }
-  if (legacy.length === 0) return false;
+  if (legacy.length === 0) return;
   if (legacy.length !== 1 || entries.some((name) => SEGMENT.test(name))) throw new Error(`Conflicting event archives in ${dir}`);
   await writeFile(marker, "importing\n");
   await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
   await mirrorEventSegment(eventSegmentPath(eventsPath, 1));
   await writeNextSegment(eventsPath, 2);
   await rm(marker);
-  return true;
 }
 
 export async function mirrorEventSegment(plainPath: string): Promise<void> {
@@ -182,10 +190,10 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
     from = i + 1;
   }
   const mirrors = await withEventLogLock(eventsPath, async () => {
-    const importedLegacy = await importLegacyEventArchive(eventsPath);
+    await importLegacyEventArchive(eventsPath);
     const segments = await checkedSegments(eventsPath);
     const pendingMirrors = segments.flatMap((segment) => segment.plain && !segment.gzip ? [segment.plain] : []);
-    if (segments.length > 0 && !importedLegacy) {
+    if (segments.length > 0) {
       await stat(eventsPath).catch((error: unknown) => {
         if (isGone(error)) throw new Error(`Missing live event log: ${eventsPath}`);
         throw error;
@@ -218,12 +226,12 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
     }
     return pendingMirrors;
   });
-  await Promise.all(mirrors.map((path) => mirrorEventSegment(path)));
+  for (const path of mirrors) await mirrorEventSegment(path);
 }
 
-interface OpenSegment { path: string; handle: FileHandle; size: number; gzip: boolean; mirror?: FileHandle }
+interface OpenSegment { path: string; handle?: FileHandle; size?: number; gzip: boolean; mirrorPath?: string }
 
-/** Pin file handles and the live byte bound while holding the writer lock. */
+/** Pin only the mutable live file; immutable archives open one at a time. */
 async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
   return withEventLogLock(eventsPath, async () => {
     const names = await checkedSegments(eventsPath);
@@ -232,11 +240,7 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
       for (const item of names) {
         const path = item.plain ?? item.gzip;
         if (!path) throw new Error(`Event segment ${item.number} has no readable copy`);
-        const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-        const size = (await handle.stat()).size;
-        const segment: OpenSegment = { path, handle, size, gzip: !item.plain };
-        opened.push(segment);
-        if (item.plain && item.gzip) segment.mirror = await open(item.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+        opened.push({ path, gzip: !item.plain, ...(item.plain && item.gzip ? { mirrorPath: item.gzip } : {}) });
       }
       const live = await open(eventsPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
       if (!live && (names.length > 0 || (await recordedNextSegment(eventsPath)) !== undefined)) {
@@ -244,7 +248,7 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
       }
       if (live) opened.push({ path: eventsPath, handle: live, size: (await live.stat()).size, gzip: false });
       return opened;
-    } catch (error) { await Promise.all(opened.flatMap((item) => [item.handle, item.mirror].filter((handle): handle is FileHandle => handle !== undefined)).map((handle) => handle.close())); throw error; }
+    } catch (error) { await Promise.all(opened.flatMap((item) => item.handle ? [item.handle] : []).map((handle) => handle.close())); throw error; }
   });
 }
 
@@ -264,26 +268,43 @@ async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: st
   const segments = await snapshotSegments(eventsPath);
   try {
     for (const item of segments) {
-      const plainHash = item.mirror ? createHash("sha256") : undefined;
-      let expanded = 0;
-      if (item.size > 0) {
-        const source = item.handle.createReadStream({ start: 0, end: item.size - 1, autoClose: false });
-        const stream = item.gzip ? source.pipe(createGunzip()) : source;
-        for await (const chunk of stream) {
-          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-          expanded += bytes.length;
-          if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${item.path}`);
-          plainHash?.update(bytes);
-          yield { path: item.path, bytes };
+      const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      try {
+        const sourceStat = await handle.stat();
+        const size = item.size ?? sourceStat.size;
+        const mirrorStat = item.mirrorPath ? await stat(item.mirrorPath) : undefined;
+        const mirrorVersion = mirrorStat ? `${fileVersion(sourceStat)}:${fileVersion(mirrorStat)}` : undefined;
+        const needsValidation = !!(item.mirrorPath && mirrorVersion && validatedMirrors.get(item.path) !== mirrorVersion);
+        const plainHash = needsValidation ? createHash("sha256") : undefined;
+        let expanded = 0;
+        if (size > 0) {
+          const source = handle.createReadStream({ start: 0, end: size - 1, autoClose: false });
+          const stream = item.gzip ? source.pipe(createGunzip()) : source;
+          for await (const chunk of stream) {
+            const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            expanded += bytes.length;
+            if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${item.path}`);
+            plainHash?.update(bytes);
+            yield { path: item.path, bytes };
+          }
         }
-      }
-      if (item.mirror && plainHash) {
-        const gzipHash = await digestStream(item.mirror.createReadStream({ autoClose: false }).pipe(createGunzip()));
-        if (plainHash.digest("hex") !== gzipHash) throw new Error(`Conflicting event segment copies: ${item.path}`);
-      }
-      yield { path: item.path, boundary: true };
+        if (item.mirrorPath && plainHash && mirrorVersion) {
+          const mirror = await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+          try {
+            const gzipHash = await digestStream(mirror.createReadStream({ autoClose: false }).pipe(createGunzip()));
+            if (plainHash.digest("hex") !== gzipHash) throw new Error(`Conflicting event segment copies: ${item.path}`);
+            validatedMirrors.delete(item.path);
+            validatedMirrors.set(item.path, mirrorVersion);
+            if (validatedMirrors.size > VALIDATED_MIRROR_CACHE_LIMIT) {
+              const oldest = validatedMirrors.keys().next().value;
+              if (oldest !== undefined) validatedMirrors.delete(oldest);
+            }
+          } finally { await mirror.close(); }
+        }
+        yield { path: item.path, boundary: true };
+      } finally { if (!item.handle) await handle.close(); }
     }
-  } finally { await Promise.all(segments.flatMap((item) => [item.handle, item.mirror].filter((handle): handle is FileHandle => handle !== undefined)).map((handle) => handle.close().catch(() => undefined))); }
+  } finally { await Promise.all(segments.flatMap((item) => item.handle ? [item.handle] : []).map((handle) => handle.close().catch(() => undefined))); }
 }
 
 /** Ordered records retain real source path and per-file line for citations. */
