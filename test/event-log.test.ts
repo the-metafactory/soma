@@ -94,6 +94,31 @@ test("reader uses the legacy gzip copy when its plain archive is gone", async ()
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([0, 1]);
 });
 
+test("first writer imports a gzip-only legacy archive as segment one", async () => {
+  const { events } = await home();
+  const archive = eventArchiveDir(events);
+  await mkdir(archive, { recursive: true });
+  const legacy = join(archive, "events-until-2026-08-24T18-48-54Z.jsonl.gz");
+  await writeFile(legacy, gzipSync('{"i":0}\n'));
+  await writeFile(events, "");
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  expect((await lines(events)).map((line) => (JSON.parse(line) as { i: number }).i)).toEqual([0, 1]);
+  expect(gunzipSync(await readFile(`${eventSegmentPath(events, 1)}.gz`)).toString()).toBe('{"i":0}\n');
+  await expect(readFile(legacy)).rejects.toThrow();
+});
+
+test("writer finishes an interrupted gzip-only legacy import", async () => {
+  const { events } = await home();
+  const archive = eventArchiveDir(events);
+  await mkdir(archive, { recursive: true });
+  await writeFile(join(archive, ".legacy-importing"), "importing\n");
+  await writeFile(`${eventSegmentPath(events, 1)}.gz`, gzipSync('{"i":0}\n'));
+  await writeFile(events, "");
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  expect((await lines(events)).map((line) => (JSON.parse(line) as { i: number }).i)).toEqual([0, 1]);
+  await expect(readFile(join(archive, ".legacy-importing"))).rejects.toThrow();
+});
+
 test("reader rejects an empty gzip fallback", async () => {
   const { events } = await home();
   await oneClosedSegment(events);

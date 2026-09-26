@@ -18,7 +18,7 @@ const ROTATION_PENDING = ".rotation-pending.json";
 const SEGMENT = /^events-(\d{6})\.jsonl(\.gz)?$/;
 const LEGACY = /^events-until-.*\.jsonl$/;
 const MAX_EXPANDED_ARCHIVE_BYTES = 256 * 1024 * 1024;
-const PINNED_SEGMENT_LIMIT = 64;
+const PINNED_SEGMENT_LIMIT = 8;
 const READER_LEASE_TIMEOUT_MS = 5 * 60_000;
 const validatedMirrors = new Map<string, string>();
 const VALIDATED_MIRROR_CACHE_LIMIT = 128;
@@ -335,19 +335,26 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
   };
   if (entries.includes(".legacy-importing")) {
     const first = eventSegmentPath(eventsPath, 1);
-    if (legacy.length === 1 && !entries.some((name) => SEGMENT.test(name))) await rename(join(dir, legacy[0]), first);
-    else if (legacy.length > 0 || !entries.includes("events-000001.jsonl")) throw new Error(`Conflicting legacy event import in ${dir}`);
-    const compressedName = legacy.length === 1 ? legacy[0] : legacyCompressed[0]?.slice(0, -3);
+    if (legacy.length > 1 || legacyCompressed.length > 1 || (legacy.length === 1 && entries.includes("events-000001.jsonl"))) {
+      throw new Error(`Conflicting legacy event import in ${dir}`);
+    }
+    if (legacy.length === 1) await rename(join(dir, legacy[0]), first);
+    const compressedName = legacyCompressed[0]?.slice(0, -3);
     if (compressedName) await moveCompressed(compressedName);
+    if (!(await pathExists(first)) && !(await pathExists(`${first}.gz`))) throw new Error(`Missing first event segment during legacy import in ${dir}`);
     if ((await recordedNextSegment(eventsPath)) === undefined) await writeNextSegment(eventsPath, 2);
     await rm(marker);
     return;
   }
-  if (legacy.length === 0) return;
-  if (legacy.length !== 1 || entries.some((name) => SEGMENT.test(name))) throw new Error(`Conflicting event archives in ${dir}`);
+  if (legacy.length === 0 && legacyCompressed.length === 0) return;
+  if (legacy.length > 1 || legacyCompressed.length > 1 || entries.some((name) => SEGMENT.test(name)) ||
+      (legacy.length === 1 && legacyCompressed.length === 1 && legacyCompressed[0] !== `${legacy[0]}.gz`)) {
+    throw new Error(`Conflicting event archives in ${dir}`);
+  }
   await createMetadataFile(marker, "importing\n");
-  await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
-  await moveCompressed(legacy[0]);
+  if (legacy.length === 1) await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
+  const compressedName = legacyCompressed[0]?.slice(0, -3);
+  if (compressedName) await moveCompressed(compressedName);
   await writeNextSegment(eventsPath, 2);
   await rm(marker);
 }

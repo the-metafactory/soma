@@ -260,6 +260,20 @@ async function stageVerifiedEventGeneration(somaHome: string, eventsPath: string
   return (await eventArchiveVersion(eventsPath)) === version;
 }
 
+async function compressPendingEventSegments(paths: readonly string[]): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(4, paths.length) }, async () => {
+    for (;;) {
+      if (next >= paths.length) return;
+      const path = paths[next++];
+      await compressEventSegment(path);
+    }
+  });
+  const outcomes = await Promise.allSettled(workers);
+  const failed = outcomes.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) throw failed.reason;
+}
+
 async function stageEventArchive(somaHome: string, eventsPath: string): Promise<void> {
   let stagedEvents = false;
   for (let attempt = 0; attempt < 5 && !stagedEvents; attempt++) {
@@ -269,7 +283,7 @@ async function stageEventArchive(somaHome: string, eventsPath: string): Promise<
     });
     let verifiedVersion: string | undefined;
     try {
-      for (const path of prepared.paths) await compressEventSegment(path);
+      await compressPendingEventSegments(prepared.paths);
       if ((await pendingCompressedEventSegments(eventsPath)).length === 0) {
         const before = await eventArchiveVersion(eventsPath);
         let validated = false;
