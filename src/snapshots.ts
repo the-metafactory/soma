@@ -60,6 +60,7 @@ const GENERATED_GITIGNORE_RULES = [
   "memory/STATE/.events.lock/",
   "memory/STATE/.events.lock.reclaim/",
   "memory/STATE/.events.readers/",
+  "memory/STATE/.events.rollback/",
   "memory/STATE/.rotation-pending.json",
   "memory/STATE/events-snapshots/",
   "!memory/STATE/events-archive/",
@@ -78,6 +79,7 @@ const PROTECTED_EVENT_PATHS = [
   "memory/STATE/.events.lock/",
   "memory/STATE/.events.lock.reclaim/",
   "memory/STATE/.events.readers/",
+  "memory/STATE/.events.rollback/",
 ] as const;
 
 interface SnapshotMetadata {

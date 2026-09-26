@@ -448,15 +448,7 @@ export async function ensureCompressedEventSegments(eventsPath: string, createMi
         const version = `gzip:${fileVersion(file)}`;
         const persisted = await readFile(validation, "utf8").catch((error: unknown) => { if (isGone(error)) return ""; throw error; });
         if (persisted.trim() === version) continue;
-        let expanded = 0;
-        let lastByte = -1;
-        for await (const chunk of handle.createReadStream({ autoClose: false }).pipe(createGunzip())) {
-          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-          expanded += bytes.length;
-          if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${segment.gzip}`);
-          if (bytes.length > 0) lastByte = bytes[bytes.length - 1];
-        }
-        if (lastByte !== 10) throw new Error(`Torn event record in ${segment.gzip}`);
+        for await (const _line of streamSegmentLines({ path: segment.gzip, gzip: true }, handle, file.size)) { /* validate */ }
         await writeAtomicMetadata(validation, `${version}\n`);
       } finally { await handle.close(); }
       continue;
