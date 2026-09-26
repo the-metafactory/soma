@@ -18,6 +18,10 @@ async function lines(path: string): Promise<string[]> {
   for await (const line of streamEventLines(path)) result.push(line);
   return result;
 }
+async function oneClosedSegment(events: string): Promise<void> {
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+}
 afterEach(async () => { await Promise.all(homes.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 test("cross-process append rotates complete ordered segments without duplicates", async () => {
@@ -63,8 +67,7 @@ test("reader uses gzip fallback and reports missing or conflicting segments", as
 
 test("reader rejects an empty gzip fallback", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   const first = eventSegmentPath(events, 1);
   await rm(first);
   await writeFile(`${first}.gz`, "");
@@ -73,8 +76,7 @@ test("reader rejects an empty gzip fallback", async () => {
 
 test("reader rejects an empty closed plain segment", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   const first = eventSegmentPath(events, 1);
   await writeFile(first, "");
   await rm(`${first}.gz`);
@@ -94,8 +96,7 @@ test("mirror creation rejects a symlinked segment", async () => {
 
 test("reader detects conflicting plain and gzip copies", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   const first = eventSegmentPath(events, 1);
   expect(await lines(events)).toHaveLength(2);
   await writeFile(`${first}.gz`, gzipSync('{"i":999}\n'));
@@ -105,8 +106,7 @@ test("reader detects conflicting plain and gzip copies", async () => {
 
 test("high water mark detects loss of the last closed segment", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   await appendEventBatch(events, Buffer.from('{"i":3}\n'), 12);
   const last = eventSegmentPath(events, 2);
   await rm(last);
@@ -117,8 +117,7 @@ test("high water mark detects loss of the last closed segment", async () => {
 
 test("reader and writer refuse segmented history with a missing index", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   await rm(eventIndexPath(events));
   await expect(lines(events)).rejects.toThrow(/Missing event segment index/);
   await expect(appendEventBatch(events, Buffer.from('{"i":3}\n'), 12)).rejects.toThrow(/Missing event segment index/);
@@ -126,16 +125,14 @@ test("reader and writer refuse segmented history with a missing index", async ()
 
 test("reader rejects an index behind the discovered archive", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   await writeFile(eventIndexPath(events), '{"nextSegment":1}\n');
   await expect(lines(events)).rejects.toThrow(/index trails archive/);
 });
 
 test("writer refuses to recreate a lost live file", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   await rm(events);
   await expect(appendEventBatch(events, Buffer.from('{"i":3}\n'), 12)).rejects.toThrow(/Missing live event log/);
 });
@@ -183,8 +180,7 @@ test("first legacy import refuses a missing live tail", async () => {
 
 test("reader rejects loss of the live file after history was written", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   await rm(events);
   await expect(lines(events)).rejects.toThrow(/Missing live event log/);
 });
@@ -220,8 +216,7 @@ test("legacy archive import preserves bytes and rollback retains history and seq
   await mkdir(archive, { recursive: true });
   await Bun.write(join(archive, "events-until-2026-08-24T18-48-54Z.jsonl"), '{"i":0}\n');
   await writeFile(events, "");
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   expect(await readFile(eventSegmentPath(events, 1), "utf8")).toBe('{"i":0}\n');
   const before = await lines(events);
   await rollbackSomaSnapshot({ somaHome: root, snapshot: snapshot.id });
@@ -234,8 +229,7 @@ test("legacy archive import preserves bytes and rollback retains history and seq
 test("private snapshots track gzip mirrors but not active or plain archives", async () => {
   const { root, events } = await home();
   await createSomaSnapshot({ somaHome: root, name: "baseline" });
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   await createSomaSnapshot({ somaHome: root, name: "with-mirror" });
   const tracked = spawnSync("git", ["ls-files", "memory/STATE"], { cwd: root, encoding: "utf8" }).stdout;
   expect(tracked).toContain("events-000001.jsonl.gz");
@@ -246,14 +240,21 @@ test("private snapshots track gzip mirrors but not active or plain archives", as
 test("snapshot stages a mirror when compression is pending", async () => {
   const { root, events } = await home();
   await createSomaSnapshot({ somaHome: root, name: "baseline" });
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   const first = eventSegmentPath(events, 1);
   await rm(`${first}.gz`);
   await createSomaSnapshot({ somaHome: root, name: "closed" });
   expect(gunzipSync(await readFile(`${first}.gz`)).toString()).toBe('{"i":1}\n');
   const tracked = spawnSync("git", ["ls-files", "memory/STATE"], { cwd: root, encoding: "utf8" }).stdout;
   expect(tracked).toContain("events-000001.jsonl.gz");
+});
+
+test("snapshot rejects an existing mirror that disagrees with plain history", async () => {
+  const { root, events } = await home();
+  await createSomaSnapshot({ somaHome: root, name: "baseline" });
+  await oneClosedSegment(events);
+  await writeFile(`${eventSegmentPath(events, 1)}.gz`, gzipSync('{"i":999}\n'));
+  await expect(createSomaSnapshot({ somaHome: root, name: "corrupt" })).rejects.toThrow(/Conflicting event segment copies/);
 });
 
 test("rollback replaces snapshot archive with the protected live archive", async () => {
@@ -272,8 +273,7 @@ test("rollback replaces snapshot archive with the protected live archive", async
 
 test("reader rejects a torn archived record", async () => {
   const { events } = await home();
-  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await oneClosedSegment(events);
   const first = eventSegmentPath(events, 1);
   await appendFile(first, "bad");
   await expect(lines(events)).rejects.toThrow(/Conflicting event segment copies|Torn event record/);

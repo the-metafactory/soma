@@ -11,7 +11,7 @@ append-only event history:
 ```
 
 Each line is a `SomaMemoryEvent`. Soma rotates the live file before an append
-would take it past 16 MiB. After the updated runtime is installed on every
+would take it past 16 MiB. After the updated Soma writer is installed for every
 substrate, one cross-process lock covers its writers, rotation, and reader
 snapshots. Older installed writers still append without this lock during
 migration; retain daily live snapshots until they are replaced. Closed plain segments are numbered in order and

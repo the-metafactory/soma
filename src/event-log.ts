@@ -207,7 +207,6 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
     const first = eventSegmentPath(eventsPath, 1);
     if (legacy.length === 1 && !entries.some((name) => SEGMENT.test(name))) await rename(join(dir, legacy[0]), first);
     else if (legacy.length > 0 || !entries.includes("events-000001.jsonl")) throw new Error(`Conflicting legacy event import in ${dir}`);
-    await mirrorEventSegment(first);
     if ((await recordedNextSegment(eventsPath)) === undefined) await writeNextSegment(eventsPath, 2);
     await rm(marker);
     return;
@@ -216,7 +215,6 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
   if (legacy.length !== 1 || entries.some((name) => SEGMENT.test(name))) throw new Error(`Conflicting event archives in ${dir}`);
   await writeFile(marker, "importing\n");
   await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
-  await mirrorEventSegment(eventSegmentPath(eventsPath, 1));
   await writeNextSegment(eventsPath, 2);
   await rm(marker);
 }
@@ -240,7 +238,17 @@ export async function mirrorEventSegment(plainPath: string): Promise<void> {
 /** Called while snapshot staging holds the event lock. */
 export async function mirrorMissingEventSegments(eventsPath: string): Promise<void> {
   for (const segment of await segmentNames(eventsPath)) {
-    if (segment.plain && SEGMENT.test(basename(segment.plain)) && !segment.gzip) await mirrorEventSegment(segment.plain);
+    if (!segment.plain || !SEGMENT.test(basename(segment.plain))) continue;
+    if (!segment.gzip) { await mirrorEventSegment(segment.plain); continue; }
+    const plain = await open(segment.plain, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    try {
+      const mirror = await open(segment.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      try {
+        const size = (await plain.stat()).size;
+        if (size === 0 || (await mirror.stat()).size === 0) throw new Error(`Empty closed event segment: ${segment.plain}`);
+        await validateMirror({ path: segment.plain, handle: plain, size, gzip: false, mirror });
+      } finally { await mirror.close(); }
+    } finally { await plain.close(); }
   }
 }
 
