@@ -13,6 +13,7 @@ export const EVENT_SEGMENT_LIMIT = 16 * 1024 * 1024;
 const LOCK_TIMEOUT_MS = 30_000;
 const ARCHIVE = "events-archive";
 const INDEX = "events-index.json";
+const COUNTS_INDEX = "events-counts-index.json";
 const ROTATION_PENDING = ".rotation-pending.json";
 const SEGMENT = /^events-(\d{6})\.jsonl(\.gz)?$/;
 const LEGACY = /^events-until-.*\.jsonl$/;
@@ -52,6 +53,13 @@ export function isTelemetryEventLine(line: string): boolean {
   catch { return false; }
 }
 
+export function parseTelemetryEventLine(line: string): SomaMemoryEvent | undefined {
+  try {
+    const value: unknown = JSON.parse(line);
+    return isTelemetryEvent(value) ? value : undefined;
+  } catch { return undefined; }
+}
+
 function countEventLines(content: string): { totalEvents: number; skippedMalformedLines: number } {
   let totalEvents = 0;
   let skippedMalformedLines = 0;
@@ -70,6 +78,7 @@ async function pairVersion(plainPath: string, gzipPath: string): Promise<string>
 
 export function eventArchiveDir(eventsPath: string): string { return join(dirname(eventsPath), ARCHIVE); }
 export function eventIndexPath(eventsPath: string): string { return join(dirname(eventsPath), INDEX); }
+export function eventCountsIndexPath(eventsPath: string): string { return join(dirname(eventsPath), COUNTS_INDEX); }
 function readerLeasesDir(eventsPath: string): string { return join(dirname(eventsPath), ".events.readers"); }
 export function eventSegmentPath(eventsPath: string, number: number): string {
   return join(eventArchiveDir(eventsPath), `events-${String(number).padStart(6, "0")}.jsonl`);
@@ -560,8 +569,9 @@ async function snapshotSegments(eventsPath: string): Promise<EventSnapshot> {
   try { return await withEventLogLock(eventsPath, () => openSegmentsSnapshot(eventsPath, true)); }
   catch (error) {
     if (!(error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM" || error.code === "EROFS"))) throw error;
-    // A read-only home cannot create the lock. Pin the same files and reject
-    // a concurrent archive mutation rather than returning a mixed generation.
+    // A read-only home cannot create the lock. Pin handles and reject listing
+    // changes during acquisition; in-place archive edits require the closed-
+    // segment immutability contract because they cannot be locked here.
     const before = await segmentListingVersion(eventsPath);
     const opened = await openSegmentsSnapshot(eventsPath, false);
     try {
@@ -620,6 +630,21 @@ async function openReadableSegment(item: OpenSegment): Promise<{ handle: FileHan
   } catch (error) { await close(); throw error; }
 }
 
+async function* streamBoundedSegmentBytes(item: OpenSegment, handle: FileHandle, size: number): AsyncGenerator<Buffer> {
+  let expanded = 0;
+  if (size > 0) {
+    const source = handle.createReadStream({ start: 0, end: size - 1, autoClose: false });
+    const stream = item.gzip ? source.pipe(createGunzip()) : source;
+    for await (const chunk of stream) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      expanded += bytes.length;
+      if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${item.path}`);
+      yield bytes;
+    }
+  }
+  if (item.gzip && expanded === 0) throw new Error(`Empty closed event segment: ${item.path}`);
+}
+
 /** Ordered byte streams; boundaries let the JSONL reader reject torn segments. */
 async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: string; bytes?: Buffer; boundary?: true }> {
   const snapshot = await snapshotSegments(eventsPath);
@@ -629,18 +654,7 @@ async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: st
       try {
         const { handle, size } = opened;
         if (!item.handle && size === 0) throw new Error(`Empty closed event segment: ${item.path}`);
-        let expanded = 0;
-        if (size > 0) {
-          const source = handle.createReadStream({ start: 0, end: size - 1, autoClose: false });
-          const stream = item.gzip ? source.pipe(createGunzip()) : source;
-          for await (const chunk of stream) {
-            const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-            expanded += bytes.length;
-            if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${item.path}`);
-            yield { path: item.path, bytes };
-          }
-        }
-        if (item.gzip && expanded === 0) throw new Error(`Empty closed event segment: ${item.path}`);
+        for await (const bytes of streamBoundedSegmentBytes(item, handle, size)) yield { path: item.path, bytes };
         yield { path: item.path, boundary: true };
       } finally { await opened.close(); }
     }
@@ -707,34 +721,38 @@ async function scanSnapshotSegment<T>(
     let matched = 0;
     let totalEvents = 0;
     let skippedMalformedLines = 0;
-    let expanded = 0;
     const framer = createEventLineFramer();
-    if (size > 0) {
-      const source = handle.createReadStream({ start: 0, end: size - 1, autoClose: false });
-      const stream = item.gzip ? source.pipe(createGunzip()) : source;
-      for await (const chunk of stream) {
-        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        expanded += bytes.length;
-        if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${item.path}`);
-        for (const line of framer.push(bytes)) {
-          if (line.trim().length === 0) continue;
-          const value = parse(line);
-          if (value === undefined) { skippedMalformedLines++; continue; }
-          totalEvents++;
-          if (matches(value)) {
-            recent[matched % limit] = value;
-            matched++;
-          }
+    for await (const bytes of streamBoundedSegmentBytes(item, handle, size)) {
+      for (const line of framer.push(bytes)) {
+        if (line.trim().length === 0) continue;
+        const value = parse(line);
+        if (value === undefined) { skippedMalformedLines++; continue; }
+        totalEvents++;
+        if (matches(value)) {
+          recent[matched % limit] = value;
+          matched++;
         }
       }
     }
     framer.finish(item.path);
-    if (closed && expanded === 0) throw new Error(`Empty closed event segment: ${item.path}`);
     const retained = Math.min(matched, limit);
     const oldest = matched > limit ? matched % limit : 0;
     const events = Array.from({ length: retained }, (_, offset) => recent[(oldest + offset) % limit]).reverse();
     return { events, totalEvents, skippedMalformedLines };
   } finally { await opened.close(); }
+}
+
+async function segmentFileVersion(item: OpenSegment): Promise<string> {
+  const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  let mirror: FileHandle | undefined;
+  try {
+    mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
+    const source = fileVersion(await handle.stat());
+    return mirror ? `${source}:${fileVersion(await mirror.stat())}` : source;
+  } finally {
+    if (!item.mirror && mirror) await mirror.close();
+    if (!item.handle) await handle.close();
+  }
 }
 
 async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: number; skippedMalformedLines: number } | undefined> {
@@ -756,19 +774,80 @@ async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: num
     skippedMalformedLines: counts.skippedMalformedLines,
   };
   if (counts.checksum !== countChecksum(fields)) return undefined;
-  const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  let mirror: FileHandle | undefined;
-  let version: string;
-  try {
-    mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
-    const source = fileVersion(await handle.stat());
-    version = mirror ? `${source}:${fileVersion(await mirror.stat())}` : source;
-  } finally {
-    if (!item.mirror && mirror) await mirror.close();
-    if (!item.handle) await handle.close();
-  }
+  const version = await segmentFileVersion(item);
   if ((item.gzip ? counts.gzipVersion : counts.version) !== version) return undefined;
   return { totalEvents: counts.totalEvents, skippedMalformedLines: counts.skippedMalformedLines };
+}
+
+interface CumulativeEventCounts {
+  segmentCount: number;
+  totalEvents: number;
+  skippedMalformedLines: number;
+  lastName: string;
+  lastVersion: string;
+  checksum: string;
+}
+
+function cumulativeChecksum(fields: Omit<CumulativeEventCounts, "checksum">): string {
+  return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
+}
+
+/** Snapshot maintenance builds one trusted prefix count outside the writer lock. */
+export async function writeCumulativeEventCounts(eventsPath: string): Promise<void> {
+  const names = await checkedSegments(eventsPath);
+  let totalEvents = 0;
+  let skippedMalformedLines = 0;
+  for (const segment of names) {
+    const path = segment.plain ?? segment.gzip;
+    if (!path) throw new Error(`Event segment ${segment.number} has no readable copy`);
+    const item: OpenSegment = { path, gzip: !segment.plain, ...(segment.gzip && segment.plain ? { mirrorPath: segment.gzip } : {}) };
+    const counts = await savedSegmentCounts(item) ??
+      await scanSnapshotSegment(item, true, 1, parseTelemetryEventLine, () => false);
+    totalEvents += counts.totalEvents;
+    skippedMalformedLines += counts.skippedMalformedLines;
+  }
+  const last = names.at(-1);
+  const lastPath = last?.plain ?? last?.gzip;
+  const lastItem: OpenSegment | undefined = lastPath
+    ? { path: lastPath, gzip: !last?.plain, ...(last?.gzip && last.plain ? { mirrorPath: last.gzip } : {}) }
+    : undefined;
+  const fields = {
+    segmentCount: names.length,
+    totalEvents,
+    skippedMalformedLines,
+    lastName: lastPath ? basename(lastPath) : "",
+    lastVersion: lastItem ? await segmentFileVersion(lastItem) : "",
+  };
+  const target = eventCountsIndexPath(eventsPath);
+  const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await createMetadataFile(temporary, `${JSON.stringify({ ...fields, checksum: cumulativeChecksum(fields) })}\n`);
+    await rename(temporary, target);
+  } finally { await rm(temporary, { force: true }); }
+}
+
+async function readCumulativeEventCounts(eventsPath: string, segments: readonly OpenSegment[]): Promise<CumulativeEventCounts | undefined> {
+  const raw = await readFile(eventCountsIndexPath(eventsPath), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+  if (raw === undefined) return undefined;
+  let value: unknown;
+  try { value = JSON.parse(raw); } catch { return undefined; }
+  if (typeof value !== "object" || value === null) return undefined;
+  const index = value as Partial<CumulativeEventCounts>;
+  if (typeof index.segmentCount !== "number" || typeof index.totalEvents !== "number" ||
+      typeof index.skippedMalformedLines !== "number" || typeof index.lastName !== "string" ||
+      typeof index.lastVersion !== "string" || typeof index.checksum !== "string" ||
+      !Number.isSafeInteger(index.segmentCount) || !Number.isSafeInteger(index.totalEvents) ||
+      !Number.isSafeInteger(index.skippedMalformedLines) || index.segmentCount < 1 ||
+      index.totalEvents < 0 || index.skippedMalformedLines < 0 || index.segmentCount > segments.length) return undefined;
+  const fields = {
+    segmentCount: index.segmentCount, totalEvents: index.totalEvents,
+    skippedMalformedLines: index.skippedMalformedLines,
+    lastName: index.lastName, lastVersion: index.lastVersion,
+  };
+  if (index.checksum !== cumulativeChecksum(fields)) return undefined;
+  const last = segments[index.segmentCount - 1];
+  if (basename(last.path) !== index.lastName || (await segmentFileVersion(last)) !== index.lastVersion) return undefined;
+  return { ...fields, checksum: index.checksum };
 }
 
 /** Read only the newest matching records; count older compressed segments from pinned metadata. */
@@ -780,25 +859,31 @@ export async function queryRecentEventRecords<T>(
 ): Promise<{ events: T[]; totalEvents: number; skippedMalformedLines: number }> {
   const snapshot = await snapshotSegments(eventsPath);
   const events: T[] = [];
-  let totalEvents = 0;
-  let skippedMalformedLines = 0;
   try {
+    const closedSegments = snapshot.segments.filter((item) => item.path !== eventsPath);
+    const prefix = await readCumulativeEventCounts(eventsPath, closedSegments);
+    let totalEvents = prefix?.totalEvents ?? 0;
+    let skippedMalformedLines = prefix?.skippedMalformedLines ?? 0;
     for (let index = snapshot.segments.length - 1; index >= 0; index--) {
       const item = snapshot.segments[index];
       const closed = item.path !== eventsPath;
-      const saved = closed ? await savedSegmentCounts(item) : undefined;
-      const scanned = events.length < limit || !saved
+      const inPrefix = closed && prefix !== undefined && index < prefix.segmentCount;
+      if (inPrefix && events.length >= limit) break;
+      const saved = closed && !inPrefix ? await savedSegmentCounts(item) : undefined;
+      const scanned = events.length < limit || (!inPrefix && !saved)
         ? await scanSnapshotSegment(item, closed, limit - events.length || 1, parse, matches)
         : undefined;
       const counts = saved ?? scanned;
-      if (!counts) throw new Error(`Missing event segment counts: ${item.path}`);
+      if (!inPrefix && !counts) throw new Error(`Missing event segment counts: ${item.path}`);
       if (saved && scanned) {
         if (scanned.totalEvents !== saved.totalEvents || scanned.skippedMalformedLines !== saved.skippedMalformedLines) {
           throw new Error(`Stale event segment counts: ${item.path}`);
         }
       }
-      totalEvents += counts.totalEvents;
-      skippedMalformedLines += counts.skippedMalformedLines;
+      if (!inPrefix && counts) {
+        totalEvents += counts.totalEvents;
+        skippedMalformedLines += counts.skippedMalformedLines;
+      }
       if (scanned && events.length < limit) events.push(...scanned.events.slice(0, limit - events.length));
     }
     return { events, totalEvents, skippedMalformedLines };

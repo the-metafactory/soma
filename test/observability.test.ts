@@ -5,6 +5,7 @@ import { expect, test } from "bun:test";
 import {
   appendSomaMemoryEvent,
   bootstrapSomaHome,
+  createSomaSnapshot,
   querySomaTelemetryEvents,
   summarizeSomaTelemetry,
 } from "../src/index";
@@ -96,11 +97,23 @@ test("recent telemetry uses closed-segment counts and keeps exact totals", async
     expect(result.totalEvents).toBe(3);
     expect(result.skippedMalformedLines).toBe(1);
     const oldPath = eventSegmentPath(eventsPath, 1);
-    const altered = JSON.parse(await readFile(`${oldPath}.counts.json`, "utf8")) as { totalEvents: number };
+    const originalCounts = await readFile(`${oldPath}.counts.json`, "utf8");
+    const altered = JSON.parse(originalCounts) as { totalEvents: number };
     altered.totalEvents = 99;
     await writeFile(`${oldPath}.counts.json`, JSON.stringify(altered));
     const recovered = await querySomaTelemetryEvents({ homeDir, limit: 1, substrate: "codex" });
     expect(recovered.totalEvents).toBe(3);
+    await writeFile(`${oldPath}.counts.json`, originalCounts);
+    await createSomaSnapshot({ somaHome, name: "counts" });
+    const cumulative = JSON.parse(await readFile(join(somaHome, "memory/STATE/events-counts-index.json"), "utf8")) as {
+      totalEvents: number; skippedMalformedLines: number;
+    };
+    expect(cumulative.totalEvents).toBe(2);
+    expect(cumulative.skippedMalformedLines).toBe(1);
+    await writeFile(`${oldPath}.counts.json`, JSON.stringify(altered));
+    const indexed = await querySomaTelemetryEvents({ homeDir, limit: 1, substrate: "codex" });
+    expect(indexed.totalEvents).toBe(3);
+    expect(indexed.skippedMalformedLines).toBe(1);
   });
 });
 

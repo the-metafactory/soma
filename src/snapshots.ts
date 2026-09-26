@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { compressEventSegment, eventArchiveDir, eventArchiveVersion, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock } from "./event-log";
+import { compressEventSegment, eventArchiveDir, eventArchiveVersion, eventCountsIndexPath, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock, writeCumulativeEventCounts } from "./event-log";
 import packageJson from "../package.json";
 import { createPaths } from "./paths";
 import type {
@@ -56,6 +56,7 @@ const GENERATED_GITIGNORE_RULES = [
   "memory/INDEX.md",
   "memory/STATE/events.jsonl",
   "memory/STATE/events-index.json",
+  "!memory/STATE/events-counts-index.json",
   "memory/STATE/.events.lock/",
   "memory/STATE/.events.lock.reclaim/",
   "memory/STATE/.events.readers/",
@@ -66,6 +67,7 @@ const GENERATED_GITIGNORE_RULES = [
   "memory/STATE/events-archive/*.validation",
   "memory/STATE/events-archive/*.tmp",
   "memory/STATE/events-index.json.*.tmp",
+  "memory/STATE/events-counts-index.json.*.tmp",
   "!memory/STATE/events-archive/*.jsonl.gz",
   "!memory/STATE/events-archive/*.jsonl.counts.json",
 ] as const;
@@ -267,10 +269,12 @@ async function stageEventArchive(somaHome: string, eventsPath: string): Promise<
         }
         const after = await eventArchiveVersion(eventsPath);
         if (validated && before === after) {
+          await writeCumulativeEventCounts(eventsPath);
           const archivePath = "memory/STATE/events-archive";
           if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
             runGit(somaHome, ["add", "-A", "--", archivePath]);
           }
+          runGit(somaHome, ["add", "--", relative(somaHome, eventCountsIndexPath(eventsPath))]);
           if ((await eventArchiveVersion(eventsPath)) === after) verifiedVersion = after;
         }
       }

@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { isTelemetryEvent, queryRecentEventRecords, streamEventLines } from "./event-log";
+import { parseTelemetryEventLine, queryRecentEventRecords, streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./memory";
 import type {
   AlgorithmPhase,
@@ -29,13 +29,6 @@ function resolveSomaHome(options: Pick<SomaTelemetryQueryOptions, "homeDir" | "s
   return resolve(options.somaHome ?? join(home, ".soma"));
 }
 
-function parseTelemetryLine(line: string): SomaMemoryEvent | undefined {
-  try {
-    const value: unknown = JSON.parse(line);
-    return isTelemetryEvent(value) ? value : undefined;
-  } catch { return undefined; }
-}
-
 async function streamTelemetryEvents(
   somaHome: string,
   onEvent: (event: SomaMemoryEvent) => void,
@@ -51,7 +44,7 @@ async function streamTelemetryEvents(
   for await (const line of streamEventLines(eventPath)) {
     if (line.trim().length === 0) continue;
 
-    const event = parseTelemetryLine(line);
+    const event = parseTelemetryEventLine(line);
     if (event === undefined) {
       skippedMalformedLines += 1;
       continue;
@@ -82,7 +75,7 @@ export async function querySomaTelemetryEvents(options: SomaTelemetryQueryOption
   const somaHome = resolveSomaHome(options);
   const boundedLimit = telemetryLimit(options.limit);
   const eventPath = somaMemoryEventsPath(somaHome);
-  const read = await queryRecentEventRecords(eventPath, boundedLimit, parseTelemetryLine, (event) => matchesTelemetryQuery(event, options));
+  const read = await queryRecentEventRecords(eventPath, boundedLimit, parseTelemetryEventLine, (event) => matchesTelemetryQuery(event, options));
 
   return {
     somaHome,
