@@ -909,6 +909,12 @@ async function readCumulativeEventCounts(eventsPath: string, segments: readonly 
   if (index.checksum !== cumulativeChecksum(fields)) return undefined;
   const last = segments[index.segmentCount - 1];
   if (basename(last.path) !== index.lastName || index.lastVersion !== index.versions.at(-1)) return undefined;
+  // Closed history can be changed in place by an external process without
+  // changing the archive directory or segment index metadata. Filesystem
+  // watch notifications are asynchronous (and can be dropped), so a cached
+  // prefix would silently return stale totals immediately after such an edit.
+  // Verify each saved version before trusting its cumulative counts. Keep the
+  // metadata probes bounded in parallel and never reopen segment content here.
   for (let start = 0; start < index.segmentCount; start += 32) {
     const checked = await Promise.allSettled(segments.slice(start, Math.min(start + 32, index.segmentCount)).map(segmentFileVersion));
     if (checked.some((result, offset) => result.status === "rejected" || result.value !== index.versions?.[start + offset])) return undefined;
