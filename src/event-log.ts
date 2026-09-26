@@ -182,11 +182,12 @@ async function eventRollbackPending(eventsPath: string): Promise<boolean> {
   return pathExists(gate);
 }
 
-/** Establish a rollback reader gate under the writer lock, then drain leases outside it. */
+/** Establish a rollback traffic gate under the writer lock, then drain leases outside it. */
 export async function beginEventRollback(eventsPath: string): Promise<() => Promise<void>> {
   const gate = rollbackGateDir(eventsPath);
   await withEventLogLock(eventsPath, async () => {
     if (await eventRollbackPending(eventsPath)) throw new Error(`Event rollback already pending: ${gate}`);
+    await recoverPendingEventRotation(eventsPath);
     await mkdir(gate);
     try { await createMetadataFile(join(gate, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname() })); }
     catch (error) { await rm(gate, { recursive: true, force: true }); throw error; }
@@ -528,7 +529,18 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
     records.push(record);
     from = i + 1;
   }
-  await withEventLogLock(eventsPath, () => appendRecordsUnderLock(eventsPath, records, limit));
+  for (;;) {
+    try {
+      await withEventLogLock(eventsPath, async () => {
+        if (await eventRollbackPending(eventsPath)) throw new EventRollbackPending();
+        await appendRecordsUnderLock(eventsPath, records, limit);
+      });
+      return;
+    } catch (error) {
+      if (!(error instanceof EventRollbackPending)) throw error;
+      await sleep(25);
+    }
+  }
 }
 
 interface OpenSegment { path: string; handle?: FileHandle; size?: number; gzip: boolean; mirror?: FileHandle; mirrorPath?: string }
@@ -578,7 +590,10 @@ async function openSegmentsSnapshot(eventsPath: string, allowLease: boolean): Pr
 async function snapshotSegments(eventsPath: string): Promise<EventSnapshot> {
   try {
     for (;;) {
-      try { return await withEventLogLock(eventsPath, () => openSegmentsSnapshot(eventsPath, true)); }
+      try { return await withEventLogLock(eventsPath, async () => {
+        if (await eventRollbackPending(eventsPath)) throw new EventRollbackPending();
+        return openSegmentsSnapshot(eventsPath, true);
+      }); }
       catch (error) {
         if (!(error instanceof EventRollbackPending)) throw error;
         await sleep(25);

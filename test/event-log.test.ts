@@ -308,14 +308,17 @@ test("rollback waits for a leased archive reader", async () => {
   }
   expect(await stat(gate).then(() => true).catch(() => false)).toBe(true);
   expect(finished).toBe(false);
-  await appendEventBatch(events, Buffer.from('{"i":66}\n'), 12);
+  let writerFinished = false;
+  const append = appendEventBatch(events, Buffer.from('{"i":66}\n'), 12).then(() => { writerFinished = true; });
   const nextReader = streamEventRecords(events);
   let nextReaderStarted = false;
   const nextRead = nextReader.next().then((value) => { nextReaderStarted = true; return value; });
   await Bun.sleep(50);
   expect(nextReaderStarted).toBe(false);
+  expect(writerFinished).toBe(false);
   await reader.return(undefined);
   await rollback;
+  await append;
   expect((await nextRead).value?.line).toBe('{"i":0}');
   await nextReader.return(undefined);
   expect((await lines(events)).length).toBe(67);
