@@ -15,8 +15,11 @@ would take it past 16 MiB. After the updated runtime is installed on every
 substrate, one cross-process lock covers its writers, rotation, and reader
 snapshots. Older installed writers still append without this lock during
 migration; retain daily live snapshots until they are replaced. Closed plain segments are numbered in order and
-never appended again. An untracked high water mark detects loss of the last
-closed segment. Private Soma-home git stores gzip mirrors; live, index, and
+never appended again. The local high water mark detects loss of the last
+closed segment while the index survives; a missing index with surviving
+segments fails closed. Simultaneous loss of the index and all closed segments
+cannot be inferred from the remaining live file alone. Private Soma-home git
+stores gzip mirrors; live, index, and
 plain files remain gitignored. The pre-2026-08-24 archive becomes segment 1
 without changing its bytes. Readers also accept its old name before import.
 
@@ -24,7 +27,9 @@ without changing its bytes. Readers also accept its old name before import.
 once, pins handles and the live byte bound under the writer lock, then streams
 after releasing it. A missing segment or conflicting plain/gzip copy is an
 error, not a partial success. Gzip is used when a plain segment is absent.
-Daily live snapshots remain in place during the migration.
+Mirror creation after an append can be retried if compression fails; snapshot
+staging completes pending mirrors before committing them. Daily live snapshots
+remain in place during the migration.
 
 V0 does not add a database, daemon, dashboard,
 or Signal dependency. It also does not harvest raw transcripts, prompts, or full

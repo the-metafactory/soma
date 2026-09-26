@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants as fsConstants, createReadStream, createWriteStream } from "node:fs";
+import { constants as fsConstants, createWriteStream } from "node:fs";
 import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -45,14 +45,31 @@ function alive(pid: number): boolean {
   catch (error) { return !(error instanceof Error && "code" in error && error.code === "ESRCH"); }
 }
 
+async function retireDeadGuard(guard: string): Promise<void> {
+  const age = Date.now() - (await stat(guard).then((s) => s.mtimeMs).catch(() => Date.now()));
+  if (age <= LOCK_TIMEOUT_MS) return;
+  const raw = await readFile(join(guard, "owner.json"), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+  if (raw !== undefined) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { return; }
+    if (typeof parsed !== "object" || parsed === null) return;
+    const owner = parsed as { host?: string; pid?: number };
+    if (owner.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return;
+  }
+  const retired = `${guard}.stale-${process.pid}-${crypto.randomUUID()}`;
+  await rename(guard, retired).catch((error: unknown) => { if (!isGone(error)) throw error; });
+  await rm(retired, { recursive: true, force: true });
+}
+
 async function tryReclaimStaleLock(lock: string): Promise<boolean> {
   const guard = `${lock}.reclaim`;
-  const guarded = await mkdir(guard).then(() => true).catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+  const guarded = await mkdir(guard).then(() => true).catch(async (error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") { await retireDeadGuard(guard); return false; }
     throw error;
   });
   if (!guarded) return false;
   try {
+    await writeFile(join(guard, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname() }));
     const age = Date.now() - (await stat(lock).then((s) => s.mtimeMs).catch(() => Date.now()));
     if (age <= LOCK_TIMEOUT_MS) return false;
     const rawOwner = await readFile(join(lock, "owner.json"), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
@@ -223,12 +240,15 @@ export async function mirrorEventSegment(plainPath: string): Promise<void> {
   const existing = await stat(target).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
   if (existing) return;
   const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  const source = await open(plainPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   try {
-    await pipeline(createReadStream(plainPath), createGzip(), createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
+    if (!(await source.stat()).isFile()) throw new Error(`Event segment is not a regular file: ${plainPath}`);
+    await pipeline(source.createReadStream({ autoClose: false }), createGzip(), createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
     await rename(temporary, target);
     await writeFile(validationPath(plainPath), `${await pairVersion(plainPath, target)}\n`);
   }
   catch (error) { await rm(temporary, { force: true }); throw error; }
+  finally { await source.close(); }
 }
 
 /** Called while snapshot staging holds the event lock. */
@@ -294,7 +314,12 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
   });
   // The records are already committed. A failed mirror is retried by the next
   // writer or snapshot; reporting append failure would invite duplicate retries.
-  for (const path of mirrors) await mirrorEventSegment(path).catch(() => undefined);
+  for (const path of mirrors) {
+    try { await mirrorEventSegment(path); }
+    catch (error) {
+      process.emitWarning(`Event mirror pending for ${path}: ${error instanceof Error ? error.message : String(error)}`, "SomaEventMirrorWarning");
+    }
+  }
 }
 
 interface OpenSegment { path: string; handle: FileHandle; size: number; gzip: boolean; mirror?: FileHandle }

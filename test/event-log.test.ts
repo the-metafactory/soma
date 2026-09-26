@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { appendEventBatch, eventArchiveDir, eventIndexPath, eventSegmentPath, streamEventLines, streamEventRecords } from "../src/event-log";
+import { appendEventBatch, eventArchiveDir, eventIndexPath, eventSegmentPath, mirrorEventSegment, streamEventLines, streamEventRecords } from "../src/event-log";
 import { createSomaSnapshot, rollbackSomaSnapshot } from "../src/snapshots";
 
 const homes: string[] = [];
@@ -69,6 +69,17 @@ test("reader rejects an empty gzip fallback", async () => {
   await rm(first);
   await writeFile(`${first}.gz`, "");
   await expect(lines(events)).rejects.toThrow(/Empty gzip event segment/);
+});
+
+test("mirror creation rejects a symlinked segment", async () => {
+  const { root, events } = await home();
+  await mkdir(eventArchiveDir(events), { recursive: true });
+  const outside = join(root, "outside-secret.txt");
+  await writeFile(outside, "secret\n");
+  const segment = eventSegmentPath(events, 1);
+  await symlink(outside, segment);
+  await expect(mirrorEventSegment(segment)).rejects.toThrow();
+  await expect(readFile(`${segment}.gz`)).rejects.toThrow();
 });
 
 test("reader detects conflicting plain and gzip copies", async () => {

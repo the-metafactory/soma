@@ -66,6 +66,13 @@ const GENERATED_GITIGNORE_RULES = [
   "memory/STATE/events-index.json.*.tmp",
   "!memory/STATE/events-archive/*.jsonl.gz",
 ] as const;
+const PROTECTED_EVENT_PATHS = [
+  "memory/STATE/events.jsonl",
+  "memory/STATE/events-index.json",
+  "memory/STATE/events-archive/",
+  "memory/STATE/.events.lock/",
+  "memory/STATE/.events.lock.reclaim/",
+] as const;
 
 interface SnapshotMetadata {
   ignoredPaths: string[];
@@ -308,15 +315,11 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
       if (await pathExists(archive)) { await rename(archive, archiveBackup); archiveMoved = true; }
       runGit(somaHome, ["reset", "--hard", id]);
       const metadata = await readSnapshotMetadata(somaHome);
-      runGit(somaHome, ["clean", "-ffd", "-e", "memory/STATE/events.jsonl", "-e", "memory/STATE/events-index.json", "-e", "memory/STATE/events-archive/", "-e", relative(somaHome, archiveBackup), "-e", "memory/STATE/.events.lock/", "-e", "memory/STATE/.events.lock.reclaim/"]);
+      runGit(somaHome, ["clean", "-ffd", ...PROTECTED_EVENT_PATHS.flatMap((path) => ["-e", path]), "-e", relative(somaHome, archiveBackup)]);
       await removeIgnoredAdditions(somaHome, [
         ...metadata.ignoredPaths,
-        "memory/STATE/events.jsonl",
-        "memory/STATE/events-index.json",
-        "memory/STATE/events-archive/",
+        ...PROTECTED_EVENT_PATHS,
         `${relative(somaHome, archiveBackup)}/`,
-        "memory/STATE/.events.lock/",
-        "memory/STATE/.events.lock.reclaim/",
         "memory/STATE/events-snapshots/",
       ]);
       if (await pathExists(join(backup, "events.jsonl"))) {
