@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -229,6 +229,37 @@ test("reader can inspect a readable home without write permission", async () => 
   await chmod(dirname(events), 0o500);
   try { expect(await lines(events)).toEqual(['{"i":1}']); }
   finally { await chmod(dirname(events), 0o700); }
+});
+
+test("large archive reads use a bounded-handle lease", async () => {
+  const { events } = await home();
+  for (let i = 0; i < 66; i++) await appendEventBatch(events, Buffer.from(`${JSON.stringify({ i })}\n`), 12);
+  const reader = streamEventRecords(events);
+  expect((await reader.next()).value?.line).toBe('{"i":0}');
+  expect((await readdir(join(dirname(events), ".events.readers"))).length).toBe(1);
+  const all = [0];
+  for await (const record of reader) all.push((JSON.parse(record.line) as { i: number }).i);
+  expect(all).toEqual(Array.from({ length: 66 }, (_, i) => i));
+  expect(await readdir(join(dirname(events), ".events.readers"))).toEqual([]);
+});
+
+test("rollback waits for a leased archive reader", async () => {
+  const { root, events } = await home();
+  const target = await createSomaSnapshot({ somaHome: root, name: "before-events" });
+  for (let i = 0; i < 66; i++) await appendEventBatch(events, Buffer.from(`${JSON.stringify({ i })}\n`), 12);
+  const reader = streamEventRecords(events);
+  expect((await reader.next()).value?.line).toBe('{"i":0}');
+  let finished = false;
+  const rollback = rollbackSomaSnapshot({ somaHome: root, snapshot: target.id }).then(() => { finished = true; });
+  const lock = join(dirname(events), ".events.lock");
+  for (let i = 0; i < 100; i++) {
+    if (await stat(lock).then(() => true).catch(() => false)) break;
+    await Bun.sleep(10);
+  }
+  expect(finished).toBe(false);
+  await reader.return(undefined);
+  await rollback;
+  expect((await lines(events)).length).toBe(66);
 });
 
 test("one large batch splits only at record boundaries", async () => {
