@@ -48,16 +48,20 @@ export function isTelemetryEvent(value: unknown): value is SomaMemoryEvent {
   return ["id", "timestamp", "substrate", "kind", "summary"].every((key) => typeof event[key] === "string");
 }
 
-export function isTelemetryEventLine(line: string): boolean {
-  try { return isTelemetryEvent(JSON.parse(line) as unknown); }
-  catch { return false; }
-}
-
 export function parseTelemetryEventLine(line: string): SomaMemoryEvent | undefined {
   try {
     const value: unknown = JSON.parse(line);
     return isTelemetryEvent(value) ? value : undefined;
   } catch { return undefined; }
+}
+
+function classifyEventLine<T>(
+  line: string,
+  parse: (line: string) => T | undefined,
+): { kind: "blank" } | { kind: "malformed" } | { kind: "valid"; value: T } {
+  if (line.trim().length === 0) return { kind: "blank" };
+  const value = parse(line);
+  return value === undefined ? { kind: "malformed" } : { kind: "valid", value };
 }
 
 async function pairVersion(plainPath: string, gzipPath: string): Promise<string> {
@@ -598,9 +602,9 @@ async function digestAndCountEventStream(
     if (bytesRead > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${path}`);
     hash.update(bytes);
     for (const line of framer.push(bytes)) {
-      if (line.trim().length === 0) continue;
-      if (isTelemetryEventLine(line)) totalEvents++;
-      else skippedMalformedLines++;
+      const classified = classifyEventLine(line, parseTelemetryEventLine);
+      if (classified.kind === "valid") totalEvents++;
+      else if (classified.kind === "malformed") skippedMalformedLines++;
     }
   }
   framer.finish(path);
@@ -739,12 +743,12 @@ async function scanSnapshotSegment<T>(
     let totalEvents = 0;
     let skippedMalformedLines = 0;
     for await (const line of streamSegmentLines(item, handle, size)) {
-      if (line.trim().length === 0) continue;
-      const value = parse(line);
-      if (value === undefined) { skippedMalformedLines++; continue; }
+      const classified = classifyEventLine(line, parse);
+      if (classified.kind === "blank") continue;
+      if (classified.kind === "malformed") { skippedMalformedLines++; continue; }
       totalEvents++;
-      if (matches(value)) {
-        recent[matched % limit] = value;
+      if (matches(classified.value)) {
+        recent[matched % limit] = classified.value;
         matched++;
       }
     }
@@ -816,13 +820,16 @@ function cumulativeChecksum(fields: Omit<CumulativeEventCounts, "checksum">): st
 /** Snapshot maintenance builds one trusted prefix count outside the writer lock. */
 export async function writeCumulativeEventCounts(eventsPath: string): Promise<void> {
   const names = await checkedSegments(eventsPath);
-  let totalEvents = 0;
-  let skippedMalformedLines = 0;
-  const versions: string[] = [];
-  for (const segment of names) {
+  const items = names.map((segment): OpenSegment => {
     const path = segment.plain ?? segment.gzip;
     if (!path) throw new Error(`Event segment ${segment.number} has no readable copy`);
-    const item: OpenSegment = { path, gzip: !segment.plain, ...(segment.gzip && segment.plain ? { mirrorPath: segment.gzip } : {}) };
+    return { path, gzip: !segment.plain, ...(segment.gzip && segment.plain ? { mirrorPath: segment.gzip } : {}) };
+  });
+  const prefix = await readCumulativeEventCounts(eventsPath, items);
+  let totalEvents = prefix?.totalEvents ?? 0;
+  let skippedMalformedLines = prefix?.skippedMalformedLines ?? 0;
+  const versions = prefix?.versions.slice() ?? [];
+  for (const item of items.slice(prefix?.segmentCount ?? 0)) {
     let counts = await savedSegmentCounts(item);
     if (!counts) {
       const before = await segmentFileVersion(item);
@@ -871,15 +878,11 @@ async function readCumulativeEventCounts(eventsPath: string, segments: readonly 
     versions: index.versions, listingVersion: index.listingVersion,
   };
   if (index.checksum !== cumulativeChecksum(fields)) return undefined;
-  const listingChanged = (await segmentListingVersion(eventsPath)) !== index.listingVersion;
-  if (listingChanged && segments.length <= index.segmentCount) return undefined;
   const last = segments[index.segmentCount - 1];
-  if (basename(last.path) !== index.lastName || (await segmentFileVersion(last)) !== index.lastVersion) return undefined;
-  if (listingChanged) {
-    for (let start = 0; start < index.segmentCount; start += 32) {
-      const checked = await Promise.allSettled(segments.slice(start, Math.min(start + 32, index.segmentCount)).map(segmentFileVersion));
-      if (checked.some((result, offset) => result.status === "rejected" || result.value !== index.versions?.[start + offset])) return undefined;
-    }
+  if (basename(last.path) !== index.lastName || index.lastVersion !== index.versions.at(-1)) return undefined;
+  for (let start = 0; start < index.segmentCount; start += 32) {
+    const checked = await Promise.allSettled(segments.slice(start, Math.min(start + 32, index.segmentCount)).map(segmentFileVersion));
+    if (checked.some((result, offset) => result.status === "rejected" || result.value !== index.versions?.[start + offset])) return undefined;
   }
   return { ...fields, checksum: index.checksum };
 }

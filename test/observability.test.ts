@@ -115,6 +115,8 @@ test("recent telemetry uses closed-segment counts and keeps exact totals", async
     const indexed = await querySomaTelemetryEvents({ homeDir, limit: 1, substrate: "codex" });
     expect(indexed.totalEvents).toBe(3);
     expect(indexed.skippedMalformedLines).toBe(1);
+    await writeFile(`${oldPath}.gz`, gzipSync(`${record("different")}\n`));
+    await expect(querySomaTelemetryEvents({ homeDir, limit: 1 })).rejects.toThrow(/Conflicting event segment copies/);
     await writeFile(`${oldPath}.gz.replacement`, gzipSync(`${record("different")}\n`));
     await rename(`${oldPath}.gz.replacement`, `${oldPath}.gz`);
     await expect(querySomaTelemetryEvents({ homeDir, limit: 1 })).rejects.toThrow(/Conflicting event segment copies/);
