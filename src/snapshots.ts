@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { compressEventSegment, eventArchiveDir, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock } from "./event-log";
+import { compressEventSegment, eventArchiveDir, eventArchiveVersion, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock } from "./event-log";
 import packageJson from "../package.json";
 import { createPaths } from "./paths";
 import type {
@@ -264,11 +264,25 @@ export async function createSomaSnapshot(options: SomaSnapshotOptions = {}): Pro
       await recoverPendingEventRotation(eventsPath);
       return prepareEventCompression(eventsPath);
     });
-    try { for (const path of prepared.paths) await compressEventSegment(path); }
+    let verifiedVersion: string | undefined;
+    try {
+      for (const path of prepared.paths) await compressEventSegment(path);
+      if ((await pendingCompressedEventSegments(eventsPath)).length === 0) {
+        const before = await eventArchiveVersion(eventsPath);
+        let validated = false;
+        try { await ensureCompressedEventSegments(eventsPath, false); validated = true; }
+        catch (error) {
+          if ((await pendingCompressedEventSegments(eventsPath)).length === 0) throw error;
+        }
+        const after = await eventArchiveVersion(eventsPath);
+        if (validated && before === after) verifiedVersion = after;
+      }
+    }
     finally { await prepared.release(); }
+    if (verifiedVersion === undefined) continue;
     stagedEvents = await withEventLogLock(eventsPath, async () => {
       if ((await pendingCompressedEventSegments(eventsPath)).length > 0) return false;
-      await ensureCompressedEventSegments(eventsPath, false);
+      if ((await eventArchiveVersion(eventsPath)) !== verifiedVersion) return false;
       const archivePath = "memory/STATE/events-archive";
       if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
         runGit(somaHome, ["add", "-A", "--", archivePath]);

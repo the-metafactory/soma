@@ -28,6 +28,18 @@ function fileVersion(file: { dev: number; ino: number; size: number; mtimeMs: nu
 function validationPath(plainPath: string): string { return `${plainPath}.validation` }
 function countPath(plainPath: string): string { return `${plainPath}.counts.json`; }
 
+interface SegmentCounts {
+  version: string;
+  gzipVersion: string;
+  totalEvents: number;
+  skippedMalformedLines: number;
+  checksum: string;
+}
+
+function countChecksum(counts: Omit<SegmentCounts, "checksum">): string {
+  return createHash("sha256").update(JSON.stringify(counts)).digest("hex");
+}
+
 export function isTelemetryEventLine(line: string): boolean {
   try {
     const value: unknown = JSON.parse(line);
@@ -359,7 +371,8 @@ export async function compressEventSegment(plainPath: string): Promise<void> {
     const countsTarget = countPath(plainPath);
     const countsTemporary = `${countsTarget}.${process.pid}.${crypto.randomUUID()}.tmp`;
     try {
-      await createMetadataFile(countsTemporary, `${JSON.stringify({ version: await pairVersion(plainPath, target), ...counts })}\n`);
+      const fields = { version: await pairVersion(plainPath, target), gzipVersion: fileVersion(await stat(target)), ...counts };
+      await createMetadataFile(countsTemporary, `${JSON.stringify({ ...fields, checksum: countChecksum(fields) })}\n`);
       await rename(countsTemporary, countsTarget);
     } finally { await rm(countsTemporary, { force: true }); }
   }
@@ -372,10 +385,21 @@ export async function pendingCompressedEventSegments(eventsPath: string): Promis
   return (await checkedSegments(eventsPath)).flatMap((segment) => segment.plain && !segment.gzip ? [segment.plain] : []);
 }
 
+/** Fingerprint the archive generation before and after out-of-lock validation. */
+export async function eventArchiveVersion(eventsPath: string): Promise<string> {
+  const segments = await checkedSegments(eventsPath);
+  const paths = [eventIndexPath(eventsPath), ...segments.flatMap((segment) => [segment.plain, segment.gzip].filter((path): path is string => path !== undefined))];
+  const versions = await Promise.all(paths.map(async (path) => {
+    const value = await stat(path).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+    return [path, value ? fileVersion(value) : "missing"];
+  }));
+  return JSON.stringify(versions);
+}
+
 export async function prepareEventCompression(eventsPath: string): Promise<{ paths: string[]; release: () => Promise<void> }> {
   const paths = await pendingCompressedEventSegments(eventsPath);
-  const lease = paths.length > 0 ? await createReaderLease(eventsPath) : undefined;
-  return { paths, release: async () => { if (lease) await rm(lease, { recursive: true, force: true }); } };
+  const lease = await createReaderLease(eventsPath);
+  return { paths, release: async () => { await rm(lease, { recursive: true, force: true }); } };
 }
 
 export async function ensureCompressedEventSegments(eventsPath: string, createMissing = true): Promise<void> {
@@ -568,18 +592,30 @@ async function validateMirror(item: OpenSegment & { handle: FileHandle; size: nu
   }
 }
 
+async function openReadableSegment(item: OpenSegment): Promise<{ handle: FileHandle; size: number; close: () => Promise<void> }> {
+  const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  let mirror: FileHandle | undefined;
+  const close = async (): Promise<void> => {
+    if (!item.mirror && mirror) await mirror.close();
+    if (!item.handle) await handle.close();
+  };
+  try {
+    mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
+    const size = item.size ?? (await handle.stat()).size;
+    await validateMirror({ ...item, handle, size, ...(mirror ? { mirror } : {}) });
+    return { handle, size, close };
+  } catch (error) { await close(); throw error; }
+}
+
 /** Ordered byte streams; boundaries let the JSONL reader reject torn segments. */
 async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: string; bytes?: Buffer; boundary?: true }> {
   const snapshot = await snapshotSegments(eventsPath);
   try {
     for (const item of snapshot.segments) {
-      const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-      let mirror: FileHandle | undefined;
+      const opened = await openReadableSegment(item);
       try {
-        mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
-        const size = item.size ?? (await handle.stat()).size;
+        const { handle, size } = opened;
         if (!item.handle && size === 0) throw new Error(`Empty closed event segment: ${item.path}`);
-        await validateMirror({ ...item, handle, size, ...(mirror ? { mirror } : {}) });
         let expanded = 0;
         if (size > 0) {
           const source = handle.createReadStream({ start: 0, end: size - 1, autoClose: false });
@@ -593,10 +629,7 @@ async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: st
         }
         if (item.gzip && expanded === 0) throw new Error(`Empty closed event segment: ${item.path}`);
         yield { path: item.path, boundary: true };
-      } finally {
-        if (!item.mirror && mirror) await mirror.close();
-        if (!item.handle) await handle.close();
-      }
+      } finally { await opened.close(); }
     }
   } finally { await closeEventSnapshot(snapshot); }
 }
@@ -644,13 +677,10 @@ async function pinnedBytes(handle: FileHandle, size: number): Promise<Buffer> {
 }
 
 async function readSnapshotSegment(item: OpenSegment, closed: boolean): Promise<string[]> {
-  const handle = item.handle ?? await open(item.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  let mirror: FileHandle | undefined;
+  const opened = await openReadableSegment(item);
   try {
-    mirror = item.mirror ?? (item.mirrorPath ? await open(item.mirrorPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW) : undefined);
-    const size = item.size ?? (await handle.stat()).size;
+    const { handle, size } = opened;
     if (closed && size === 0) throw new Error(`Empty closed event segment: ${item.path}`);
-    await validateMirror({ ...item, handle, size, ...(mirror ? { mirror } : {}) });
     const bytes = await pinnedBytes(handle, size);
     const expanded = item.gzip ? gunzipSync(bytes, { maxOutputLength: MAX_EXPANDED_ARCHIVE_BYTES }) : bytes;
     if (closed && expanded.length === 0) throw new Error(`Empty closed event segment: ${item.path}`);
@@ -658,10 +688,7 @@ async function readSnapshotSegment(item: OpenSegment, closed: boolean): Promise<
     const lines = expanded.toString("utf8").split("\n");
     lines.pop();
     return lines.map((line) => line.replace(/\r$/, ""));
-  } finally {
-    if (!item.mirror && mirror) await mirror.close();
-    if (!item.handle) await handle.close();
-  }
+  } finally { await opened.close(); }
 }
 
 async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: number; skippedMalformedLines: number } | undefined> {
@@ -671,13 +698,22 @@ async function savedSegmentCounts(item: OpenSegment): Promise<{ totalEvents: num
   let value: unknown;
   try { value = JSON.parse(raw); } catch { return undefined; }
   if (typeof value !== "object" || value === null) return undefined;
-  const counts = value as { version?: unknown; totalEvents?: unknown; skippedMalformedLines?: unknown };
-  if (!Number.isSafeInteger(counts.totalEvents) || !Number.isSafeInteger(counts.skippedMalformedLines) ||
-      (counts.totalEvents as number) < 0 || (counts.skippedMalformedLines as number) < 0) return undefined;
+  const counts = value as Partial<SegmentCounts>;
+  if (typeof counts.version !== "string" || typeof counts.gzipVersion !== "string" || typeof counts.checksum !== "string" ||
+      typeof counts.totalEvents !== "number" || typeof counts.skippedMalformedLines !== "number" ||
+      !Number.isSafeInteger(counts.totalEvents) || !Number.isSafeInteger(counts.skippedMalformedLines) ||
+      counts.totalEvents < 0 || counts.skippedMalformedLines < 0) return undefined;
+  const fields = {
+    version: counts.version,
+    gzipVersion: counts.gzipVersion,
+    totalEvents: counts.totalEvents,
+    skippedMalformedLines: counts.skippedMalformedLines,
+  };
+  if (counts.checksum !== countChecksum(fields)) return undefined;
   const version = item.gzip ? fileVersion(await stat(item.path)) :
     item.mirror || item.mirrorPath ? await pairVersion(item.path, item.mirrorPath ?? `${item.path}.gz`) : fileVersion(await stat(item.path));
-  if (counts.version !== version) return undefined;
-  return { totalEvents: counts.totalEvents as number, skippedMalformedLines: counts.skippedMalformedLines as number };
+  if ((item.gzip ? counts.gzipVersion : counts.version) !== version) return undefined;
+  return { totalEvents: counts.totalEvents, skippedMalformedLines: counts.skippedMalformedLines };
 }
 
 /** Read only the newest matching records; count older compressed segments from pinned metadata. */
