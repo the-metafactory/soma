@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { appendEventBatch, eventArchiveDir, eventIndexPath, eventSegmentPath, compressEventSegment, streamEventLines, streamEventRecords } from "../src/event-log";
+import { appendEventBatch, ensureCompressedEventSegments, eventArchiveDir, eventIndexPath, eventSegmentPath, compressEventSegment, streamEventLines, streamEventRecords, withEventLogLock } from "../src/event-log";
 import { createSomaSnapshot, rollbackSomaSnapshot } from "../src/snapshots";
 
 const homes: string[] = [];
@@ -21,6 +21,7 @@ async function lines(path: string): Promise<string[]> {
 async function oneClosedSegment(events: string): Promise<void> {
   await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
   await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await withEventLogLock(events, () => ensureCompressedEventSegments(events));
 }
 afterEach(async () => { await Promise.all(homes.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
@@ -33,6 +34,7 @@ test("cross-process append rotates complete ordered segments without duplicates"
   ], { stdout: "pipe", stderr: "pipe" }));
   const exits = await Promise.all(processes.map((proc) => proc.exited));
   expect(exits).toEqual([0, 0, 0, 0]);
+  await withEventLogLock(events, () => ensureCompressedEventSegments(events));
   const all = (await lines(events)).map((line) => JSON.parse(line) as { worker: number; i: number });
   expect(all).toHaveLength(80);
   expect(new Set(all.map((event) => `${event.worker}:${event.i}`)).size).toBe(80);
@@ -50,6 +52,7 @@ test("cross-process append rotates complete ordered segments without duplicates"
 test("reader uses gzip fallback and reports missing or conflicting segments", async () => {
   const { events } = await home();
   for (let i = 0; i < 12; i++) await appendEventBatch(events, Buffer.from(`${JSON.stringify({ i })}\n`), 30);
+  await withEventLogLock(events, () => ensureCompressedEventSegments(events));
   const expected = await lines(events);
   const first = eventSegmentPath(events, 1);
   await rm(first);
@@ -118,6 +121,7 @@ test("high water mark detects loss of the last closed segment", async () => {
   const { events } = await home();
   await oneClosedSegment(events);
   await appendEventBatch(events, Buffer.from('{"i":3}\n'), 12);
+  await withEventLogLock(events, () => ensureCompressedEventSegments(events));
   const last = eventSegmentPath(events, 2);
   await rm(last);
   await rm(`${last}.gz`);
@@ -177,14 +181,14 @@ test("writer recovers rotation after the live file was renamed", async () => {
   expect(JSON.parse(await readFile(eventIndexPath(events), "utf8")).nextSegment).toBe(2);
 });
 
-test("mirror failure does not report an already committed append as failed", async () => {
+test("append commits records before gzip maintenance", async () => {
   const { events } = await home();
   await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
-  await mkdir(eventArchiveDir(events), { recursive: true });
-  await mkdir(`${eventSegmentPath(events, 1)}.validation`);
   await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
-  await rm(`${eventSegmentPath(events, 1)}.validation`, { recursive: true });
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([1, 2]);
+  await expect(readFile(`${eventSegmentPath(events, 1)}.gz`)).rejects.toThrow();
+  await withEventLogLock(events, () => ensureCompressedEventSegments(events));
+  expect(gunzipSync(await readFile(`${eventSegmentPath(events, 1)}.gz`)).toString()).toBe('{"i":1}\n');
 });
 
 test("first legacy import refuses a missing live tail", async () => {
@@ -219,9 +223,18 @@ test("reader snapshot sees a rotating live file exactly once", async () => {
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([1, 2]);
 });
 
+test("reader can inspect a readable home without write permission", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'));
+  await chmod(dirname(events), 0o500);
+  try { expect(await lines(events)).toEqual(['{"i":1}']); }
+  finally { await chmod(dirname(events), 0o700); }
+});
+
 test("one large batch splits only at record boundaries", async () => {
   const { events } = await home();
   await appendEventBatch(events, Buffer.from('{"i":1}\n{"i":2}\n{"i":3}\n'), 8);
+  await withEventLogLock(events, () => ensureCompressedEventSegments(events));
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([1, 2, 3]);
   expect(await readFile(`${eventSegmentPath(events, 1)}.gz`)).toBeTruthy();
   expect(await readFile(`${eventSegmentPath(events, 2)}.gz`)).toBeTruthy();
@@ -307,7 +320,7 @@ test("snapshot refuses a missing final segment despite a surviving index", async
   for (let i = 1; i <= 3; i++) await appendEventBatch(events, Buffer.from(`${JSON.stringify({ i })}\n`), 12);
   const last = eventSegmentPath(events, 2);
   await rm(last);
-  await rm(`${last}.gz`);
+  await rm(`${last}.gz`, { force: true });
   await expect(createSomaSnapshot({ somaHome: root, name: "incomplete" })).rejects.toThrow(/Missing event segment 2/);
 });
 

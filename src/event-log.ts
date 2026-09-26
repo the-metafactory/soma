@@ -194,7 +194,7 @@ export async function recoverPendingEventRotation(eventsPath: string): Promise<v
   await rm(marker);
 }
 
-async function rotateLiveEventLog(eventsPath: string, number: number): Promise<string> {
+async function rotateLiveEventLog(eventsPath: string, number: number): Promise<void> {
   const closed = eventSegmentPath(eventsPath, number);
   await mkdir(eventArchiveDir(eventsPath), { recursive: true });
   const marker = join(dirname(eventsPath), ROTATION_PENDING);
@@ -203,7 +203,6 @@ async function rotateLiveEventLog(eventsPath: string, number: number): Promise<s
   await writeNextSegment(eventsPath, number + 1);
   await writeFile(eventsPath, "", { flag: "wx", mode: 0o600 });
   await rm(marker);
-  return closed;
 }
 
 async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
@@ -329,11 +328,10 @@ export async function ensureCompressedEventSegments(eventsPath: string): Promise
   }
 }
 
-async function appendRecordsUnderLock(eventsPath: string, records: readonly Buffer[], limit: number): Promise<{ backlog: string[]; closedSegments: string[] }> {
+async function appendRecordsUnderLock(eventsPath: string, records: readonly Buffer[], limit: number): Promise<void> {
     await recoverPendingEventRotation(eventsPath);
     await importLegacyEventArchive(eventsPath);
     const segments = await checkedSegments(eventsPath);
-    const backlog = segments.flatMap((segment) => segment.plain && !segment.gzip ? [segment.plain] : []);
     const recorded = await recordedNextSegment(eventsPath);
     if (segments.length > 0 || recorded !== undefined) {
       await stat(eventsPath).catch((error: unknown) => {
@@ -342,6 +340,10 @@ async function appendRecordsUnderLock(eventsPath: string, records: readonly Buff
       });
     }
     let nextNumber = segments.length + 1;
+    if (recorded === undefined && segments.length === 0) {
+      const liveExists = await stat(eventsPath).then(() => true).catch((error: unknown) => { if (isGone(error)) return false; throw error; });
+      if (!liveExists) await createMetadataFile(eventsPath, "");
+    }
     if (recorded !== nextNumber) await writeNextSegment(eventsPath, nextNumber);
     let currentSize = await stat(eventsPath).then((s) => s.size).catch((error: unknown) => { if (isGone(error)) return 0; throw error; });
     if (currentSize > 0) {
@@ -353,7 +355,6 @@ async function appendRecordsUnderLock(eventsPath: string, records: readonly Buff
       } finally { await existing.close(); }
     }
     let pending: Buffer[] = [];
-    const closedSegments: string[] = [];
     const flush = async (): Promise<void> => {
       if (pending.length === 0) return;
       const writer = await open(eventsPath, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
@@ -364,14 +365,13 @@ async function appendRecordsUnderLock(eventsPath: string, records: readonly Buff
     for (const record of records) {
       if (currentSize > 0 && currentSize + record.length > limit) {
         await flush();
-        closedSegments.push(await rotateLiveEventLog(eventsPath, nextNumber++));
+        await rotateLiveEventLog(eventsPath, nextNumber++);
         currentSize = 0;
       }
       pending.push(record);
       currentSize += record.length;
     }
     await flush();
-    return { backlog, closedSegments };
 }
 
 export async function appendEventBatch(eventsPath: string, payload: Buffer, limit = EVENT_SEGMENT_LIMIT): Promise<void> {
@@ -386,18 +386,7 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
     records.push(record);
     from = i + 1;
   }
-  const mirrors = await withEventLogLock(eventsPath, () => appendRecordsUnderLock(eventsPath, records, limit));
-  // The records are already committed. A failed mirror is retried by the next
-  // writer or snapshot; reporting append failure would invite duplicate retries.
-  const pendingCompression = [...mirrors.closedSegments, ...mirrors.backlog.slice(0, 1)];
-  for (let offset = 0; offset < pendingCompression.length; offset += 2) {
-    await Promise.all(pendingCompression.slice(offset, offset + 2).map(async (path) => {
-    try { await compressEventSegment(path); }
-    catch (error) {
-      process.emitWarning(`Event mirror pending for ${path}: ${error instanceof Error ? error.message : String(error)}`, "SomaEventMirrorWarning");
-    }
-    }));
-  }
+  await withEventLogLock(eventsPath, () => appendRecordsUnderLock(eventsPath, records, limit));
 }
 
 interface OpenSegment { path: string; handle: FileHandle; size: number; gzip: boolean; mirror?: FileHandle }
@@ -407,9 +396,7 @@ async function closeSegments(segments: readonly OpenSegment[]): Promise<void> {
   await Promise.all(handles.map((handle) => handle.close().catch(() => undefined)));
 }
 
-/** Pin archive handles and the live byte bound under the writer lock. */
-async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
-  return withEventLogLock(eventsPath, async () => {
+async function openSegmentsSnapshot(eventsPath: string): Promise<OpenSegment[]> {
     const names = await checkedSegments(eventsPath);
     const opened: OpenSegment[] = [];
     try {
@@ -432,7 +419,22 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
       if (live) opened.push({ path: eventsPath, handle: live, size: (await live.stat()).size, gzip: false });
       return opened;
     } catch (error) { await closeSegments(opened); throw error; }
-  });
+}
+
+/** Pin archive handles and the live byte bound under the writer lock. */
+async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
+  try { return await withEventLogLock(eventsPath, () => openSegmentsSnapshot(eventsPath)); }
+  catch (error) {
+    if (!(error instanceof Error && "code" in error && (error.code === "EACCES" || error.code === "EPERM" || error.code === "EROFS"))) throw error;
+    // A read-only home cannot create the lock. Pin the same files and reject
+    // a concurrent archive mutation rather than returning a mixed generation.
+    const before = await segmentListingVersion(eventsPath);
+    const opened = await openSegmentsSnapshot(eventsPath);
+    try {
+      if ((await segmentListingVersion(eventsPath)) !== before) throw new Error(`Event archive changed during read-only snapshot: ${eventsPath}`, { cause: error });
+      return opened;
+    } catch (snapshotError) { await closeSegments(opened); throw snapshotError; }
+  }
 }
 
 async function digestStream(stream: AsyncIterable<Buffer | string>): Promise<string> {

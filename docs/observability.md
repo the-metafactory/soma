@@ -27,8 +27,8 @@ without changing its bytes. Readers also accept its old name before import.
 once, pins handles and the live byte bound under the writer lock, then streams
 after releasing it. A missing segment or conflicting plain/gzip copy is an
 error, not a partial success. Gzip is used when a plain segment is absent.
-Compression after an append can be retried if it fails; snapshot
-staging completes pending gzip copies before committing them. Daily live snapshots
+An append commits plain closed segments without waiting for compression. Snapshot
+staging creates and verifies gzip copies before committing them. Daily live snapshots
 remain in place during the migration.
 
 V0 does not add a database, daemon, dashboard,
