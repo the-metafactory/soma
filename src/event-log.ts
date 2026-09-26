@@ -211,11 +211,16 @@ export async function waitForEventReaders(eventsPath: string): Promise<void> {
 }
 
 interface SegmentNames { number: number; plain?: string; gzip?: string }
-function legacyCopies(entries: readonly string[]): { plain: string[]; gzip: string[] } {
-  return {
+function legacyCopies(entries: readonly string[], dir: string): { plain: string[]; gzip: string[] } {
+  const copies = {
     plain: entries.filter((name) => LEGACY.test(name)),
     gzip: entries.filter((name) => name.endsWith(".gz") && LEGACY.test(name.slice(0, -3))),
   };
+  if (copies.plain.length > 1 || copies.gzip.length > 1 ||
+      (copies.plain.length === 1 && copies.gzip.length === 1 && copies.gzip[0] !== `${copies.plain[0]}.gz`)) {
+    throw new Error(`Conflicting legacy event archives in ${dir}`);
+  }
+  return copies;
 }
 const segmentListingCache = new Map<string, { version: string; segments: SegmentNames[] }>();
 
@@ -232,11 +237,7 @@ async function segmentNames(eventsPath: string): Promise<SegmentNames[]> {
   const dir = eventArchiveDir(eventsPath);
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
   const found = new Map<number, SegmentNames>();
-  const { plain: legacy, gzip: legacyGzip } = legacyCopies(entries);
-  if (legacy.length > 1) throw new Error(`Conflicting legacy event archives in ${dir}`);
-  if (legacyGzip.length > 1 || (legacy.length === 1 && legacyGzip.length === 1 && legacyGzip[0] !== `${legacy[0]}.gz`)) {
-    throw new Error(`Conflicting legacy gzip archives in ${dir}`);
-  }
+  const { plain: legacy, gzip: legacyGzip } = legacyCopies(entries, dir);
   for (const name of entries) {
     const match = SEGMENT.exec(name);
     if (!match) continue;
@@ -347,7 +348,7 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
   const markerExists = await pathExists(marker);
   if (!markerExists && (await recordedNextSegment(eventsPath)) !== undefined) return;
   const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
-  const { plain: legacy, gzip: legacyCompressed } = legacyCopies(entries);
+  const { plain: legacy, gzip: legacyCompressed } = legacyCopies(entries, dir);
   const moveCompressed = async (legacyName: string): Promise<void> => {
     const source = join(dir, `${legacyName}.gz`);
     if (legacyCompressed.includes(`${legacyName}.gz`)) {
@@ -364,13 +365,12 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
     }
   };
   if (entries.includes(".legacy-importing")) {
-    if (legacy.length > 1 || legacyCompressed.length > 1 || (legacy.length === 1 && entries.includes("events-000001.jsonl"))) {
+    if (legacy.length === 1 && entries.includes("events-000001.jsonl")) {
       throw new Error(`Conflicting legacy event import in ${dir}`);
     }
   } else {
     if (legacy.length === 0 && legacyCompressed.length === 0) return;
-    if (legacy.length > 1 || legacyCompressed.length > 1 || entries.some((name) => SEGMENT.test(name)) ||
-        (legacy.length === 1 && legacyCompressed.length === 1 && legacyCompressed[0] !== `${legacy[0]}.gz`)) {
+    if (entries.some((name) => SEGMENT.test(name))) {
       throw new Error(`Conflicting event archives in ${dir}`);
     }
     await createMetadataFile(marker, "importing\n");
