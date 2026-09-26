@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, createReadStream, createWriteStream } from "node:fs";
 import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
-import { createGunzip, gunzipSync, gzipSync } from "node:zlib";
+import { createGunzip, createGzip } from "node:zlib";
 
 export const EVENT_SEGMENT_LIMIT = 16 * 1024 * 1024;
 const LOCK_TIMEOUT_MS = 30_000;
@@ -13,6 +14,7 @@ const ARCHIVE = "events-archive";
 const INDEX = "events-index.json";
 const SEGMENT = /^events-(\d{6})\.jsonl(\.gz)?$/;
 const LEGACY = /^events-until-.*\.jsonl$/;
+const MAX_EXPANDED_ARCHIVE_BYTES = 256 * 1024 * 1024;
 
 export function eventArchiveDir(eventsPath: string): string { return join(dirname(eventsPath), ARCHIVE); }
 export function eventIndexPath(eventsPath: string): string { return join(dirname(eventsPath), INDEX); }
@@ -75,7 +77,7 @@ interface SegmentNames { number: number; plain?: string; gzip?: string }
 
 async function segmentNames(eventsPath: string): Promise<SegmentNames[]> {
   const dir = eventArchiveDir(eventsPath);
-  const entries = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
+  const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
   const found = new Map<number, SegmentNames>();
   const legacy = entries.filter((name) => LEGACY.test(name));
   if (legacy.length > 1) throw new Error(`Conflicting legacy event archives in ${dir}`);
@@ -131,25 +133,39 @@ async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
 }
 
 /** Import the historical archive byte for byte when the first writer arrives. */
-export async function importLegacyEventArchive(eventsPath: string): Promise<void> {
+export async function importLegacyEventArchive(eventsPath: string): Promise<boolean> {
   const dir = eventArchiveDir(eventsPath);
-  const entries = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
+  const marker = join(dir, ".legacy-importing");
+  const entries: string[] = await readdir(dir).catch((error: unknown) => { if (isGone(error)) return []; throw error; });
   const legacy = entries.filter((name) => LEGACY.test(name));
-  if (legacy.length === 0) return;
+  if (entries.includes(".legacy-importing")) {
+    const first = eventSegmentPath(eventsPath, 1);
+    if (legacy.length === 1 && !entries.some((name) => SEGMENT.test(name))) await rename(join(dir, legacy[0]), first);
+    else if (legacy.length > 0 || !entries.includes("events-000001.jsonl")) throw new Error(`Conflicting legacy event import in ${dir}`);
+    await mirrorEventSegment(first);
+    if ((await recordedNextSegment(eventsPath)) === undefined) await writeNextSegment(eventsPath, 2);
+    await rm(marker);
+    return false;
+  }
+  if (legacy.length === 0) return false;
   if (legacy.length !== 1 || entries.some((name) => SEGMENT.test(name))) throw new Error(`Conflicting event archives in ${dir}`);
+  await writeFile(marker, "importing\n");
   await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
   await mirrorEventSegment(eventSegmentPath(eventsPath, 1));
   await writeNextSegment(eventsPath, 2);
+  await rm(marker);
+  return true;
 }
 
 export async function mirrorEventSegment(plainPath: string): Promise<void> {
   const target = `${plainPath}.gz`;
   const existing = await stat(target).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
   if (existing) return;
-  const bytes = await readFile(plainPath);
   const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await writeFile(temporary, gzipSync(bytes));
-  try { await rename(temporary, target); }
+  try {
+    await pipeline(createReadStream(plainPath), createGzip(), createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
+    await rename(temporary, target);
+  }
   catch (error) { await rm(temporary, { force: true }); throw error; }
 }
 
@@ -165,12 +181,18 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
     records.push(record);
     from = i + 1;
   }
-  await withEventLogLock(eventsPath, async () => {
-    await importLegacyEventArchive(eventsPath);
+  const mirrors = await withEventLogLock(eventsPath, async () => {
+    const importedLegacy = await importLegacyEventArchive(eventsPath);
     const segments = await checkedSegments(eventsPath);
+    const pendingMirrors = segments.flatMap((segment) => segment.plain && !segment.gzip ? [segment.plain] : []);
+    if (segments.length > 0 && !importedLegacy) {
+      await stat(eventsPath).catch((error: unknown) => {
+        if (isGone(error)) throw new Error(`Missing live event log: ${eventsPath}`);
+        throw error;
+      });
+    }
     let nextNumber = segments.length + 1;
     if ((await recordedNextSegment(eventsPath)) !== nextNumber) await writeNextSegment(eventsPath, nextNumber);
-    for (const segment of segments) if (segment.plain && !segment.gzip) await mirrorEventSegment(segment.plain);
     let currentSize = await stat(eventsPath).then((s) => s.size).catch((error: unknown) => { if (isGone(error)) return 0; throw error; });
     if (currentSize > 0) {
       const existing = await open(eventsPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -186,7 +208,7 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
         await mkdir(eventArchiveDir(eventsPath), { recursive: true });
         await rename(eventsPath, closed);
         await writeNextSegment(eventsPath, nextNumber);
-        await mirrorEventSegment(closed);
+        pendingMirrors.push(closed);
         currentSize = 0;
       }
       const handle = await open(eventsPath, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
@@ -194,7 +216,9 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
       finally { await handle.close(); }
       currentSize += record.length;
     }
+    return pendingMirrors;
   });
+  await Promise.all(mirrors.map((path) => mirrorEventSegment(path)));
 }
 
 interface OpenSegment { path: string; handle: FileHandle; size: number; gzip: boolean; mirror?: FileHandle }
@@ -206,17 +230,6 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
     const opened: OpenSegment[] = [];
     try {
       for (const item of names) {
-        // Restore a readable plain copy so path:line citations resolve to text.
-        // The gzip mirror remains the immutable source for this repair.
-        if (!item.plain && item.gzip) {
-          const plain = eventSegmentPath(eventsPath, item.number);
-          const temporary = `${plain}.${process.pid}.${crypto.randomUUID()}.tmp`;
-          try {
-            await writeFile(temporary, gunzipSync(await readFile(item.gzip)));
-            await rename(temporary, plain);
-          } catch (error) { await rm(temporary, { force: true }); throw error; }
-          item.plain = plain;
-        }
         const path = item.plain ?? item.gzip;
         if (!path) throw new Error(`Event segment ${item.number} has no readable copy`);
         const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -237,7 +250,12 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
 
 async function digestStream(stream: AsyncIterable<Buffer | string>): Promise<string> {
   const hash = createHash("sha256");
-  for await (const chunk of stream) hash.update(chunk);
+  let bytes = 0;
+  for await (const chunk of stream) {
+    bytes += Buffer.byteLength(chunk);
+    if (bytes > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error("Expanded event archive exceeds safety limit");
+    hash.update(chunk);
+  }
   return hash.digest("hex");
 }
 
@@ -246,17 +264,22 @@ async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: st
   const segments = await snapshotSegments(eventsPath);
   try {
     for (const item of segments) {
-      if (item.mirror) {
-          const [plainHash, gzipHash] = await Promise.all([
-            item.size === 0 ? Promise.resolve(createHash("sha256").digest("hex")) : digestStream(item.handle.createReadStream({ start: 0, end: item.size - 1, autoClose: false })),
-            digestStream(item.mirror.createReadStream({ autoClose: false }).pipe(createGunzip())),
-          ]);
-          if (plainHash !== gzipHash) throw new Error(`Conflicting event segment copies: ${item.path}`);
-      }
+      const plainHash = item.mirror ? createHash("sha256") : undefined;
+      let expanded = 0;
       if (item.size > 0) {
         const source = item.handle.createReadStream({ start: 0, end: item.size - 1, autoClose: false });
         const stream = item.gzip ? source.pipe(createGunzip()) : source;
-        for await (const chunk of stream) yield { path: item.path, bytes: Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk) };
+        for await (const chunk of stream) {
+          const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          expanded += bytes.length;
+          if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${item.path}`);
+          plainHash?.update(bytes);
+          yield { path: item.path, bytes };
+        }
+      }
+      if (item.mirror && plainHash) {
+        const gzipHash = await digestStream(item.mirror.createReadStream({ autoClose: false }).pipe(createGunzip()));
+        if (plainHash.digest("hex") !== gzipHash) throw new Error(`Conflicting event segment copies: ${item.path}`);
       }
       yield { path: item.path, boundary: true };
     }

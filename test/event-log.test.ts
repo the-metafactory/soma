@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { appendEventBatch, eventArchiveDir, eventIndexPath, eventSegmentPath, streamEventLines, streamEventRecords } from "../src/event-log";
 import { createSomaSnapshot, rollbackSomaSnapshot } from "../src/snapshots";
 
@@ -51,9 +51,10 @@ test("reader uses gzip fallback and reports missing or conflicting segments", as
   await rm(first);
   expect(await lines(events)).toEqual(expected);
   const citation = (await Array.fromAsync(streamEventRecords(events)))[0];
-  expect(citation.path).toBe(first);
+  expect(citation.path).toBe(`${first}.gz`);
   expect(citation.lineNumber).toBe(1);
-  expect((await readFile(citation.path, "utf8")).split("\n")[citation.lineNumber - 1]).toBe(citation.line);
+  expect(gunzipSync(await readFile(citation.path)).toString().split("\n")[citation.lineNumber - 1]).toBe(citation.line);
+  await expect(readFile(first)).rejects.toThrow();
   const second = eventSegmentPath(events, 2);
   await rm(second);
   await rm(`${second}.gz`);
@@ -88,6 +89,26 @@ test("reader and writer refuse segmented history with a missing index", async ()
   await rm(eventIndexPath(events));
   await expect(lines(events)).rejects.toThrow(/Missing event segment index/);
   await expect(appendEventBatch(events, Buffer.from('{"i":3}\n'), 12)).rejects.toThrow(/Missing event segment index/);
+});
+
+test("writer refuses to recreate a lost live file", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await rm(events);
+  await expect(appendEventBatch(events, Buffer.from('{"i":3}\n'), 12)).rejects.toThrow(/Missing live event log/);
+});
+
+test("writer recovers an interrupted marked legacy import", async () => {
+  const { events } = await home();
+  const archive = eventArchiveDir(events);
+  await mkdir(archive, { recursive: true });
+  await writeFile(eventSegmentPath(events, 1), '{"i":0}\n');
+  await writeFile(join(archive, ".legacy-importing"), "importing\n");
+  await writeFile(events, "");
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([0, 1]);
+  expect(JSON.parse(await readFile(eventIndexPath(events), "utf8")).nextSegment).toBe(2);
 });
 
 test("reader rejects loss of the live file after history was written", async () => {
