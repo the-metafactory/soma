@@ -69,6 +69,7 @@ test("reader detects conflicting plain and gzip copies", async () => {
   expect(await lines(events)).toHaveLength(2);
   await writeFile(`${first}.gz`, gzipSync('{"i":999}\n'));
   await expect(lines(events)).rejects.toThrow(/Conflicting event segment copies/);
+  await expect(streamEventRecords(events).next()).rejects.toThrow(/Conflicting event segment copies/);
 });
 
 test("high water mark detects loss of the last closed segment", async () => {
