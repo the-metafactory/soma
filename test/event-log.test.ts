@@ -191,6 +191,19 @@ test("private snapshots track gzip mirrors but not active or plain archives", as
   expect(tracked).not.toMatch(/events\.jsonl\n/);
 });
 
+test("snapshot stages a mirror when compression is pending", async () => {
+  const { root, events } = await home();
+  await createSomaSnapshot({ somaHome: root, name: "baseline" });
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  const first = eventSegmentPath(events, 1);
+  await rm(`${first}.gz`);
+  await createSomaSnapshot({ somaHome: root, name: "closed" });
+  expect(gunzipSync(await readFile(`${first}.gz`)).toString()).toBe('{"i":1}\n');
+  const tracked = spawnSync("git", ["ls-files", "memory/STATE"], { cwd: root, encoding: "utf8" }).stdout;
+  expect(tracked).toContain("events-000001.jsonl.gz");
+});
+
 test("rollback replaces snapshot archive with the protected live archive", async () => {
   const { root, events } = await home();
   await createSomaSnapshot({ somaHome: root, name: "baseline" });
@@ -201,7 +214,7 @@ test("rollback replaces snapshot archive with the protected live archive", async
   await rm(`${third}.gz`);
   await writeFile(eventIndexPath(events), '{"nextSegment":3}\n');
   await rollbackSomaSnapshot({ somaHome: root, snapshot: target.id });
-  expect((await readdir(eventArchiveDir(events))).some((name) => name.startsWith("events-000003"))).toBe(false);
+  expect((await readdir(eventArchiveDir(events))).some((name) => /^events-000003\.jsonl(\.gz)?$/.test(name))).toBe(false);
   expect((await lines(events)).map((line) => JSON.parse(line).i)).toEqual([1, 2, 4]);
 });
 

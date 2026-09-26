@@ -11,8 +11,10 @@ append-only event history:
 ```
 
 Each line is a `SomaMemoryEvent`. Soma rotates the live file before an append
-would take it past 16 MiB. One cross-process lock covers all substrate writers,
-rotation, and reader snapshots. Closed plain segments are numbered in order and
+would take it past 16 MiB. After the updated runtime is installed on every
+substrate, one cross-process lock covers its writers, rotation, and reader
+snapshots. Older installed writers still append without this lock during
+migration; retain daily live snapshots until they are replaced. Closed plain segments are numbered in order and
 never appended again. An untracked high water mark detects loss of the last
 closed segment. Private Soma-home git stores gzip mirrors; live, index, and
 plain files remain gitignored. The pre-2026-08-24 archive becomes segment 1

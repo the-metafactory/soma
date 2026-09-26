@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { copyFile, cp, mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eventArchiveDir, eventIndexPath, withEventLogLock } from "./event-log";
+import { eventArchiveDir, eventIndexPath, mirrorMissingEventSegments, withEventLogLock } from "./event-log";
 import packageJson from "../package.json";
 import { createPaths } from "./paths";
 import type {
@@ -60,6 +60,7 @@ const GENERATED_GITIGNORE_RULES = [
   "memory/STATE/events-snapshots/",
   "!memory/STATE/events-archive/",
   "memory/STATE/events-archive/*.jsonl",
+  "memory/STATE/events-archive/*.validation",
   "memory/STATE/events-archive/*.tmp",
   "memory/STATE/events-index.json.*.tmp",
   "!memory/STATE/events-archive/*.jsonl.gz",
@@ -228,17 +229,21 @@ export async function createSomaSnapshot(options: SomaSnapshotOptions = {}): Pro
   const createdAt = new Date().toISOString();
 
   await ensureSnapshotRepo(somaHome);
-  await writeSnapshotMetadata(somaHome);
-  runGit(somaHome, ["add", "-A"]);
-  runGit(somaHome, [
-    "commit",
-    "--allow-empty",
-    "-m",
-    `soma snapshot: ${name}`,
-    "-m",
-    `trigger: ${trigger}\ncreated-at: ${createdAt}\nsoma-version: ${packageJson.version}`,
-  ]);
-  const id = runGit(somaHome, ["rev-parse", "HEAD"]).stdout.trim();
+  const eventsPath = createPaths(somaHome).events();
+  const id = await withEventLogLock(eventsPath, async () => {
+    await mirrorMissingEventSegments(eventsPath);
+    await writeSnapshotMetadata(somaHome);
+    runGit(somaHome, ["add", "-A"]);
+    runGit(somaHome, [
+      "commit",
+      "--allow-empty",
+      "-m",
+      `soma snapshot: ${name}`,
+      "-m",
+      `trigger: ${trigger}\ncreated-at: ${createdAt}\nsoma-version: ${packageJson.version}`,
+    ]);
+    return runGit(somaHome, ["rev-parse", "HEAD"]).stdout.trim();
+  });
   return { somaHome, id, name, trigger, createdAt };
 }
 

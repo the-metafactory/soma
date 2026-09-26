@@ -28,7 +28,8 @@ test("home replication has explicit privacy and scope gates", () => {
 });
 
 test("home replication defines deterministic merge boundaries", () => {
-  expect(designDoc).toContain("`memory/STATE/events.jsonl` merges by event id");
+  expect(designDoc).toContain("The logical event stream (numbered closed segments followed by");
+  expect(designDoc).toContain("`memory/STATE/events.jsonl`) merges by event id");
   expect(designDoc).toContain("Session-Keyed Work State");
   expect(designDoc).toContain("concurrent edits are conflicts");
   expect(designDoc).toContain("replication-conflicts.json");

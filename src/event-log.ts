@@ -22,6 +22,13 @@ function fileVersion(file: { dev: number; ino: number; size: number; mtimeMs: nu
   return `${file.dev}:${file.ino}:${file.size}:${file.mtimeMs}:${file.ctimeMs}`;
 }
 
+function validationPath(plainPath: string): string { return `${plainPath}.validation` }
+
+async function pairVersion(plainPath: string, gzipPath: string): Promise<string> {
+  const [plain, gzip] = await Promise.all([stat(plainPath), stat(gzipPath)]);
+  return `${fileVersion(plain)}:${fileVersion(gzip)}`;
+}
+
 export function eventArchiveDir(eventsPath: string): string { return join(dirname(eventsPath), ARCHIVE); }
 export function eventIndexPath(eventsPath: string): string { return join(dirname(eventsPath), INDEX); }
 export function eventSegmentPath(eventsPath: string, number: number): string {
@@ -173,8 +180,16 @@ export async function mirrorEventSegment(plainPath: string): Promise<void> {
   try {
     await pipeline(createReadStream(plainPath), createGzip(), createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
     await rename(temporary, target);
+    await writeFile(validationPath(plainPath), `${await pairVersion(plainPath, target)}\n`);
   }
   catch (error) { await rm(temporary, { force: true }); throw error; }
+}
+
+/** Called while snapshot staging holds the event lock. */
+export async function mirrorMissingEventSegments(eventsPath: string): Promise<void> {
+  for (const segment of await segmentNames(eventsPath)) {
+    if (segment.plain && SEGMENT.test(basename(segment.plain)) && !segment.gzip) await mirrorEventSegment(segment.plain);
+  }
 }
 
 export async function appendEventBatch(eventsPath: string, payload: Buffer, limit = EVENT_SEGMENT_LIMIT): Promise<void> {
@@ -274,6 +289,11 @@ async function validateMirror(item: OpenSegment): Promise<void> {
   const [sourceStat, mirrorStat] = await Promise.all([item.handle.stat(), item.mirror.stat()]);
   const version = `${fileVersion(sourceStat)}:${fileVersion(mirrorStat)}`;
   if (validatedMirrors.get(item.path) === version) return;
+  const persisted = await readFile(validationPath(item.path), "utf8").catch((error: unknown) => { if (isGone(error)) return ""; throw error; });
+  if (persisted.trim() === version) {
+    validatedMirrors.set(item.path, version);
+    return;
+  }
   const [plainHash, gzipHash] = await Promise.all([
     item.size === 0 ? Promise.resolve(createHash("sha256").digest("hex")) : digestStream(item.handle.createReadStream({ start: 0, end: item.size - 1, autoClose: false })),
     digestStream(item.mirror.createReadStream({ autoClose: false }).pipe(createGunzip())),
