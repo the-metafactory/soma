@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { appendEventBatch, ensureCompressedEventSegments, eventArchiveDir, eventIndexPath, eventSegmentPath, compressEventSegment, streamEventLines, streamEventRecords, withEventLogLock } from "../src/event-log";
 import { createSomaSnapshot, rollbackSomaSnapshot } from "../src/snapshots";
@@ -47,6 +48,21 @@ test("cross-process append rotates complete ordered segments without duplicates"
     expect(bytes[bytes.length - 1]).toBe(10);
     expect(names).toContain(`${name}.gz`);
   }
+});
+
+test("an ownerless stale lock is not reclaimed while its creator could be alive", async () => {
+  const { events } = await home();
+  const lock = join(dirname(events), ".events.lock");
+  await mkdir(dirname(events), { recursive: true });
+  await mkdir(lock);
+  const old = new Date(Date.now() - 60_000);
+  await utimes(lock, old, old);
+  const append = appendEventBatch(events, Buffer.from('{"i":1}\n'));
+  try {
+    await sleep(100);
+    expect((await stat(lock)).isDirectory()).toBe(true);
+  } finally { await rm(lock, { recursive: true, force: true }); }
+  await append;
 });
 
 test("reader uses gzip fallback and reports missing or conflicting segments", async () => {

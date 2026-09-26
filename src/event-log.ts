@@ -104,13 +104,12 @@ async function retireStaleOwnedDirectory(path: string): Promise<boolean> {
   const age = Date.now() - (await stat(path).then((s) => s.mtimeMs).catch(() => Date.now()));
   if (age <= LOCK_TIMEOUT_MS) return false;
   const raw = await readFile(join(path, "owner.json"), "utf8").catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
-  if (raw !== undefined) {
-    let parsed: unknown;
-    try { parsed = JSON.parse(raw); } catch { return false; }
-    if (typeof parsed !== "object" || parsed === null) return false;
-    const owner = parsed as { host?: string; pid?: number };
-    if (owner.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return false;
-  }
+  if (raw === undefined) return false;
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return false; }
+  if (typeof parsed !== "object" || parsed === null) return false;
+  const owner = parsed as { host?: string; pid?: number };
+  if (owner.host !== hostname() || typeof owner.pid !== "number" || alive(owner.pid)) return false;
   const retired = `${path}.stale-${process.pid}-${crypto.randomUUID()}`;
   await rename(path, retired).catch((error: unknown) => { if (!isGone(error)) throw error; });
   await rm(retired, { recursive: true, force: true });
@@ -844,7 +843,8 @@ async function readCumulativeEventCounts(eventsPath: string, segments: readonly 
     lastName: index.lastName, lastVersion: index.lastVersion, listingVersion: index.listingVersion,
   };
   if (index.checksum !== cumulativeChecksum(fields)) return undefined;
-  if ((await segmentListingVersion(eventsPath)) !== index.listingVersion) return undefined;
+  const listingChanged = (await segmentListingVersion(eventsPath)) !== index.listingVersion;
+  if (listingChanged && segments.length <= index.segmentCount) return undefined;
   const last = segments[index.segmentCount - 1];
   if (basename(last.path) !== index.lastName || (await segmentFileVersion(last)) !== index.lastVersion) return undefined;
   return { ...fields, checksum: index.checksum };
@@ -868,22 +868,26 @@ export async function queryRecentEventRecords<T>(
       const item = snapshot.segments[index];
       const closed = item.path !== eventsPath;
       const inPrefix = closed && prefix !== undefined && index < prefix.segmentCount;
-      if (inPrefix && events.length >= limit) break;
-      const saved = closed && !inPrefix ? await savedSegmentCounts(item) : undefined;
-      const scanned = events.length < limit || !inPrefix
+      if (inPrefix) {
+        if (events.length >= limit) break;
+        const scanned = await scanSnapshotSegment(item, true, limit - events.length, parse, matches);
+        events.push(...scanned.events.slice(0, limit - events.length));
+        continue;
+      }
+      const saved = closed ? await savedSegmentCounts(item) : undefined;
+      const needsScan = events.length < limit || saved === undefined;
+      const scanned = needsScan
         ? await scanSnapshotSegment(item, closed, limit - events.length || 1, parse, matches)
         : undefined;
       const counts = saved ?? scanned;
-      if (!inPrefix && !counts) throw new Error(`Missing event segment counts: ${item.path}`);
+      if (!counts) throw new Error(`Missing event segment counts: ${item.path}`);
       if (saved && scanned) {
         if (scanned.totalEvents !== saved.totalEvents || scanned.skippedMalformedLines !== saved.skippedMalformedLines) {
           throw new Error(`Stale event segment counts: ${item.path}`);
         }
       }
-      if (!inPrefix && counts) {
-        totalEvents += counts.totalEvents;
-        skippedMalformedLines += counts.skippedMalformedLines;
-      }
+      totalEvents += counts.totalEvents;
+      skippedMalformedLines += counts.skippedMalformedLines;
       if (scanned && events.length < limit) events.push(...scanned.events.slice(0, limit - events.length));
     }
     return { events, totalEvents, skippedMalformedLines };
