@@ -324,7 +324,11 @@ export async function rollbackSomaSnapshot(options: SomaSnapshotRollbackOptions)
       ]);
       if (await pathExists(join(backup, "events.jsonl"))) {
         await mkdir(join(somaHome, "memory", "STATE"), { recursive: true });
-        await copyFile(join(backup, "events.jsonl"), eventsPath);
+        const restoredLive = `${eventsPath}.rollback-${crypto.randomUUID()}.tmp`;
+        try {
+          await copyFile(join(backup, "events.jsonl"), restoredLive);
+          await rename(restoredLive, eventsPath);
+        } finally { await rm(restoredLive, { force: true }); }
       }
       if (await pathExists(join(backup, "events-index.json"))) await copyFile(join(backup, "events-index.json"), index);
       await rm(archive, { recursive: true, force: true });

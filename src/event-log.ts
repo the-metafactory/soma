@@ -40,6 +40,12 @@ function isGone(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
+async function createMetadataFile(path: string, content: string): Promise<void> {
+  const handle = await open(path, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+  try { await handle.writeFile(content); }
+  finally { await handle.close(); }
+}
+
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (error) { return !(error instanceof Error && "code" in error && error.code === "ESRCH"); }
@@ -70,7 +76,7 @@ async function tryReclaimStaleLock(lock: string): Promise<boolean> {
   });
   if (!guarded) return false;
   try {
-    await writeFile(join(guard, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname() }));
+    await createMetadataFile(join(guard, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname() }));
     return await retireStaleOwnedDirectory(lock);
   } finally { await rm(guard, { recursive: true, force: true }); }
 }
@@ -84,7 +90,7 @@ export async function withEventLogLock<T>(eventsPath: string, action: () => Prom
     try {
       await mkdir(lock);
       try {
-        await writeFile(join(lock, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname() }));
+        await createMetadataFile(join(lock, "owner.json"), JSON.stringify({ pid: process.pid, host: hostname() }));
       } catch (error) { await rm(lock, { recursive: true, force: true }); throw error; }
       break;
     } catch (error) {
@@ -100,6 +106,16 @@ export async function withEventLogLock<T>(eventsPath: string, action: () => Prom
 }
 
 interface SegmentNames { number: number; plain?: string; gzip?: string }
+const segmentListingCache = new Map<string, { version: string; segments: SegmentNames[] }>();
+
+async function segmentListingVersion(eventsPath: string): Promise<string> {
+  const paths = [eventArchiveDir(eventsPath), eventIndexPath(eventsPath)];
+  const versions = await Promise.all(paths.map(async (path) => {
+    const value = await stat(path).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
+    return value ? fileVersion(value) : "missing";
+  }));
+  return versions.join("|");
+}
 
 async function segmentNames(eventsPath: string): Promise<SegmentNames[]> {
   const dir = eventArchiveDir(eventsPath);
@@ -140,7 +156,7 @@ async function recordedNextSegment(eventsPath: string): Promise<number | undefin
 async function writeNextSegment(eventsPath: string, nextSegment: number): Promise<void> {
   const path = eventIndexPath(eventsPath);
   const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await writeFile(temporary, `${JSON.stringify({ nextSegment })}\n`);
+  await createMetadataFile(temporary, `${JSON.stringify({ nextSegment })}\n`);
   try { await rename(temporary, path); }
   catch (error) { await rm(temporary, { force: true }); throw error; }
 }
@@ -173,7 +189,7 @@ async function rotateLiveEventLog(eventsPath: string, number: number): Promise<s
   const closed = eventSegmentPath(eventsPath, number);
   await mkdir(eventArchiveDir(eventsPath), { recursive: true });
   const marker = join(dirname(eventsPath), ROTATION_PENDING);
-  await writeFile(marker, `${JSON.stringify({ number })}\n`);
+  await createMetadataFile(marker, `${JSON.stringify({ number })}\n`);
   await rename(eventsPath, closed);
   await writeNextSegment(eventsPath, number + 1);
   await writeFile(eventsPath, "", { flag: "wx", mode: 0o600 });
@@ -182,7 +198,9 @@ async function rotateLiveEventLog(eventsPath: string, number: number): Promise<s
 }
 
 async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
-  const segments = await segmentNames(eventsPath);
+  const version = await segmentListingVersion(eventsPath);
+  const cached = segmentListingCache.get(eventsPath);
+  const segments = cached?.version === version ? cached.segments : await segmentNames(eventsPath);
   const recorded = await recordedNextSegment(eventsPath);
   const unmigratedLegacy = segments.length === 1 && segments[0].plain !== undefined && LEGACY.test(basename(segments[0].plain));
   if (segments.length > 0 && recorded === undefined && !unmigratedLegacy) {
@@ -193,6 +211,14 @@ async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
   }
   if (recorded !== undefined && recorded < segments.length + 1) {
     throw new Error(`Event segment index trails archive in ${eventArchiveDir(eventsPath)}`);
+  }
+  if (cached?.version !== version) {
+    segmentListingCache.delete(eventsPath);
+    segmentListingCache.set(eventsPath, { version, segments });
+    if (segmentListingCache.size > 16) {
+      const oldest = segmentListingCache.keys().next().value;
+      if (oldest !== undefined) segmentListingCache.delete(oldest);
+    }
   }
   return segments;
 }
@@ -213,13 +239,13 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
   }
   if (legacy.length === 0) return;
   if (legacy.length !== 1 || entries.some((name) => SEGMENT.test(name))) throw new Error(`Conflicting event archives in ${dir}`);
-  await writeFile(marker, "importing\n");
+  await createMetadataFile(marker, "importing\n");
   await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
   await writeNextSegment(eventsPath, 2);
   await rm(marker);
 }
 
-export async function mirrorEventSegment(plainPath: string): Promise<void> {
+export async function compressEventSegment(plainPath: string): Promise<void> {
   const target = `${plainPath}.gz`;
   const existing = await stat(target).catch((error: unknown) => { if (isGone(error)) return undefined; throw error; });
   if (existing) return;
@@ -229,7 +255,12 @@ export async function mirrorEventSegment(plainPath: string): Promise<void> {
     if (!(await source.stat()).isFile()) throw new Error(`Event segment is not a regular file: ${plainPath}`);
     await pipeline(source.createReadStream({ autoClose: false }), createGzip(), createWriteStream(temporary, { flags: "wx", mode: 0o600 }));
     await rename(temporary, target);
-    await writeFile(validationPath(plainPath), `${await pairVersion(plainPath, target)}\n`);
+    const validation = validationPath(plainPath);
+    const temporaryValidation = `${validation}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    try {
+      await createMetadataFile(temporaryValidation, `${await pairVersion(plainPath, target)}\n`);
+      await rename(temporaryValidation, validation);
+    } finally { await rm(temporaryValidation, { force: true }); }
   }
   catch (error) { await rm(temporary, { force: true }); throw error; }
   finally { await source.close(); }
@@ -239,7 +270,7 @@ export async function mirrorEventSegment(plainPath: string): Promise<void> {
 export async function mirrorMissingEventSegments(eventsPath: string): Promise<void> {
   for (const segment of await segmentNames(eventsPath)) {
     if (!segment.plain || !SEGMENT.test(basename(segment.plain))) continue;
-    if (!segment.gzip) { await mirrorEventSegment(segment.plain); continue; }
+    if (!segment.gzip) { await compressEventSegment(segment.plain); continue; }
     const plain = await open(segment.plain, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     try {
       const mirror = await open(segment.gzip, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -311,7 +342,7 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
   // The records are already committed. A failed mirror is retried by the next
   // writer or snapshot; reporting append failure would invite duplicate retries.
   for (const path of mirrors) {
-    try { await mirrorEventSegment(path); }
+    try { await compressEventSegment(path); }
     catch (error) {
       process.emitWarning(`Event mirror pending for ${path}: ${error instanceof Error ? error.message : String(error)}`, "SomaEventMirrorWarning");
     }

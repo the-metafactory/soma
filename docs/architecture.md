@@ -381,7 +381,8 @@ subscribe to the same lifecycle surface as bus-visible work state.
 
 ## Observability
 
-Observability V0 is a filesystem-native read model over
+Observability V0 is a filesystem-native read model over the ordered logical
+event stream: closed segments in `memory/STATE/events-archive/`, followed by
 `memory/STATE/events.jsonl`. `soma telemetry list` queries recent events and
 `soma telemetry stats` / `soma stats` summarizes event counts, lifecycle
 sessions, writeback failures, Algorithm event phases when present, and skipped

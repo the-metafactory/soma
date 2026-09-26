@@ -4,7 +4,7 @@ import { appendFile, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, wri
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { appendEventBatch, eventArchiveDir, eventIndexPath, eventSegmentPath, mirrorEventSegment, streamEventLines, streamEventRecords } from "../src/event-log";
+import { appendEventBatch, eventArchiveDir, eventIndexPath, eventSegmentPath, compressEventSegment, streamEventLines, streamEventRecords } from "../src/event-log";
 import { createSomaSnapshot, rollbackSomaSnapshot } from "../src/snapshots";
 
 const homes: string[] = [];
@@ -90,7 +90,7 @@ test("mirror creation rejects a symlinked segment", async () => {
   await writeFile(outside, "secret\n");
   const segment = eventSegmentPath(events, 1);
   await symlink(outside, segment);
-  await expect(mirrorEventSegment(segment)).rejects.toThrow();
+  await expect(compressEventSegment(segment)).rejects.toThrow();
   await expect(readFile(`${segment}.gz`)).rejects.toThrow();
 });
 
