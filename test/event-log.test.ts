@@ -4,7 +4,7 @@ import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { appendEventBatch, eventArchiveDir, eventSegmentPath, streamEventLines } from "../src/event-log";
+import { appendEventBatch, eventArchiveDir, eventIndexPath, eventSegmentPath, streamEventLines, streamEventRecords } from "../src/event-log";
 import { createSomaSnapshot, rollbackSomaSnapshot } from "../src/snapshots";
 
 const homes: string[] = [];
@@ -50,6 +50,10 @@ test("reader uses gzip fallback and reports missing or conflicting segments", as
   const first = eventSegmentPath(events, 1);
   await rm(first);
   expect(await lines(events)).toEqual(expected);
+  const citation = (await Array.fromAsync(streamEventRecords(events)))[0];
+  expect(citation.path).toBe(first);
+  expect(citation.lineNumber).toBe(1);
+  expect((await readFile(citation.path, "utf8")).split("\n")[citation.lineNumber - 1]).toBe(citation.line);
   const second = eventSegmentPath(events, 2);
   await rm(second);
   await rm(`${second}.gz`);
@@ -75,6 +79,15 @@ test("high water mark detects loss of the last closed segment", async () => {
   await rm(`${last}.gz`);
   await expect(lines(events)).rejects.toThrow(/Missing event segment 2/);
   await expect(appendEventBatch(events, Buffer.from('{"i":4}\n'), 12)).rejects.toThrow(/Missing event segment 2/);
+});
+
+test("reader and writer refuse segmented history with a missing index", async () => {
+  const { events } = await home();
+  await appendEventBatch(events, Buffer.from('{"i":1}\n'), 12);
+  await appendEventBatch(events, Buffer.from('{"i":2}\n'), 12);
+  await rm(eventIndexPath(events));
+  await expect(lines(events)).rejects.toThrow(/Missing event segment index/);
+  await expect(appendEventBatch(events, Buffer.from('{"i":3}\n'), 12)).rejects.toThrow(/Missing event segment index/);
 });
 
 test("reader rejects loss of the live file after history was written", async () => {

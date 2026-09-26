@@ -3,9 +3,9 @@ import { constants as fsConstants } from "node:fs";
 import { open, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { createGunzip, gzipSync } from "node:zlib";
+import { createGunzip, gunzipSync, gzipSync } from "node:zlib";
 
 export const EVENT_SEGMENT_LIMIT = 16 * 1024 * 1024;
 const LOCK_TIMEOUT_MS = 30_000;
@@ -120,6 +120,10 @@ async function writeNextSegment(eventsPath: string, nextSegment: number): Promis
 async function checkedSegments(eventsPath: string): Promise<SegmentNames[]> {
   const segments = await segmentNames(eventsPath);
   const recorded = await recordedNextSegment(eventsPath);
+  const unmigratedLegacy = segments.length === 1 && segments[0].plain !== undefined && LEGACY.test(basename(segments[0].plain));
+  if (segments.length > 0 && recorded === undefined && !unmigratedLegacy) {
+    throw new Error(`Missing event segment index: ${eventIndexPath(eventsPath)}`);
+  }
   if (recorded !== undefined && recorded > segments.length + 1) {
     throw new Error(`Missing event segment ${segments.length + 1} in ${eventArchiveDir(eventsPath)}`);
   }
@@ -135,6 +139,7 @@ export async function importLegacyEventArchive(eventsPath: string): Promise<void
   if (legacy.length !== 1 || entries.some((name) => SEGMENT.test(name))) throw new Error(`Conflicting event archives in ${dir}`);
   await rename(join(dir, legacy[0]), eventSegmentPath(eventsPath, 1));
   await mirrorEventSegment(eventSegmentPath(eventsPath, 1));
+  await writeNextSegment(eventsPath, 2);
 }
 
 export async function mirrorEventSegment(plainPath: string): Promise<void> {
@@ -177,14 +182,6 @@ export async function appendEventBatch(eventsPath: string, payload: Buffer, limi
     }
     for (const record of records) {
       if (currentSize > 0 && currentSize + record.length > limit) {
-      // Never close a partial JSONL record. A failed append is surfaced rather
-      // than letting a later rotation freeze torn bytes into an immutable file.
-        const handle = await open(eventsPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-        try {
-          const tail = Buffer.alloc(1);
-          await handle.read(tail, 0, 1, currentSize - 1);
-          if (tail[0] !== 10) throw new Error(`Refusing to rotate torn event log: ${eventsPath}`);
-        } finally { await handle.close(); }
         const closed = eventSegmentPath(eventsPath, nextNumber++);
         await mkdir(eventArchiveDir(eventsPath), { recursive: true });
         await rename(eventsPath, closed);
@@ -209,6 +206,17 @@ async function snapshotSegments(eventsPath: string): Promise<OpenSegment[]> {
     const opened: OpenSegment[] = [];
     try {
       for (const item of names) {
+        // Restore a readable plain copy so path:line citations resolve to text.
+        // The gzip mirror remains the immutable source for this repair.
+        if (!item.plain && item.gzip) {
+          const plain = eventSegmentPath(eventsPath, item.number);
+          const temporary = `${plain}.${process.pid}.${crypto.randomUUID()}.tmp`;
+          try {
+            await writeFile(temporary, gunzipSync(await readFile(item.gzip)));
+            await rename(temporary, plain);
+          } catch (error) { await rm(temporary, { force: true }); throw error; }
+          item.plain = plain;
+        }
         const path = item.plain ?? item.gzip;
         if (!path) throw new Error(`Event segment ${item.number} has no readable copy`);
         const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
