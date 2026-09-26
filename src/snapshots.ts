@@ -266,7 +266,13 @@ async function stageEventArchive(somaHome: string, eventsPath: string): Promise<
           if ((await pendingCompressedEventSegments(eventsPath)).length === 0) throw error;
         }
         const after = await eventArchiveVersion(eventsPath);
-        if (validated && before === after) verifiedVersion = after;
+        if (validated && before === after) {
+          const archivePath = "memory/STATE/events-archive";
+          if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
+            runGit(somaHome, ["add", "-A", "--", archivePath]);
+          }
+          if ((await eventArchiveVersion(eventsPath)) === after) verifiedVersion = after;
+        }
       }
     }
     finally { await prepared.release(); }
@@ -274,10 +280,6 @@ async function stageEventArchive(somaHome: string, eventsPath: string): Promise<
     stagedEvents = await withEventLogLock(eventsPath, async () => {
       if ((await pendingCompressedEventSegments(eventsPath)).length > 0) return false;
       if ((await eventArchiveVersion(eventsPath)) !== verifiedVersion) return false;
-      const archivePath = "memory/STATE/events-archive";
-      if (await pathExists(eventArchiveDir(eventsPath)) || runGit(somaHome, ["ls-files", "--", archivePath]).stdout.trim()) {
-        runGit(somaHome, ["add", "-A", "--", archivePath]);
-      }
       return true;
     });
   }

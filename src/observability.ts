@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { isTelemetryEventLine, queryRecentEventRecords, streamEventLines } from "./event-log";
+import { isTelemetryEvent, queryRecentEventRecords, streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./memory";
 import type {
   AlgorithmPhase,
@@ -30,7 +30,10 @@ function resolveSomaHome(options: Pick<SomaTelemetryQueryOptions, "homeDir" | "s
 }
 
 function parseTelemetryLine(line: string): SomaMemoryEvent | undefined {
-  return isTelemetryEventLine(line) ? JSON.parse(line) as SomaMemoryEvent : undefined;
+  try {
+    const value: unknown = JSON.parse(line);
+    return isTelemetryEvent(value) ? value : undefined;
+  } catch { return undefined; }
 }
 
 async function streamTelemetryEvents(

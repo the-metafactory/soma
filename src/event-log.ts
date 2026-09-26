@@ -7,6 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createGunzip, createGzip } from "node:zlib";
+import type { SomaMemoryEvent } from "./types";
 
 export const EVENT_SEGMENT_LIMIT = 16 * 1024 * 1024;
 const LOCK_TIMEOUT_MS = 30_000;
@@ -40,13 +41,15 @@ function countChecksum(counts: Omit<SegmentCounts, "checksum">): string {
   return createHash("sha256").update(JSON.stringify(counts)).digest("hex");
 }
 
+export function isTelemetryEvent(value: unknown): value is SomaMemoryEvent {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const event = value as Record<string, unknown>;
+  return ["id", "timestamp", "substrate", "kind", "summary"].every((key) => typeof event[key] === "string");
+}
+
 export function isTelemetryEventLine(line: string): boolean {
-  try {
-    const value: unknown = JSON.parse(line);
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-    const event = value as Record<string, unknown>;
-    return ["id", "timestamp", "substrate", "kind", "summary"].every((key) => typeof event[key] === "string");
-  } catch { return false; }
+  try { return isTelemetryEvent(JSON.parse(line) as unknown); }
+  catch { return false; }
 }
 
 function countEventLines(content: string): { totalEvents: number; skippedMalformedLines: number } {
@@ -644,30 +647,45 @@ async function* streamEventChunks(eventsPath: string): AsyncGenerator<{ path: st
   } finally { await closeEventSnapshot(snapshot); }
 }
 
+function createEventLineFramer(): { push: (bytes: Uint8Array) => string[]; finish: (path: string) => void } {
+  let pending = "";
+  const decoder = new TextDecoder();
+  return {
+    push(bytes) {
+      pending += decoder.decode(bytes, { stream: true });
+      const lines: string[] = [];
+      for (;;) {
+        const end = pending.indexOf("\n");
+        if (end < 0) break;
+        lines.push(pending.slice(0, end).replace(/\r$/, ""));
+        pending = pending.slice(end + 1);
+      }
+      return lines;
+    },
+    finish(path) {
+      pending += decoder.decode();
+      if (pending.length > 0) throw new Error(`Torn event record in ${path}`);
+    },
+  };
+}
+
 /** Ordered records retain real source path and per-file line for citations. */
 export async function* streamEventRecords(eventsPath: string): AsyncGenerator<{ path: string; lineNumber: number; line: string }> {
-  let pending = "";
+  const framer = createEventLineFramer();
   const lineNumbers = new Map<string, number>();
-  const decoder = new TextDecoder();
   for await (const item of streamEventChunks(eventsPath)) {
     if (item.boundary) {
-      pending += decoder.decode();
-      if (pending.length > 0) throw new Error(`Torn event record in ${item.path}`);
+      framer.finish(item.path);
       continue;
     }
     if (!item.bytes) continue;
-    pending += decoder.decode(item.bytes, { stream: true });
-    for (;;) {
-      const end = pending.indexOf("\n");
-      if (end < 0) break;
+    for (const line of framer.push(item.bytes)) {
       const lineNumber = (lineNumbers.get(item.path) ?? 0) + 1;
       lineNumbers.set(item.path, lineNumber);
-      yield { path: item.path, lineNumber, line: pending.slice(0, end).replace(/\r$/, "") };
-      pending = pending.slice(end + 1);
+      yield { path: item.path, lineNumber, line };
     }
   }
-  pending += decoder.decode();
-  if (pending.length > 0) throw new Error(`Torn event record at end of ${eventsPath}`);
+  framer.finish(eventsPath);
 }
 
 export async function* streamEventLines(eventsPath: string): AsyncGenerator<string> {
@@ -690,8 +708,7 @@ async function scanSnapshotSegment<T>(
     let totalEvents = 0;
     let skippedMalformedLines = 0;
     let expanded = 0;
-    let pending = "";
-    const decoder = new TextDecoder();
+    const framer = createEventLineFramer();
     if (size > 0) {
       const source = handle.createReadStream({ start: 0, end: size - 1, autoClose: false });
       const stream = item.gzip ? source.pipe(createGunzip()) : source;
@@ -699,12 +716,7 @@ async function scanSnapshotSegment<T>(
         const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         expanded += bytes.length;
         if (expanded > MAX_EXPANDED_ARCHIVE_BYTES) throw new Error(`Expanded event archive exceeds safety limit: ${item.path}`);
-        pending += decoder.decode(bytes, { stream: true });
-        for (;;) {
-          const end = pending.indexOf("\n");
-          if (end < 0) break;
-          const line = pending.slice(0, end).replace(/\r$/, "");
-          pending = pending.slice(end + 1);
+        for (const line of framer.push(bytes)) {
           if (line.trim().length === 0) continue;
           const value = parse(line);
           if (value === undefined) { skippedMalformedLines++; continue; }
@@ -716,8 +728,7 @@ async function scanSnapshotSegment<T>(
         }
       }
     }
-    pending += decoder.decode();
-    if (pending.length > 0) throw new Error(`Torn event record in ${item.path}`);
+    framer.finish(item.path);
     if (closed && expanded === 0) throw new Error(`Empty closed event segment: ${item.path}`);
     const retained = Math.min(matched, limit);
     const oldest = matched > limit ? matched % limit : 0;
