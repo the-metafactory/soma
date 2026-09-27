@@ -91,7 +91,7 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
   subcommands: {
     new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
     classify: "Usage: soma algorithm classify --prompt <text> [--json]",
-    batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>] [--substrate <id>]",
+    batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>] [--substrate <id>]\nVerify: --op \"verify:<criterion-id>:<passed|failed|dropped|deferred-probe>[+specified|+probed|+tested]:<evidence>\". A passed result requires +probed or +tested.",
     list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
     show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
     capabilities: "Usage: soma algorithm capabilities (--list [--substrate <id>] [--json] | --id <run-id> --capability <name> [--phase <phase>] [--reason <text>]) [--home-dir <dir>] [--soma-home <dir>]. --list shows the resolved registry (the closed vocabulary for THIS machine) plus any rows that resolved to nothing.",
@@ -366,16 +366,21 @@ function parseBatchOperation(value: string): AlgorithmBatchOperation {
   }
 
   if (kind === "verify") {
-    const [criterionId, status, ...evidenceParts] = payload.split(":");
+    const [criterionId = "", statusWithKind = "", ...evidenceParts] = payload.split(":");
     const evidence = evidenceParts.join(":").trim();
-    if (!criterionId || !status || !evidence) {
-      throw new Error("--op verify requires verify:<criterion-id>:<passed|failed|dropped>:<evidence>.");
+    if (!criterionId.trim() || !statusWithKind.trim() || !evidence) {
+      throw new Error("--op verify requires verify:<criterion-id>:<passed|failed|dropped|deferred-probe>[+specified|+probed|+tested]:<evidence>.");
     }
+    // Put the kind on the status so legacy evidence may still contain colons.
+    const separator = statusWithKind.indexOf("+");
+    const status = separator === -1 ? statusWithKind : statusWithKind.slice(0, separator);
+    const evidenceKind = separator === -1 ? undefined : parseEvidenceKind(statusWithKind.slice(separator + 1).trim());
     return {
       kind,
       criterionId: criterionId.trim(),
       status: parseCriterionStatus(status.trim()),
       evidence,
+      ...(evidenceKind === undefined ? {} : { evidenceKind }),
     };
   }
 
@@ -418,6 +423,14 @@ function parseBatchOperationsJson(value: string): AlgorithmBatchOperation[] {
 
     return operation as AlgorithmBatchOperation;
   });
+}
+
+// Only use before persistence: a write/lifecycle failure may follow saved ops.
+// Preserve the error class and metadata used for VerificationGate telemetry.
+function batchRefusal(error: unknown): Error {
+  const refusal = error instanceof Error ? error : new Error(String(error));
+  refusal.message = `Algorithm batch refused; no ops recorded. ${refusal.message}`;
+  return refusal;
 }
 
 function parseAlgorithmPhase(value: string, optionName = "--phase"): AlgorithmPhase {
@@ -593,11 +606,13 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
         index += 1;
         break;
       case "--op":
-        batchOperations.push(parseBatchOperation(readOption(rest, index, arg)));
-        index += 1;
-        break;
       case "--ops-json":
-        batchOperations.push(...parseBatchOperationsJson(readOption(rest, index, arg)));
+        try {
+          const value = readOption(rest, index, arg);
+          batchOperations.push(...(arg === "--op" ? [parseBatchOperation(value)] : parseBatchOperationsJson(value)));
+        } catch (error) {
+          throw action === "batch" ? batchRefusal(error) : error;
+        }
         index += 1;
         break;
       case "--list":
@@ -860,7 +875,7 @@ export async function appendVerificationGateViolationEvent(
 async function updateAndReportAlgorithmRun(
   options: AlgorithmCliOptions,
   update: (run: AlgorithmRun) => AlgorithmRun,
-  registration: { registerCapabilities?: boolean } = {},
+  registration: { registerCapabilities?: boolean; batch?: boolean } = {},
 ): Promise<string> {
   const id = requireAlgorithmId(options);
   const { run } = await readAlgorithmRunById(id, {
@@ -888,7 +903,7 @@ async function updateAndReportAlgorithmRun(
     if (error instanceof VerificationGateError) {
       await appendVerificationGateViolationEvent(options, id, error, run.substrate);
     }
-    throw error;
+    throw registration.batch ? batchRefusal(error) : error;
   }
   const written = await writeAlgorithmRun(updated, {
     homeDir: options.homeDir,
@@ -1222,6 +1237,7 @@ export async function runAlgorithmCli(
     const operations = options.batchOperations ?? [];
     return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }), {
       registerCapabilities: true,
+      batch: true,
     });
   }
 
