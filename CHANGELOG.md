@@ -23,8 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Harness evaluation reports incomplete event-window coverage** separately
   from a regression, including a machine-readable JSON result. (#689, #709)
-- **Session-start registry locks recover only when the owner is provably dead,**
-  and startup history loading is bounded so old runs do not stall the hook.
+- **Session-start registry locks recover dead-owner or sufficiently aged
+  ownerless locks,** and startup history loading is bounded so old runs do not
+  stall the hook.
   (#682, #710, #711, #712)
 
 ## [0.20.2] - 2026-09-25
