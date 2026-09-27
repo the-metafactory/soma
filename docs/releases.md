@@ -34,7 +34,7 @@ The `Publish Soma` workflow (`.github/workflows/publish-soma.yml`) is manually
 dispatched. Creating a GitHub tag or release does not dispatch it. For a
 GitHub-only release, leave that workflow undispatched. If Arc publication is
 separately authorized, verify its result before claiming registry availability.
-Local upgrades and projection refreshes also require their own verification.
+Local upgrades and reprojections also require their own verification.
 
 ## Announce the verified result
 

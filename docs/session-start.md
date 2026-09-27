@@ -29,10 +29,10 @@ needed. Memory-only reprojection loads the home without the full skill
 catalog. This reduces work before the registry write while preserving the
 active-run summary.
 
-## Verify an installed host
+## Verify an installed substrate
 
 Use a unique probe session ID and invoke the installed runtime used by the
-host. `soma runtime status --target codex` and `--target cli` identify the
+substrate. `soma runtime status --target codex` and `--target cli` identify the
 active artifacts; they may differ. A source-tree test alone does not verify
 an installed hook.
 
@@ -58,6 +58,6 @@ Telemetry reads the archive and live tail together; see
 The [lock-fix acceptance record](https://github.com/the-metafactory/soma/issues/682)
 was completed on 2026-09-27: three noncontending installed Codex-runtime starts
 took 429–488 ms, each wrote its registry entry and emitted a normal start event
-without a failure event. These are host-specific observations, not a general
+without a failure event. These are machine-specific observations, not a general
 startup guarantee or a representative W2 baseline. Regression tests separately
 cover stale ownerless locks and the CLI timeout under contention.
