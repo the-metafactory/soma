@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.3] - 2026-09-27
+
+### Added
+
+- **Ordered event segments preserve complete history across rotation.** All
+  substrate appends use one cross-process lock; complete records rotate into
+  numbered immutable segments at 16 MiB. Readers stream the archive and live
+  tail in order, detect missing or conflicting copies, and support gzip-only
+  fallback. Snapshots preserve compressed copies and count metadata; rollback
+  protects active and plain history. The legacy archive imports without
+  changing its bytes. (#713, #714)
+
+### Fixed
+
+- **Harness evaluation reports incomplete event-window coverage** separately
+  from a regression, including a machine-readable JSON result. (#689, #709)
+- **Session-start registry locks recover dead-owner or sufficiently aged
+  ownerless locks,** and startup history loading is bounded so old runs do not
+  stall the hook.
+  (#682, #710, #711, #712)
+
 ## [0.20.2] - 2026-09-25
 
 ### Fixed
