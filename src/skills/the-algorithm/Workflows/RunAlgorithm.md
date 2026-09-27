@@ -45,12 +45,22 @@ Common commands:
 - `algorithm decision --id <run-id> --text "Decision made and why."`
 - `algorithm change --id <run-id> --text "Artifact changed."`
 - `algorithm step --id <run-id> --step-id P1 --status done --evidence "Probe output or file path."`
-- `algorithm verify --id <run-id> --criterion-id C1 --status passed --evidence "Verification evidence."`
+- `algorithm verify --id <run-id> --criterion-id C1 --status passed --evidence-kind tested --evidence "bun test: 12 pass, 0 fail."`
 - `algorithm learn --id <run-id> --text "Reusable lesson."`
 - `algorithm batch --id <run-id> --op "decision:Decision made." --op "change:Artifact changed." --op "step:P1:done:Evidence."`
+- `algorithm batch --id <run-id> --op "verify:C1:passed+tested:bun test: 12 pass, 0 fail."`
 - `algorithm advance --id <run-id>`
 
 Prefer `algorithm batch` when recording routine decision/change/step/verify/learn evidence from a substrate. It avoids long shell `&&` chains and reduces repeated approval prompts.
+
+Batch verification uses `verify:<criterion-id>:<status>[+<evidence-kind>]:<evidence>`.
+Statuses are `passed`, `failed`, `dropped`, and `deferred-probe`; evidence kinds
+are `specified`, `probed`, and `tested`. Use `passed+probed` or `passed+tested`
+with concrete evidence for a pass. Omitting the kind preserves the existing
+defaults and still refuses a specification-only pass. Evidence may contain
+colons. If parsing or applying an operation fails, the batch reports
+`no ops recorded`: none of its operations are saved to the run, although a
+verification-gate refusal may still emit diagnostic telemetry.
 
 `algorithm classify` decides MINIMAL, NATIVE, or ALGORITHM and maps Algorithm prompts to E1-E5. `algorithm new` uses the same classifier when `--effort` is omitted; explicit `/eN`, `EN`, or `--effort EN` overrides classification.
 
