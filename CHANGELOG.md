@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.4] - 2026-09-27
+
+### Documentation
+
+- Add a session-start operator guide covering registry lock recovery, timeout
+  scope, indexed history loading, and verification through lifecycle events.
+  Record the completed live acceptance for the fix shipped in 0.20.3. (#682)
+- Update the README and Soma-home layout with the current release, work
+  registry, Algorithm index, and segmented event history.
+- Add a release checklist that separates GitHub publication, Arc publication,
+  local installation, and Discord announcements. This release is GitHub-only.
+
+No runtime changes from 0.20.3.
+
 ## [0.20.3] - 2026-09-27
 
 ### Added

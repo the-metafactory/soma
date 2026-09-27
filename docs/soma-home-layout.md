@@ -22,7 +22,12 @@ re-projection rewrites.
 │   ├── WORK/
 │   │   └── algorithm-runs/ # Algorithm run state, one <run-id>.json per run
 │   └── STATE/
-│       └── active.json     # active VSA pointer
+│       ├── active.json              # active VSA pointer
+│       ├── work.json                # sessions and current work registry
+│       ├── algorithm-work-index.json # reconciled Algorithm summaries
+│       ├── events.jsonl             # live event log
+│       ├── events-index.json        # closed-segment high water mark
+│       └── events-archive/          # immutable numbered segments and gzip copies
 ├── isa/                    # Verification State Artifacts, one <slug>.md per project/task
 │   └── .templates/         # VSA scaffolding templates
 ├── policy/                 # substrate policy declarations
@@ -58,6 +63,17 @@ Read-only payload permissions are **best-effort hardening, not a tamper-proof
 boundary** — a same-UID actor can `chmod` them back, and no hash runs on the
 hook path by design. They pin the snapshot against incidental edits, not
 against an actor who sets out to modify it.
+
+## Session startup and event history
+
+Session startup uses the work registry and reconciled Algorithm index under
+`memory/STATE/`. The [session-start guide](session-start.md) explains lock
+recovery, timeout scope, and live verification.
+
+The logical event history spans `events-archive/` and `events.jsonl`. Use
+`soma telemetry list` or `soma telemetry stats` to read it; reading the live
+file alone omits closed segments. See [Observability](observability.md) for
+rotation, migration, compressed copies, and rollback behavior.
 
 ## How the assistant talks, and what it may do
 
