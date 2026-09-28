@@ -10,8 +10,9 @@ import { createPaths } from "./paths";
  * learned router is trained and scored on. Synthetic prompts are not a
  * substitute (the design's lesson L2).
  *
- * The corpus is private: it holds prompt text and is written only under the
- * Soma home's STATE directory. Nothing here prints a prompt.
+ * The corpus is private: it holds prompt text. By default it is written under
+ * the Soma home's STATE directory; `--out` can name another path, and the file
+ * is owner-only (0600) wherever it lands. Nothing here prints a prompt.
  */
 
 export const ROUTER_CORPUS_REPLY_TAIL_CHARS = 800;
@@ -67,7 +68,6 @@ export const ROUTER_CORPUS_SKIP_REASONS = [
   "interrupt",
   "compact-summary",
   "peer-message",
-  "tagged",
   "empty",
   "queued-non-human",
   "duplicate",
@@ -105,9 +105,9 @@ function classifyPromptText(raw: string): { skip: RouterCorpusSkipReason } | { t
   if (text.startsWith("[Request interrupted")) return { skip: "interrupt" };
   if (text.startsWith(COMPACT_SUMMARY_PREFIX)) return { skip: "compact-summary" };
   // Another agent session delivering a message into this one: not the principal.
-  if (text.startsWith("Another Claude session sent a message:") || text.includes("<teammate-message")) return { skip: "peer-message" };
-  // Any other substrate-generated leading tag is injected, not typed.
-  if (/^<[a-z][a-z0-9_-]*>/.test(text)) return { skip: "tagged" };
+  // Match the delivery envelope at the start only: a principal can type a
+  // prompt that mentions `<teammate-message>` or opens with a tag of their own.
+  if (text.startsWith("Another Claude session sent a message:") || text.startsWith("<teammate-message")) return { skip: "peer-message" };
   return { text };
 }
 
@@ -148,6 +148,16 @@ function parseModeContext(content: unknown): RouterCorpusClassification | null {
 function entrypointSkipReason(entry: TranscriptEntry): RouterCorpusSkipReason | null {
   if (typeof entry.entrypoint !== "string") return "no-entrypoint";
   if (entry.entrypoint.startsWith("sdk")) return "non-interactive";
+  return null;
+}
+
+/** Entry-level exclusions shared by typed prompts and queued commands. */
+function entrySkipReason(entry: TranscriptEntry): RouterCorpusSkipReason | null {
+  const entrypointSkip = entrypointSkipReason(entry);
+  if (entrypointSkip) return entrypointSkip;
+  if (entry.isMeta === true) return "meta";
+  if (entry.isSidechain === true) return "sidechain";
+  if (entry.isCompactSummary === true) return "compact-summary";
   return null;
 }
 
@@ -260,9 +270,9 @@ export function extractRouterCorpusTranscript(
     if (entry.type === "attachment") {
       const attachment = asRecord(entry.attachment);
       if (attachment?.type !== "queued_command" || !id) continue;
-      const entrypointSkip = entrypointSkipReason(entry);
-      if (entrypointSkip) {
-        skipped[entrypointSkip] += 1;
+      const entrySkip = entrySkipReason(entry);
+      if (entrySkip) {
+        skipped[entrySkip] += 1;
         continue;
       }
       const origin = asRecord(attachment.origin);
@@ -277,21 +287,9 @@ export function extractRouterCorpusTranscript(
     }
 
     if (entry.type !== "user" || !id) continue;
-    const entrypointSkip = entrypointSkipReason(entry);
-    if (entrypointSkip) {
-      skipped[entrypointSkip] += 1;
-      continue;
-    }
-    if (entry.isMeta === true) {
-      skipped.meta += 1;
-      continue;
-    }
-    if (entry.isSidechain === true) {
-      skipped.sidechain += 1;
-      continue;
-    }
-    if (entry.isCompactSummary === true) {
-      skipped["compact-summary"] += 1;
+    const entrySkip = entrySkipReason(entry);
+    if (entrySkip) {
+      skipped[entrySkip] += 1;
       continue;
     }
     const result = userContentText(message?.content);

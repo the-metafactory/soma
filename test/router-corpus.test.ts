@@ -58,7 +58,6 @@ test("keeps typed and human-queued prompts, skips every injected shape with a re
     typed("This session is being continued from a previous conversation that ran out of context."),
     typed("summary text", { isCompactSummary: true }),
     typed("<system-reminder>only a reminder</system-reminder>"),
-    typed("<some-hook-output>x</some-hook-output>"),
     typed('Another Claude session sent a message: <teammate-message teammate_id="n1">done</teammate-message>'),
     typed("meta prompt", { isMeta: true }),
     typed("agent chatter", { isSidechain: true }),
@@ -86,7 +85,6 @@ test("keeps typed and human-queued prompts, skips every injected shape with a re
     "compact-summary": 2,
     empty: 1,
     "peer-message": 1,
-    tagged: 1,
     meta: 1,
     sidechain: 1,
     "queued-non-human": 2,
@@ -99,6 +97,32 @@ test("keeps typed and human-queued prompts, skips every injected shape with a re
   expect(secondRow).toMatchObject({ hasPreviousReply: true, previousMode: "algorithm", regexAtTime: { mode: "minimal" } });
   expect(JSON.stringify(rows)).not.toContain("PRIVATE-REASONING");
   expect(queuedRow).toMatchObject({ source: "queued", previousMode: "minimal", regexAtTime: null, hasPreviousReply: false });
+});
+
+test("human prompts that mention or open with tags are kept", () => {
+  const entries = [
+    typed("Explain how <teammate-message> is parsed"),
+    typed("<request>Review the parser</request>"),
+  ];
+
+  const { rows } = extractRouterCorpusTranscript(jsonl(entries), { project: "p", sessionId: "s" });
+
+  expect(rows.map((row) => row.prompt)).toEqual(["Explain how <teammate-message> is parsed", "<request>Review the parser</request>"]);
+});
+
+test("queued commands obey the same entry-level exclusions as typed prompts", () => {
+  const human = { commandMode: "prompt", origin: { kind: "human" } };
+  const entries = [
+    queued("kept", human),
+    { ...queued("meta entry", human), isMeta: true },
+    { ...queued("sidechain entry", human), isSidechain: true },
+  ];
+
+  const { rows, skipped } = extractRouterCorpusTranscript(jsonl(entries), { project: "p", sessionId: "s" });
+
+  expect(rows.map((row) => row.prompt)).toEqual(["kept"]);
+  expect(skipped.meta).toBe(1);
+  expect(skipped.sidechain).toBe(1);
 });
 
 test("prompts from headless sessions, or with no entrypoint recorded, are left out", () => {
