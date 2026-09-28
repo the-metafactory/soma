@@ -166,6 +166,24 @@ test("a replayed prompt still sets the context the next new prompt is built from
   });
 });
 
+test("a prompt the hook did not classify resets the previous mode instead of passing an older one on", () => {
+  const classified = typed("plan the migration");
+  const entries = [
+    classified,
+    modeHook(classified.uuid as string, "ALGORITHM E2"),
+    typed("and the rollback?"),
+    typed("ok go"),
+  ];
+
+  const { rows } = extractRouterCorpusTranscript(jsonl(entries), { project: "p", sessionId: "s" });
+
+  expect(rows.map((row) => [row.prompt, row.previousMode, row.previousEffort])).toEqual([
+    ["plan the migration", null, null],
+    ["and the rollback?", "algorithm", "E2"],
+    ["ok go", null, null],
+  ]);
+});
+
 test("a prompt replayed into a resumed session's transcript is counted once", () => {
   const prompt = typed("fix the flaky test");
   const seen = new Set<string>();
@@ -247,6 +265,21 @@ test("an existing world-readable output file ends up owner-only", async () => {
     expect(((await stat(out)).mode & 0o777).toString(8)).toBe("600");
     expect(await readFile(out, "utf8")).not.toContain("stale");
     expect((await readdir(root)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+});
+
+test("an unreadable project directory fails the run instead of producing a partial corpus", async () => {
+  await withProjects(async (root, projectsDir) => {
+    const out = join(root, "corpus.jsonl");
+    await writeFile(out, "existing corpus\n");
+    const locked = join(projectsDir, "-work-demo");
+    await chmod(locked, 0o000);
+    try {
+      await expect(runSomaCli(["router", "corpus", "--projects-dir", projectsDir, "--out", out])).rejects.toThrow();
+    } finally {
+      await chmod(locked, 0o755);
+    }
+    expect(await readFile(out, "utf8")).toBe("existing corpus\n");
   });
 });
 

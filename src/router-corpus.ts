@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { createPaths } from "./paths";
 
@@ -155,6 +155,32 @@ function tail(text: string, chars: number): string {
   return text.length <= chars ? text : text.slice(text.length - chars);
 }
 
+/**
+ * Map each prompt uuid to the mode hook's decision for it. The hook's context
+ * arrives as an attachment after the prompt it classified; other hooks'
+ * attachments usually sit between the two, so walk the parentUuid chain through
+ * attachments until it reaches the prompt.
+ */
+function indexModesByPrompt(entries: TranscriptEntry[]): Map<string, RouterCorpusClassification> {
+  const byUuid = new Map<string, TranscriptEntry>();
+  for (const entry of entries) {
+    if (typeof entry.uuid === "string") byUuid.set(entry.uuid, entry);
+  }
+  const modeByPrompt = new Map<string, RouterCorpusClassification>();
+  for (const entry of entries) {
+    const attachment = asRecord(entry.attachment);
+    if (entry.type !== "attachment" || attachment?.type !== "hook_additional_context") continue;
+    const mode = parseModeContext(attachment.content);
+    if (!mode) continue;
+    let parent = typeof entry.parentUuid === "string" ? byUuid.get(entry.parentUuid) : undefined;
+    for (let hops = 1; parent?.type === "attachment" && hops < MAX_ATTACHMENT_HOPS; hops += 1) {
+      parent = typeof parent.parentUuid === "string" ? byUuid.get(parent.parentUuid) : undefined;
+    }
+    if (parent?.type === "user" && typeof parent.uuid === "string") modeByPrompt.set(parent.uuid, mode);
+  }
+  return modeByPrompt;
+}
+
 export interface RouterCorpusTranscriptResult {
   rows: RouterCorpusRow[];
   skipped: RouterCorpusSkipCounts;
@@ -183,26 +209,7 @@ export function extractRouterCorpusTranscript(
     }
   }
 
-  // The mode hook's context arrives as an attachment after the prompt it
-  // classified. Other hooks' attachments usually sit between the two, so walk
-  // the parentUuid chain through attachments until it reaches the prompt.
-  const byUuid = new Map<string, TranscriptEntry>();
-  for (const entry of entries) {
-    if (typeof entry.uuid === "string") byUuid.set(entry.uuid, entry);
-  }
-  const modeByPrompt = new Map<string, RouterCorpusClassification>();
-  for (const entry of entries) {
-    const attachment = asRecord(entry.attachment);
-    if (entry.type !== "attachment" || attachment?.type !== "hook_additional_context") continue;
-    const mode = parseModeContext(attachment.content);
-    if (!mode) continue;
-    let parent = typeof entry.parentUuid === "string" ? byUuid.get(entry.parentUuid) : undefined;
-    for (let hops = 1; parent?.type === "attachment" && hops < MAX_ATTACHMENT_HOPS; hops += 1) {
-      parent = typeof parent.parentUuid === "string" ? byUuid.get(parent.parentUuid) : undefined;
-    }
-    if (parent?.type === "user" && typeof parent.uuid === "string") modeByPrompt.set(parent.uuid, mode);
-  }
-
+  const modeByPrompt = indexModesByPrompt(entries);
   const rows: RouterCorpusRow[] = [];
   let reply = "";
   let previousMode: RouterCorpusMode | null = null;
@@ -231,10 +238,10 @@ export function extractRouterCorpusTranscript(
         regexAtTime,
       });
     }
-    if (regexAtTime) {
-      previousMode = regexAtTime.mode;
-      previousEffort = regexAtTime.effort ?? null;
-    }
+    // Unknown stays unknown: a prompt the hook did not classify must not pass an
+    // older prompt's decision on as its own.
+    previousMode = regexAtTime?.mode ?? null;
+    previousEffort = regexAtTime?.effort ?? null;
     reply = "";
   };
 
@@ -322,16 +329,21 @@ export async function buildRouterCorpus(options: { projectsDir: string; sample?:
   const candidates: RouterCorpusRow[] = [];
   let transcripts = 0;
 
-  // A missing or unreadable source must fail loudly: an empty result would be
-  // written over the existing corpus as if it were a real extraction.
-  const projects = await readdir(options.projectsDir);
-  for (const project of projects.sort()) {
+  // A missing or unreadable source, at any level, must fail loudly: an empty or
+  // partial result would be written over the existing corpus as if it were a
+  // complete extraction.
+  const projects = (await readdir(options.projectsDir, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  for (const project of projects) {
     const projectDir = join(options.projectsDir, project);
-    if (!(await stat(projectDir).catch(() => undefined))?.isDirectory()) continue;
-    const files = (await readdir(projectDir).catch(() => [] as string[])).filter((name) => name.endsWith(".jsonl")).sort();
+    const files = (await readdir(projectDir, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map((entry) => entry.name)
+      .sort();
     for (const file of files) {
       const path = join(projectDir, file);
-      if (!(await stat(path).catch(() => undefined))?.isFile()) continue;
       transcripts += 1;
       const result = extractRouterCorpusTranscript(await readFile(path, "utf8"), { project, sessionId: basename(file, ".jsonl") }, seenIds);
       candidates.push(...result.rows);
