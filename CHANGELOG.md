@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decision per caller, and `soma judge registry` lists the callers. The mode
   router starts in shadow. Step 0 of
   `Plans/2026-09-28-front-door-router-design.md`.
+- `soma router corpus` extracts the principal's typed Claude Code prompts, each
+  with the last 800 characters of visible reply before it, into a private,
+  seeded sample in the STATE dir. It prints counts only, never prompts. It
+  keeps only interactive sessions, and it drops tool results, hook, command
+  and task output, compaction summaries, peer-agent messages, subagent
+  transcripts and replayed duplicates. Step 2 of
+  `Plans/2026-09-28-front-door-router-design.md`.
 
 ## [0.20.4] - 2026-09-27
 
