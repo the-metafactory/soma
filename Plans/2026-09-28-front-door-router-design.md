@@ -146,8 +146,8 @@ UserPromptSubmit / pi input hook
 | | Laya | Jev |
 |---|---|---|
 | Where it runs | Locally. Python package `laya`. `laya-serve` speaks Jev's wire protocol (`POST /v1/systemone`), so one client can call either. `laya-ts` 0.1.0 exists but isn't on npm. There are no ONNX files on the Hub; one Python export is needed. | Hosted API, paid |
-| Checkpoints | english (ModernBERT-large, 421M) · multilingual (mmBERT-base, 322M, 100+ languages) · typed-decisions (fine-tuned, 421M). About 614–803 MB each. Default text budget ~768 tokens, raisable via `max_len`. | `jev-latest`, ~64k context |
-| Latency | **Measured on laptop CPU**, per 1-question call: multilingual **49 ms**, english and typed-decisions ~111 ms. Vendor T4 GPU figures: ~33–40 ms per question, ~72 ms for a batch of 10. | ~300 ms (vendor figure); ~1.1 s measured end-to-end from a laptop in another project |
+| Checkpoints | english (ModernBERT-large, 421M) · multilingual (mmBERT-base, 322M, 100+ languages) · typed-decisions (fine-tuned, 421M). About 614–803 MB each on disk. Default `max_len` 1,024 tokens per question sequence (0.3.21), raisable per call. | `jev-latest`, ~64k context |
+| Latency | **Measured on laptop CPU**, per 1-question call: multilingual **49 ms**, english and typed-decisions ~111 ms. A 16-question call is far slower: see §6.2. Vendor T4 GPU figures: ~33–40 ms per question, ~72 ms for a batch of 10. | ~300 ms (vendor figure); ~1.1 s measured end-to-end from a laptop in another project |
 | Zero-shot quality | **Base checkpoints are near chance.** Multilingual scored 0.352 on typed-decisions, where random is 0.318 and majority 0.461. The 0.766 figure comes from a checkpoint trained on that benchmark's own split. README: "a fast base to specialise, not a zero-shot decision engine". | strong zero-shot |
 | Weak spots | Negation (issue #377: a negated request picked the action at p=0.9998). Noul answers follow their label wording (#156). Score position bias (#131). `laya-multilingual` ships without fitted temperatures. Its `confidence` formula differs from Jev's, so Jev thresholds don't transfer. About 20 options per choice at most. | — |
 
@@ -167,13 +167,13 @@ What this means for the router:
   - **A — questions plus combiner:** Laya answers the 16 nouls, and the TypeScript logistic regression combines them. This follows L1.
   - **B — direct head:** Laya is fine-tuned straight onto the `mode` and `effort` labels as choice questions. Fewer moving parts. It competes with A on equal terms.
   - **C — embeddings plus head, no Python:** `bge-m3` embeddings, already served by local Ollama, of `{prompt, reply tail}`, fed to a TypeScript logistic regression. It needs no Laya and no Python. It's the cheapest local arm and the bar Laya has to clear.
-- **Use the multilingual checkpoint.** Prompts mix German and English, and it was the fastest in the smoke test (49 ms). The state gets tight in a ~768-token default budget: truncate the prompt head and tail, cap the reply tail at ~600 characters, and measure how much the 16 question texts cost.
-- **Keep the model resident.** 650–800 MB of weights can't load per prompt inside a hook. `laya-serve` runs as a launchd service on localhost, and the hook makes one HTTP call. If the service is down or slow, the regex decides.
+- **Use the multilingual checkpoint.** Prompts mix German and English, and it was the fastest in the smoke test (49 ms). With the reply tail capped at ~600 characters, 99.5% of real states fit the 824-token per-question budget (§6.2). Truncate the prompt head and tail for the rest.
+- **Keep the model resident.** The model can't load per prompt inside a hook (1.4 GB resident on CPU, §6.2). `laya-serve` runs as a launchd service on localhost, and the hook makes one HTTP call. If the service is down or slow, the regex decides.
 - **Language boundary.** Laya is Python, which is approved (Q5). The runtime is `laya-serve` (D6). The TypeScript path is kept as a later swap.
   - The in-repo `laya-ts` (0.1.0, not on npm) exports a split ONNX model with `laya-ts/scripts/export_onnx.py` and checks it against PyTorch within 1e-4.
   - `onnxruntime-node`'s postinstall was blocked in an earlier Bun trial, so that path is unconfirmed.
 - **Registry "measured on".** The row records the Laya checkpoint hash plus the calibration temperature. A new fine-tune drops the caller back to shadow.
-- **`laya-serve` doesn't log bodies** (as of 0.3.20), and a 500 error returns "inference failed" with no exception text. The Soma ledger is the only record, and the client must treat a 500 like a timeout: fall back to the regex.
+- **`laya-serve` doesn't log bodies.** As of 0.3.21 it logs the traceback server-side, but a 500 still returns only "inference failed" to the client. The Soma ledger is the only record of the request, and the client must treat a 500 like a timeout: fall back to the regex.
 
 **A Glance-shaped primitive, not a one-off (Q3: `soma judge`).** The registry and ledger are generic (`soma judge`), and the router is the first caller. Later candidates:
 - feedback-candidate detection (the currently dormant capture pipeline)
@@ -181,6 +181,61 @@ What this means for the router:
 - the "is this a correction?" signal the harness objective function wants
 
 **Latency.** The hook already spawns `bun` on every prompt, so a subprocess cost is paid regardless. A localhost Laya call adds model time, a Jev call adds network time. The advice line should carry `latency_ms` so the cost is measured, not guessed. If the call exceeds the timeout, the regex decides.
+
+### 6.2 Spike 3a results (2026-09-28)
+
+Setup: laptop M1 Pro (8 performance cores), `laya[serve]` 0.3.21 in an isolated venv outside the Soma tree, torch 2.14, `multilingual` checkpoint at HF revision `55cf4c4ebb4e`, base weights (not fine-tuned), loaded offline from the local cache. `laya-serve` bound to 127.0.0.1, one checkpoint resident. The client is a Bun `fetch` with a timeout. Every figure is warm, measured after one discarded warm-up call per shape, with n=30–40 sequential calls. Latency states are synthetic. Token fit uses the real corpus, tokenized locally, and only aggregates were printed.
+
+**How a call is computed.** Laya builds one sequence per question (state plus question head) and runs them all in one batched forward pass. So a call costs about *questions × state length*. The 16-noul call re-encodes the state 16 times.
+
+**Latency, 16 nouls (arm A as specified in §5):**
+
+| State (synthetic) | Input tokens | MPS p50 / p95 | CPU (8 threads) p50 / p95 |
+|---|---|---|---|
+| "do it" + 600-char reply tail | 3,074 | 334 / 339 ms | 734 / 903 ms |
+| one-line DE request + tail | 3,442 | 383 / 560 ms | 805 / 1,242 ms |
+| ~8-sentence prompt + tail | 7,106 | 780 / 833 ms | over the 2 s client timeout |
+
+**Latency, smaller shapes (CPU, 8 threads):**
+
+| Shape | Input tokens | p50 / p95 |
+|---|---|---|
+| Arm B: 2 choice questions (`mode`, `effort`) | 447–493 | 152–157 / 175–179 ms |
+| 4 context nouls (C1–C4) | 856–948 | 220–257 / 236–388 ms |
+
+**Arm C for comparison (D5):**
+- Setup: local Ollama `bge-m3` (digest `790764642607`), one `/api/embed` call carrying the prompt and a 600-character reply tail, n=30 warm.
+- Latency: p50 70 ms, p95 91 ms. The combiner adds one dot product per class, which is negligible.
+- Cold: the first call after Ollama unloads the model takes 1.08 s. Ollama unloads an idle model after 5 minutes by default. A runtime arm C therefore needs a pinned `keep_alive`, or its first prompt after a pause falls back to the regex.
+- Resident: 673 MB on the GPU while loaded.
+
+**Resident memory:**
+- CPU: 1.4 GB RSS after warm-up. That's about double the earlier 650–800 MB estimate, which was based on weight size.
+- MPS: `ps` shows 222 MB, but the weights live in unified GPU memory that RSS doesn't count. Not measured.
+
+**Token fit (1,000 real corpus rows, state = prompt + last 600 reply characters + previous mode and effort):**
+- Prompt tokens: p50 10, p95 106, p99 427, max 6,153.
+- State tokens: p50 200, p95 295, p99 575.
+- The per-question state budget is `max_len − head_max_len − 8` = 1024 − 192 − 8 = 824 tokens. The default `max_len` is 1,024 in 0.3.21. The earlier ~768 assumption was wrong.
+- 5 of 1,000 states (0.5%) exceed the budget, and 4 of those because of the prompt alone.
+- The synthetic "do it" state (~190 tokens per question) sits at the real median, so the first latency row is the typical case.
+
+**Negation probe (base checkpoint, so noise until fine-tuned):**
+- "Don't change anything, just explain…": W1 = 0.304, W8 = 0.401.
+- "Change the lease so it survives restarts": W1 = 0.142, W8 = 0.076.
+- W1 ranks the negated prompt *above* the real change request, which is the #377 failure shape. This is recorded as a check to rerun after fine-tuning, not as a finding.
+
+**Verdict against the ≤300 ms p95 budget:**
+- **No-go: arm A as specified (16 nouls, synchronous).** It misses on both devices even at the median state (MPS p95 339 ms, CPU p95 903 ms). MPS then degrades with prompt length.
+- **Go: arm B's shape.** Two choice questions run at p95 ≤179 ms on CPU, with headroom.
+- **Go: arm C** (p95 91 ms warm), provided `keep_alive` keeps the model resident.
+- **Borderline: a reduced arm A** (about 4 nouls). CPU p95 is 236–388 ms.
+- **Measured, so nothing to estimate here:** R9's memory figure is now 1.4 GB on CPU.
+
+What this leaves open for the principal (see D7):
+- Keep arm A as an evaluation arm that runs off the hot path. In shadow, the pick is only advice and can be computed after the prompt has been answered, so the latency budget applies only to enforce.
+- Or cut arm A to the questions that pay for themselves, once step 5 shows which ones do.
+- Separately, whether 1.4 GB always-resident is acceptable, which is D6's revisit trigger.
 
 ## 7. Build order
 
@@ -209,6 +264,7 @@ Each step has its own exit check.
    - Measure warm latency for one call carrying 16 nouls, resident memory, and the token cost of the state plus question texts against `max_len`.
    - Probe a negated prompt ("don't change anything, just explain") against W1.
    - *Exit:* numbers recorded; go/no-go against a p95 budget of ≤300 ms.
+   - **Done 2026-09-28, see §6.2.** Arm A as specified is a no-go, and arm B's shape is a go. D7 is open.
 4. **Questions, fine-tune and combiner.**
    - Fine-tune the multilingual Laya checkpoint only on the training folds, so each fold is scored by a model that never saw it. Calibrate its temperature on a held-out slice.
    - Arm A: run the §5 questions through the fine-tuned Laya, then train a deterministic logistic regression in TypeScript on its answers.
@@ -246,9 +302,9 @@ Each step has its own exit check.
 - **R5: Corpus hygiene.** Hook output and subagent chatter poison the labels. Step 2 needs a check that samples its output and inspects it.
 - **R6: Per-person fit.** Weights trained on one principal's prompts don't transfer. Other homes need either a generic default set or per-home retraining. A fine-tuned Laya checkpoint makes this sharper: it is a per-home artifact, never a shipped default.
 - **R7: Laya is new and unreplicated.** The repo was created 2026-09-18, it's at version 0.x, and it had 26 open issues when read on 2026-09-25. Its benchmark numbers are its own, and the Jev comparisons in its README are third-party, not head-to-head. The spike and step 5 are the only numbers that count.
-- **R8: Context window.** The default text budget is ~768 tokens, versus Jev's ~64k. Long prompts must be truncated, and the question texts themselves use up budget.
+- **R8: Context window.** The default budget is 1,024 tokens per question sequence, versus Jev's ~64k. Only 0.5% of real states exceed it (§6.2), but each question re-encodes the state, so cost grows with questions × state length.
 - **R11: Known Laya failure modes.** Negation (#377), label-wording sensitivity (#156), and score position bias (#131). Mitigations: positive question wording, nouls rather than scores, and the effort head trained as a choice rather than a score.
-- **R9: Python and a resident service.** This brings a second language and a long-running local service (~650–800 MB RAM) into a Bun-only stack. It needs a launchd unit, a health check, and a `soma doctor` probe. It's contained by the regex fallback, never by blocking a prompt.
+- **R9: Python and a resident service.** This brings a second language and a long-running local service (1.4 GB RSS on CPU, measured in §6.2) into a Bun-only stack. It needs a launchd unit, a health check, and a `soma doctor` probe. It's contained by the regex fallback, never by blocking a prompt.
 - **R10: Probability quality.** Raw Laya probabilities are overconfident. Temperature calibration is part of the fine-tune step, and the registry threshold is set on calibrated outputs only.
 
 ## 9. Open questions for the principal
@@ -278,3 +334,7 @@ All answered 2026-09-28.
     - the spike shows PyTorch's resident memory is too high for an always-on service, or
     - loading the model inside pi-dev's long-lived process becomes worth having.
   - **Before any such swap:** confirm that `onnxruntime-node` installs and loads under Bun (possibly via `trustedDependencies`).
+- **D7 (proposed after spike 3a, open):** Arm A's 16 nouls miss the latency budget on this laptop (§6.2).
+  - Arm A stays an evaluation arm, run offline or after the answer, never inside the hook's timeout.
+  - Enforce considers only shapes measured under budget: arm B (p95 ≤179 ms) and arm C (p95 91 ms). A reduced arm A of about 4 nouls is borderline. LocalBackend isn't built yet, so it has no latency figure.
+  - In shadow, a Laya call may run after the answer, because shadow output is advice only.
