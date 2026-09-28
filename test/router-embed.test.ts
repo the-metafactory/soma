@@ -44,6 +44,7 @@ test("only loopback embedding hosts are accepted", () => {
     expect(() => assertLoopbackHost(host)).toThrow("must be loopback");
   }
   expect(() => assertLoopbackHost("not a url")).toThrow("not a URL");
+  expect(() => assertLoopbackHost("https://127.0.0.1:11434")).toThrow("must use http:");
 });
 
 test("a remote host is refused before any request is made", async () => {
@@ -304,6 +305,44 @@ test("soma router train refuses when labelled rows have no embeddings, and needs
       runSomaCli(["router", "train", "--soma-home", somaHome, "--corpus", corpus, "--labels", labelsPath, "--axis", "effort", "--host", host]),
     ).rejects.toThrow('effort label "" is not one of E1');
     await expect(runSomaCli(["router", "embed", "--labels", labelsPath])).rejects.toThrow("Unknown option: --labels");
+  } finally {
+    await rm(somaHome, { recursive: true, force: true });
+  }
+});
+
+test("a malformed corpus, label or cache line is reported by line number, never by its content", async () => {
+  const somaHome = await mkdtemp(join(tmpdir(), "soma-router-cli-"));
+  try {
+    const marker = "PRIVATEMARKERXYZ";
+    const corpus = join(somaHome, "corpus.jsonl");
+    const labelsPath = join(somaHome, "labels.jsonl");
+    const errorOf = async (run: Promise<unknown>): Promise<string> => {
+      try {
+        await run;
+        return "no error";
+      } catch (error) {
+        return String(error);
+      }
+    };
+    const train = (): Promise<string> => runSomaCli(["router", "train", "--soma-home", somaHome, "--corpus", corpus, "--labels", labelsPath, "--host", host]);
+
+    await writeFile(corpus, `${JSON.stringify(row({}))}\n{"prompt":${marker}}\n`);
+    await writeFile(labelsPath, JSON.stringify({ id: "u-1", mode: "native" }) + "\n");
+    const corpusError = await errorOf(train());
+    expect(corpusError).toContain("Router corpus line 2 is not valid JSON");
+    expect(corpusError).not.toContain(marker);
+
+    await writeFile(corpus, JSON.stringify(row({})) + "\n");
+    await writeFile(labelsPath, `{"id":"u-1","mode":${marker}}\n`);
+    const labelError = await errorOf(train());
+    expect(labelError).toContain("Labels line 1 is not valid JSON");
+    expect(labelError).not.toContain(marker);
+
+    const cachePath = join(somaHome, "cache.jsonl");
+    await writeFile(cachePath, `{"k":${marker}}\n`);
+    const cacheError = await errorOf(readEmbeddingCache(cachePath));
+    expect(cacheError).toContain("Embedding cache line 1 is not valid JSON");
+    expect(cacheError).not.toContain(marker);
   } finally {
     await rm(somaHome, { recursive: true, force: true });
   }

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { createPaths } from "./paths";
-import { writePrivateJsonl, type RouterCorpusRow } from "./router-corpus";
+import { parsePrivateJsonl, writePrivateJsonl, type RouterCorpusRow } from "./router-corpus";
 
 /**
  * Arm C of the front-door router: local embeddings of the prompt and of the
@@ -35,6 +35,10 @@ export function assertLoopbackHost(url: string): URL {
   }
   if (!LOOPBACK_HOSTS.has(parsed.hostname)) {
     throw new Error(`Embedding host must be loopback (127.0.0.1, localhost or ::1), got ${parsed.hostname}. Prompts must not leave the machine.`);
+  }
+  if (parsed.protocol !== "http:") {
+    // The transport is plain HTTP over a socket; an https: host would get cleartext, not TLS.
+    throw new Error(`Embedding host must use http: (loopback needs no TLS), got ${parsed.protocol}`);
   }
   return parsed;
 }
@@ -205,11 +209,7 @@ export async function readEmbeddingCache(path: string): Promise<Map<string, numb
     throw error;
   }
   const cache = new Map<string, number[]>();
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    const parsed = JSON.parse(line) as CacheLine;
-    cache.set(parsed.k, decodeVector(parsed.f32));
-  }
+  for (const parsed of parsePrivateJsonl(raw, "Embedding cache") as CacheLine[]) cache.set(parsed.k, decodeVector(parsed.f32));
   return cache;
 }
 

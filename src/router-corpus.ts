@@ -370,9 +370,25 @@ export function routerCorpusPath(somaHome: string): string {
   return createPaths(somaHome).state("router", "corpus.jsonl");
 }
 
+/**
+ * Parse a private JSONL file. A parse error names only the file and line: the
+ * JSON parser's own message quotes the offending text, which here is prompt text.
+ */
+export function parsePrivateJsonl(raw: string, what: string): unknown[] {
+  const rows: unknown[] = [];
+  raw.split("\n").forEach((line, index) => {
+    if (!line.trim()) return;
+    try {
+      rows.push(JSON.parse(line));
+    } catch {
+      throw new Error(`${what} line ${index + 1} is not valid JSON.`);
+    }
+  });
+  return rows;
+}
+
 export async function readRouterCorpus(path: string): Promise<RouterCorpusRow[]> {
-  const raw = await readFile(path, "utf8");
-  return raw.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line) as RouterCorpusRow);
+  return parsePrivateJsonl(await readFile(path, "utf8"), "Router corpus") as RouterCorpusRow[];
 }
 
 export async function writeRouterCorpus(path: string, rows: RouterCorpusRow[]): Promise<void> {

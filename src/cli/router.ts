@@ -8,6 +8,7 @@ import {
   ROUTER_CORPUS_DEFAULT_SEED,
   ROUTER_CORPUS_SKIP_REASONS,
   buildRouterCorpus,
+  parsePrivateJsonl,
   readRouterCorpus,
   routerCorpusPath,
   writePrivateJsonl,
@@ -236,9 +237,7 @@ interface LabelLine {
 
 async function readLabels(path: string): Promise<Map<string, LabelLine>> {
   const labels = new Map<string, LabelLine>();
-  for (const line of (await readFile(path, "utf8")).split("\n")) {
-    if (!line.trim()) continue;
-    const parsed = JSON.parse(line) as LabelLine;
+  for (const parsed of parsePrivateJsonl(await readFile(path, "utf8"), "Labels") as LabelLine[]) {
     if (typeof parsed.id !== "string") throw new Error("Every label line needs a string id.");
     labels.set(parsed.id, parsed);
   }
