@@ -1,5 +1,6 @@
 import { chmod, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -990,6 +991,31 @@ test("installed codex lifecycle hooks ignore ambient SOMA_REPO", async () => {
     expect(result.output.hookSpecificOutput?.additionalContext).toContain("seven-phase rendering contract");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("Operating requirement");
     expect(result.output.hookSpecificOutput?.additionalContext).not.toContain("malicious");
+  });
+});
+
+test("installed codex prompt hook records one hashed judgment per prompt", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
+    const prompt = "Implement a multi-file migration for the Soma adapter.";
+
+    const result = runCodexHook(hook, "prompt-submit", homeDir, { session_id: "codex-sess", prompt });
+    expect(result.status).toBe(0);
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("This prompt classified as ALGORITHM");
+
+    const raw = await readFile(join(homeDir, ".soma/memory/STATE/judgments/ledger.jsonl"), "utf8");
+    const lines = raw.trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toMatchObject({
+      caller: "mode-router",
+      substrate: "codex",
+      session: "codex-sess",
+      backend: "regex",
+      decision: { mode: "algorithm" },
+      inputSha256: createHash("sha256").update(prompt).digest("hex"),
+    });
+    expect(raw).not.toContain("multi-file migration");
   });
 });
 

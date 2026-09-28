@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Codex prompt hook and the pi.dev extension now record every mode
+  classification in the `soma judge` ledger, like the Claude Code hook: one
+  line per prompt, holding a SHA-256 of the prompt and never the prompt. The
+  pi.dev extension appends in-process and fire-and-forget, so its message
+  path stays subprocess-free.
 - `soma judge`, a ledger and caller registry for fuzzy judgments. `soma algorithm
   classify --record` appends one line per classification, holding a SHA-256 of
   the prompt and never the prompt itself. The Claude Code mode-classifier hook
