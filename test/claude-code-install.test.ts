@@ -5,6 +5,7 @@
  */
 import { lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -349,6 +350,31 @@ test("statusline feed: the mode classifier hook writes a per-session mode+effort
     expect(state.mode).toBe("algorithm");
     expect(state.effort).toBe("E3");
     expect(Number.isNaN(Date.parse(state.updatedAt))).toBe(false);
+  });
+});
+
+test("judge ledger: the mode classifier hook records one hashed judgment per prompt", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const prompt = "Implement a multi-file migration for the adapter";
+
+    const output = runClaudeModeClassifierHook(homeDir, { session_id: "ledger-sess", prompt });
+    expect(output.hookSpecificOutput?.additionalContext).toContain("Soma MODE: ALGORITHM E3");
+
+    const raw = await readFile(join(homeDir, ".soma/memory/STATE/judgments/ledger.jsonl"), "utf8");
+    const lines = raw.trim().split("\n");
+    expect(lines).toHaveLength(1);
+    const record = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(record).toMatchObject({
+      caller: "mode-router",
+      substrate: "claude-code",
+      session: "ledger-sess",
+      backend: "regex",
+      decision: { mode: "algorithm", effort: "E3" },
+      inputSha256: createHash("sha256").update(prompt).digest("hex"),
+    });
+    // The ledger holds a hash of the prompt, never the prompt.
+    expect(raw).not.toContain("multi-file migration");
   });
 });
 

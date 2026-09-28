@@ -36,8 +36,20 @@ function promptFromInput(input) {
   return "";
 }
 
-function runSomaClassification(config, prompt) {
-  return spawnSync(config.bunPath, ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json"], {
+// `--record` appends one `soma judge` ledger line (a prompt hash, never the
+// prompt) so the classifier's decisions can be measured before a learned router
+// replaces it. The CLI swallows a failed write, so it never changes the
+// classification. A write that stalls delays it; past the subprocess timeout
+// below this hook fails open, as it does for any classifier failure.
+function classifyArgs(config, prompt, sessionId) {
+  const args = ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json", "--record", "--substrate", "claude-code"];
+  if (typeof config.somaHome === "string" && config.somaHome.length > 0) args.push("--soma-home", config.somaHome);
+  if (typeof sessionId === "string" && sessionId.length > 0) args.push("--session", sessionId);
+  return args;
+}
+
+function runSomaClassification(config, prompt, sessionId) {
+  return spawnSync(config.bunPath, classifyArgs(config, prompt, sessionId), {
     cwd: config.trustedSomaRepo,
     encoding: "utf8",
     timeout: 3000,
@@ -139,13 +151,13 @@ function main() {
     emitFailOpen(config.error || "Invalid mode classifier config.");
   }
   const input = readHookInput();
-  const result = runSomaClassification(config, promptFromInput(input));
+  const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
+  const result = runSomaClassification(config, promptFromInput(input), sessionId);
   if (result.status !== 0) {
     emitFailOpen(result.stderr || result.stdout || "");
   }
   const classification = parseClassification(result.stdout);
   // Feed the per-session statusline state (best-effort; never blocks output).
-  const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
   writeStatuslineModeState(config, sessionId, classification);
   emitAndExit({
     continue: true,

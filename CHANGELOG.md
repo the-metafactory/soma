@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `soma judge`, a ledger and caller registry for fuzzy judgments. `soma algorithm
+  classify --record` appends one line per classification, holding a SHA-256 of
+  the prompt and never the prompt itself. The Claude Code mode-classifier hook
+  now records every prompt. `soma judge stats` reports the share of each
+  decision per caller, and `soma judge registry` lists the callers. The mode
+  router starts in shadow. Step 0 of
+  `Plans/2026-09-28-front-door-router-design.md`.
+
 ## [0.20.4] - 2026-09-27
 
 ### Documentation
