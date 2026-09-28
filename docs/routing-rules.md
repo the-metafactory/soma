@@ -11,6 +11,11 @@ Agreed with the principal on 2026-09-28 (D8 in `Plans/2026-09-28-front-door-rout
   - **native**: a direct answer or change, with no harness.
   - **Algorithm**: a harness run with criteria and verification, at an effort tier E1–E5.
 - **One-probe test**: can "done" be stated in one line and checked by one probe (a test run, a grep, a read)?
+- **Effort tier** (Algorithm only), by what an unnoticed error would cost:
+  - **E1**: an error shows at once and is cheap to undo.
+  - **E2**: an error surfaces later, in tests or review, and costs rework.
+  - **E3**: an error could ship unnoticed and cost real time or trust.
+  - **E4**: see rule 9. **E5**: see rule 8.
 - **Follow-up**: a prompt that answers my previous reply by approving, correcting or pushing back.
 - **Lane**: where the work runs.
   - **inline**: in this conversation.
