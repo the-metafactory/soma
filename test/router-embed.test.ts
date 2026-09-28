@@ -8,6 +8,7 @@ import type { RouterCorpusRow } from "../src/router-corpus";
 import {
   type FetchLike,
   assertLoopbackHost,
+  assertNoProxyFor,
   connectOllamaEmbedder,
   fillEmbeddingCache,
   readEmbeddingCache,
@@ -97,6 +98,51 @@ test("a model re-pulled while embedding is refused, so its vectors are never fil
   const cache = new Map<string, number[]>();
   await expect(fillEmbeddingCache(embedder, cache, ["a"])).rejects.toThrow("changed while embedding");
   expect(cache.size).toBe(0);
+});
+
+test("a configured proxy is refused unless NO_PROXY exempts this exact host or everything", () => {
+  const url = new URL("http://127.0.0.1:11434");
+  expect(() => assertNoProxyFor(url, {})).not.toThrow();
+  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128" })).toThrow("HTTP_PROXY is set");
+  expect(() => assertNoProxyFor(url, { https_proxy: "http://proxy.example:3128", NO_PROXY: "localhost" })).toThrow("Add 127.0.0.1 to NO_PROXY");
+  expect(() => assertNoProxyFor(url, { ALL_PROXY: "socks5://proxy.example:1080" })).toThrow("ALL_PROXY");
+  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128", NO_PROXY: "example.org, 127.0.0.1" })).not.toThrow();
+  expect(() => assertNoProxyFor(url, { http_proxy: "http://proxy.example:3128", no_proxy: "*" })).not.toThrow();
+  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "  " })).not.toThrow();
+});
+
+test("with a real env proxy, the prompt reaches neither the proxy nor Ollama unless NO_PROXY exempts the host", async () => {
+  const proxyHits: string[] = [];
+  const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => (proxyHits.push(await request.text()), new Response("proxied", { status: 502 })) });
+  const ollama = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: async (request) =>
+      new URL(request.url).pathname === "/api/tags"
+        ? Response.json({ models: [{ name: "bge-m3:latest", digest: DIGEST }] })
+        : Response.json({ embeddings: ((await request.json()) as { input: string[] }).input.map(() => [0.5]) }),
+  });
+  const script = `import { connectOllamaEmbedder } from ${JSON.stringify(join(import.meta.dir, "..", "src", "router-embed.ts"))};
+try { const e = await connectOllamaEmbedder({ host: "http://127.0.0.1:${ollama.port}" }); console.log((await e.embed(["PRIVATE"])).length); }
+catch (error) { console.log("refused: " + error.message); }`;
+  const run = async (noProxy: string): Promise<string> => {
+    const child = Bun.spawn(["bun", "-e", script], {
+      env: { ...process.env, HTTP_PROXY: `http://127.0.0.1:${proxy.port}`, http_proxy: `http://127.0.0.1:${proxy.port}`, NO_PROXY: noProxy, no_proxy: noProxy },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = (await new Response(child.stdout).text()).trim();
+    await child.exited;
+    return out;
+  };
+  try {
+    expect(await run("")).toStartWith("refused: HTTP_PROXY, http_proxy is set");
+    expect(await run("127.0.0.1")).toBe("1");
+    expect(proxyHits).toHaveLength(0);
+  } finally {
+    await proxy.stop(true);
+    await ollama.stop(true);
+  }
 });
 
 test("a model Ollama does not have is a clear error", async () => {

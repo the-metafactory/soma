@@ -38,6 +38,29 @@ export function assertLoopbackHost(url: string): URL {
   return parsed;
 }
 
+const PROXY_VARIABLES = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"];
+
+/**
+ * Bun's `fetch` (and its `node:http`) send even a loopback request through an
+ * environment proxy, and read `NO_PROXY` only at startup. So refuse whenever a
+ * proxy is configured, unless `NO_PROXY` exempts this exact host or everything
+ * (`*`) — the forms verified to keep the request local. `localhost` in
+ * `NO_PROXY` does not cover `127.0.0.1`, so no looser matching is attempted.
+ */
+export function assertNoProxyFor(url: URL, env: Record<string, string | undefined> = process.env): void {
+  const configured = PROXY_VARIABLES.filter((name) => env[name]?.trim());
+  if (configured.length === 0) return;
+  const exempt = [env.NO_PROXY, env.no_proxy]
+    .flatMap((value) => (value ?? "").split(","))
+    .map((entry) => entry.trim())
+    .some((entry) => entry === "*" || entry === url.hostname);
+  if (!exempt) {
+    throw new Error(
+      `${configured.join(", ")} is set, and Bun would send the prompts through that proxy. Add ${url.hostname} to NO_PROXY, or unset the proxy for this command.`,
+    );
+  }
+}
+
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export interface OllamaEmbedder {
@@ -47,8 +70,11 @@ export interface OllamaEmbedder {
   embed(texts: string[]): Promise<number[][]>;
 }
 
-export async function connectOllamaEmbedder(options: { host?: string; model?: string; fetch?: FetchLike } = {}): Promise<OllamaEmbedder> {
+export async function connectOllamaEmbedder(
+  options: { host?: string; model?: string; fetch?: FetchLike; env?: Record<string, string | undefined> } = {},
+): Promise<OllamaEmbedder> {
   const base = assertLoopbackHost(options.host ?? ROUTER_EMBED_DEFAULT_HOST);
+  assertNoProxyFor(base, options.env);
   const model = options.model ?? ROUTER_EMBED_DEFAULT_MODEL;
   const doFetch = options.fetch ?? fetch;
   const wanted = model.includes(":") ? model : `${model}:latest`;
