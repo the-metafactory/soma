@@ -107,8 +107,15 @@ function lifecycleFailureDetail(result) {
   return "unknown child failure";
 }
 
-function runSomaClassification(config, prompt) {
-  return runSomaCommand(config, ["run", "soma", "algorithm", "classify", "--prompt", prompt || "", "--json"]);
+// `--record` appends one `soma judge` ledger line (a prompt hash, never the
+// prompt), as the Claude Code mode hook does. The CLI swallows a failed write,
+// so it never changes the classification; a write that stalls delays it until
+// the subprocess timeout, after which this hook reports the failure as usual.
+function runSomaClassification(config, prompt, sessionId) {
+  const args = ["run", "soma", "algorithm", "classify", "--prompt", prompt || "", "--json", "--record", "--substrate", "codex"];
+  if (typeof config.somaHome === "string" && config.somaHome.length > 0) args.push("--soma-home", config.somaHome);
+  if (typeof sessionId === "string" && sessionId.trim().length > 0) args.push("--session", sessionId);
+  return runSomaCommand(config, args);
 }
 
 function runSomaPolicyCheck(config, targets, action = "write") {
@@ -386,7 +393,7 @@ function handlePromptSubmit(config, input) {
   }
 
   runSomaFeedbackCapture(config, input.prompt);
-  const result = runSomaClassification(config, input.prompt);
+  const result = runSomaClassification(config, input.prompt, input.session_id);
   if (result.status !== 0) {
     emitAndExit({
       continue: true,

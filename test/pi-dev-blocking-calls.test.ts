@@ -54,7 +54,7 @@ test("before_agent_start spawns no subprocess — the message path is local only
   expect(body).not.toContain("execFileAsync");
   expect(body).not.toContain("runSomaCommand");
   // Classification is a plain local call now, not a cached value from a prior turn.
-  expect(body).toContain("renderPromptClassificationContext(prompt)");
+  expect(body).toContain("renderPromptClassificationContext(prompt, ");
   expect(body).toContain("cachedStartupContext");
 });
 
@@ -109,4 +109,61 @@ test("startup context is cached once at session_start and reused", () => {
 
   expect(source).toContain('let cachedStartupContext = "";');
   expect(handlerBody(source, "session_start")).toContain("cachedStartupContext = await refreshStartupContext(sessionId(ctx));");
+});
+
+test("the generated extension records one hashed judgment per prompt, like the CLI", async () => {
+  const { mkdtemp, readFile, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createHash } = await import("node:crypto");
+  const { renderAlgorithmClassifierSource } = await import("../src/adapters/shared/algorithm-classifier-source");
+  const { regexClassifierVersion } = await import("../src/judge");
+
+  const root = await mkdtemp(join(tmpdir(), "soma-pi-judge-"));
+  try {
+    // Emit the real generated code (not the generator) and run the slice that
+    // classifies and records, with the Soma home pointed at a temp dir.
+    const source = extension();
+    const start = source.indexOf("// `soma judge` ledger");
+    const end = source.indexOf("function extractStartupContext");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const module = [
+      'import { createHash } from "node:crypto";',
+      'import { appendFile, mkdir } from "node:fs/promises";',
+      `const SOMA_HOME = ${JSON.stringify(join(root, ".soma"))};`,
+      renderAlgorithmClassifierSource(),
+      source.slice(start, end),
+      "export { renderPromptClassificationContext };",
+    ].join("\n");
+    const file = join(root, "slice.ts");
+    await writeFile(file, module, "utf8");
+    const { renderPromptClassificationContext } = (await import(file)) as { renderPromptClassificationContext: (prompt: string, session?: string) => string };
+
+    const prompt = "tell me a joke about penguins in the alps";
+    expect(renderPromptClassificationContext(prompt, "pi-sess")).toContain("Soma: NATIVE (auto)");
+
+    const ledger = join(root, ".soma/memory/STATE/judgments/ledger.jsonl");
+    let raw = "";
+    for (let attempt = 0; attempt < 50 && raw.length === 0; attempt += 1) {
+      raw = await readFile(ledger, "utf8").catch(() => "");
+      if (raw.length === 0) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const lines = raw.trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toMatchObject({
+      v: 1,
+      caller: "mode-router",
+      substrate: "pi-dev",
+      session: "pi-sess",
+      inputSha256: createHash("sha256").update(prompt).digest("hex"),
+      backend: "regex",
+      backendVersion: regexClassifierVersion(),
+      decision: { mode: "native" },
+      source: "auto",
+    });
+    expect(raw).not.toContain("penguins");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
