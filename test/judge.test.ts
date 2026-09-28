@@ -65,6 +65,30 @@ test("recorded judgments read back and summarize per caller, decision and day", 
   });
 });
 
+test("records with malformed or missing fields are counted as malformed, never as judgments", async () => {
+  await withTempSomaHome(async (somaHome) => {
+    await recordJudgment(somaHome, record());
+    const valid = record() as unknown as Record<string, unknown>;
+    const broken = [
+      { ...valid, decision: [] },
+      { ...valid, decision: {} },
+      { ...valid, decision: { mode: { toString: null } } },
+      { ...valid, decision: { mode: 3 } },
+      { v: 1, ts: valid.ts, caller: "mode-router", decision: { mode: "native" } },
+      { ...valid, latencyMs: "fast" },
+    ];
+    await writeFile(judgeLedgerPath(somaHome), broken.map((line) => JSON.stringify(line)).join("\n") + "\n", { flag: "a" });
+
+    const { records, malformed } = await readJudgments(somaHome);
+    expect(records).toHaveLength(1);
+    expect(malformed).toBe(broken.length);
+
+    const stats = await runSomaCli(["judge", "stats", "--soma-home", somaHome]);
+    expect(stats).toContain(`malformed lines skipped: ${broken.length}`);
+    expect(stats).toContain("mode: native 1 (100%)");
+  });
+});
+
 test("the median latency of an even count averages the two middle values", () => {
   const [stats] = summarizeJudgments([record({ latencyMs: 1 }), record({ latencyMs: 3 })]);
   expect(stats.medianLatencyMs).toBe(2);

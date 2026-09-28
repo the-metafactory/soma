@@ -93,14 +93,29 @@ export async function recordJudgment(somaHome: string, record: JudgmentRecord): 
   }
 }
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && Object.values(value).every((entry) => typeof entry === "string");
+}
+
+/**
+ * A record counts only when every field the statistics read is well-formed.
+ * Anything less is reported as malformed rather than skewing decision shares.
+ */
 function isJudgmentRecord(value: unknown): value is JudgmentRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   return record.v === 1
     && typeof record.ts === "string"
     && typeof record.caller === "string"
-    && typeof record.decision === "object"
-    && record.decision !== null;
+    && typeof record.inputSha256 === "string"
+    && typeof record.backend === "string"
+    && typeof record.backendVersion === "string"
+    && typeof record.latencyMs === "number"
+    && isStringRecord(record.decision)
+    && Object.keys(record.decision).length > 0;
 }
 
 export interface JudgmentFilter {
