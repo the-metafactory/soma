@@ -29,6 +29,11 @@ import { readOption } from "./parse-utils";
 const ROUTER_ACTIONS = ["corpus", "embed", "train"] as const;
 type RouterCliAction = (typeof ROUTER_ACTIONS)[number];
 const ROUTER_AXES = ["mode", "effort"] as const;
+/** The only labels each axis may train on: a typo must fail, not become a class. */
+const ROUTER_AXIS_VALUES: Record<"mode" | "effort", readonly string[]> = {
+  mode: ["minimal", "native", "algorithm"],
+  effort: ["E1", "E2", "E3", "E4", "E5"],
+};
 type RouterAxis = (typeof ROUTER_AXES)[number];
 
 export interface ParsedRouterArgs {
@@ -252,8 +257,11 @@ async function runRouterTrain(options: ParsedRouterArgs["options"]): Promise<str
   const examples: CombinerExample[] = [];
   let unembedded = 0;
   for (const row of rows) {
-    const label = labels.get(row.id)?.[axis];
-    if (typeof label !== "string") continue;
+    const label: unknown = labels.get(row.id)?.[axis];
+    if (label === undefined) continue;
+    if (typeof label !== "string" || !ROUTER_AXIS_VALUES[axis].includes(label)) {
+      throw new Error(`Row ${row.id}: ${axis} label ${JSON.stringify(label)} is not one of ${ROUTER_AXIS_VALUES[axis].join(", ")}.`);
+    }
     const features = routerArmCFeatures(row, cache);
     if (!features) {
       unembedded += 1;

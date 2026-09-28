@@ -8,7 +8,7 @@ import type { RouterCorpusRow } from "../src/router-corpus";
 import {
   type FetchLike,
   assertLoopbackHost,
-  assertNoProxyFor,
+  parseHttpResponse,
   connectOllamaEmbedder,
   fillEmbeddingCache,
   readEmbeddingCache,
@@ -76,7 +76,15 @@ test("a redirect from the loopback host is refused, and the prompt never reaches
   });
   try {
     const embedder = await connectOllamaEmbedder({ host: `http://127.0.0.1:${redirector.port}` });
-    await expect(embedder.embed(["PRIVATE"])).rejects.toThrow();
+    // try/catch, not `expect().rejects`: on Bun 1.3.6 that form segfaults the test
+    // runner for this rejection (reproduced; the equivalent try/catch does not).
+    let error: unknown;
+    try {
+      await embedder.embed(["PRIVATE"]);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(String(error)).toContain("HTTP 307");
     expect(received).toHaveLength(0);
   } finally {
     await redirector.stop(true);
@@ -100,20 +108,19 @@ test("a model re-pulled while embedding is refused, so its vectors are never fil
   expect(cache.size).toBe(0);
 });
 
-test("a configured proxy is refused unless NO_PROXY exempts this exact host or everything", () => {
-  const url = new URL("http://127.0.0.1:11434");
-  expect(() => assertNoProxyFor(url, {})).not.toThrow();
-  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128" })).toThrow("HTTP_PROXY is set");
-  expect(() => assertNoProxyFor(url, { https_proxy: "http://proxy.example:3128", NO_PROXY: "localhost" })).toThrow("Add 127.0.0.1 to NO_PROXY");
-  expect(() => assertNoProxyFor(url, { ALL_PROXY: "socks5://proxy.example:1080" })).toThrow("ALL_PROXY");
-  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128", NO_PROXY: "example.org, 127.0.0.1" })).not.toThrow();
-  expect(() => assertNoProxyFor(url, { http_proxy: "http://proxy.example:3128", no_proxy: "*" })).not.toThrow();
-  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "  " })).not.toThrow();
-  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128", NO_PROXY: "127.0.0.1", no_proxy: "example.org" })).toThrow("Add 127.0.0.1");
-  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128", NO_PROXY: "127.0.0.1", no_proxy: "" })).toThrow("Add 127.0.0.1");
+test("chunked and content-length responses parse; malformed ones are refused", async () => {
+  const chunked = Buffer.from('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n6\r\n{"a":1\r\n1\r\n}\r\n0\r\n\r\n');
+  expect(await parseHttpResponse(chunked).json()).toEqual({ a: 1 });
+  const sized = Buffer.from("HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\n\r\nno-extra");
+  const response = parseHttpResponse(sized);
+  expect(response.status).toBe(404);
+  expect(await response.text()).toBe("no");
+  expect(() => parseHttpResponse(Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\nshort"))).toThrow("truncated");
+  expect(() => parseHttpResponse(Buffer.from("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n"))).toThrow("chunk size");
+  expect(() => parseHttpResponse(Buffer.from("garbage"))).toThrow("header terminator");
 });
 
-test("with a real env proxy, the prompt reaches neither the proxy nor Ollama unless NO_PROXY exempts the host", async () => {
+test("an environment proxy never sees the prompt, whatever NO_PROXY says or when it changes", async () => {
   const proxyHits: string[] = [];
   const proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => (proxyHits.push(await request.text()), new Response("proxied", { status: 502 })) });
   const ollama = Bun.serve({
@@ -124,9 +131,12 @@ test("with a real env proxy, the prompt reaches neither the proxy nor Ollama unl
         ? Response.json({ models: [{ name: "bge-m3:latest", digest: DIGEST }] })
         : Response.json({ embeddings: ((await request.json()) as { input: string[] }).input.map(() => [0.5]) }),
   });
+  // The script also rewrites the proxy exemptions at runtime: Bun fixes them at
+  // startup, which is what defeated a check of the environment (Sage, #727 round 6).
   const script = `import { connectOllamaEmbedder } from ${JSON.stringify(join(import.meta.dir, "..", "src", "router-embed.ts"))};
+process.env.NO_PROXY = "127.0.0.1"; process.env.no_proxy = "127.0.0.1";
 try { const e = await connectOllamaEmbedder({ host: "http://127.0.0.1:${ollama.port}" }); console.log((await e.embed(["PRIVATE"])).length); }
-catch (error) { console.log("refused: " + error.message); }`;
+catch (error) { console.log("failed: " + error.message); }`;
   const run = async (noProxy: string, lowerNoProxy = noProxy): Promise<string> => {
     const child = Bun.spawn(["bun", "-e", script], {
       env: { ...process.env, HTTP_PROXY: `http://127.0.0.1:${proxy.port}`, http_proxy: `http://127.0.0.1:${proxy.port}`, NO_PROXY: noProxy, no_proxy: lowerNoProxy },
@@ -138,11 +148,9 @@ catch (error) { console.log("refused: " + error.message); }`;
     return out;
   };
   try {
-    expect(await run("")).toStartWith("refused: HTTP_PROXY, http_proxy is set");
+    expect(await run("")).toBe("1");
     expect(await run("127.0.0.1")).toBe("1");
-    // Bun prefers no_proxy; an exemption only in NO_PROXY must not count.
-    expect(await run("127.0.0.1", "example.org")).toStartWith("refused:");
-    expect(await run("127.0.0.1", "")).toStartWith("refused:");
+    expect(await run("127.0.0.1", "example.org")).toBe("1");
     expect(proxyHits).toHaveLength(0);
   } finally {
     await proxy.stop(true);
@@ -287,6 +295,14 @@ test("soma router train refuses when labelled rows have no embeddings, and needs
       "Run `soma router embed` first",
     );
     await expect(runSomaCli(["router", "train", "--soma-home", somaHome])).rejects.toThrow("--labels is required");
+    await writeFile(labelsPath, JSON.stringify({ id: "u-1", mode: "natvie" }) + "\n");
+    await expect(runSomaCli(["router", "train", "--soma-home", somaHome, "--corpus", corpus, "--labels", labelsPath, "--host", host])).rejects.toThrow(
+      'Row u-1: mode label "natvie" is not one of minimal, native, algorithm.',
+    );
+    await writeFile(labelsPath, JSON.stringify({ id: "u-1", effort: "" }) + "\n");
+    await expect(
+      runSomaCli(["router", "train", "--soma-home", somaHome, "--corpus", corpus, "--labels", labelsPath, "--axis", "effort", "--host", host]),
+    ).rejects.toThrow('effort label "" is not one of E1');
     await expect(runSomaCli(["router", "embed", "--labels", labelsPath])).rejects.toThrow("Unknown option: --labels");
   } finally {
     await rm(somaHome, { recursive: true, force: true });

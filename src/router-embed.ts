@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { connect } from "node:net";
 import { createPaths } from "./paths";
 import { writePrivateJsonl, type RouterCorpusRow } from "./router-corpus";
 
@@ -38,32 +39,80 @@ export function assertLoopbackHost(url: string): URL {
   return parsed;
 }
 
-const PROXY_VARIABLES = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"];
+export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+const LOOPBACK_TIMEOUT_MS = 120_000;
 
 /**
- * Bun's `fetch` (and its `node:http`) send even a loopback request through an
- * environment proxy, and read `NO_PROXY` only at startup. So refuse whenever a
- * proxy is configured, unless `NO_PROXY` exempts this exact host or everything
- * (`*`) — the forms verified to keep the request local. `localhost` in
- * `NO_PROXY` does not cover `127.0.0.1`, so no looser matching is attempted.
- * Bun prefers `no_proxy` over `NO_PROXY` when both are set; rather than mirror
- * that precedence, every exemption variable that is defined (even empty) must exempt the host.
+ * A minimal HTTP/1.1 client over a raw TCP socket, for loopback hosts only.
+ *
+ * Why not `fetch`: Bun's `fetch` and its `node:http` send even a loopback
+ * request through an environment proxy (`HTTP_PROXY`), and Bun reads the proxy
+ * and `NO_PROXY` settings once at startup, so no check of the environment at
+ * call time can prove where a request will go. A socket connects exactly where
+ * it is told and follows no redirects, which is the whole guarantee R1 needs.
  */
-export function assertNoProxyFor(url: URL, env: Record<string, string | undefined> = process.env): void {
-  const configured = PROXY_VARIABLES.filter((name) => env[name]?.trim());
-  if (configured.length === 0) return;
-  const exemptions = [env.NO_PROXY, env.no_proxy].filter((value): value is string => value !== undefined);
-  const exempts = (value: string): boolean =>
-    value.split(",").map((entry) => entry.trim()).some((entry) => entry === "*" || entry === url.hostname);
-  const exempt = exemptions.length > 0 && exemptions.every(exempts);
-  if (!exempt) {
-    throw new Error(
-      `${configured.join(", ")} is set, and Bun would send the prompts through that proxy. Add ${url.hostname} to NO_PROXY, or unset the proxy for this command.`,
-    );
-  }
-}
+export const loopbackFetch: FetchLike = async (input, init) => {
+  const url = assertLoopbackHost(input);
+  const body = typeof init?.body === "string" ? Buffer.from(init.body) : Buffer.alloc(0);
+  const lines = [
+    `${init?.method ?? "GET"} ${url.pathname}${url.search} HTTP/1.1`,
+    `Host: ${url.host}`,
+    "Connection: close",
+    `Content-Length: ${body.length}`,
+    ...[...new Headers(init?.headers).entries()].map(([name, value]) => `${name}: ${value}`),
+  ];
+  const raw = await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const socket = connect({ host: url.hostname.replace(/^\[|\]$/g, ""), port: Number(url.port || 80) });
+    socket.setTimeout(LOOPBACK_TIMEOUT_MS, () => socket.destroy(new Error(`Loopback request to ${url.host} timed out.`)));
+    socket.on("connect", () => socket.write(Buffer.concat([Buffer.from(`${lines.join("\r\n")}\r\n\r\n`), body])));
+    socket.on("data", (chunk: Buffer) => chunks.push(chunk));
+    socket.on("end", () => {
+      socket.destroy(); // close our side too; a half-open socket outlives the server
+      resolve(Buffer.concat(chunks));
+    });
+    socket.on("error", reject);
+  });
+  return parseHttpResponse(raw);
+};
 
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+/** Parse a complete HTTP/1.1 response (the server has closed the connection). */
+export function parseHttpResponse(raw: Buffer): Response {
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  if (headerEnd < 0) throw new Error("Malformed HTTP response: no header terminator.");
+  const [statusLine, ...headerLines] = raw.subarray(0, headerEnd).toString("latin1").split("\r\n");
+  const status = Number(/^HTTP\/1\.[01] (\d{3})/.exec(statusLine)?.[1]);
+  if (!Number.isInteger(status)) throw new Error("Malformed HTTP response: bad status line.");
+  const headers = new Headers();
+  for (const line of headerLines) {
+    const colon = line.indexOf(":");
+    if (colon > 0) headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
+  }
+  let payload = raw.subarray(headerEnd + 4);
+  if (headers.get("transfer-encoding")?.toLowerCase().includes("chunked")) {
+    const parts: Buffer[] = [];
+    let offset = 0;
+    for (;;) {
+      const lineEnd = payload.indexOf("\r\n", offset);
+      if (lineEnd < 0) throw new Error("Malformed chunked body: missing size line.");
+      const size = parseInt(payload.subarray(offset, lineEnd).toString("latin1").split(";")[0], 16);
+      if (!Number.isInteger(size) || size < 0) throw new Error("Malformed chunked body: bad chunk size.");
+      if (size === 0) break;
+      const start = lineEnd + 2;
+      if (start + size > payload.length) throw new Error("Malformed chunked body: truncated chunk.");
+      parts.push(payload.subarray(start, start + size));
+      offset = start + size + 2;
+    }
+    payload = Buffer.concat(parts);
+  } else if (headers.has("content-length")) {
+    const length = Number(headers.get("content-length"));
+    if (!Number.isInteger(length) || length > payload.length) throw new Error("Malformed HTTP response: truncated body.");
+    payload = payload.subarray(0, length);
+  }
+  // A null-body status cannot carry a body in the Response constructor.
+  return new Response([101, 204, 205, 304].includes(status) ? null : new Uint8Array(payload), { status, headers });
+}
 
 export interface OllamaEmbedder {
   model: string;
@@ -73,16 +122,15 @@ export interface OllamaEmbedder {
 }
 
 export async function connectOllamaEmbedder(
-  options: { host?: string; model?: string; fetch?: FetchLike; env?: Record<string, string | undefined> } = {},
+  options: { host?: string; model?: string; fetch?: FetchLike } = {},
 ): Promise<OllamaEmbedder> {
   const base = assertLoopbackHost(options.host ?? ROUTER_EMBED_DEFAULT_HOST);
-  assertNoProxyFor(base, options.env);
   const model = options.model ?? ROUTER_EMBED_DEFAULT_MODEL;
-  const doFetch = options.fetch ?? fetch;
+  // `loopbackFetch` ignores environment proxies and never follows a redirect; the
+  // `redirect: "error"` below keeps an injected fetch from following one either.
+  const doFetch = options.fetch ?? loopbackFetch;
   const wanted = model.includes(":") ? model : `${model}:latest`;
 
-  // `redirect: "error"`: the loopback check covers only the first hop, and a 307/308
-  // from a local endpoint would otherwise forward the prompt-bearing body elsewhere.
   const currentDigest = async (): Promise<string> => {
     const response = await doFetch(new URL("/api/tags", base).toString(), { redirect: "error" });
     if (!response.ok) throw new Error(`Ollama /api/tags failed: HTTP ${response.status}`);
