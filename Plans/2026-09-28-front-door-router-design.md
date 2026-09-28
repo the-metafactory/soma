@@ -356,3 +356,6 @@ All answered 2026-09-28.
     - the principal adds a MODES pointer to the file;
     - the Algorithm doctrine's tier text is aligned with rule 8;
     - the regex contract drops mention-based escalation and the approvals in its minimal list, once shadow data can measure the change.
+- **D9 (agreed 2026-09-28):** The principal enables OpenAI as a new recipient for step 3 labelling (R1).
+  - Every row still passes R1's local screen (redaction plus credential drop, on prompt and reply tail) before any hosted call.
+  - TypeSafe, for the Jev arm, is not yet enabled.
