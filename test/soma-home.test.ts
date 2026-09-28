@@ -85,6 +85,27 @@ test("loads profile without loading skill file payloads", async () => {
   });
 });
 
+test("skill file scan skips vendor dirs and binary files", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    const skillRoot = join(somaHome, "skills", "vendored");
+    await mkdir(join(skillRoot, "node_modules", "dep"), { recursive: true });
+    await writeFile(join(skillRoot, "SKILL.md"), "---\nname: vendored\n---\n\n# Vendored\n", "utf8");
+    await writeFile(join(skillRoot, "README.md"), "keep me\n", "utf8");
+    await writeFile(join(skillRoot, "node_modules", "dep", "index.js"), "module.exports = {};\n", "utf8");
+    await writeFile(join(skillRoot, "binary.bin"), Buffer.from([0, 1, 2, 3, 0, 4]));
+
+    const context = await loadSomaHome(somaHome);
+    const skill = context.profile.skills.find((entry) => entry.name === "vendored");
+
+    expect(skill).toBeDefined();
+    const paths = (skill?.files ?? []).map((file) => file.path);
+    expect(paths).toContain("README.md");
+    expect(paths.some((path) => path.startsWith("node_modules/"))).toBe(false);
+    expect(paths).not.toContain("binary.bin");
+  });
+});
+
 test("bootstrapped soma home feeds codex home projection", async () => {
   await withTempHome(async (homeDir) => {
     const { context, somaHome } = await bootstrapSomaHome({ homeDir });
