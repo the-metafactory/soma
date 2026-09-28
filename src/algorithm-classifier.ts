@@ -129,7 +129,10 @@ function classifyMode(prompt: string): AlgorithmMode {
     return "algorithm";
   }
 
-  return "algorithm";
+  // The Algorithm is invoked, not defaulted: a prompt no pattern claims stays
+  // native. "Stay native" is also the strongest baseline for routing real
+  // prompts, most of which are short follow-ups.
+  return "native";
 }
 
 export function classifyAlgorithmPrompt(prompt: string): AlgorithmPromptClassification {

@@ -55,7 +55,7 @@ export function renderAlgorithmClassifierSource(): string {
     '\tif (SOMA_MINIMAL_PROMPTS.has(normalized)) return "minimal";',
     '\tif (SOMA_NATIVE_PATTERNS.some((pattern) => pattern.test(text)) && text.length < SOMA_NATIVE_MAX_LENGTH) return "native";',
     '\tif (SOMA_ALGORITHM_PATTERNS.some((pattern) => pattern.test(text))) return "algorithm";',
-    '\treturn "algorithm";',
+    '\treturn "native";',
     "}",
     "",
     "function classifyAlgorithmPrompt(prompt: string): { mode: string; effort?: string; source: string; reason: string } {",

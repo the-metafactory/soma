@@ -199,6 +199,13 @@ test("classifies prompts into Algorithm mode and effort tiers", () => {
   });
 });
 
+test("a prompt no pattern claims stays native: the Algorithm is invoked, not defaulted", () => {
+  const classification = classifyAlgorithmPrompt("tell me a joke about penguins in the alps");
+
+  expect(classification).toMatchObject({ mode: "native", source: "auto" });
+  expect(classification.effort).toBeUndefined();
+});
+
 test("enforces Algorithm phase gates", () => {
   let run = createAlgorithmRun({
     id: "portable-test",
