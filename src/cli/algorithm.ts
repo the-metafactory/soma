@@ -46,11 +46,13 @@ import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import { readNodeForBridge } from "../work-graph-bridge";
+import { hashJudgmentInput, recordJudgment, regexClassifierVersion } from "../judge";
 import type {
   AlgorithmBatchOperation,
   AlgorithmEffortTier,
   AlgorithmPhase,
   AlgorithmPlanStep,
+  AlgorithmPromptClassification,
   AlgorithmRun,
   AlgorithmReference,
   AlgorithmReferenceVerdict,
@@ -90,7 +92,7 @@ export const ALGORITHM_COMMAND_HELP: { usage: string; subcommands: Record<Algori
   usage: `Usage: soma algorithm <${ALGORITHM_ACTIONS.join("|")}> ...`,
   subcommands: {
     new: "Usage: soma algorithm new --prompt <text> --intent <text> --current-state <text> --goal <text> --criterion <id:text> [--effort <E1|E2|E3|E4|E5>] [--substrate <id>] [--home-dir <dir>] [--soma-home <dir>]",
-    classify: "Usage: soma algorithm classify --prompt <text> [--json]",
+    classify: "Usage: soma algorithm classify --prompt <text> [--json] [--record [--session <id>] [--substrate <id>] [--soma-home <dir>]]",
     batch: "Usage: soma algorithm batch --id <run-id> --op <kind:...> [--op <kind:...>] [--substrate <id>]\nVerify: --op \"verify:<criterion-id>:<passed|failed|dropped|deferred-probe>[+specified|+probed|+tested]:<evidence>\". A passed result requires +probed or +tested.",
     list: "Usage: soma algorithm list [--home-dir <dir>] [--soma-home <dir>]",
     show: "Usage: soma algorithm show --id <run-id> [--home-dir <dir>] [--soma-home <dir>]",
@@ -167,6 +169,10 @@ interface AlgorithmCliOptions {
   untilPhase?: AlgorithmPhase;
   batchOperations?: AlgorithmBatchOperation[];
   json?: boolean;
+  /** classify: append a `soma judge` ledger line for this classification. */
+  record?: boolean;
+  /** classify --record: the substrate session the prompt belongs to. */
+  session?: string;
   listCapabilities?: boolean;
   vsaPath?: string;
   promoteOnComplete?: boolean;
@@ -621,6 +627,13 @@ export function parseAlgorithmArgs(args: string[]): ParsedAlgorithmArgs {
       case "--json":
         options.json = true;
         break;
+      case "--record":
+        options.record = true;
+        break;
+      case "--session":
+        options.session = readOption(rest, index, arg);
+        index += 1;
+        break;
       case "--isa":
         options.vsaPath = readOption(rest, index, arg);
         index += 1;
@@ -745,9 +758,7 @@ function formatAlgorithmCapabilityRegistry(
   return lines.join("\n");
 }
 
-function formatAlgorithmClassification(prompt: string): string {
-  const classification = classifyAlgorithmPrompt(prompt);
-
+function formatAlgorithmClassification(classification: AlgorithmPromptClassification): string {
   return [
     "Soma Algorithm prompt classification",
     `mode: ${classification.mode}`,
@@ -757,8 +768,38 @@ function formatAlgorithmClassification(prompt: string): string {
   ].join("\n");
 }
 
-function formatAlgorithmClassificationJson(prompt: string): string {
-  return `${JSON.stringify(classifyAlgorithmPrompt(prompt))}\n`;
+function formatAlgorithmClassificationJson(classification: AlgorithmPromptClassification): string {
+  return `${JSON.stringify(classification)}\n`;
+}
+
+/**
+ * Classify, and with `--record` append one `soma judge` ledger line. Recording
+ * is best-effort and never changes the classification or its output.
+ */
+async function runAlgorithmClassify(options: AlgorithmCliOptions, prompt: string): Promise<string> {
+  const started = performance.now();
+  const classification = classifyAlgorithmPrompt(prompt);
+  const latencyMs = Math.round((performance.now() - started) * 1000) / 1000;
+
+  if (options.record) {
+    const decision: Record<string, string> = { mode: classification.mode };
+    if (classification.effort) decision.effort = classification.effort;
+    await recordJudgment(defaultSomaHome(options), {
+      v: 1,
+      ts: new Date().toISOString(),
+      caller: "mode-router",
+      ...(options.substrate ? { substrate: options.substrate } : {}),
+      ...(options.session ? { session: options.session } : {}),
+      inputSha256: hashJudgmentInput(prompt),
+      backend: "regex",
+      backendVersion: regexClassifierVersion(),
+      decision,
+      source: classification.source,
+      latencyMs,
+    });
+  }
+
+  return options.json ? formatAlgorithmClassificationJson(classification) : formatAlgorithmClassification(classification);
 }
 
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
@@ -987,7 +1028,7 @@ export async function runAlgorithmCli(
 
   if (parsed.action === "classify") {
     if (!options.prompt) throw new Error("--prompt is required.");
-    return options.json ? formatAlgorithmClassificationJson(options.prompt) : formatAlgorithmClassification(options.prompt);
+    return await runAlgorithmClassify(options, options.prompt);
   }
 
   if (parsed.action === "new") {

@@ -86,6 +86,12 @@ import {
   type ParsedFeedbackArgs,
 } from "./cli/feedback";
 import {
+  JUDGE_COMMAND_HELP,
+  parseJudgeArgs,
+  runJudgeCli,
+  type ParsedJudgeArgs,
+} from "./cli/judge";
+import {
   LIFECYCLE_COMMAND_HELP,
   parseLifecycleArgs,
   runLifecycleCli,
@@ -165,6 +171,7 @@ type ParsedArgs =
   | ParsedMemoryArgs
   | ParsedTelemetryArgs
   | ParsedFeedbackArgs
+  | ParsedJudgeArgs
   | ParsedResultArgs
   | ParsedPolicyArgs
   | ParsedPreCompactArgs
@@ -187,6 +194,7 @@ const TOP_LEVEL_COMMANDS = [
   "inference",
   "install",
   "init",
+  "judge",
   "vsa",
   "isa",
   "learning",
@@ -221,6 +229,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   telemetry: TELEMETRY_COMMAND_HELP,
   stats: STATS_COMMAND_HELP,
   feedback: FEEDBACK_COMMAND_HELP,
+  judge: JUDGE_COMMAND_HELP,
   ...TOOL_COMMAND_HELP,
   result: RESULT_COMMAND_HELP,
   policy: POLICY_COMMAND_HELP,
@@ -297,6 +306,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "feedback") {
     return parseFeedbackArgs(args);
+  }
+
+  if (args[0] === "judge") {
+    return parseJudgeArgs(args);
   }
 
   if (isToolCommand(args[0])) {
@@ -552,6 +565,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "feedback") {
     return runFeedbackCli(parsed);
+  }
+
+  if (parsed.command === "judge") {
+    return runJudgeCli(parsed);
   }
 
   if (isParsedToolArgs(parsed)) {
