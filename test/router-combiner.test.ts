@@ -137,8 +137,24 @@ test("the default step stays stable on strongly correlated features", () => {
   const entropy = -(0.8 * Math.log(0.8) + 0.2 * Math.log(0.2));
   const model = trainCombiner(examples, ["x", "y"]);
   expect(trainingCorrect(model)).toBe(16);
-  expect(model.options.learningRate).toBeGreaterThan(0);
-  expect(model.options.learningRate).toBeLessThan(0.5);
+  expect(model.options.learningRate).toBeNull();
   expect(meanLogLoss(model)).toBeCloseTo(entropy, 3);
   expect(meanLogLoss(trainCombiner(examples, ["x", "y"], { learningRate: 0.5 }))).toBeGreaterThan(entropy + 1);
+});
+
+test("the default step descends even where a spectral estimate would miss the dominant direction", () => {
+  // Alternating ±1 coordinates are orthogonal to a fixed all-ones start vector, so
+  // power iteration from it estimates λmax ≈ 1 instead of 32 (Sage, #727 round 4)
+  // and a step derived from that estimate diverges. Backtracking does not depend on it.
+  const a = Array.from({ length: 32 }, (_, d) => (d % 2 === 0 ? 1 : -1));
+  const b = a.map((value) => -value);
+  const examples: CombinerExample[] = [];
+  for (let i = 0; i < 10; i += 1) {
+    examples.push({ session: `a${i}`, features: a, label: i < 8 ? "x" : "y" });
+    examples.push({ session: `b${i}`, features: b, label: i < 8 ? "y" : "x" });
+  }
+  const model = trainCombiner(examples, ["x", "y"]);
+  const meanLogLoss =
+    examples.reduce((sum, example) => sum - Math.log(predictCombiner(model, example.features)[model.classes.indexOf(example.label)]), 0) / examples.length;
+  expect(meanLogLoss).toBeCloseTo(-(0.8 * Math.log(0.8) + 0.2 * Math.log(0.2)), 3);
 });

@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 
 export interface CombinerOptions {
   iterations?: number;
-  /** Fixed step size. Omit it to use the stable step `1 / L` derived from the data (see `stableStepSize`). */
+  /** Fixed step size. Omit it (the default) for backtracking line search. */
   learningRate?: number;
   /** L2 penalty on the weights (never on the bias). */
   l2?: number;
@@ -25,39 +25,14 @@ export interface CombinerOptions {
 
 export const COMBINER_DEFAULTS: { iterations: number; l2: number } = { iterations: 300, l2: 0.01 };
 
-const POWER_ITERATIONS = 50;
-
-/**
- * A step size that cannot overshoot: `1 / L`, where `L` bounds the curvature of
- * the softmax cross-entropy. Böhning's bound puts that curvature at most
- * `0.5 · λmax(X̃ᵀX̃ / n)`, with `X̃` the standardised features plus a bias column,
- * and the L2 term adds `l2`. `λmax` comes from a fixed number of power
- * iterations from a fixed start, so the step, like the rest of training, is
- * deterministic. Correlated features (embeddings are) make `λmax` large, and a
- * fixed step that ignores it diverges.
- */
-export function stableStepSize(x: readonly Float64Array[], l2: number): number {
-  const dimensions = x[0].length + 1;
-  let v = new Float64Array(dimensions).fill(1 / Math.sqrt(dimensions));
-  let lambda = 0;
-  for (let iteration = 0; iteration < POWER_ITERATIONS; iteration += 1) {
-    const next = new Float64Array(dimensions);
-    for (const row of x) {
-      let dot = v[dimensions - 1];
-      for (let d = 0; d < row.length; d += 1) dot += row[d] * v[d];
-      for (let d = 0; d < row.length; d += 1) next[d] += (dot * row[d]) / x.length;
-      next[dimensions - 1] += dot / x.length;
-    }
-    let norm = 0;
-    for (const value of next) norm += value * value;
-    norm = Math.sqrt(norm);
-    if (norm === 0) break;
-    lambda = norm;
-    v = next.map((value) => value / norm);
-  }
-  // Power iteration approaches λmax from below; 10% headroom keeps 1/L a safe step.
-  return 1 / (0.5 * lambda * 1.1 + l2);
+/** What training actually used: `learningRate: null` means backtracking line search. */
+export interface ResolvedCombinerOptions {
+  iterations: number;
+  l2: number;
+  learningRate: number | null;
 }
+
+const MAX_HALVINGS = 60;
 
 export interface CombinerModel {
   kind: "multinomial-logistic";
@@ -70,7 +45,7 @@ export interface CombinerModel {
   /** One row of `dimensions` weights per class, in `classes` order. */
   weights: number[][];
   bias: number[];
-  options: Required<CombinerOptions>;
+  options: ResolvedCombinerOptions;
 }
 
 export interface CombinerExample {
@@ -122,37 +97,81 @@ export function trainCombiner(examples: readonly CombinerExample[], classes: rea
   const k = classes.length;
   const x = examples.map((example) => Float64Array.from(example.features, (value, d) => (value - mean[d]) / scale[d]));
   const y = examples.map((example) => classes.indexOf(example.label));
-  const resolved: Required<CombinerOptions> = { ...base, learningRate: options.learningRate ?? stableStepSize(x, base.l2) };
+  const resolved: ResolvedCombinerOptions = { ...base, learningRate: options.learningRate ?? null };
 
-  const weights = new Float64Array(k * dimensions);
-  const bias = new Float64Array(k);
-  const gradW = new Float64Array(k * dimensions);
-  const gradB = new Float64Array(k);
+  const size = k * dimensions;
+  // Parameters and gradient as one vector: k·dimensions weights, then k biases.
+  let theta = new Float64Array(size + k);
+  let grad = new Float64Array(size + k);
   const p = new Float64Array(k);
 
-  for (let iteration = 0; iteration < resolved.iterations; iteration += 1) {
-    gradW.fill(0);
-    gradB.fill(0);
+  /** Mean cross-entropy plus the L2 term; fills `into` with the gradient. */
+  const lossAndGradient = (params: Float64Array, into: Float64Array): number => {
+    into.fill(0);
+    let loss = 0;
     for (let i = 0; i < n; i += 1) {
       const xi = x[i];
       for (let c = 0; c < k; c += 1) {
-        let logit = bias[c];
+        let logit = params[size + c];
         const offset = c * dimensions;
-        for (let d = 0; d < dimensions; d += 1) logit += weights[offset + d] * xi[d];
+        for (let d = 0; d < dimensions; d += 1) logit += params[offset + d] * xi[d];
         p[c] = logit;
       }
       softmaxInPlace(p);
+      loss -= Math.log(Math.max(p[y[i]], Number.MIN_VALUE));
       p[y[i]] -= 1;
       for (let c = 0; c < k; c += 1) {
         const error = p[c];
-        gradB[c] += error;
+        into[size + c] += error;
         const offset = c * dimensions;
-        for (let d = 0; d < dimensions; d += 1) gradW[offset + d] += error * xi[d];
+        for (let d = 0; d < dimensions; d += 1) into[offset + d] += error * xi[d];
       }
     }
-    for (let j = 0; j < weights.length; j += 1) weights[j] -= resolved.learningRate * (gradW[j] / n + resolved.l2 * weights[j]);
-    for (let c = 0; c < k; c += 1) bias[c] -= resolved.learningRate * (gradB[c] / n);
+    let penalty = 0;
+    for (let j = 0; j < into.length; j += 1) into[j] /= n;
+    for (let j = 0; j < size; j += 1) {
+      into[j] += resolved.l2 * params[j];
+      penalty += params[j] * params[j];
+    }
+    return loss / n + 0.5 * resolved.l2 * penalty;
+  };
+
+  // Backtracking (Armijo) line search: a step is taken only if it lowers the loss
+  // by at least half its first-order prediction, so training descends whatever
+  // the features' spectrum. A spectral step estimate cannot promise that: a
+  // fixed-start power iteration can miss the dominant direction entirely. The
+  // step doubles after each accepted move, so it grows back when it can.
+  let loss = lossAndGradient(theta, grad);
+  let step = 1;
+  let candidate = new Float64Array(size + k);
+  let candidateGrad = new Float64Array(size + k);
+  for (let iteration = 0; iteration < resolved.iterations; iteration += 1) {
+    let gradNorm = 0;
+    for (const value of grad) gradNorm += value * value;
+    if (gradNorm === 0) break;
+    if (resolved.learningRate !== null) {
+      for (let j = 0; j < theta.length; j += 1) theta[j] -= resolved.learningRate * grad[j];
+      loss = lossAndGradient(theta, grad);
+      continue;
+    }
+    let accepted = false;
+    for (let halving = 0; halving < MAX_HALVINGS; halving += 1) {
+      for (let j = 0; j < theta.length; j += 1) candidate[j] = theta[j] - step * grad[j];
+      const candidateLoss = lossAndGradient(candidate, candidateGrad);
+      if (candidateLoss <= loss - 0.5 * step * gradNorm) {
+        [theta, candidate] = [candidate, theta];
+        [grad, candidateGrad] = [candidateGrad, grad];
+        loss = candidateLoss;
+        accepted = true;
+        break;
+      }
+      step /= 2;
+    }
+    if (!accepted) break; // no descent possible at float precision: converged
+    step *= 2;
   }
+  const weights = theta.subarray(0, size);
+  const bias = theta.subarray(size);
 
   return {
     kind: "multinomial-logistic",
