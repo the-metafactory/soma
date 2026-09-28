@@ -117,3 +117,28 @@ test("no session is ever both trained and scored on", () => {
     for (const session of scored) expect(train.has(session)).toBe(false);
   }
 });
+
+test("the default step stays stable on strongly correlated features", () => {
+  // Two opposite 32-dimensional points, ten examples each, labels split 80/20 in
+  // opposite directions: the best possible training accuracy is 16/20, and the
+  // best mean log-loss is the entropy of an 80/20 split, 0.5004. A fixed step of
+  // 0.5 overshoots here (Sage, #727): its loss oscillates far above that.
+  const a = new Array<number>(32).fill(1);
+  const b = new Array<number>(32).fill(-1);
+  const examples: CombinerExample[] = [];
+  for (let i = 0; i < 10; i += 1) {
+    examples.push({ session: `a${i}`, features: a, label: i < 8 ? "x" : "y" });
+    examples.push({ session: `b${i}`, features: b, label: i < 8 ? "y" : "x" });
+  }
+  const trainingCorrect = (model: ReturnType<typeof trainCombiner>): number =>
+    examples.filter((example) => argmaxClass(model, predictCombiner(model, example.features)) === example.label).length;
+  const meanLogLoss = (model: ReturnType<typeof trainCombiner>): number =>
+    examples.reduce((sum, example) => sum - Math.log(predictCombiner(model, example.features)[model.classes.indexOf(example.label)]), 0) / examples.length;
+  const entropy = -(0.8 * Math.log(0.8) + 0.2 * Math.log(0.2));
+  const model = trainCombiner(examples, ["x", "y"]);
+  expect(trainingCorrect(model)).toBe(16);
+  expect(model.options.learningRate).toBeGreaterThan(0);
+  expect(model.options.learningRate).toBeLessThan(0.5);
+  expect(meanLogLoss(model)).toBeCloseTo(entropy, 3);
+  expect(meanLogLoss(trainCombiner(examples, ["x", "y"], { learningRate: 0.5 }))).toBeGreaterThan(entropy + 1);
+});

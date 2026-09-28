@@ -46,14 +46,16 @@ const PROXY_VARIABLES = ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy
  * proxy is configured, unless `NO_PROXY` exempts this exact host or everything
  * (`*`) — the forms verified to keep the request local. `localhost` in
  * `NO_PROXY` does not cover `127.0.0.1`, so no looser matching is attempted.
+ * Bun prefers `no_proxy` over `NO_PROXY` when both are set; rather than mirror
+ * that precedence, every exemption variable that is defined (even empty) must exempt the host.
  */
 export function assertNoProxyFor(url: URL, env: Record<string, string | undefined> = process.env): void {
   const configured = PROXY_VARIABLES.filter((name) => env[name]?.trim());
   if (configured.length === 0) return;
-  const exempt = [env.NO_PROXY, env.no_proxy]
-    .flatMap((value) => (value ?? "").split(","))
-    .map((entry) => entry.trim())
-    .some((entry) => entry === "*" || entry === url.hostname);
+  const exemptions = [env.NO_PROXY, env.no_proxy].filter((value): value is string => value !== undefined);
+  const exempts = (value: string): boolean =>
+    value.split(",").map((entry) => entry.trim()).some((entry) => entry === "*" || entry === url.hostname);
+  const exempt = exemptions.length > 0 && exemptions.every(exempts);
   if (!exempt) {
     throw new Error(
       `${configured.join(", ")} is set, and Bun would send the prompts through that proxy. Add ${url.hostname} to NO_PROXY, or unset the proxy for this command.`,

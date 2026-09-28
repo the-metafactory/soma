@@ -109,6 +109,8 @@ test("a configured proxy is refused unless NO_PROXY exempts this exact host or e
   expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128", NO_PROXY: "example.org, 127.0.0.1" })).not.toThrow();
   expect(() => assertNoProxyFor(url, { http_proxy: "http://proxy.example:3128", no_proxy: "*" })).not.toThrow();
   expect(() => assertNoProxyFor(url, { HTTP_PROXY: "  " })).not.toThrow();
+  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128", NO_PROXY: "127.0.0.1", no_proxy: "example.org" })).toThrow("Add 127.0.0.1");
+  expect(() => assertNoProxyFor(url, { HTTP_PROXY: "http://proxy.example:3128", NO_PROXY: "127.0.0.1", no_proxy: "" })).toThrow("Add 127.0.0.1");
 });
 
 test("with a real env proxy, the prompt reaches neither the proxy nor Ollama unless NO_PROXY exempts the host", async () => {
@@ -125,9 +127,9 @@ test("with a real env proxy, the prompt reaches neither the proxy nor Ollama unl
   const script = `import { connectOllamaEmbedder } from ${JSON.stringify(join(import.meta.dir, "..", "src", "router-embed.ts"))};
 try { const e = await connectOllamaEmbedder({ host: "http://127.0.0.1:${ollama.port}" }); console.log((await e.embed(["PRIVATE"])).length); }
 catch (error) { console.log("refused: " + error.message); }`;
-  const run = async (noProxy: string): Promise<string> => {
+  const run = async (noProxy: string, lowerNoProxy = noProxy): Promise<string> => {
     const child = Bun.spawn(["bun", "-e", script], {
-      env: { ...process.env, HTTP_PROXY: `http://127.0.0.1:${proxy.port}`, http_proxy: `http://127.0.0.1:${proxy.port}`, NO_PROXY: noProxy, no_proxy: noProxy },
+      env: { ...process.env, HTTP_PROXY: `http://127.0.0.1:${proxy.port}`, http_proxy: `http://127.0.0.1:${proxy.port}`, NO_PROXY: noProxy, no_proxy: lowerNoProxy },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -138,6 +140,9 @@ catch (error) { console.log("refused: " + error.message); }`;
   try {
     expect(await run("")).toStartWith("refused: HTTP_PROXY, http_proxy is set");
     expect(await run("127.0.0.1")).toBe("1");
+    // Bun prefers no_proxy; an exemption only in NO_PROXY must not count.
+    expect(await run("127.0.0.1", "example.org")).toStartWith("refused:");
+    expect(await run("127.0.0.1", "")).toStartWith("refused:");
     expect(proxyHits).toHaveLength(0);
   } finally {
     await proxy.stop(true);

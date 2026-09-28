@@ -17,12 +17,47 @@ import { createHash } from "node:crypto";
 
 export interface CombinerOptions {
   iterations?: number;
+  /** Fixed step size. Omit it to use the stable step `1 / L` derived from the data (see `stableStepSize`). */
   learningRate?: number;
   /** L2 penalty on the weights (never on the bias). */
   l2?: number;
 }
 
-export const COMBINER_DEFAULTS: Required<CombinerOptions> = { iterations: 300, learningRate: 0.5, l2: 0.01 };
+export const COMBINER_DEFAULTS: { iterations: number; l2: number } = { iterations: 300, l2: 0.01 };
+
+const POWER_ITERATIONS = 50;
+
+/**
+ * A step size that cannot overshoot: `1 / L`, where `L` bounds the curvature of
+ * the softmax cross-entropy. Böhning's bound puts that curvature at most
+ * `0.5 · λmax(X̃ᵀX̃ / n)`, with `X̃` the standardised features plus a bias column,
+ * and the L2 term adds `l2`. `λmax` comes from a fixed number of power
+ * iterations from a fixed start, so the step, like the rest of training, is
+ * deterministic. Correlated features (embeddings are) make `λmax` large, and a
+ * fixed step that ignores it diverges.
+ */
+export function stableStepSize(x: readonly Float64Array[], l2: number): number {
+  const dimensions = x[0].length + 1;
+  let v = new Float64Array(dimensions).fill(1 / Math.sqrt(dimensions));
+  let lambda = 0;
+  for (let iteration = 0; iteration < POWER_ITERATIONS; iteration += 1) {
+    const next = new Float64Array(dimensions);
+    for (const row of x) {
+      let dot = v[dimensions - 1];
+      for (let d = 0; d < row.length; d += 1) dot += row[d] * v[d];
+      for (let d = 0; d < row.length; d += 1) next[d] += (dot * row[d]) / x.length;
+      next[dimensions - 1] += dot / x.length;
+    }
+    let norm = 0;
+    for (const value of next) norm += value * value;
+    norm = Math.sqrt(norm);
+    if (norm === 0) break;
+    lambda = norm;
+    v = next.map((value) => value / norm);
+  }
+  // Power iteration approaches λmax from below; 10% headroom keeps 1/L a safe step.
+  return 1 / (0.5 * lambda * 1.1 + l2);
+}
 
 export interface CombinerModel {
   kind: "multinomial-logistic";
@@ -74,7 +109,7 @@ function softmaxInPlace(logits: Float64Array): void {
  */
 export function trainCombiner(examples: readonly CombinerExample[], classes: readonly string[], options: CombinerOptions = {}): CombinerModel {
   if (examples.length === 0) throw new Error("trainCombiner needs at least one example.");
-  const resolved = { ...COMBINER_DEFAULTS, ...options };
+  const base = { ...COMBINER_DEFAULTS, ...options };
   const dimensions = examples[0].features.length;
   const classIndex = new Map(classes.map((name, index) => [name, index]));
   for (const example of examples) {
@@ -87,6 +122,7 @@ export function trainCombiner(examples: readonly CombinerExample[], classes: rea
   const k = classes.length;
   const x = examples.map((example) => Float64Array.from(example.features, (value, d) => (value - mean[d]) / scale[d]));
   const y = examples.map((example) => classes.indexOf(example.label));
+  const resolved: Required<CombinerOptions> = { ...base, learningRate: options.learningRate ?? stableStepSize(x, base.l2) };
 
   const weights = new Float64Array(k * dimensions);
   const bias = new Float64Array(k);
