@@ -104,7 +104,7 @@ function classifyPromptText(raw: string): { skip: RouterCorpusSkipReason } | { t
   if (text.startsWith("Caveat:")) return { skip: "caveat" };
   if (text.startsWith("[Request interrupted")) return { skip: "interrupt" };
   if (text.startsWith(COMPACT_SUMMARY_PREFIX)) return { skip: "compact-summary" };
-  // Another agent session delivering a message into this one: not the principal.
+  // Another Claude Code session delivering a message into this one: not the principal.
   // Match the delivery envelope at the start only: a principal can type a
   // prompt that mentions `<teammate-message>` or opens with a tag of their own.
   if (text.startsWith("Another Claude session sent a message:") || text.startsWith("<teammate-message")) return { skip: "peer-message" };
@@ -171,6 +171,10 @@ function tail(text: string, chars: number): string {
  * attachments usually sit between the two, so walk the parentUuid chain through
  * attachments until it reaches the prompt.
  */
+function isQueuedCommand(entry: TranscriptEntry): boolean {
+  return entry.type === "attachment" && asRecord(entry.attachment)?.type === "queued_command";
+}
+
 function indexModesByPrompt(entries: TranscriptEntry[]): Map<string, RouterCorpusClassification> {
   const byUuid = new Map<string, TranscriptEntry>();
   for (const entry of entries) {
@@ -182,11 +186,14 @@ function indexModesByPrompt(entries: TranscriptEntry[]): Map<string, RouterCorpu
     if (entry.type !== "attachment" || attachment?.type !== "hook_additional_context") continue;
     const mode = parseModeContext(attachment.content);
     if (!mode) continue;
+    // A queued command is itself a prompt: the walk stops there instead of
+    // passing through it and pinning its decision on the typed prompt before it.
     let parent = typeof entry.parentUuid === "string" ? byUuid.get(entry.parentUuid) : undefined;
-    for (let hops = 1; parent?.type === "attachment" && hops < MAX_ATTACHMENT_HOPS; hops += 1) {
+    for (let hops = 1; parent?.type === "attachment" && !isQueuedCommand(parent) && hops < MAX_ATTACHMENT_HOPS; hops += 1) {
       parent = typeof parent.parentUuid === "string" ? byUuid.get(parent.parentUuid) : undefined;
     }
-    if (parent?.type === "user" && typeof parent.uuid === "string") modeByPrompt.set(parent.uuid, mode);
+    const isPrompt = parent?.type === "user" || (parent !== undefined && isQueuedCommand(parent));
+    if (isPrompt && typeof parent?.uuid === "string") modeByPrompt.set(parent.uuid, mode);
   }
   return modeByPrompt;
 }

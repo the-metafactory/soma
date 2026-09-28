@@ -99,6 +99,24 @@ test("keeps typed and human-queued prompts, skips every injected shape with a re
   expect(queuedRow).toMatchObject({ source: "queued", previousMode: "minimal", regexAtTime: null, hasPreviousReply: false });
 });
 
+test("a hook decision linked through a queued prompt belongs to the queued prompt", () => {
+  const first = typed("start the refactor");
+  const midTurn = queued("also rename the module", { commandMode: "prompt", origin: { kind: "human" } });
+  const entries = [
+    first,
+    modeHook(first.uuid as string, "ALGORITHM E3"),
+    { ...midTurn, parentUuid: first.uuid },
+    modeHook(midTurn.uuid as string, "NATIVE"),
+  ];
+
+  const { rows } = extractRouterCorpusTranscript(jsonl(entries), { project: "p", sessionId: "s" });
+
+  expect(rows.map((row) => [row.prompt, row.regexAtTime])).toEqual([
+    ["start the refactor", { mode: "algorithm", effort: "E3" }],
+    ["also rename the module", { mode: "native" }],
+  ]);
+});
+
 test("human prompts that mention or open with tags are kept", () => {
   const entries = [
     typed("Explain how <teammate-message> is parsed"),
