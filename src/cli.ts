@@ -92,6 +92,12 @@ import {
   type ParsedJudgeArgs,
 } from "./cli/judge";
 import {
+  ROUTER_COMMAND_HELP,
+  parseRouterArgs,
+  runRouterCli,
+  type ParsedRouterArgs,
+} from "./cli/router";
+import {
   LIFECYCLE_COMMAND_HELP,
   parseLifecycleArgs,
   runLifecycleCli,
@@ -172,6 +178,7 @@ type ParsedArgs =
   | ParsedTelemetryArgs
   | ParsedFeedbackArgs
   | ParsedJudgeArgs
+  | ParsedRouterArgs
   | ParsedResultArgs
   | ParsedPolicyArgs
   | ParsedPreCompactArgs
@@ -210,6 +217,7 @@ const TOP_LEVEL_COMMANDS = [
   "reproject",
   "unproject-skill",
   "result",
+  "router",
   "runtime",
   "rollback",
   "session",
@@ -230,6 +238,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   stats: STATS_COMMAND_HELP,
   feedback: FEEDBACK_COMMAND_HELP,
   judge: JUDGE_COMMAND_HELP,
+  router: ROUTER_COMMAND_HELP,
   ...TOOL_COMMAND_HELP,
   result: RESULT_COMMAND_HELP,
   policy: POLICY_COMMAND_HELP,
@@ -310,6 +319,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "judge") {
     return parseJudgeArgs(args);
+  }
+
+  if (args[0] === "router") {
+    return parseRouterArgs(args);
   }
 
   if (isToolCommand(args[0])) {
@@ -569,6 +582,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "judge") {
     return runJudgeCli(parsed);
+  }
+
+  if (parsed.command === "router") {
+    return runRouterCli(parsed);
   }
 
   if (isParsedToolArgs(parsed)) {
