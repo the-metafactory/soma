@@ -609,6 +609,16 @@ Where Soma's [[project|projection]] lives or runs from. Five modes, one-word nam
 
 ---
 
+## working mode: minimal, native, Algorithm
+
+How one prompt is worked: **minimal** (a brief line), **native** (a direct answer or change, no harness), or **Algorithm** (a harness run with criteria and verification, at an effort tier E1–E5). The mode hook classifies every prompt into one of these; the front-door router learns to do the same. The rules that decide it live in `docs/routing-rules.md`, and nowhere else.
+
+**Not synonyms:**
+- A [[Runtime modes: home, workspace, library, daemon, export|runtime mode]] (`home`, `workspace`, …) is where a projection runs. A working mode is how one prompt is worked. In code, `mode` inside the classifier, the judge ledger (`mode-router`) and `soma router` always means working mode.
+- `native` as a working mode means "no harness". It is unrelated to [[portable, substrate-neutral, substrate-native|substrate-native]], which describes a projection's shape.
+
+---
+
 ## agent (always qualified, never bare)
 
 `agent` is **banned bare** in Soma docs and code. It already carries at least three distinct meanings across nearby systems; adding a fourth from Soma would make every reference ambiguous.
