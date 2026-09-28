@@ -31,7 +31,7 @@ Agreed with the principal on 2026-09-28 (D8 in `Plans/2026-09-28-front-door-rout
 ## Effort (only when the mode is Algorithm)
 
 8. Effort tracks what an unnoticed error would cost; size alone only earns E5.
-9. E4+ only for doctrine, security model, or cross-cutting architecture decisions.
+9. E4 only for doctrine, security model, or cross-cutting architecture decisions.
 10. "Analyze/review" is read-only; that never raises effort by itself.
 
 ## Lane
