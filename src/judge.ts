@@ -68,9 +68,11 @@ export function hashJudgmentInput(input: string): string {
 }
 
 /**
- * Identity of the regex classifier a record was produced by. A change to any
- * pattern changes the version, so a measurement never silently carries over to
- * a different classifier.
+ * Identity of the regex classifier's pattern set a record was produced by. It
+ * hashes ALGORITHM_CLASSIFIER_CONTRACT only, so any pattern change changes the
+ * version. Changes to the code around the patterns (normalisation, precedence,
+ * the unmatched fallback) do not; a measurement that must span such a change
+ * has to be re-taken, not trusted by version alone.
  */
 export function regexClassifierVersion(): string {
   return hashJudgmentInput(JSON.stringify(ALGORITHM_CLASSIFIER_CONTRACT)).slice(0, 12);
