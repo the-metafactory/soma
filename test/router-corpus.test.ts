@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -143,6 +143,29 @@ test("strips system reminders from a typed prompt and keeps only the reply tail"
   expect(rows[0].replyTail.endsWith("END")).toBe(true);
 });
 
+test("a replayed prompt still sets the context the next new prompt is built from", () => {
+  const replayed = typed("apply the migration");
+  const seen = new Set<string>([replayed.uuid as string]);
+  const entries = [
+    assistant({ type: "text", text: "old reply before the replayed prompt" }),
+    replayed,
+    modeHook(replayed.uuid as string, "ALGORITHM E3"),
+    assistant({ type: "text", text: "Migration applied." }),
+    typed("now update the docs"),
+  ];
+
+  const { rows, skipped } = extractRouterCorpusTranscript(jsonl(entries), { project: "p", sessionId: "resumed" }, seen);
+
+  expect(skipped.duplicate).toBe(1);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    prompt: "now update the docs",
+    replyTail: "Migration applied.",
+    previousMode: "algorithm",
+    previousEffort: "E3",
+  });
+});
+
 test("a prompt replayed into a resumed session's transcript is counted once", () => {
   const prompt = typed("fix the flaky test");
   const seen = new Set<string>();
@@ -210,5 +233,29 @@ test("soma router corpus writes the private corpus and prints counts, never prom
 
     const json = JSON.parse(await runSomaCli(["router", "corpus", "--projects-dir", projectsDir, "--soma-home", somaHome, "--json"])) as { sampled: number };
     expect(json.sampled).toBe(2);
+  });
+});
+
+test("an existing world-readable output file ends up owner-only", async () => {
+  await withProjects(async (root, projectsDir) => {
+    const out = join(root, "corpus.jsonl");
+    await writeFile(out, "stale\n", { mode: 0o644 });
+    await chmod(out, 0o644);
+
+    await runSomaCli(["router", "corpus", "--projects-dir", projectsDir, "--out", out]);
+
+    expect(((await stat(out)).mode & 0o777).toString(8)).toBe("600");
+    expect(await readFile(out, "utf8")).not.toContain("stale");
+    expect((await readdir(root)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+});
+
+test("a missing projects directory fails and leaves the existing corpus untouched", async () => {
+  await withProjects(async (root) => {
+    const out = join(root, "corpus.jsonl");
+    await writeFile(out, "existing corpus\n");
+
+    await expect(runSomaCli(["router", "corpus", "--projects-dir", join(root, "typo"), "--out", out])).rejects.toThrow();
+    expect(await readFile(out, "utf8")).toBe("existing corpus\n");
   });
 });

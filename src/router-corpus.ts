@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { createPaths } from "./paths";
 
@@ -43,6 +43,8 @@ export interface RouterCorpusRow {
    * toward `algorithm` before the native-by-default fix (D1).
    */
   previousMode: RouterCorpusMode | null;
+  /** The effort the mode hook gave the previous prompt, when it chose Algorithm. */
+  previousEffort: string | null;
   /**
    * What the mode hook decided for this prompt at the time. Historical only:
    * never the regex baseline, which is re-run with the current classifier.
@@ -104,7 +106,7 @@ function classifyPromptText(raw: string): { skip: RouterCorpusSkipReason } | { t
   if (text.startsWith(COMPACT_SUMMARY_PREFIX)) return { skip: "compact-summary" };
   // Another agent session delivering a message into this one: not the principal.
   if (text.startsWith("Another Claude session sent a message:") || text.includes("<teammate-message")) return { skip: "peer-message" };
-  // Any other harness-shaped leading tag is injected, not typed.
+  // Any other substrate-generated leading tag is injected, not typed.
   if (/^<[a-z][a-z0-9_-]*>/.test(text)) return { skip: "tagged" };
   return { text };
 }
@@ -135,6 +137,18 @@ function parseModeContext(content: unknown): RouterCorpusClassification | null {
   if (!match) return null;
   const mode = match[1].toLowerCase() as RouterCorpusMode;
   return match[2] ? { mode, effort: match[2] } : { mode };
+}
+
+/**
+ * Headless runs (`claude -p`: review bots, workers) carry an `sdk-*` entrypoint;
+ * their prompts are written by programs, not the principal. Transcripts too old
+ * to record an entrypoint cannot be told apart, so they are left out rather than
+ * guessed.
+ */
+function entrypointSkipReason(entry: TranscriptEntry): RouterCorpusSkipReason | null {
+  if (typeof entry.entrypoint !== "string") return "no-entrypoint";
+  if (entry.entrypoint.startsWith("sdk")) return "non-interactive";
+  return null;
 }
 
 function tail(text: string, chars: number): string {
@@ -192,27 +206,35 @@ export function extractRouterCorpusTranscript(
   const rows: RouterCorpusRow[] = [];
   let reply = "";
   let previousMode: RouterCorpusMode | null = null;
+  let previousEffort: string | null = null;
 
+  // Every accepted prompt is a turn boundary, including one already in the
+  // corpus from another transcript: only the row is deduplicated, never the
+  // context that the next prompt's reply tail and previous mode are built from.
   const emit = (id: string, ts: string, source: RouterCorpusRow["source"], prompt: string): void => {
+    const regexAtTime = modeByPrompt.get(id) ?? null;
     if (seenIds.has(id)) {
       skipped.duplicate += 1;
-      return;
+    } else {
+      seenIds.add(id);
+      rows.push({
+        id,
+        sessionId: meta.sessionId,
+        project: meta.project,
+        ts,
+        source,
+        prompt,
+        replyTail: tail(reply.trim(), ROUTER_CORPUS_REPLY_TAIL_CHARS),
+        hasPreviousReply: reply.trim().length > 0,
+        previousMode,
+        previousEffort,
+        regexAtTime,
+      });
     }
-    seenIds.add(id);
-    const regexAtTime = modeByPrompt.get(id) ?? null;
-    rows.push({
-      id,
-      sessionId: meta.sessionId,
-      project: meta.project,
-      ts,
-      source,
-      prompt,
-      replyTail: tail(reply.trim(), ROUTER_CORPUS_REPLY_TAIL_CHARS),
-      hasPreviousReply: reply.trim().length > 0,
-      previousMode,
-      regexAtTime,
-    });
-    if (regexAtTime) previousMode = regexAtTime.mode;
+    if (regexAtTime) {
+      previousMode = regexAtTime.mode;
+      previousEffort = regexAtTime.effort ?? null;
+    }
     reply = "";
   };
 
@@ -231,12 +253,9 @@ export function extractRouterCorpusTranscript(
     if (entry.type === "attachment") {
       const attachment = asRecord(entry.attachment);
       if (attachment?.type !== "queued_command" || !id) continue;
-      if (typeof entry.entrypoint !== "string") {
-        skipped["no-entrypoint"] += 1;
-        continue;
-      }
-      if (entry.entrypoint.startsWith("sdk")) {
-        skipped["non-interactive"] += 1;
+      const entrypointSkip = entrypointSkipReason(entry);
+      if (entrypointSkip) {
+        skipped[entrypointSkip] += 1;
         continue;
       }
       const origin = asRecord(attachment.origin);
@@ -251,16 +270,9 @@ export function extractRouterCorpusTranscript(
     }
 
     if (entry.type !== "user" || !id) continue;
-    // Headless runs (`claude -p`: review bots, workers) carry an `sdk-*`
-    // entrypoint; their prompts are written by programs, not the principal.
-    // Transcripts too old to record an entrypoint cannot be told apart, so they
-    // are left out rather than guessed.
-    if (typeof entry.entrypoint !== "string") {
-      skipped["no-entrypoint"] += 1;
-      continue;
-    }
-    if (entry.entrypoint.startsWith("sdk")) {
-      skipped["non-interactive"] += 1;
+    const entrypointSkip = entrypointSkipReason(entry);
+    if (entrypointSkip) {
+      skipped[entrypointSkip] += 1;
       continue;
     }
     if (entry.isMeta === true) {
@@ -310,7 +322,9 @@ export async function buildRouterCorpus(options: { projectsDir: string; sample?:
   const candidates: RouterCorpusRow[] = [];
   let transcripts = 0;
 
-  const projects = await readdir(options.projectsDir).catch(() => [] as string[]);
+  // A missing or unreadable source must fail loudly: an empty result would be
+  // written over the existing corpus as if it were a real extraction.
+  const projects = await readdir(options.projectsDir);
   for (const project of projects.sort()) {
     const projectDir = join(options.projectsDir, project);
     if (!(await stat(projectDir).catch(() => undefined))?.isDirectory()) continue;
@@ -339,7 +353,20 @@ export function routerCorpusPath(somaHome: string): string {
   return createPaths(somaHome).state("router", "corpus.jsonl");
 }
 
+/**
+ * The corpus holds prompt text, so it must end up owner-only whatever was at the
+ * destination before. `writeFile`'s `mode` applies only when it creates the file,
+ * so write a fresh 0600 file beside the destination and rename it over.
+ */
 export async function writeRouterCorpus(path: string, rows: RouterCorpusRow[]): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, rows.map((row) => JSON.stringify(row)).join("\n") + (rows.length > 0 ? "\n" : ""), { encoding: "utf8", mode: 0o600 });
+  const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+  try {
+    await writeFile(temporary, rows.map((row) => JSON.stringify(row)).join("\n") + (rows.length > 0 ? "\n" : ""), { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await chmod(temporary, 0o600);
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
 }
