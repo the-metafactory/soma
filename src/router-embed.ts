@@ -110,6 +110,9 @@ export async function connectOllamaEmbedder(
         const body = (await response.json()) as { embeddings?: number[][] };
         const embeddings = body.embeddings ?? [];
         if (embeddings.length !== input.length) throw new Error("Ollama /api/embed returned the wrong number of vectors.");
+        if (!embeddings.every((vector) => vector.length > 0 && vector.every(Number.isFinite))) {
+          throw new Error("Ollama /api/embed returned an empty or non-finite vector.");
+        }
         vectors.push(...embeddings);
       }
       // Ollama embeds by name, not digest. If the name was re-pulled mid-run, these

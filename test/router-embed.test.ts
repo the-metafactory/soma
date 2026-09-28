@@ -150,6 +150,14 @@ catch (error) { console.log("refused: " + error.message); }`;
   }
 });
 
+test("an empty or non-finite vector from Ollama is refused", async () => {
+  const base = fakeOllama();
+  const overflowing: FetchLike = async (input, init) =>
+    new URL(input).pathname === "/api/embed" ? new Response('{"embeddings":[[1e400]]}', { headers: { "content-type": "application/json" } }) : base(input, init);
+  const embedder = await connectOllamaEmbedder({ fetch: overflowing });
+  await expect(embedder.embed(["a"])).rejects.toThrow("non-finite");
+});
+
 test("a model Ollama does not have is a clear error", async () => {
   await expect(connectOllamaEmbedder({ model: "nomic-embed-text", fetch: fakeOllama() })).rejects.toThrow("ollama pull nomic-embed-text");
 });

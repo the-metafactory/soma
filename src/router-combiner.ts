@@ -89,6 +89,7 @@ export function trainCombiner(examples: readonly CombinerExample[], classes: rea
   const classIndex = new Map(classes.map((name, index) => [name, index]));
   for (const example of examples) {
     if (example.features.length !== dimensions) throw new Error(`Feature length ${example.features.length} does not match ${dimensions}.`);
+    if (!example.features.every(Number.isFinite)) throw new Error("Features must be finite numbers; a NaN or Infinity would be scored as a result.");
     if (!classIndex.has(example.label)) throw new Error(`Label ${JSON.stringify(example.label)} is not one of the classes.`);
   }
 
@@ -167,9 +168,12 @@ export function trainCombiner(examples: readonly CombinerExample[], classes: rea
       }
       step /= 2;
     }
-    if (!accepted) break; // no descent possible at float precision: converged
+    if (!accepted) break; // no step lowers the loss: converged at float precision
     step *= 2;
   }
+  // A diverged fixed step, or a loss no line search can lower, ends non-finite:
+  // a numerical failure, never a model to score.
+  if (!Number.isFinite(loss)) throw new Error("Training loss is not finite; refusing to return a model.");
   const weights = theta.subarray(0, size);
   const bias = theta.subarray(size);
 
@@ -189,6 +193,7 @@ export function trainCombiner(examples: readonly CombinerExample[], classes: rea
 /** Class probabilities, in `model.classes` order. */
 export function predictCombiner(model: CombinerModel, features: readonly number[]): number[] {
   if (features.length !== model.dimensions) throw new Error(`Feature length ${features.length} does not match ${model.dimensions}.`);
+  if (!features.every(Number.isFinite)) throw new Error("Features must be finite numbers.");
   const logits = new Float64Array(model.classes.length);
   for (let c = 0; c < model.classes.length; c += 1) {
     let logit = model.bias[c];

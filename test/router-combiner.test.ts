@@ -158,3 +158,16 @@ test("the default step descends even where a spectral estimate would miss the do
     examples.reduce((sum, example) => sum - Math.log(predictCombiner(model, example.features)[model.classes.indexOf(example.label)]), 0) / examples.length;
   expect(meanLogLoss).toBeCloseTo(-(0.8 * Math.log(0.8) + 0.2 * Math.log(0.2)), 3);
 });
+
+test("numerical failure is refused, never scored", () => {
+  const bad: CombinerExample[] = [
+    { session: "a", features: [Infinity, 1], label: "x" },
+    { session: "b", features: [0, 1], label: "y" },
+  ];
+  expect(() => trainCombiner(bad, ["x", "y"])).toThrow("finite");
+  expect(() => trainCombiner([{ session: "a", features: [NaN], label: "x" }], ["x"])).toThrow("finite");
+  const model = trainCombiner(synthetic(), ["algorithm", "minimal", "native"]);
+  expect(() => predictCombiner(model, [NaN, 0, 0, 0, 3, 0])).toThrow("finite");
+  // A fixed step large enough to diverge ends non-finite and is refused.
+  expect(() => trainCombiner(synthetic(), ["algorithm", "minimal", "native"], { learningRate: 1e308 })).toThrow("not finite");
+});
