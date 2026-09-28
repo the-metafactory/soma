@@ -348,5 +348,5 @@ All answered 2026-09-28.
   - **Before any such swap:** confirm that `onnxruntime-node` installs and loads under Bun (possibly via `trustedDependencies`).
 - **D7 (agreed 2026-09-28, after spike 3a):** Arm A's 16 nouls miss the latency budget on this laptop (§6.2).
   - Arm A stays an evaluation arm, run offline or after the answer, never inside the hook's timeout.
-  - Enforce considers only shapes measured under budget: arm B (under budget to the corpus-p95 length) and arm C (under budget to beyond p99). A reduced arm A of about 4 nouls is borderline. LocalBackend isn't built yet, so it has no latency figure.
+  - Enforce considers only shapes measured under budget: arm B (provisionally under budget to the corpus-p95 length; remeasure idle) and arm C (under budget to beyond p99). A reduced arm A of about 4 nouls is borderline. LocalBackend isn't built yet, so it has no latency figure.
   - In shadow, a Laya call may run after the answer, because shadow output is advice only.
