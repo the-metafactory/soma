@@ -232,10 +232,10 @@ Setup: laptop M1 Pro (8 performance cores), `laya[serve]` 0.3.21 in an isolated 
 - **Borderline: a reduced arm A** (about 4 nouls). CPU p95 is 236–388 ms.
 - **Measured, so nothing to estimate here:** R9's memory figure is now 1.4 GB on CPU.
 
-What this leaves open for the principal (see D7):
-- Keep arm A as an evaluation arm that runs off the hot path. In shadow, the pick is only advice and can be computed after the prompt has been answered, so the latency budget applies only to enforce.
-- Or cut arm A to the questions that pay for themselves, once step 5 shows which ones do.
-- Separately, whether 1.4 GB always-resident is acceptable, which is D6's revisit trigger.
+What the principal decided in D7, and what stays open:
+- Decided: arm A stays an evaluation arm that runs off the hot path. In shadow, the pick is only advice and can be computed after the prompt has been answered, so the latency budget applies only to enforce.
+- Open: a reduced arm A (the questions that pay for themselves) may become an enforce candidate once step 5 shows which ones do.
+- Open: whether 1.4 GB always-resident is acceptable, which is D6's revisit trigger.
 
 ## 7. Build order
 
@@ -264,7 +264,7 @@ Each step has its own exit check.
    - Measure warm latency for one call carrying 16 nouls, resident memory, and the token cost of the state plus question texts against `max_len`.
    - Probe a negated prompt ("don't change anything, just explain") against W1.
    - *Exit:* numbers recorded; go/no-go against a p95 budget of ≤300 ms.
-   - **Done 2026-09-28, see §6.2.** Arm A as specified is a no-go, and arm B's shape is a go. D7 is open.
+   - **Done 2026-09-28, see §6.2.** Arm A as specified is a no-go, and arm B's shape is a go. D7 records the decision.
 4. **Questions, fine-tune and combiner.**
    - Fine-tune the multilingual Laya checkpoint only on the training folds, so each fold is scored by a model that never saw it. Calibrate its temperature on a held-out slice.
    - Arm A: run the §5 questions through the fine-tuned Laya, then train a deterministic logistic regression in TypeScript on its answers.
@@ -334,7 +334,7 @@ All answered 2026-09-28.
     - the spike shows PyTorch's resident memory is too high for an always-on service, or
     - loading the model inside pi-dev's long-lived process becomes worth having.
   - **Before any such swap:** confirm that `onnxruntime-node` installs and loads under Bun (possibly via `trustedDependencies`).
-- **D7 (proposed after spike 3a, open):** Arm A's 16 nouls miss the latency budget on this laptop (§6.2).
+- **D7 (agreed 2026-09-28, after spike 3a):** Arm A's 16 nouls miss the latency budget on this laptop (§6.2).
   - Arm A stays an evaluation arm, run offline or after the answer, never inside the hook's timeout.
   - Enforce considers only shapes measured under budget: arm B (p95 ≤179 ms) and arm C (p95 91 ms). A reduced arm A of about 4 nouls is borderline. LocalBackend isn't built yet, so it has no latency figure.
   - In shadow, a Laya call may run after the answer, because shadow output is advice only.
