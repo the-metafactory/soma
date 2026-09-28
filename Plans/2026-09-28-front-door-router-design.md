@@ -212,7 +212,7 @@ Those states sit near the median. **Arm B across the real length distribution** 
 | corpus p99 (~545 tokens) | 1,087 | 348 / 380 ms |
 | full 1,024-token budget | 2,048 | 708 / 785 ms |
 
-The laptop was under heavy unrelated load for these runs (load average ~21). A first pass under the same load gave a p95 of 1,271 ms at the corpus-p95 length; the rerun above reproduced the earlier median-state figure, so it is the one recorded.
+Both runs happened under heavy unrelated load (load average ~21), and they disagree at the tail. The first pass, at the corpus-p95 length, gave p50 312 / p95 1,271 ms. The table shows the second pass. Neither run is a clean tail measurement. What load does to a resident CPU model is itself a finding: a busy laptop can push arm B far past the budget.
 
 **Arm C for comparison (D5):**
 - Setup: local Ollama `bge-m3` (digest `790764642607`), one `/api/embed` call carrying the prompt and a 600-character reply tail, n=30 warm.
@@ -239,7 +239,7 @@ The laptop was under heavy unrelated load for these runs (load average ~21). A f
 
 **Verdict against the ≤300 ms p95 budget:**
 - **No-go: arm A as specified (16 nouls, synchronous).** It misses on both devices even at the median state (MPS p95 339 ms, CPU p95 903 ms). MPS then degrades with prompt length.
-- **Go, with a tail: arm B's shape.** Two choice questions stay under 300 ms up to the corpus-p95 state (p95 237 ms). Between the p95 and p99 lengths they cross the budget, so an estimated 1–5% of prompts, the longest, would time out to the regex.
+- **Provisional go, with a tail: arm B's shape.** In the better of two loaded runs it stays under 300 ms up to the corpus-p95 state (p95 237 ms), and it crosses the budget between the p95 and p99 lengths. In the other run the corpus-p95 state already hit p95 1,271 ms. Before enforce, remeasure on an idle machine and under typical load, and budget for the regex fallback taking a noticeable share of prompts when the laptop is busy.
 - **Go: arm C** (p95 91 ms warm, 165 ms at the p99 length), provided `keep_alive` keeps the model resident. Only states near the full budget exceed 300 ms.
 - **Borderline: a reduced arm A** (about 4 nouls). CPU p95 is 236–388 ms.
 - **Measured, so nothing to estimate here:** R9's memory figure is now 1.4 GB on CPU.
