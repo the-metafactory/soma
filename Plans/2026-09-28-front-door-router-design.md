@@ -165,7 +165,9 @@ What this means for the router:
   - **C — embeddings plus head, no Python:** `bge-m3` embeddings, already served by local Ollama, of `{prompt, reply tail}`, fed to a TypeScript logistic regression. It needs no Laya and no Python. It's the cheapest local arm and the bar Laya has to clear.
 - **Use the multilingual checkpoint.** Prompts mix German and English, and it was the fastest in the smoke test (49 ms). The state gets tight in a ~768-token default budget: truncate the prompt head and tail, cap the reply tail at ~600 characters, and measure how much the 16 question texts cost.
 - **Keep the model resident.** 650–800 MB of weights can't load per prompt inside a hook. `laya-serve` runs as a launchd service on localhost, and the hook makes one HTTP call. If the service is down or slow, the regex decides.
-- **Language boundary.** Laya is Python. Runtime and fine-tuning both need explicit principal approval (Q5). A one-time ONNX export run from Bun through `onnxruntime-node` could keep the *runtime* in TypeScript (Q6). But `onnxruntime-node`'s postinstall was blocked in an earlier Bun trial, so that path is unconfirmed. Fine-tuning stays Python either way.
+- **Language boundary.** Laya is Python, which is approved (Q5). The runtime is `laya-serve` (D6). The TypeScript path is kept as a later swap.
+  - The in-repo `laya-ts` (0.1.0, not on npm) exports a split ONNX model with `laya-ts/scripts/export_onnx.py` and checks it against PyTorch within 1e-4.
+  - `onnxruntime-node`'s postinstall was blocked in an earlier Bun trial, so that path is unconfirmed.
 - **Registry "measured on".** The row records the Laya checkpoint hash plus the calibration temperature. A new fine-tune drops the caller back to shadow.
 - **`laya-serve` doesn't log bodies** (as of 0.3.20), and a 500 error returns "inference failed" with no exception text. The Soma ledger is the only record, and the client must treat a 500 like a timeout: fall back to the regex.
 
@@ -197,7 +199,7 @@ Each step has its own exit check.
    - Three blind labellers from at least two vendors: Opus 5.5, Fable 5.1, and a Codex/GPT model.
    - Label the first 300 and measure agreement.
    - Below ~75%, go back to step 1 before labelling the rest (L4).
-3a. **Laya spike** (can run in parallel with steps 1–3). Needs Q5 approval.
+3a. **Laya spike on `laya-serve`** (can run in parallel with steps 1–3).
    - The single-question CPU latency is already known (49 ms, multilingual). What's still missing is the **16-noul batch**.
    - Install `laya[serve]` in an isolated venv on the laptop, CPU only.
    - Measure warm latency for one call carrying 16 nouls, resident memory, and the token cost of the state plus question texts against `max_len`.
@@ -207,7 +209,7 @@ Each step has its own exit check.
    - Fine-tune the multilingual Laya checkpoint only on the training folds, so each fold is scored by a model that never saw it. Calibrate its temperature on a held-out slice.
    - Arm A: run the §5 questions through the fine-tuned Laya, then train a deterministic logistic regression in TypeScript on its answers.
    - Arm B: fine-tune Laya directly on the mode and effort labels.
-   - Arm C: `bge-m3` embeddings with a TypeScript logistic regression. Needs no Python, so it can start before Q5 is answered.
+   - Arm C: `bge-m3` embeddings with a TypeScript logistic regression. It needs no Laya, so it can start first.
    - Score all arms with 5 folds split by session.
 5. **Evaluate.**
    - Candidates: Laya arm A, Laya arm B, arm C, LocalBackend plus combiner, and Jev arm A (only if Q2 allows).
@@ -249,8 +251,8 @@ Each step has its own exit check.
 - **Q2:** May the optional Jev arm run at all, even for evaluation only, given R1? Or is the evaluation Laya plus LocalBackend only?
 - **Q3:** A generic `soma judge` registry (Glance-shaped), or a router-only module?
 - **Q4:** Should the step 0 native-by-default flip (D1) ship now, independent of the rest?
-- **Q5:** Is Python approved for Laya? Its scope would be fine-tuning, calibration, and possibly the `laya-serve` runtime, kept in an isolated venv outside the Soma source tree.
-- **Q6:** Which runtime? `laya-serve` (Python, simplest), or an ONNX export run from Bun through `onnxruntime-node` (TypeScript runtime, Python only for training)?
+- **Q5 (answered 2026-09-28):** Python is approved for Laya's fine-tuning, calibration and the `laya-serve` runtime. It lives in an isolated venv outside the Soma source tree.
+- **Q6 (answered 2026-09-28):** The runtime is `laya-serve`. See D6.
 
 ## 10. Proposed decisions
 
@@ -258,4 +260,13 @@ Each step has its own exit check.
 - **D2:** Pass the previous reply tail and previous mode into the classifier contract, even for the regex path. Stop treating "do it" as minimal (F2).
 - **D3:** Build the ledger before any model. Without it, no later step can be measured.
 - **D4:** Laya, local and fine-tuned, is the primary question backend. Jev is at most an evaluation arm. LocalBackend and the regex remain the always-available fallback.
-- **D5:** Arm C (`bge-m3` plus a TypeScript head) runs first. It needs no Python approval, and Laya has to beat it to justify its Python dependency and resident service.
+- **D5:** Arm C (`bge-m3` plus a TypeScript head) runs first. It needs no Laya, and Laya has to beat it to justify its Python dependency and resident service.
+- **D6 (agreed 2026-09-28):** Run Laya as `laya-serve` (Python) for the spike and the shadow phase.
+  - **Why it's fast to evidence:** it needs no custom code, and it already ran on the laptop.
+  - **Why it can't drift:** the fine-tuned checkpoint loads directly in the same code that trained it.
+  - **Why the swap stays cheap:** it speaks Jev's `/v1/systemone` protocol. Any replacement service must speak the same protocol, so a swap only changes the URL.
+  - **Why ONNX doesn't avoid a service:** the Claude Code hook spawns a fresh process per prompt (`src/adapters/claude-code/mode-classifier-hook.mjs:40`). Whatever runtime is used, the model must live in a resident service.
+  - **Revisit and move to ONNX via `laya-ts` in a Bun service when either holds:**
+    - the spike shows PyTorch's resident memory is too high for an always-on service, or
+    - loading the model inside pi-dev's long-lived process becomes worth having.
+  - **Before any such swap:** confirm that `onnxruntime-node` installs and loads under Bun (possibly via `trustedDependencies`).
