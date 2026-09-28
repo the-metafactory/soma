@@ -158,7 +158,10 @@ What this means for the router:
 - **At runtime, prompts stay on the machine.** Building and evaluating the router still uses hosted calls (labellers, the Opus baseline, the Jev arm). R1's screening covers all of them.
 - **Fine-tuning is required, not optional.** The labelled set from step 3 becomes Laya's training data as well as the evaluation key. Nothing ships zero-shot.
 - **Train locally, and never push.** The shipped fine-tune notebook trains on cloud GPUs and pushes to the HF Hub. A checkpoint trained on a principal's prompts is private data. Train on the laptop or another local host, and store it in the private Soma home.
-- **Label volume.** The README's fine-tune set is ~30k questions. At 1,000 prompts × 16 nouls that's 16k weak labels from the combiner's own targets, which is thin for a per-question fine-tune. That's one more reason to include arm B, which trains directly on 1,000 mode and effort labels.
+- **Label volume and supervision.** The README's fine-tune set is ~30k questions.
+  - A routing label does not determine the answers to W1–C4: the same `native` label can sit on an edit, a lookup or a correction. So arm A needs its own question-level labels.
+  - In step 3, each labeller also answers the 16 questions per row, and the majority answer per question is the target. That gives 16k question labels from 1,000 prompts, which is thin for a per-question fine-tune.
+  - That's one more reason to include arm B, which trains directly on 1,000 mode and effort labels.
 - **Write every question positively.** Because of the negation bug (#377), no question text contains a negation (§5 already follows this). Check the labels for prompts that negate an action ("don't change anything, just tell me").
 - **Two candidate designs to evaluate (step 5):**
   - **A — questions plus combiner:** Laya answers the 16 nouls, and the TypeScript logistic regression combines them. This follows L1.
@@ -193,7 +196,7 @@ Each step has its own exit check.
 2. **Corpus (`soma router corpus`).** A TypeScript tool that walks Claude, Codex and pi transcripts.
    - Keep only human-typed interactive prompts.
    - Drop meta, tool_result, hook-injected, sidechain/subagent, pasted-notification and `<command-*>` entries.
-   - Attach the previous assistant tail and the previous mode.
+   - Attach the previous assistant tail and the previous mode and effort. Where the hook did not classify the previous prompt, both are recorded as unknown (null), never carried over from an earlier prompt.
    - Sample 1,000 prompts.
    - Store the output in the Soma home's private state directory, never committed.
 3. **Labels.**
@@ -230,7 +233,7 @@ Each step has its own exit check.
   - the one-Opus-call baseline in step 5
   - the Jev arm in step 5 (TypeSafe or OpenRouter)
 
-  Prompts routinely contain employer and client material. The prompts were originally typed into Claude Code, so Anthropic has already received them. OpenAI and TypeSafe are **new recipients**. TypeSafe's public API reference says nothing about retention, training use or residency (checked 2026-09-28).
+  Prompts routinely contain employer and client material. Prompts from Claude Code transcripts have already reached Anthropic, so for those rows OpenAI and TypeSafe are the **new recipients**. Rows from Codex or pi sessions have not necessarily reached Anthropic, so for them Anthropic is a new recipient too. Each row records its source substrate, and the enablement below is decided per recipient and source. TypeSafe's public API reference says nothing about retention, training use or residency (checked 2026-09-28).
 
   Mitigations apply to **every** hosted call, not just Jev:
   - A local screen runs over both the prompt and the reply tail before transmission. It redacts email addresses and phone numbers, and drops any row that looks like it holds a credential.
@@ -239,7 +242,7 @@ Each step has its own exit check.
   - JevBackend stays off by default at runtime, opt-in per home.
 - **R2: Portability.** Weights and questions must be data in the contract, not code. Extend the equivalence test pattern in `test/pi-dev-classifier-projection.test.ts` to cover them.
 - **R3: Latency.** See §6. A hard timeout plus fallback means the router never blocks a prompt.
-- **R4: Label ceiling.** No classifier beats the labellers' own agreement. Measure agreement before tuning the model.
+- **R4: Label reliability.** Agreement between labellers is not an accuracy ceiling. A classifier can match the majority key closely even when individual labellers disagree. But low agreement means the key itself is unreliable, so a high score against it proves little. Measure agreement before tuning the model, and fix the rules (L4) until the key is trustworthy.
 - **R5: Corpus hygiene.** Hook output and subagent chatter poison the labels. Step 2 needs a check that samples its output and inspects it.
 - **R6: Per-person fit.** Weights trained on one principal's prompts don't transfer. Other homes need either a generic default set or per-home retraining. A fine-tuned Laya checkpoint makes this sharper: it is a per-home artifact, never a shipped default.
 - **R7: Laya is new and unreplicated.** The repo was created 2026-09-18, it's at version 0.x, and it had 26 open issues when read on 2026-09-25. Its benchmark numbers are its own, and the Jev comparisons in its README are third-party, not head-to-head. The spike and step 5 are the only numbers that count.
