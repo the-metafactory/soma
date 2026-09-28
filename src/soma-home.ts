@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { allInstallSpecs } from "./install-spec-registry";
 import { migrateVsaStorageDir } from "./home-migration";
@@ -238,6 +238,35 @@ function frontmatterValue(content: string, key: string, fallback: string): strin
   return match?.[1]?.trim().replace(/^["']|["']$/g, "") ?? fallback;
 }
 
+// Vendor/build directories a principal-authored skill can legitimately contain
+// (an installed CLI's own node_modules, a compiled Swift/TS build) but that
+// projection must never walk: they hold megabytes-to-gigabytes of dependency
+// and build-artifact content that is not skill prose, and reading it all as
+// "skill files" is what made codex/cursor/grok/pi-dev/anthropic-cowork catalog
+// refreshes hang for minutes (soma#690-follow-up — a stray node_modules under
+// ~/.soma/skills/productivity/email alone was 781MB).
+const SKILL_SCAN_SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "target", "vendor", ".venv", "venv", ".next", ".turbo", ".cache"]);
+
+// A skill file is projected as text (rendered into substrate markdown/rules
+// files, regex-rewritten). A compiled binary read as "utf8" is not skill
+// content — it is either mojibake or, worse, megabytes of garbage that the
+// substrate rewrite then has to scan. Sniff the first chunk for a NUL byte
+// (the standard binary heuristic — text files don't contain one) and skip.
+const BINARY_SNIFF_BYTES = 8000;
+
+async function isBinaryFile(path: string): Promise<boolean> {
+  const handle = await open(path, "r").catch(() => undefined);
+  if (!handle) return false;
+
+  try {
+    const buffer = Buffer.alloc(BINARY_SNIFF_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, BINARY_SNIFF_BYTES, 0);
+    return buffer.subarray(0, bytesRead).includes(0);
+  } finally {
+    await handle.close();
+  }
+}
+
 async function collectSkillFiles(root: string, current = root): Promise<{ path: string; content: string }[]> {
   const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
   const files: { path: string; content: string }[] = [];
@@ -250,6 +279,9 @@ async function collectSkillFiles(root: string, current = root): Promise<{ path: 
     const fullPath = join(current, entry.name);
 
     if (entry.isDirectory()) {
+      if (SKILL_SCAN_SKIP_DIRS.has(entry.name)) {
+        continue;
+      }
       files.push(...(await collectSkillFiles(root, fullPath)));
       continue;
     }
@@ -261,6 +293,10 @@ async function collectSkillFiles(root: string, current = root): Promise<{ path: 
     const relativePath = relative(root, fullPath);
 
     if (relativePath.startsWith("..") || relativePath.includes(`..${sep}`)) {
+      continue;
+    }
+
+    if (await isBinaryFile(fullPath)) {
       continue;
     }
 
