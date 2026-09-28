@@ -62,9 +62,9 @@ LifeOS routes work to vendor workers. Soma's first job is choosing the working m
 |---|---|---|
 | **Mode** | `minimal` · `native` · `algorithm` | every substrate's mode hook |
 | **Effort** | `E1`–`E5` (only when mode = algorithm) | Algorithm skill |
-| **Lane** *(optional, Q1)* | `inline` · `subagent-light` · `subagent-strong` · `second-opinion` | Claude Code Agent model/effort; Codex worker `--effort` |
+| **Lane** *(in scope, Q1)* | `inline` · `subagent-light` · `subagent-strong` · `second-opinion` | Claude Code Agent model/effort; Codex worker `--effort` |
 
-Lane is the Soma equivalent of the LifeOS model grid. Mode and Effort are what Soma needs now.
+Lane is the Soma equivalent of the LifeOS model grid. All three axes are in scope (Q1). Lane is labelled from step 3 on and gets its own head.
 
 ## 4. Rules first (≤16 words each)
 
@@ -118,7 +118,7 @@ Every question is a yes/no answered with a probability (a Jev "noul"). The input
 - the previous mode (one-hot)
 - whether the prompt starts with a slash command
 
-That gives 16 probabilities plus about 8 features. They feed two multinomial logistic regressions, one for mode and one for effort, and a third for lane if Q1 says yes. Expect the question wording to change after the first labelling round, which is the L4 loop.
+That gives 16 probabilities plus about 8 features. They feed three multinomial logistic regressions, one each for mode, effort and lane. Expect the question wording to change after the first labelling round, which is the L4 loop.
 
 ## 6. Architecture
 
@@ -154,7 +154,7 @@ The smoke test showed the multilingual checkpoint with **no zero-shot signal on 
 
 What this means for the router:
 
-- **Prompts stay on the machine.** R1 goes away for the default path, and Q2 now concerns only the optional Jev comparison arm.
+- **Prompts stay on the machine.** R1 goes away for the default path. It applies only to the Jev evaluation arm, which Q2 allows.
 - **Fine-tuning is required, not optional.** The labelled set from step 3 becomes Laya's training data as well as the evaluation key. Nothing ships zero-shot.
 - **Train locally, and never push.** The shipped fine-tune notebook trains on cloud GPUs and pushes to the HF Hub. A checkpoint trained on a principal's prompts is private data. Train on the laptop or another local host, and store it in the private Soma home.
 - **Label volume.** The README's fine-tune set is ~30k questions. At 1,000 prompts × 16 nouls that's 16k weak labels from the combiner's own targets, which is thin for a per-question fine-tune. That's one more reason to include arm B, which trains directly on 1,000 mode and effort labels.
@@ -171,7 +171,7 @@ What this means for the router:
 - **Registry "measured on".** The row records the Laya checkpoint hash plus the calibration temperature. A new fine-tune drops the caller back to shadow.
 - **`laya-serve` doesn't log bodies** (as of 0.3.20), and a 500 error returns "inference failed" with no exception text. The Soma ledger is the only record, and the client must treat a 500 like a timeout: fall back to the regex.
 
-**A Glance-shaped primitive, not a one-off (Q3).** The registry and ledger are generic (`soma judge`), and the router is the first caller. Later candidates:
+**A Glance-shaped primitive, not a one-off (Q3: `soma judge`).** The registry and ledger are generic (`soma judge`), and the router is the first caller. Later candidates:
 - feedback-candidate detection (the currently dormant capture pipeline)
 - memory-recall relevance
 - the "is this a correction?" signal the harness objective function wants
@@ -212,7 +212,7 @@ Each step has its own exit check.
    - Arm C: `bge-m3` embeddings with a TypeScript logistic regression. It needs no Laya, so it can start first.
    - Score all arms with 5 folds split by session.
 5. **Evaluate.**
-   - Candidates: Laya arm A, Laya arm B, arm C, LocalBackend plus combiner, and Jev arm A (only if Q2 allows).
+   - Candidates: Laya arm A, Laya arm B, arm C, LocalBackend plus combiner, and Jev arm A (evaluation only, with R1's redaction and credential skip applied).
    - Baselines: always-native, native plus depth words, the current regex, and one Opus call.
    - Report per-axis accuracy and the count of prompts escalated where the key says native.
    - Run a McNemar test against the best baseline, and a threshold sweep.
@@ -247,10 +247,12 @@ Each step has its own exit check.
 
 ## 9. Open questions for the principal
 
-- **Q1:** Is the Lane axis (subagent model/effort) in scope, or only Mode and Effort for now? LifeOS 7.0 retired modes entirely, and its new router picks only model and effort.
-- **Q2:** May the optional Jev arm run at all, even for evaluation only, given R1? Or is the evaluation Laya plus LocalBackend only?
-- **Q3:** A generic `soma judge` registry (Glance-shaped), or a router-only module?
-- **Q4:** Should the step 0 native-by-default flip (D1) ship now, independent of the rest?
+All answered 2026-09-28.
+
+- **Q1: yes.** The Lane axis (subagent model and effort) is in scope, alongside Mode and Effort.
+- **Q2: yes.** The Jev arm may run for evaluation. R1's redaction and credential skip still apply.
+- **Q3: `soma judge`.** A generic, Glance-shaped registry, with the router as its first caller.
+- **Q4: yes.** D1 ships now, independent of the rest.
 - **Q5 (answered 2026-09-28):** Python is approved for Laya's fine-tuning, calibration and the `laya-serve` runtime. It lives in an isolated venv outside the Soma source tree.
 - **Q6 (answered 2026-09-28):** The runtime is `laya-serve`. See D6.
 
