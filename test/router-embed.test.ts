@@ -62,6 +62,43 @@ test("the embedder resolves the model digest and batches requests", async () => 
   expect(calls.filter((call) => call.path === "/api/embed").map((call) => call.body.input.length)).toEqual([32, 32, 6]);
 });
 
+test("a redirect from the loopback host is refused, and the prompt never reaches its target", async () => {
+  const received: string[] = [];
+  const target = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async (request) => (received.push(await request.text()), Response.json({ embeddings: [[0]] })) });
+  const redirector = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (request) =>
+      new URL(request.url).pathname === "/api/tags"
+        ? Response.json({ models: [{ name: "bge-m3:latest", digest: DIGEST }] })
+        : new Response(null, { status: 307, headers: { location: `http://127.0.0.1:${target.port}/api/embed` } }),
+  });
+  try {
+    const embedder = await connectOllamaEmbedder({ host: `http://127.0.0.1:${redirector.port}` });
+    await expect(embedder.embed(["PRIVATE"])).rejects.toThrow();
+    expect(received).toHaveLength(0);
+  } finally {
+    await redirector.stop(true);
+    await target.stop(true);
+  }
+});
+
+test("a model re-pulled while embedding is refused, so its vectors are never filed under the old digest", async () => {
+  let tagCalls = 0;
+  const base = fakeOllama();
+  const swapping: FetchLike = async (input, init) => {
+    if (new URL(input).pathname === "/api/tags") {
+      tagCalls += 1;
+      return Response.json({ models: [{ name: "bge-m3:latest", digest: tagCalls === 1 ? DIGEST : "f".repeat(64) }] });
+    }
+    return base(input, init);
+  };
+  const embedder = await connectOllamaEmbedder({ fetch: swapping });
+  const cache = new Map<string, number[]>();
+  await expect(fillEmbeddingCache(embedder, cache, ["a"])).rejects.toThrow("changed while embedding");
+  expect(cache.size).toBe(0);
+});
+
 test("a model Ollama does not have is a clear error", async () => {
   await expect(connectOllamaEmbedder({ model: "nomic-embed-text", fetch: fakeOllama() })).rejects.toThrow("ollama pull nomic-embed-text");
 });
@@ -113,14 +150,18 @@ test("arm C features: prompt vector, reply-tail vector, then plain features", ()
     [textKey("Want me to open the PR?"), fakeVector("Want me to open the PR?")],
   ]);
   const features = routerArmCFeatures(row({}), cache)!;
-  expect(features).toHaveLength(2 * DIM + 6);
+  expect(features).toHaveLength(2 * DIM + 12);
   expect(features.slice(0, DIM)).toEqual(fakeVector("do it"));
   expect(features.slice(DIM, 2 * DIM)).toEqual(fakeVector("Want me to open the PR?"));
-  expect(features.slice(2 * DIM)).toEqual([1, Math.log1p(5), 0, 0, 1, 0]);
+  expect(features.slice(2 * DIM)).toEqual([1, Math.log1p(5), 0, 0, 1, 0, 0, 1, 0, 0, 0, 0]);
 
-  const noReply = routerArmCFeatures(row({ replyTail: "", hasPreviousReply: false, previousMode: null }), cache)!;
+  const noReply = routerArmCFeatures(row({ replyTail: "", hasPreviousReply: false, previousMode: null, previousEffort: null }), cache)!;
   expect(noReply.slice(DIM, 2 * DIM)).toEqual(new Array(DIM).fill(0));
-  expect(noReply.slice(2 * DIM)).toEqual([0, Math.log1p(5), 0, 0, 0, 1]);
+  expect(noReply.slice(2 * DIM)).toEqual([0, Math.log1p(5), 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
+
+  const afterE1 = routerArmCFeatures(row({ previousEffort: "E1" }), cache)!;
+  const afterE5 = routerArmCFeatures(row({ previousEffort: "E5" }), cache)!;
+  expect(afterE1).not.toEqual(afterE5);
 
   expect(routerArmCFeatures(row({ prompt: "not cached" }), cache)).toBeNull();
 });
@@ -170,7 +211,7 @@ test("soma router embed + train: scores by session folds, writes private artifac
     expect((await stat(artifactPath)).mode & 0o777).toBe(0o600);
     const artifact = JSON.parse(await readFile(artifactPath, "utf8"));
     expect(artifact).toMatchObject({ caller: "mode-router", arm: "C", axis: "mode", backend: "ollama:bge-m3", backendVersion: DIGEST, examples: 24 });
-    expect(artifact.model.dimensions).toBe(2 * DIM + 6);
+    expect(artifact.model.dimensions).toBe(2 * DIM + 12);
   } finally {
     await rm(somaHome, { recursive: true, force: true });
   }

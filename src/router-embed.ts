@@ -42,7 +42,7 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
 export interface OllamaEmbedder {
   model: string;
-  /** Full sha256 digest of the model, so a changed model never reuses stale vectors. */
+  /** Full sha256 digest of the model. `embed` re-checks it, so a re-pulled model never files vectors under a stale digest. */
   digest: string;
   embed(texts: string[]): Promise<number[][]>;
 }
@@ -51,17 +51,23 @@ export async function connectOllamaEmbedder(options: { host?: string; model?: st
   const base = assertLoopbackHost(options.host ?? ROUTER_EMBED_DEFAULT_HOST);
   const model = options.model ?? ROUTER_EMBED_DEFAULT_MODEL;
   const doFetch = options.fetch ?? fetch;
-
-  const tagsResponse = await doFetch(new URL("/api/tags", base).toString());
-  if (!tagsResponse.ok) throw new Error(`Ollama /api/tags failed: HTTP ${tagsResponse.status}`);
-  const tags = (await tagsResponse.json()) as { models?: { name: string; digest: string }[] };
   const wanted = model.includes(":") ? model : `${model}:latest`;
-  const entry = tags.models?.find((candidate) => candidate.name === wanted);
-  if (!entry) throw new Error(`Ollama has no model ${wanted}. Pull it with \`ollama pull ${model}\`.`);
+
+  // `redirect: "error"`: the loopback check covers only the first hop, and a 307/308
+  // from a local endpoint would otherwise forward the prompt-bearing body elsewhere.
+  const currentDigest = async (): Promise<string> => {
+    const response = await doFetch(new URL("/api/tags", base).toString(), { redirect: "error" });
+    if (!response.ok) throw new Error(`Ollama /api/tags failed: HTTP ${response.status}`);
+    const tags = (await response.json()) as { models?: { name: string; digest: string }[] };
+    const entry = tags.models?.find((candidate) => candidate.name === wanted);
+    if (!entry) throw new Error(`Ollama has no model ${wanted}. Pull it with \`ollama pull ${model}\`.`);
+    return entry.digest;
+  };
+  const digest = await currentDigest();
 
   return {
     model,
-    digest: entry.digest,
+    digest,
     async embed(texts: string[]): Promise<number[][]> {
       const vectors: number[][] = [];
       for (let start = 0; start < texts.length; start += EMBED_BATCH) {
@@ -70,6 +76,7 @@ export async function connectOllamaEmbedder(options: { host?: string; model?: st
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ model, input }),
+          redirect: "error",
         });
         if (!response.ok) throw new Error(`Ollama /api/embed failed: HTTP ${response.status}`);
         const body = (await response.json()) as { embeddings?: number[][] };
@@ -77,6 +84,9 @@ export async function connectOllamaEmbedder(options: { host?: string; model?: st
         if (embeddings.length !== input.length) throw new Error("Ollama /api/embed returned the wrong number of vectors.");
         vectors.push(...embeddings);
       }
+      // Ollama embeds by name, not digest. If the name was re-pulled mid-run, these
+      // vectors belong to a different model than the cache they would be filed under.
+      if ((await currentDigest()) !== digest) throw new Error(`Ollama model ${wanted} changed while embedding; nothing was cached. Run again.`);
       return vectors;
     },
   };
@@ -146,15 +156,18 @@ export async function fillEmbeddingCache(embedder: OllamaEmbedder, cache: Map<st
 }
 
 const PREVIOUS_MODES = ["minimal", "native", "algorithm"] as const;
+const PREVIOUS_EFFORTS = ["E1", "E2", "E3", "E4", "E5"] as const;
 
 /**
  * Arm C's feature vector:
  * `[prompt embedding, reply-tail embedding (zeros if none), has previous reply,
- * log prompt length, previous mode one-hot (minimal, native, algorithm, unknown)]`.
+ * log prompt length, previous mode one-hot (minimal, native, algorithm, unknown),
+ * previous effort one-hot (E1–E5, none)]`. Previous effort is what lets
+ * "do it" after an E4 plan differ from "do it" after an E1 fix (rule 4).
  * Returns null when a needed vector is not in the cache.
  */
 export function routerArmCFeatures(
-  row: Pick<RouterCorpusRow, "prompt" | "replyTail" | "hasPreviousReply" | "previousMode">,
+  row: Pick<RouterCorpusRow, "prompt" | "replyTail" | "hasPreviousReply" | "previousMode" | "previousEffort">,
   cache: Map<string, number[]>,
 ): number[] | null {
   const texts = routerEmbedTexts(row);
@@ -169,5 +182,7 @@ export function routerArmCFeatures(
     tailVector = cached;
   }
   const modeOneHot = [...PREVIOUS_MODES.map((mode) => (row.previousMode === mode ? 1 : 0)), row.previousMode === null ? 1 : 0];
-  return [...promptVector, ...tailVector, row.hasPreviousReply ? 1 : 0, Math.log1p(row.prompt.length), ...modeOneHot];
+  const effort = PREVIOUS_EFFORTS.find((value) => value === row.previousEffort);
+  const effortOneHot = [...PREVIOUS_EFFORTS.map((value) => (effort === value ? 1 : 0)), effort ? 0 : 1];
+  return [...promptVector, ...tailVector, row.hasPreviousReply ? 1 : 0, Math.log1p(row.prompt.length), ...modeOneHot, ...effortOneHot];
 }
