@@ -203,9 +203,21 @@ Setup: laptop M1 Pro (8 performance cores), `laya[serve]` 0.3.21 in an isolated 
 | Arm B: 2 choice questions (`mode`, `effort`) | 447–493 | 152–157 / 175–179 ms |
 | 4 context nouls (C1–C4) | 856–948 | 220–257 / 236–388 ms |
 
+Those states sit near the median. **Arm B across the real length distribution** (CPU, 8 threads, n=30, per-question state length matched to corpus percentiles):
+
+| Per-question state | Input tokens | p50 / p95 |
+|---|---|---|
+| median ("do it" + tail) | 447 | 154 / 164 ms |
+| corpus p95 (~300 tokens) | 601 | 198 / 237 ms |
+| corpus p99 (~545 tokens) | 1,087 | 348 / 380 ms |
+| full 1,024-token budget | 2,048 | 708 / 785 ms |
+
+The laptop was under heavy unrelated load for these runs (load average ~21). A first pass under the same load gave a p95 of 1,271 ms at the corpus-p95 length; the rerun above reproduced the earlier median-state figure, so it is the one recorded.
+
 **Arm C for comparison (D5):**
 - Setup: local Ollama `bge-m3` (digest `790764642607`), one `/api/embed` call carrying the prompt and a 600-character reply tail, n=30 warm.
 - Latency: p50 70 ms, p95 91 ms. The combiner adds one dot product per class, which is negligible.
+- Across lengths (prompt plus 600-character tail, n=20): p95 111 ms at the corpus-p95 length, 165 ms at p99, 358 ms at the full budget.
 - Cold: the first call after Ollama unloads the model takes 1.08 s. Ollama unloads an idle model after 5 minutes by default. A runtime arm C therefore needs a pinned `keep_alive`, or its first prompt after a pause falls back to the regex.
 - Resident: 673 MB on the GPU while loaded.
 
@@ -227,8 +239,8 @@ Setup: laptop M1 Pro (8 performance cores), `laya[serve]` 0.3.21 in an isolated 
 
 **Verdict against the ≤300 ms p95 budget:**
 - **No-go: arm A as specified (16 nouls, synchronous).** It misses on both devices even at the median state (MPS p95 339 ms, CPU p95 903 ms). MPS then degrades with prompt length.
-- **Go: arm B's shape.** Two choice questions run at p95 ≤179 ms on CPU, with headroom.
-- **Go: arm C** (p95 91 ms warm), provided `keep_alive` keeps the model resident.
+- **Go, with a tail: arm B's shape.** Two choice questions stay under 300 ms up to the corpus-p95 state (p95 237 ms). Between the p95 and p99 lengths they cross the budget, so an estimated 1–5% of prompts, the longest, would time out to the regex.
+- **Go: arm C** (p95 91 ms warm, 165 ms at the p99 length), provided `keep_alive` keeps the model resident. Only states near the full budget exceed 300 ms.
 - **Borderline: a reduced arm A** (about 4 nouls). CPU p95 is 236–388 ms.
 - **Measured, so nothing to estimate here:** R9's memory figure is now 1.4 GB on CPU.
 
@@ -336,5 +348,5 @@ All answered 2026-09-28.
   - **Before any such swap:** confirm that `onnxruntime-node` installs and loads under Bun (possibly via `trustedDependencies`).
 - **D7 (agreed 2026-09-28, after spike 3a):** Arm A's 16 nouls miss the latency budget on this laptop (§6.2).
   - Arm A stays an evaluation arm, run offline or after the answer, never inside the hook's timeout.
-  - Enforce considers only shapes measured under budget: arm B (p95 ≤179 ms) and arm C (p95 91 ms). A reduced arm A of about 4 nouls is borderline. LocalBackend isn't built yet, so it has no latency figure.
+  - Enforce considers only shapes measured under budget: arm B (under budget to the corpus-p95 length) and arm C (under budget to beyond p99). A reduced arm A of about 4 nouls is borderline. LocalBackend isn't built yet, so it has no latency figure.
   - In shadow, a Laya call may run after the answer, because shadow output is advice only.
