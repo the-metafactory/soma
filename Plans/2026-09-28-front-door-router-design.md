@@ -2,6 +2,8 @@
 
 *2026-09-28 · status: proposal, nothing implemented · source: [How Jev Picks the Model and Effort for Every Prompt](https://danielmiessler.com/blog/glance-routes-model-and-effort) (LifeOS, 2026-09-24)*
 
+*Rev 2 (2026-09-28): the primary question backend is now **Laya**, an open-weights model that runs locally. The hosted Jev API becomes an optional comparison arm. See §6.1.*
+
 ## 1. What the source teaches
 
 LifeOS picks a model lane and an effort for every prompt. It asks Jev, TypeSafe's "System One" decision model, through a judgment layer called Glance. Jev is reachable at `POST https://api.typesafe.ai/v1/systemone`, and on OpenRouter as `~typesafe/jev-latest`. The router code (`FrontDoor.ts`, `LaneQuestions.ts`, `LaneTrain.ts`, `RealPrompts.ts`) is not in the public LifeOS repo as of 2026-09-28. The lessons that carry over:
@@ -84,7 +86,7 @@ Rule 6 comes from the retired LifeOS router, whose test was "ideal state pre-art
 
 ## 5. The questions
 
-Every question is a yes/no answered with a probability (a Jev "noul"). The input is `{prompt, previous_reply_tail (≤800 chars), previous_mode}`, and all 16 questions go in one call.
+Every question is a yes/no answered with a probability (a Jev "noul"). The input is `{prompt, previous_reply_tail (≤800 chars), previous_mode}`, and all 16 questions go in one call. Laya and Jev both take the same `state + questions` request shape.
 
 **Work (W1–W8)**
 - W1 Does the prompt ask for something to be built, changed or fixed?
@@ -125,8 +127,9 @@ UserPromptSubmit / pi input hook
   └─ pre-filter (deterministic, always local)
        explicit token → force · slash cmd → skip · credential-shaped → skip, log "skipped:secret"
   └─ QuestionBackend  (interface: answer(questions, state) → Record<id, p>)
-       ├─ JevBackend      TypeSafe/OpenRouter, redacts email/phone, 800 ms timeout
-       └─ LocalBackend    regex/feature heuristics → pseudo-probabilities (offline, zero egress)
+       ├─ LayaBackend     PRIMARY · resident local laya-serve on 127.0.0.1, fine-tuned checkpoint, 300 ms timeout
+       ├─ JevBackend      OPTIONAL comparison arm · TypeSafe/OpenRouter, redacts email/phone, 800 ms timeout
+       └─ LocalBackend    regex/feature heuristics → pseudo-probabilities (no model, always available)
   └─ Combiner          weights = JSON data in the contract (ships to pi-dev like today's patterns)
   └─ Judgment registry  caller "mode-router": state shadow|enforce, threshold, budget, measured-on
   └─ Ledger            JSONL in the Soma home's private state directory (never committed)
@@ -135,12 +138,43 @@ UserPromptSubmit / pi input hook
                        enforce: router pick decides; regex is the timeout/fallback path
 ```
 
+### 6.1 Question backend: Laya (local) first, Jev optional
+
+[Laya](https://huggingface.co/convaiinnovations/laya) is an open-weights "System One" decision model, published 2026-09-18 under Apache 2.0. It answers the same three question types as Jev (noul, choice, score), and it runs on local hardware. Sources: the model card and README, plus a prior local smoke test from another project (2026-09-25, laptop M1 Pro CPU, laya 0.3.20, 10 synthetic one-line texts in DE/FR/IT/EN).
+
+| | Laya | Jev |
+|---|---|---|
+| Where it runs | Locally. Python package `laya`. `laya-serve` speaks Jev's wire protocol (`POST /v1/systemone`), so one client can call either. `laya-ts` 0.1.0 exists but isn't on npm. There are no ONNX files on the Hub; one Python export is needed. | Hosted API, paid |
+| Checkpoints | english (ModernBERT-large, 421M) · multilingual (mmBERT-base, 322M, 100+ languages) · typed-decisions (fine-tuned, 421M). About 614–803 MB each. Default text budget ~768 tokens, raisable via `max_len`. | `jev-latest`, ~64k context |
+| Latency | **Measured on laptop CPU**, per 1-question call: multilingual **49 ms**, english and typed-decisions ~111 ms. Vendor T4 GPU figures: ~33–40 ms per question, ~72 ms for a batch of 10. | ~300 ms (vendor figure); ~1.1 s measured end-to-end from a laptop in another project |
+| Zero-shot quality | **Base checkpoints are near chance.** Multilingual scored 0.352 on typed-decisions, where random is 0.318 and majority 0.461. The 0.766 figure comes from a checkpoint trained on that benchmark's own split. README: "a fast base to specialise, not a zero-shot decision engine". | strong zero-shot |
+| Weak spots | Negation (issue #377: a negated request picked the action at p=0.9998). Noul answers follow their label wording (#156). Score position bias (#131). `laya-multilingual` ships without fitted temperatures. Its `confidence` formula differs from Jev's, so Jev thresholds don't transfer. About 20 options per choice at most. | — |
+
+The smoke test showed the multilingual checkpoint with **no zero-shot signal on choice questions**. It answered the majority label on every case. But on a noul with explicit A/B labels, it **ranked every positive above every negative**, so its errors came only from where the 0.5 cut falls. That's what threshold and temperature fitting fix. With n=10 this is a hint, not an accuracy figure. It supports the plan: fine-tune, calibrate, and prefer nouls over choices.
+
+What this means for the router:
+
+- **Prompts stay on the machine.** R1 goes away for the default path, and Q2 now concerns only the optional Jev comparison arm.
+- **Fine-tuning is required, not optional.** The labelled set from step 3 becomes Laya's training data as well as the evaluation key. Nothing ships zero-shot.
+- **Train locally, and never push.** The shipped fine-tune notebook trains on cloud GPUs and pushes to the HF Hub. A checkpoint trained on a principal's prompts is private data. Train on the laptop or another local host, and store it in the private Soma home.
+- **Label volume.** The README's fine-tune set is ~30k questions. At 1,000 prompts × 16 nouls that's 16k weak labels from the combiner's own targets, which is thin for a per-question fine-tune. That's one more reason to include arm B, which trains directly on 1,000 mode and effort labels.
+- **Write every question positively.** Because of the negation bug (#377), no question text contains a negation (§5 already follows this). Check the labels for prompts that negate an action ("don't change anything, just tell me").
+- **Two candidate designs to evaluate (step 5):**
+  - **A — questions plus combiner:** Laya answers the 16 nouls, and the TypeScript logistic regression combines them. This follows L1.
+  - **B — direct head:** Laya is fine-tuned straight onto the `mode` and `effort` labels as choice questions. Fewer moving parts. It competes with A on equal terms.
+  - **C — embeddings plus head, no Python:** `bge-m3` embeddings, already served by local Ollama, of `{prompt, reply tail}`, fed to a TypeScript logistic regression. It needs no Laya and no Python. It's the cheapest local arm and the bar Laya has to clear.
+- **Use the multilingual checkpoint.** Prompts mix German and English, and it was the fastest in the smoke test (49 ms). The state gets tight in a ~768-token default budget: truncate the prompt head and tail, cap the reply tail at ~600 characters, and measure how much the 16 question texts cost.
+- **Keep the model resident.** 650–800 MB of weights can't load per prompt inside a hook. `laya-serve` runs as a launchd service on localhost, and the hook makes one HTTP call. If the service is down or slow, the regex decides.
+- **Language boundary.** Laya is Python. Runtime and fine-tuning both need explicit principal approval (Q5). A one-time ONNX export run from Bun through `onnxruntime-node` could keep the *runtime* in TypeScript (Q6). But `onnxruntime-node`'s postinstall was blocked in an earlier Bun trial, so that path is unconfirmed. Fine-tuning stays Python either way.
+- **Registry "measured on".** The row records the Laya checkpoint hash plus the calibration temperature. A new fine-tune drops the caller back to shadow.
+- **`laya-serve` doesn't log bodies** (as of 0.3.20), and a 500 error returns "inference failed" with no exception text. The Soma ledger is the only record, and the client must treat a 500 like a timeout: fall back to the regex.
+
 **A Glance-shaped primitive, not a one-off (Q3).** The registry and ledger are generic (`soma judge`), and the router is the first caller. Later candidates:
 - feedback-candidate detection (the currently dormant capture pipeline)
 - memory-recall relevance
 - the "is this a correction?" signal the harness objective function wants
 
-**Latency.** The hook already spawns `bun` on every prompt, so a subprocess cost is paid regardless. A Jev round trip adds network time on top of that. The advice line should carry `latency_ms` so the cost is measured, not guessed. If the call exceeds the timeout, the regex decides.
+**Latency.** The hook already spawns `bun` on every prompt, so a subprocess cost is paid regardless. A localhost Laya call adds model time, a Jev call adds network time. The advice line should carry `latency_ms` so the cost is measured, not guessed. If the call exceeds the timeout, the regex decides.
 
 ## 7. Build order
 
@@ -163,11 +197,20 @@ Each step has its own exit check.
    - Three blind labellers from at least two vendors: Opus 5.5, Fable 5.1, and a Codex/GPT model.
    - Label the first 300 and measure agreement.
    - Below ~75%, go back to step 1 before labelling the rest (L4).
-4. **Questions and combiner.**
-   - Run the §5 questions over the labelled set on both backends.
-   - Train a deterministic logistic regression in TypeScript, no Python.
-   - Score with 5 folds split by session.
+3a. **Laya spike** (can run in parallel with steps 1–3). Needs Q5 approval.
+   - The single-question CPU latency is already known (49 ms, multilingual). What's still missing is the **16-noul batch**.
+   - Install `laya[serve]` in an isolated venv on the laptop, CPU only.
+   - Measure warm latency for one call carrying 16 nouls, resident memory, and the token cost of the state plus question texts against `max_len`.
+   - Probe a negated prompt ("don't change anything, just explain") against W1.
+   - *Exit:* numbers recorded; go/no-go against a p95 budget of ≤300 ms.
+4. **Questions, fine-tune and combiner.**
+   - Fine-tune the multilingual Laya checkpoint only on the training folds, so each fold is scored by a model that never saw it. Calibrate its temperature on a held-out slice.
+   - Arm A: run the §5 questions through the fine-tuned Laya, then train a deterministic logistic regression in TypeScript on its answers.
+   - Arm B: fine-tune Laya directly on the mode and effort labels.
+   - Arm C: `bge-m3` embeddings with a TypeScript logistic regression. Needs no Python, so it can start before Q5 is answered.
+   - Score all arms with 5 folds split by session.
 5. **Evaluate.**
+   - Candidates: Laya arm A, Laya arm B, arm C, LocalBackend plus combiner, and Jev arm A (only if Q2 allows).
    - Baselines: always-native, native plus depth words, the current regex, and one Opus call.
    - Report per-axis accuracy and the count of prompts escalated where the key says native.
    - Run a McNemar test against the best baseline, and a threshold sweep.
@@ -179,7 +222,7 @@ Each step has its own exit check.
 
 ## 8. Risks
 
-- **R1: Egress.**
+- **R1: Egress.** This applies only to the optional Jev arm; the Laya default path stays on the machine.
   - JevBackend sends the prompt plus the reply tail to TypeSafe or OpenRouter.
   - The public API reference says nothing about retention, training use or residency (checked 2026-09-28).
   - Prompts routinely contain employer and client material.
@@ -193,17 +236,26 @@ Each step has its own exit check.
 - **R3: Latency.** See §6. A hard timeout plus fallback means the router never blocks a prompt.
 - **R4: Label ceiling.** No classifier beats the labellers' own agreement. Measure agreement before tuning the model.
 - **R5: Corpus hygiene.** Hook output and subagent chatter poison the labels. Step 2 needs a check that samples its output and inspects it.
-- **R6: Per-person fit.** Weights trained on one principal's prompts don't transfer. Other homes need either a generic default set or per-home retraining.
+- **R6: Per-person fit.** Weights trained on one principal's prompts don't transfer. Other homes need either a generic default set or per-home retraining. A fine-tuned Laya checkpoint makes this sharper: it is a per-home artifact, never a shipped default.
+- **R7: Laya is new and unreplicated.** The repo was created 2026-09-18, it's at version 0.x, and it had 26 open issues when read on 2026-09-25. Its benchmark numbers are its own, and the Jev comparisons in its README are third-party, not head-to-head. The spike and step 5 are the only numbers that count.
+- **R8: Context window.** The default text budget is ~768 tokens, versus Jev's ~64k. Long prompts must be truncated, and the question texts themselves use up budget.
+- **R11: Known Laya failure modes.** Negation (#377), label-wording sensitivity (#156), and score position bias (#131). Mitigations: positive question wording, nouls rather than scores, and the effort head trained as a choice rather than a score.
+- **R9: Python and a resident service.** This brings a second language and a long-running local service (~650–800 MB RAM) into a Bun-only stack. It needs a launchd unit, a health check, and a `soma doctor` probe. It's contained by the regex fallback, never by blocking a prompt.
+- **R10: Probability quality.** Raw Laya probabilities are overconfident. Temperature calibration is part of the fine-tune step, and the registry threshold is set on calibrated outputs only.
 
 ## 9. Open questions for the principal
 
 - **Q1:** Is the Lane axis (subagent model/effort) in scope, or only Mode and Effort for now? LifeOS 7.0 retired modes entirely, and its new router picks only model and effort.
-- **Q2:** Is sending prompts to Jev acceptable at all, given R1? Or does Soma stay LocalBackend-only until the provider's data terms are known?
+- **Q2:** May the optional Jev arm run at all, even for evaluation only, given R1? Or is the evaluation Laya plus LocalBackend only?
 - **Q3:** A generic `soma judge` registry (Glance-shaped), or a router-only module?
 - **Q4:** Should the step 0 native-by-default flip (D1) ship now, independent of the rest?
+- **Q5:** Is Python approved for Laya? Its scope would be fine-tuning, calibration, and possibly the `laya-serve` runtime, kept in an isolated venv outside the Soma source tree.
+- **Q6:** Which runtime? `laya-serve` (Python, simplest), or an ONNX export run from Bun through `onnxruntime-node` (TypeScript runtime, Python only for training)?
 
 ## 10. Proposed decisions
 
 - **D1:** Flip the unmatched-prompt fallback to native (F1). It's cheap, it follows L5, and it matches existing doctrine.
 - **D2:** Pass the previous reply tail and previous mode into the classifier contract, even for the regex path. Stop treating "do it" as minimal (F2).
 - **D3:** Build the ledger before any model. Without it, no later step can be measured.
+- **D4:** Laya, local and fine-tuned, is the primary question backend. Jev is at most an evaluation arm. LocalBackend and the regex remain the always-available fallback.
+- **D5:** Arm C (`bge-m3` plus a TypeScript head) runs first. It needs no Python approval, and Laya has to beat it to justify its Python dependency and resident service.
