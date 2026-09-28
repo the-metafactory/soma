@@ -86,7 +86,7 @@ Rule 6 comes from the retired LifeOS router, whose test was "ideal state pre-art
 
 ## 5. The questions
 
-Every question is a yes/no answered with a probability (a Jev "noul"). The input is `{prompt, previous_reply_tail (≤800 chars), previous_mode}`, and all 16 questions go in one call. Laya and Jev both take the same `state + questions` request shape.
+Every question is a yes/no answered with a probability (a Jev "noul"). The input is `{prompt, previous_reply_tail (≤800 chars), previous_mode, previous_effort}`, and all 16 questions go in one call. The previous effort is carried explicitly, because rule 4 (an approval continues the previous mode and effort) can't be honoured from a truncated reply tail. Laya and Jev both take the same `state + questions` request shape.
 
 **Work (W1–W8)**
 - W1 Does the prompt ask for something to be built, changed or fixed?
@@ -116,6 +116,7 @@ Every question is a yes/no answered with a probability (a Jev "noul"). The input
 - prompt length (log-scaled)
 - whether a previous reply exists
 - the previous mode (one-hot)
+- the previous effort (one-hot, none when the previous mode wasn't Algorithm)
 - whether the prompt starts with a slash command
 
 That gives 16 probabilities plus about 8 features. They feed three multinomial logistic regressions, one each for mode, effort and lane. Expect the question wording to change after the first labelling round, which is the L4 loop.
@@ -154,7 +155,7 @@ The smoke test showed the multilingual checkpoint with **no zero-shot signal on 
 
 What this means for the router:
 
-- **Prompts stay on the machine.** R1 goes away for the default path. It applies only to the Jev evaluation arm, which Q2 allows.
+- **At runtime, prompts stay on the machine.** Building and evaluating the router still uses hosted calls (labellers, the Opus baseline, the Jev arm). R1's screening covers all of them.
 - **Fine-tuning is required, not optional.** The labelled set from step 3 becomes Laya's training data as well as the evaluation key. Nothing ships zero-shot.
 - **Train locally, and never push.** The shipped fine-tune notebook trains on cloud GPUs and pushes to the HF Hub. A checkpoint trained on a principal's prompts is private data. Train on the laptop or another local host, and store it in the private Soma home.
 - **Label volume.** The README's fine-tune set is ~30k questions. At 1,000 prompts × 16 nouls that's 16k weak labels from the combiner's own targets, which is thin for a per-question fine-tune. That's one more reason to include arm B, which trains directly on 1,000 mode and effort labels.
@@ -196,7 +197,7 @@ Each step has its own exit check.
    - Sample 1,000 prompts.
    - Store the output in the Soma home's private state directory, never committed.
 3. **Labels.**
-   - Three blind labellers from at least two vendors: Opus 5.5, Fable 5.1, and a Codex/GPT model.
+   - Three blind labellers from at least two vendors: Opus 5.5, Fable 5.1, and a Codex/GPT model. Every row passes R1's local screen first.
    - Label the first 300 and measure agreement.
    - Below ~75%, go back to step 1 before labelling the rest (L4).
 3a. **Laya spike on `laya-serve`** (can run in parallel with steps 1–3).
@@ -213,7 +214,7 @@ Each step has its own exit check.
    - Score all arms with 5 folds split by session.
 5. **Evaluate.**
    - Candidates: Laya arm A, Laya arm B, arm C, LocalBackend plus combiner, and Jev arm A (evaluation only, with R1's redaction and credential skip applied).
-   - Baselines: always-native, native plus depth words, the current regex, and one Opus call.
+   - Baselines: always-native, native plus depth words, the current regex, and one Opus call (screened per R1).
    - Report per-axis accuracy and the count of prompts escalated where the key says native.
    - Run a McNemar test against the best baseline, and a threshold sweep.
    - Add a test that pins the deterministic score.
@@ -224,16 +225,18 @@ Each step has its own exit check.
 
 ## 8. Risks
 
-- **R1: Egress.** This applies only to the optional Jev arm; the Laya default path stays on the machine.
-  - JevBackend sends the prompt plus the reply tail to TypeSafe or OpenRouter.
-  - The public API reference says nothing about retention, training use or residency (checked 2026-09-28).
-  - Prompts routinely contain employer and client material.
-  - Mitigations:
-    - JevBackend is off by default, opt-in per home.
-    - Email and phone numbers are redacted.
-    - Prompts that look like they hold a credential skip routing entirely.
-    - LocalBackend is always available.
-    - Read the provider's data terms before anyone opts in.
+- **R1: Egress.** The router at runtime stays on the machine: Laya, LocalBackend and the regex are all local. Building and evaluating it is a different matter. Every hosted call sends real prompts and reply tails off the machine:
+  - the three labellers in step 3 (Opus 5.5 and Fable 5.1 via Anthropic, a Codex/GPT model via OpenAI)
+  - the one-Opus-call baseline in step 5
+  - the Jev arm in step 5 (TypeSafe or OpenRouter)
+
+  Prompts routinely contain employer and client material. The prompts were originally typed into Claude Code, so Anthropic has already received them. OpenAI and TypeSafe are **new recipients**. TypeSafe's public API reference says nothing about retention, training use or residency (checked 2026-09-28).
+
+  Mitigations apply to **every** hosted call, not just Jev:
+  - A local screen runs over both the prompt and the reply tail before transmission. It redacts email addresses and phone numbers, and drops any row that looks like it holds a credential.
+  - Rows the screen drops stay out of hosted labelling. They're labelled locally by the principal, or left out and counted.
+  - Each new recipient (OpenAI, TypeSafe) is enabled explicitly for this evaluation, and its data terms are read first.
+  - JevBackend stays off by default at runtime, opt-in per home.
 - **R2: Portability.** Weights and questions must be data in the contract, not code. Extend the equivalence test pattern in `test/pi-dev-classifier-projection.test.ts` to cover them.
 - **R3: Latency.** See §6. A hard timeout plus fallback means the router never blocks a prompt.
 - **R4: Label ceiling.** No classifier beats the labellers' own agreement. Measure agreement before tuning the model.
@@ -250,7 +253,7 @@ Each step has its own exit check.
 All answered 2026-09-28.
 
 - **Q1: yes.** The Lane axis (subagent model and effort) is in scope, alongside Mode and Effort.
-- **Q2: yes.** The Jev arm may run for evaluation. R1's redaction and credential skip still apply.
+- **Q2: yes.** The Jev arm may run for evaluation. R1's screening applies to it and to every other hosted call.
 - **Q3: `soma judge`.** A generic, Glance-shaped registry, with the router as its first caller.
 - **Q4: yes.** D1 ships now, independent of the rest.
 - **Q5 (answered 2026-09-28):** Python is approved for Laya's fine-tuning, calibration and the `laya-serve` runtime. It lives in an isolated venv outside the Soma source tree.
