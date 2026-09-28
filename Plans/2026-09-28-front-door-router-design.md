@@ -68,21 +68,16 @@ Lane is the Soma equivalent of the LifeOS model grid. All three axes are in scop
 
 ## 4. Rules first (≤16 words each)
 
-This is a draft for the principal to edit. Labellers and the classifier read only this list.
+**Agreed 2026-09-28 (D8): the rules now live in `docs/routing-rules.md`**, the only copy. It holds 12 rules (mode 1–7, effort 8–10, lane 11–12) and the terms a labeller needs. The draft that stood here was reworked in a grilling session with the principal:
 
-1. Default is native. Algorithm is invoked by an explicit signal or genuinely multi-phase work.
-2. Explicit tokens win: `e1`–`e5`, "algorithm", "ISA", "VSA", "ideal state", "ultracode".
-3. Acknowledgements, ratings and thanks with no new request are minimal.
-4. Approving my proposal continues my previous mode and effort.
-5. Correcting my last action stays in the current mode; it never escalates alone.
-6. Native if the ideal state fits in one line and is checkable at a glance.
-7. Algorithm if the answer must be constructed and verified across several steps or files.
-8. Length, file count and keywords alone never decide the mode.
-9. Effort rises with cost of a subtle error, not with task size.
-10. E4+ only for doctrine, security model, or cross-cutting architecture decisions.
-11. "Analyze/review" is read-only; that never raises effort by itself.
-
-Rule 6 comes from the retired LifeOS router, whose test was "ideal state pre-articulable in one line" (`RouterSystem.md`). Rules 4 and 5 are the L3 fix.
+- **Native vs Algorithm** (draft 6+7) is now one test, the *one-probe test*: native if done fits one line and one probe checks it, otherwise Algorithm. The draft's "several steps or files" contradicted its own rule 8, and it is gone. Rule 6's origin is unchanged: the retired LifeOS router's "ideal state pre-articulable in one line" (`RouterSystem.md`).
+- **Approvals** (draft 4) take the mode the *approved work* needs, judged from the reply tail. They no longer inherit the previous mode, which broke when a native answer proposed multi-step work. Previous mode and effort remain features, not a rule.
+- **Corrections** (draft 5) merge with approvals into one follow-up rule: tone and brevity never decide. A new rule keeps follow-ups inside an open Algorithm run until it completes, so a run is never stranded mid-way.
+- **Explicit invocation** (draft 2) means imperative use: /eN, "use the Algorithm", "ultracode". Naming "algorithm", "ISA" or "VSA" is not invoking them. This is the Soma-dev failure mode of the current regex, which also escalates on `soma`, `hook`, `system` and `policy`.
+- **Minimal** (draft 3) adds declines and says outright that an approval is never minimal. That retires `yes`, `do it` and `go for it` from the minimal list (D2).
+- **Effort** (draft 9) tracks what an unnoticed error would cost. Size alone only earns E5. The Algorithm doctrine's tier text still describes size ("substantial multi-file"), and aligning it is a follow-up.
+- **Lane** gets two rules (Q1 put it in scope): inline by default, and hand off only independent, context-free work (L5).
+- **Terminology:** `CONTEXT.md` gains the *working mode* entry (minimal · native · Algorithm), separating it from runtime modes and from substrate-native.
 
 ## 5. The questions
 
@@ -260,6 +255,7 @@ Each step has its own exit check.
 1. **Rules.**
    - The principal edits §4.
    - *Exit:* one file, every rule ≤16 words, and the MODES doctrine points to it.
+   - **Done 2026-09-28 except the pointer (D8):** `docs/routing-rules.md`, 12 rules, 9–16 words each. The MODES doctrine lives in the principal's own instructions file, so the pointer line is the principal's to add.
 2. **Corpus (`soma router corpus`).** A TypeScript tool that walks Claude, Codex and pi transcripts.
    - Keep only human-typed interactive prompts.
    - Drop meta, tool_result, hook-injected, sidechain/subagent, pasted-notification and `<command-*>` entries.
@@ -350,3 +346,13 @@ All answered 2026-09-28.
   - Arm A stays an evaluation arm, run offline or after the answer, never inside the hook's timeout.
   - Enforce considers only shapes measured under budget: arm B (provisionally under budget to the corpus-p95 length; remeasure idle) and arm C (under budget to beyond p99). A reduced arm A of about 4 nouls is borderline. LocalBackend isn't built yet, so it has no latency figure.
   - In shadow, a Laya call may run after the answer, because shadow output is advice only.
+- **D8 (agreed 2026-09-28):** The routing rules are `docs/routing-rules.md`: 12 rules, each ≤16 words, and the only copy (§4 records how the draft changed).
+  - Native vs Algorithm is decided by the one-probe test.
+  - Follow-ups take the mode their work needs.
+  - Explicit invocation means imperative use, not mention.
+  - Effort tracks the cost of an unnoticed error.
+  - Lane is inline by default.
+  - Follow-ups:
+    - the principal adds a MODES pointer to the file;
+    - the Algorithm doctrine's tier text is aligned with rule 8;
+    - the regex contract drops mention-based escalation and the approvals in its minimal list, once shadow data can measure the change.
