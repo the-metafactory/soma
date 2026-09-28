@@ -370,12 +370,22 @@ export function routerCorpusPath(somaHome: string): string {
   return createPaths(somaHome).state("router", "corpus.jsonl");
 }
 
+export async function readRouterCorpus(path: string): Promise<RouterCorpusRow[]> {
+  const raw = await readFile(path, "utf8");
+  return raw.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line) as RouterCorpusRow);
+}
+
+export async function writeRouterCorpus(path: string, rows: RouterCorpusRow[]): Promise<void> {
+  await writePrivateJsonl(path, rows);
+}
+
 /**
- * The corpus holds prompt text, so it must end up owner-only whatever was at the
+ * The corpus holds prompt text (and files derived from it, such as embeddings,
+ * are just as private), so it must end up owner-only whatever was at the
  * destination before. `writeFile`'s `mode` applies only when it creates the file,
  * so write a fresh 0600 file beside the destination and rename it over.
  */
-export async function writeRouterCorpus(path: string, rows: RouterCorpusRow[]): Promise<void> {
+export async function writePrivateJsonl(path: string, rows: readonly unknown[]): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
   try {
