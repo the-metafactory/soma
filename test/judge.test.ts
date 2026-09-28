@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -62,6 +62,31 @@ test("recorded judgments read back and summarize per caller, decision and day", 
       medianLatencyMs: 2,
     });
     expect(summarizeJudgments(records, { since: "2026-09-29" })[0].total).toBe(1);
+  });
+});
+
+test("the median latency of an even count averages the two middle values", () => {
+  const [stats] = summarizeJudgments([record({ latencyMs: 1 }), record({ latencyMs: 3 })]);
+  expect(stats.medianLatencyMs).toBe(2);
+});
+
+test("a ledger that exists but cannot be read is an error, not an empty history", async () => {
+  await withTempSomaHome(async (somaHome) => {
+    // A directory where the ledger file should be: present, but unreadable as a file.
+    await mkdir(judgeLedgerPath(somaHome), { recursive: true });
+    await expect(readJudgments(somaHome)).rejects.toThrow();
+    await expect(runSomaCli(["judge", "stats", "--soma-home", somaHome])).rejects.toThrow();
+  });
+});
+
+test("reading with a filter keeps only matching records", async () => {
+  await withTempSomaHome(async (somaHome) => {
+    await recordJudgment(somaHome, record({ ts: "2026-09-27T10:00:00.000Z" }));
+    await recordJudgment(somaHome, record({ ts: "2026-09-29T10:00:00.000Z" }));
+    await recordJudgment(somaHome, record({ ts: "2026-09-29T11:00:00.000Z", caller: "other" }));
+
+    expect((await readJudgments(somaHome, { since: "2026-09-28" })).records).toHaveLength(2);
+    expect((await readJudgments(somaHome, { since: "2026-09-28", caller: "mode-router" })).records).toHaveLength(1);
   });
 });
 

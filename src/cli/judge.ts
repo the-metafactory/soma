@@ -80,8 +80,9 @@ export async function runJudgeCli(parsed: ParsedJudgeArgs): Promise<string> {
   }
 
   const somaHome = defaultSomaHome(options);
-  const { records, malformed } = await readJudgments(somaHome);
-  const stats = summarizeJudgments(records, { caller: options.caller, since: options.since });
+  const filter = { caller: options.caller, since: options.since };
+  const { records, malformed } = await readJudgments(somaHome, filter);
+  const stats = summarizeJudgments(records, filter);
 
   if (options.json) return `${JSON.stringify({ ledger: judgeLedgerPath(somaHome), malformed, callers: stats }, null, 2)}\n`;
 

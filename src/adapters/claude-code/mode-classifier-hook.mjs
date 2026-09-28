@@ -38,8 +38,9 @@ function promptFromInput(input) {
 
 // `--record` appends one `soma judge` ledger line (a prompt hash, never the
 // prompt) so the classifier's decisions can be measured before a learned router
-// replaces it. The CLI swallows ledger failures, so recording cannot change or
-// break the classification this hook returns.
+// replaces it. The CLI swallows a failed write, so it never changes the
+// classification. A write that stalls delays it; past the subprocess timeout
+// below this hook fails open, as it does for any classifier failure.
 function classifyArgs(config, prompt, sessionId) {
   const args = ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json", "--record", "--substrate", "claude-code"];
   if (typeof config.somaHome === "string" && config.somaHome.length > 0) args.push("--soma-home", config.somaHome);

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { createInterface } from "node:readline";
 import { ALGORITHM_CLASSIFIER_CONTRACT } from "./algorithm-classifier";
 import { createPaths } from "./paths";
 
@@ -75,8 +77,10 @@ export function regexClassifierVersion(): string {
 }
 
 /**
- * Best-effort append. A ledger failure must never change or block the judgment
- * it records, so every error is swallowed and reported as `false`.
+ * Best-effort append. A failed write is swallowed and reported as `false`, so it
+ * never changes the judgment it records. A write that stalls does delay the
+ * caller until it completes; callers on a deadline (the mode hook's subprocess
+ * timeout) fail open past it, exactly as for any other classifier failure.
  */
 export async function recordJudgment(somaHome: string, record: JudgmentRecord): Promise<boolean> {
   try {
@@ -99,27 +103,50 @@ function isJudgmentRecord(value: unknown): value is JudgmentRecord {
     && record.decision !== null;
 }
 
-export async function readJudgments(somaHome: string): Promise<{ records: JudgmentRecord[]; malformed: number }> {
-  let raw: string;
-  try {
-    raw = await readFile(judgeLedgerPath(somaHome), "utf8");
-  } catch {
-    return { records: [], malformed: 0 };
-  }
+export interface JudgmentFilter {
+  caller?: string;
+  /** ISO date or timestamp; records before it are skipped. */
+  since?: string;
+}
 
+function matchesFilter(record: JudgmentRecord, filter: JudgmentFilter): boolean {
+  if (filter.caller && record.caller !== filter.caller) return false;
+  if (filter.since && record.ts < filter.since) return false;
+  return true;
+}
+
+/**
+ * Stream the ledger, keeping only records that pass `filter`, so a narrow query
+ * holds only its own records in memory. A ledger that does not exist yet reads
+ * as empty; any other read failure is an error, never "no judgments".
+ */
+export async function readJudgments(somaHome: string, filter: JudgmentFilter = {}): Promise<{ records: JudgmentRecord[]; malformed: number }> {
   const records: JudgmentRecord[] = [];
   let malformed = 0;
-  for (const line of raw.split("\n")) {
+  const stream = createReadStream(judgeLedgerPath(somaHome), { encoding: "utf8" });
+  const opened = new Promise<boolean>((resolve, reject) => {
+    stream.once("open", () => resolve(true));
+    stream.once("error", (error: NodeJS.ErrnoException) => (error.code === "ENOENT" ? resolve(false) : reject(error)));
+  });
+  if (!(await opened)) return { records, malformed };
+
+  for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
     if (line.trim().length === 0) continue;
     try {
       const parsed: unknown = JSON.parse(line);
-      if (isJudgmentRecord(parsed)) records.push(parsed);
-      else malformed += 1;
+      if (!isJudgmentRecord(parsed)) malformed += 1;
+      else if (matchesFilter(parsed, filter)) records.push(parsed);
     } catch {
       malformed += 1;
     }
   }
   return { records, malformed };
+}
+
+function median(sorted: number[]): number | null {
+  if (sorted.length === 0) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 export interface JudgeCallerStats {
@@ -133,11 +160,10 @@ export interface JudgeCallerStats {
   medianLatencyMs: number | null;
 }
 
-export function summarizeJudgments(records: JudgmentRecord[], options: { since?: string; caller?: string } = {}): JudgeCallerStats[] {
+export function summarizeJudgments(records: JudgmentRecord[], filter: JudgmentFilter = {}): JudgeCallerStats[] {
   const byCaller = new Map<string, JudgmentRecord[]>();
   for (const record of records) {
-    if (options.caller && record.caller !== options.caller) continue;
-    if (options.since && record.ts < options.since) continue;
+    if (!matchesFilter(record, filter)) continue;
     const list = byCaller.get(record.caller) ?? [];
     list.push(record);
     byCaller.set(record.caller, list);
@@ -163,7 +189,7 @@ export function summarizeJudgments(records: JudgmentRecord[], options: { since?:
         total: list.length,
         decisions,
         days,
-        medianLatencyMs: latencies.length > 0 ? latencies[Math.floor(latencies.length / 2)] : null,
+        medianLatencyMs: median(latencies),
       };
     });
 }
