@@ -29,7 +29,7 @@ One node should be one PR-sized change. Work that a person must judge by eye or 
 
 ## Probes a walker can satisfy
 
-- Prefer ungated probes that hold after a squash merge: `artifact-exists` with `atRef: main` on a file the work creates. That proves the change landed, not that it is complete: an empty or half-written file passes. Completeness is the job of the walker's own gate before merge, or of a registered `command` probe that runs the tests (below).
+- Prefer ungated probes that hold after a squash merge: `artifact-exists` with `atRef: main` on a file the work creates. That proves only that the path exists on `main`: it does not tie the file to this node, and an empty or half-written file passes. Completeness is the job of the walker's own gate before merge, or of a registered `command` probe that runs the tests (below).
 - `git-merged-into` on a feature branch fails after a squash merge, because the branch's commits are never ancestors of `main`.
 - A `command` probe needs a registry entry for the walker's own checkout, which is a provisioning step, not a charting one.
 - Wire `--blocked-by` to anything that must land first; the frontier is the walker's scheduler.
