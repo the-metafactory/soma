@@ -34,8 +34,7 @@ soma graph decisions <root> --write   # re-derive the map's decision index from 
 
 The gist rides the receipt and `decisions --write` projects every closed node's
 gist into the map body — the map's index is derived, never hand-edited. Then
-graduate any fog the answer sharpened. Read `Workflows/WalkTheMap.md` before
-step one.
+graduate any fog the answer sharpened. Read `Workflows/WalkTheMap.md` before step one.
 
 ## When to use
 
@@ -75,9 +74,8 @@ A bare `owner/name` takes the remote's host, and refuses outside a checkout.
 
 - **Plan, don't do.** Each node resolves a decision. The pull to just do the
   work is usually the signal you've reached the edge of the map and it's time to
-  hand off. An effort can override this in its map **Notes**; absent that,
-  produce decisions, not deliverables. That override is what allows **Build**
-  nodes, the deliverables an autonomous walker takes (`references/walker.md`).
+  hand off. Map **Notes** can override this (how a walked map allows **Build**
+  nodes, `references/walker.md`); absent that, produce decisions, not deliverables.
 - **One node per session** — research nodes excepted.
 - **Claim first**, before any work, so concurrent sessions skip it.
 - **Refer by name.** In everything the human reads, name a map or node by its
