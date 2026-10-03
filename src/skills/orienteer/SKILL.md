@@ -34,8 +34,7 @@ soma graph decisions <root> --write   # re-derive the map's decision index from 
 
 The gist rides the receipt and `decisions --write` projects every closed node's
 gist into the map body — the map's index is derived, never hand-edited. Then
-graduate any fog the answer sharpened. Read `Workflows/WalkTheMap.md` before
-step one.
+graduate any fog the answer sharpened. Read `Workflows/WalkTheMap.md` before step one.
 
 ## When to use
 
@@ -75,8 +74,8 @@ A bare `owner/name` takes the remote's host, and refuses outside a checkout.
 
 - **Plan, don't do.** Each node resolves a decision. The pull to just do the
   work is usually the signal you've reached the edge of the map and it's time to
-  hand off. An effort can override this in its map **Notes**; absent that,
-  produce decisions, not deliverables.
+  hand off. Map **Notes** can override this (how a walked map allows **Build**
+  nodes, `references/walker.md`); absent that, produce decisions, not deliverables.
 - **One node per session** — research nodes excepted.
 - **Claim first**, before any work, so concurrent sessions skip it.
 - **Refer by name.** In everything the human reads, name a map or node by its
@@ -104,9 +103,10 @@ Load only what the task routes to.
 | --- | --- |
 | `Workflows/ChartTheMap.md` | Charting a new map from a loose idea |
 | `Workflows/WalkTheMap.md` | Resolving a node on an existing map |
-| `references/map.md` | Writing the map body, or creating a node — anatomy, constraints, `autonomy` vs `kind`, the four work kinds |
+| `references/map.md` | Writing the map body, or creating a node — anatomy, constraints, `autonomy` vs `kind`, the five work kinds |
 | `references/closing.md` | Closing a node — checkpoints, probes, the probe registry, AFK vs HITL receipts, attestation |
 | `references/fog.md` | Deciding whether something is fog, a node, or out of scope — or a constraint instead (`map.md`) |
+| `references/walker.md` | Filing build work an autonomous walker (e.g. ranger) should take: unclaimed, `build` kind, a full brief, squash-safe probes, bundles split |
 
 ## Lineage
 

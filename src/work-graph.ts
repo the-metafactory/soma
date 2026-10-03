@@ -24,7 +24,7 @@ import type { EvidenceKind } from "./types";
 
 /**
  * The only classification the runtime enforces (#485). The work-kind vocabulary
- * (research / prototype / grilling / task) is doctrine owned by consumers such
+ * (research / prototype / grilling / task / build) is doctrine owned by consumers such
  * as the orienteer skill, and rides on {@link WorkGraphNodeBase.kind}.
  */
 export type WorkGraphAutonomy = "auto" | "propose" | "approve";
