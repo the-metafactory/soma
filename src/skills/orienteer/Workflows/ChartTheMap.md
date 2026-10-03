@@ -96,7 +96,7 @@ Use `--repo` for that same project when charting outside its checkout.
 
 ```bash
 soma graph add <root> \
-  --title "…" --autonomy <auto|propose|approve> --kind <research|prototype|grilling|task> \
+  --title "…" --autonomy <auto|propose|approve> --kind <research|prototype|grilling|task|build> \
   --checkpoint <id> --body-file <path> \
   [--probe '{"type":"command","run":"…","timeoutSec":600,"expectExit":0}'] \
   [--blocked-by <id>]…

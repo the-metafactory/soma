@@ -80,7 +80,7 @@ store-owned binding through reads and the close hash. The GitLab codec writes
 the same value to the route comment for older clients.
 
 - `autonomy` is the only classification the runtime enforces (#485). The
-  work-kind vocabulary (research / prototype / grilling / task) is doctrine
+  work-kind vocabulary (research / prototype / grilling / task / build) is doctrine
   owned by consumers such as the orienteer skill.
 - `autonomy` is declared over a projected **policy floor** (§4) and clamped
   never-below-floor at creation.

@@ -162,7 +162,7 @@ Epic ref returned by `soma graph chart` and navigate with `soma graph node`.
 
 Suggested vocabulary — `orienteer:map` for the root, then one of
 `orienteer:grilling`, `orienteer:research`, `orienteer:prototype`,
-`orienteer:task` matching the node's `kind`.
+`orienteer:task`, `orienteer:build` matching the node's `kind`.
 
 ## What the runtime enforces, and what is yours
 
@@ -180,7 +180,7 @@ runtime validates the literal value and nothing more. Until it lands, declaring
 `auto` on work that belongs behind a human is a self-imposed rule, not an
 enforced one.
 
-**`kind`** — `research` / `prototype` / `grilling` / `task`. **Orienteer's own
+**`kind`** — `research` / `prototype` / `grilling` / `task` / `build`. **Orienteer's own
 vocabulary.** The runtime normalises its form (trimmed, lowercased, non-empty)
 and never interprets its meaning. It exists for the human reading the map.
 
@@ -189,7 +189,7 @@ Also on a node: `checkpointId` (required before close — see
 (`tokens` / `agentInvocations` / `wallClockMin`) read as a deterministic circuit
 breaker at claim and execution time.
 
-## The four work kinds
+## The five work kinds
 
 Every node is either **HITL** — human in the loop, worked *with* a human who
 speaks for themselves — or **AFK**, driven by the agent alone. A HITL node only
@@ -210,8 +210,13 @@ runtime holds you to it: HITL work belongs on `propose` or `approve`, never
 - **Task** (HITL or AFK): Manual work that must happen before a *decision* can
   be made — nothing to decide, prototype, or research, but the discussion is
   blocked until it's done. Signing up for a service so its API can be judged,
-  provisioning access, moving data so its shape can be seen. This is the one
-  kind that *does* rather than decides — and it earns its place by unblocking a
-  decision, not by delivering the destination. Resolved when the work is done;
-  the answer records what was done and any resulting facts (credentials
-  location, new URLs, row counts) later nodes depend on.
+  provisioning access, moving data so its shape can be seen. Like Build it
+  *does* rather than decides, but it earns its place by unblocking a decision,
+  not by delivering the destination. Resolved when the work is done; the answer
+  records what was done and any resulting facts (credentials location, new URLs,
+  row counts) later nodes depend on.
+- **Build** (AFK or HITL): Deliver part of the destination — work a closed
+  decision made specifiable, filed below that decision (`references/fog.md`).
+  Nothing is left to decide; one node is one PR-sized change. This is the kind
+  an autonomous walker takes (`references/walker.md`). Resolved when the change
+  lands, shown by probes on what it created.

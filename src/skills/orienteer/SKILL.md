@@ -104,10 +104,10 @@ Load only what the task routes to.
 | --- | --- |
 | `Workflows/ChartTheMap.md` | Charting a new map from a loose idea |
 | `Workflows/WalkTheMap.md` | Resolving a node on an existing map |
-| `references/map.md` | Writing the map body, or creating a node — anatomy, constraints, `autonomy` vs `kind`, the four work kinds |
+| `references/map.md` | Writing the map body, or creating a node — anatomy, constraints, `autonomy` vs `kind`, the five work kinds |
 | `references/closing.md` | Closing a node — checkpoints, probes, the probe registry, AFK vs HITL receipts, attestation |
 | `references/fog.md` | Deciding whether something is fog, a node, or out of scope — or a constraint instead (`map.md`) |
-| `references/walker.md` | Filing build work an autonomous walker (e.g. ranger) should take: unclaimed, `task` kind, a full brief, squash-safe probes, bundles split |
+| `references/walker.md` | Filing build work an autonomous walker (e.g. ranger) should take: unclaimed, `build` kind, a full brief, squash-safe probes, bundles split |
 
 ## Lineage
 

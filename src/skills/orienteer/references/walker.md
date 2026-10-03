@@ -1,6 +1,6 @@
 # Charting work for an autonomous walker
 
-A map can be walked by a headless walker: a process that claims frontier nodes, runs a worker session on each, and closes them through the gate. Ranger is one. The human resolves the decisions (grillings, prototypes, decision nodes), and the walker builds what those decisions spawn. That division only holds if the build work is charted so the walker can see it and take it. These rules come from a live walk on 2026-10-03, and each names the miss it prevents.
+A map can be walked by a headless walker: a process that claims frontier nodes, runs a worker session on each, and closes them through the gate. Ranger is one. The human resolves the decisions (grillings and prototypes), and the walker builds what those decisions spawn. That division only holds if the build work is charted so the walker can see it and take it. These rules come from a live walk on 2026-10-03, and each names the miss it prevents.
 
 ## Leave filed work unclaimed
 
@@ -8,7 +8,7 @@ When a closed decision makes build work specifiable, file it below the decision 
 
 ## Chart build work as build work
 
-- **Kind:** `task` or `build`. A `grilling`, `prototype` or `decision` node stays human whatever its autonomy, so build work charted as a grilling never reaches the walker.
+- **Kind:** `build` (`references/map.md` §"The five work kinds"). Ranger also routes `task` to a worker; a `grilling` or `prototype` node, or a kind it does not know, escalates to the human whatever its autonomy, so build work charted as a grilling never reaches the walker.
 - **Split bundles.** A node that needs both an investigation and a choice ("measure X, then decide A or B") is two or three nodes:
   1. a measurement node whose output is a findings artifact;
   2. the decision, blocked by the measurement;
