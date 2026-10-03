@@ -14,7 +14,7 @@ When a closed decision makes build work specifiable, file it below the decision 
   2. the decision, blocked by the measurement;
   3. the build, filed once the decision is made, because its content depends on the answer.
   Bundled, the whole node is HITL and the walker can touch none of it.
-- **Autonomy is the human's grant.** `auto` is granted at charting time by the human, never minted by an agent for itself. Whether a walker takes `propose` build nodes (with a human's merge as the ratification) is that walker's configuration; chart honestly and let the walker decide.
+- **Autonomy is the human's grant.** `auto` is granted at charting time by the human, never minted by an agent for itself. Whether a walker takes `propose` build nodes, and who merges them, is that walker's configuration. By default ranger leaves the merge, and with it the ratification, to a human; a map with `autoMerge: true` lets ranger squash-merge gate-passed PRs itself, `propose` nodes included, unless the node is labelled `ranger:needs-eye`. Chart honestly and let the walker decide.
 
 ## Write the body as the worker's whole brief
 
