@@ -76,7 +76,8 @@ A bare `owner/name` takes the remote's host, and refuses outside a checkout.
 - **Plan, don't do.** Each node resolves a decision. The pull to just do the
   work is usually the signal you've reached the edge of the map and it's time to
   hand off. An effort can override this in its map **Notes**; absent that,
-  produce decisions, not deliverables.
+  produce decisions, not deliverables. That override is what allows **Build**
+  nodes, the deliverables an autonomous walker takes (`references/walker.md`).
 - **One node per session** — research nodes excepted.
 - **Claim first**, before any work, so concurrent sessions skip it.
 - **Refer by name.** In everything the human reads, name a map or node by its

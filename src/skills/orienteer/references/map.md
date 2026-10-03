@@ -218,5 +218,7 @@ runtime holds you to it: HITL work belongs on `propose` or `approve`, never
 - **Build** (AFK or HITL): Deliver part of the destination — work a closed
   decision made specifiable, filed below that decision (`references/fog.md`).
   Nothing is left to decide; one node is one PR-sized change. This is the kind
-  an autonomous walker takes (`references/walker.md`). Resolved when the change
+  an autonomous walker takes (`references/walker.md`). A deliverable, so it is
+  allowed only on a map whose **Notes** override "Plan, don't do" (`SKILL.md`
+  §Invariants); absent that, chart decisions and stop. Resolved when the change
   lands, shown by probes on what it created.

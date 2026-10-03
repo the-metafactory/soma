@@ -8,6 +8,7 @@ When a closed decision makes build work specifiable, file it below the decision 
 
 ## Chart build work as build work
 
+- **Opt the map in.** Build nodes are deliverables, which the "Plan, don't do" invariant (`SKILL.md`) forbids unless the map's **Notes** override it. A map meant for a walker says so in Notes, for example "Build nodes allowed: filed below their decision, taken by ranger." Without that line, the deciding session charts decisions and stops.
 - **Kind:** `build` (`references/map.md` §"The five work kinds"). Ranger also routes `task` to a worker; a `grilling` or `prototype` node, or a kind it does not know, escalates to the human whatever its autonomy, so build work charted as a grilling never reaches the walker.
 - **Split bundles.** A node that needs both an investigation and a choice ("measure X, then decide A or B") is two or three nodes:
   1. a measurement node whose output is a findings artifact;
