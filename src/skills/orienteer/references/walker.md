@@ -8,14 +8,14 @@ When a closed decision makes build work specifiable, file it below the decision 
 
 ## Chart build work as build work
 
-- **Opt the map in.** Build nodes are deliverables, which the "Plan, don't do" invariant (`SKILL.md`) forbids unless the map's **Notes** override it. A map meant for a walker says so in Notes, for example "Build nodes allowed: filed below their decision, taken by ranger." Without that line, the deciding session charts decisions and stops.
+- **Opt the map in.** Build nodes are deliverables, which the "Plan, don't do" invariant (`SKILL.md`) forbids unless the map's **Notes** override it. A map meant for a walker says so in Notes, for example "Build nodes allowed: filed below their decision, taken by ranger." Without that line, the deciding session charts decisions and stops. The Notes line is orienteer doctrine, not a walker switch: ranger also needs `walk: full` in its `ranger.yaml` before it claims build nodes.
 - **Kind:** `build` (`references/map.md` §"The five work kinds"). Ranger also routes `task` to a worker; a `grilling` or `prototype` node, or a kind it does not know, escalates to the human whatever its autonomy, so build work charted as a grilling never reaches the walker.
 - **Split bundles.** A node that needs both an investigation and a choice ("measure X, then decide A or B") is two or three nodes:
   1. a measurement node whose output is a findings artifact;
   2. the decision, blocked by the measurement;
   3. the build, filed once the decision is made, because its content depends on the answer.
   Bundled, the whole node is HITL and the walker can touch none of it.
-- **Autonomy is the human's grant.** `auto` is granted at charting time by the human, never minted by an agent for itself. Whether a walker takes `propose` build nodes, and who merges them, is that walker's configuration. By default ranger leaves the merge, and with it the ratification, to a human; a map with `autoMerge: true` lets ranger squash-merge gate-passed PRs itself, `propose` nodes included, unless the node is labelled `ranger:needs-eye`. Chart honestly and let the walker decide.
+- **Autonomy is the principal's grant.** `auto` is granted at charting time by the principal, never minted by the assistant for itself. Whether a walker takes `propose` build nodes, and who merges them, is that walker's configuration. By default ranger leaves the merge, and with it the ratification, to a human; a map with `autoMerge: true` lets ranger squash-merge gate-passed PRs itself, `propose` nodes included, unless the node is labelled `ranger:needs-eye`. Chart honestly and let the walker decide.
 
 ## Write the body as the worker's whole brief
 
@@ -30,7 +30,7 @@ One node should be one PR-sized change. Work that a person must judge by eye or 
 
 ## Probes a walker can satisfy
 
-- Prefer ungated probes that hold after a squash merge: `artifact-exists` with `atRef: main` on a file the work creates. That proves only that the path exists on `main`: it does not tie the file to this node, and an empty or half-written file passes. Completeness is the job of the walker's own gate before merge, or of a registered `command` probe that runs the tests (below).
+- Prefer ungated probes that hold after a squash merge: `artifact-exists` on a file the work creates, with `atRef` set to the branch the walker merges into (ranger's `base`, `main` by default). That proves only that the path exists on that branch: it does not tie the file to this node, and an empty or half-written file passes. Completeness is the job of the walker's own gate before merge, or of a registered `command` probe that runs the tests (below).
 - `git-merged-into` on a feature branch fails after a squash merge, because the branch's commits are never ancestors of `main`.
 - A `command` probe needs a registry entry for the walker's own checkout, which is a provisioning step, not a charting one.
 - Wire `--blocked-by` to anything that must land first; the frontier is the walker's scheduler.
