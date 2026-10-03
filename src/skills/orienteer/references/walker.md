@@ -25,7 +25,7 @@ The worker session reads the node body and the map's Destination, Constraints an
 - the rule the decision settled;
 - what is out of scope.
 
-One node should be one PR-sized change. Work that a person must judge by eye or ear should say so in the body, so the human's merge is understood as that check. Better still, keep such a node off the walker's list.
+One node should be one PR-sized change. Work that a person must judge by eye or ear needs that said where the walker reads it. A walker that merges its own gate-passed PRs merges everything it is not told to hold back. For ranger, that means the issue label `ranger:needs-eye`: ranger still builds and gates the node, but leaves the merge to the human.
 
 ## Probes a walker can satisfy
 
