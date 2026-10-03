@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `soma router embed` and `soma router train --labels`, arm C of the
-  front-door router: local bge-m3 embeddings through Ollama, which refuses any
-  non-loopback host, and a deterministic logistic-regression combiner scored by
+  front-door router: local bge-m3 embeddings through Ollama, whose host must be
+  `127.0.0.1`, `::1` or the name `localhost` (the name's resolved address is not
+  checked), and a deterministic logistic-regression combiner scored by
   session-split cross-validation against a majority baseline. The embedding
   cache is 0600 in the private state dir; both commands print counts and
   scores, never prompts. No routing accuracy is claimed yet: gold labels come
