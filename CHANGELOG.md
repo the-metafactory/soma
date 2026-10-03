@@ -44,8 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Prompts that match no Algorithm pattern now classify as native instead of
   running the Algorithm at E1, in the classifier and in the source projected
-  into pi.dev. Algorithm patterns and explicit E1–E5 overrides still select the
-  Algorithm. (#722)
+  into pi.dev. Explicit E1–E5 overrides still select the Algorithm, and so does
+  an Algorithm pattern unless a native pattern matches a short prompt first.
+  (#722)
 - `soma algorithm batch` verification ops carry an evidence kind
   (`verify:C1:passed+tested:…`). Omitting the kind keeps the previous default,
   which still refuses a specification-only pass, and evidence may contain
