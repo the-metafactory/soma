@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-03
+
 ### Added
 
+- `soma router embed` and `soma router train --labels`, arm C of the
+  front-door router: local bge-m3 embeddings through Ollama, whose host must be
+  `127.0.0.1`, `::1` or the name `localhost` (the name's resolved address is not
+  checked), and a deterministic logistic-regression combiner scored by
+  session-split cross-validation against a majority baseline. The embedding
+  cache is 0600 in the private state dir; both commands print counts and
+  scores, never prompts. No routing accuracy is claimed yet: gold labels come
+  from step 3 of `Plans/2026-09-28-front-door-router-design.md`. (#727)
 - The Codex prompt hook and the pi.dev extension now record mode
   classifications in the `soma judge` ledger, like the Claude Code hook. Each
   line holds a SHA-256 of the prompt, never the prompt. Recording is
@@ -30,6 +40,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and task output, compaction summaries, peer-agent messages, subagent
   transcripts and replayed duplicates. Step 2 of
   `Plans/2026-09-28-front-door-router-design.md`.
+
+### Fixed
+
+- Prompts that match no Algorithm pattern now classify as native instead of
+  running the Algorithm at E1, in the classifier and in the source projected
+  into pi.dev. Explicit E1–E5 overrides still select the Algorithm, and so does
+  an Algorithm pattern unless a native pattern matches a short prompt first.
+  (#722)
+- `soma algorithm batch` verification ops carry an evidence kind
+  (`verify:C1:passed+tested:…`). Omitting the kind keeps the previous default,
+  which still refuses a specification-only pass, and evidence may contain
+  colons. (#719)
+- Skill catalog refreshes skip vendor and build directories (`node_modules`,
+  `.git`, `dist`, `build`, `target`, `vendor`, virtualenvs, `.next`, `.turbo`,
+  `.cache`) and binary files, so a skill carrying its own CLI no longer stalls
+  codex, cursor, grok, pi-dev and anthropic-cowork projection. (#720)
+
+### Documentation
+
+- `docs/routing-rules.md` holds the principal's agreed routing rules for mode,
+  effort and lane, and `CONTEXT.md` defines "working mode". (#728, #729)
+- Orienteer gains `references/walker.md` on charting work for an autonomous
+  walker, and `build` becomes its fifth work kind, allowed on maps whose Notes
+  opt in. (#731)
+- Front-door router design proposal and spike results in `Plans/`. (#721,
+  #726, #730)
 
 ## [0.20.4] - 2026-09-27
 
@@ -1377,7 +1413,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.20.1...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/the-metafactory/soma/compare/v0.20.4...v0.21.0
 [0.20.1]: https://github.com/the-metafactory/soma/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/the-metafactory/soma/compare/v0.19.1...v0.20.0
 [0.8.6]: https://github.com/the-metafactory/soma/compare/v0.8.5...v0.8.6
