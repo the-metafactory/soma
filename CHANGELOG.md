@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Prompts no Algorithm pattern matches now classify as native instead of
+- Prompts that match no Algorithm pattern now classify as native instead of
   running the Algorithm at E1, in the classifier and in the source projected
   into pi.dev. Algorithm patterns and explicit E1–E5 overrides still select the
   Algorithm. (#722)

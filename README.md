@@ -33,12 +33,14 @@
 ## Current release: 0.21.0
 
 [0.21.0](https://github.com/the-metafactory/soma/releases/tag/v0.21.0) starts the
-front-door router. `soma judge` records every mode classification from Claude
-Code, Codex and pi.dev as a hash-only ledger, `soma router corpus` builds a
-private prompt sample, and `soma router embed` / `train` add a local,
-deterministic embedding arm. The router runs in shadow; no routing accuracy is
-claimed yet. Prompts no Algorithm pattern matches now stay native instead of
-defaulting to the Algorithm.
+front-door router. `soma judge` records mode classifications from Claude Code,
+Codex and pi.dev in a hash-only ledger (best-effort, so its counts are a lower
+bound), `soma router corpus` builds a private prompt sample, and
+`soma router embed` / `train` add a local, deterministic embedding arm for
+offline training. No trained router is wired into a live path yet; routing
+still uses the regex classifier, and no routing accuracy is claimed. Prompts
+that match no Algorithm pattern now stay native instead of defaulting to the
+Algorithm.
 
 See the [routing rules](docs/routing-rules.md), the
 [changelog](CHANGELOG.md#0210---2026-10-03), and the
