@@ -1351,7 +1351,7 @@ async function scanClosedNodes(graph: WorkGraph, root: NodeRef): Promise<{ subtr
   const closedStates = subtree.filter((state) => state.status === "closed");
   const closed = await mapBounded(closedStates, COMMENT_READ_CONCURRENCY, async (state) => {
     const comments = await graph.listComments(state.ref);
-    return { state, scan: scanCommentsForReceipt(comments.map((comment) => comment.body)) };
+    return { state, scan: scanCommentsForReceipt(comments.map((comment) => comment.body), state.node.autonomy) };
   });
   return { subtree, closed };
 }

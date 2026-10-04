@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { SomaCliError } from "../src/cli/errors";
+import { RECEIPT_0_18_0_ISSUE_646 } from "./fixtures/close-receipts-0.18.0";
 import {
   GRAPH_COMMAND_HELP,
   parseGraphArgs,
@@ -1710,6 +1711,22 @@ test("decisions derives the index from receipts — gist when recorded, honest f
   expect(output).toContain("resolved paths must stay under the stated tree");
   expect(output).toContain("no gist on the receipt");
   expect(output).toContain("closed without a receipt");
+});
+
+test("audit and decisions read a pre-#661 receipt through the node's autonomy (#685)", async () => {
+  const store = new FakeStore()
+    .seed("645", { node: autoNode("645"), children: ["646"] })
+    .seed("646", {
+      node: { id: "646", title: "W1 inventory", autonomy: "propose", checkpointId: "cp-evolution-w1-inventory" },
+      status: "closed",
+      parent: "645",
+    });
+  await store.postComment({ id: "646" }, RECEIPT_0_18_0_ISSUE_646);
+
+  expect(await run(["graph", "audit", "645", "--repo", REPO], store)).toContain("Clean");
+  const decisions = await run(["graph", "decisions", "645", "--repo", REPO], store);
+  expect(decisions).toContain("Completion requires a receipt at the close write");
+  expect(decisions).not.toContain("closed without a receipt");
 });
 
 test("decisions --write splices between the markers and refuses without them", async () => {

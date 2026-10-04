@@ -1258,9 +1258,16 @@ export interface ReceiptScan {
  * sole authoritative store (#491), so the receipt comment IS the durable record
  * — there is no side table to consult. The parse is pinned to
  * {@link renderCloseReceipt}'s exact output in tests, so the pair drifts loudly.
+ *
+ * Receipts rendered before #661 carry no autonomy line. For those, and only
+ * those, the node block's autonomy stands in (#685): an `auto` node still needs
+ * evidence, and with no known node autonomy the receipt is refused rather than
+ * passed. A line that is present but malformed is not legacy — it fails as before.
  */
-export function isStructurallyValidCloseReceipt(body: string): boolean {
-  const autonomy = /^- \*\*autonomy:\*\* `(auto|propose|approve)`$/mu.exec(body)?.[1];
+export function isStructurallyValidCloseReceipt(body: string, nodeAutonomy?: WorkGraphAutonomy): boolean {
+  const autonomy = /^- \*\*autonomy:\*\*/mu.test(body)
+    ? /^- \*\*autonomy:\*\* `(auto|propose|approve)`$/mu.exec(body)?.[1]
+    : (["auto", "propose", "approve"] as const).find((value) => value === nodeAutonomy);
   const evidenceMarker = "### Evidence\n";
   const evidenceOffset = body.indexOf(evidenceMarker);
   const evidence = evidenceOffset === -1 ? "" : body.slice(evidenceOffset + evidenceMarker.length);
@@ -1275,10 +1282,10 @@ export function isStructurallyValidCloseReceipt(body: string): boolean {
     && (autonomy !== "auto" || hasEvidence);
 }
 
-export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
+export function scanCommentsForReceipt(bodies: readonly string[], nodeAutonomy?: WorkGraphAutonomy): ReceiptScan {
   let found: string | undefined;
   for (const body of bodies) {
-    if (isStructurallyValidCloseReceipt(body)) found = body;
+    if (isStructurallyValidCloseReceipt(body, nodeAutonomy)) found = body;
   }
   if (found === undefined) return { hasReceipt: false };
   const gist = RECEIPT_GIST_LINE.exec(found)?.[1]?.trim();
