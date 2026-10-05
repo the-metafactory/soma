@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.22.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.23.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,23 +30,24 @@
 
 ---
 
-## Current release: 0.22.0
+## Current release: 0.23.0
 
-[0.22.0](https://github.com/the-metafactory/soma/releases/tag/v0.22.0) adds the
-`secret-read` runtime-policy rule. It denies a raw read of secret-bearing config
-into the model's context, such as `cat`, `sed -n` or `grep -n` of a stack config,
-a NATS config, a `.env`, or a creds file, or a Read or content Grep of one. The
-denial points at the new `soma redact <path|->`, which prints the file with
-secret values masked and keeps its structure. Principals add their own paths in
-`policy/secret-read.json`. The rule guards against accidental reads, not against
-a model working to evade it. Known gaps:
-- An upgraded Claude Code install keeps its old guard matcher, so `Grep` is
-  guarded only after a fresh install or after adding `Grep` to the
-  `soma-policy-guard` matcher in `settings.json` by hand (#735).
-- A stage after `soma redact` in a pipe denies the read (#736).
+[0.23.0](https://github.com/the-metafactory/soma/releases/tag/v0.23.0) stops the
+prompt guard from denying prose that describes a guard instead of asking to
+defeat one. `security-disable-request` and `data-exfiltration-intent` now clear
+a verb only when its subject makes it a description ("Serialization collisions
+bypass the tamper guard"), when it is hyphen-joined into an identifier, or when
+a sentence end splits it from its target. Other bare, un-negated verbs near a
+target fire as before. A denial now shows the words that tripped it. That text
+goes only into the reason relayed to the substrate; Soma's own traces and events
+still hold no raw input, which the regression tests check. Known trade-offs:
+- Descriptions built on modals, causatives or purpose "to" ("symlinks can
+  bypass the guard", "allows an attacker to bypass the guard") still fire.
+- A plural vocative with no comma ("Workers bypass the guard") passes.
+- Whether a prompt denial stays fail-closed at `high` is still open (#544).
 
-See the [secret-read section](docs/runtime-command-inspection.md#secret-reads-secret-read-716),
-the [changelog](CHANGELOG.md#0220---2026-10-05), and the
+See the [prompt-inspection section](docs/runtime-policy-inspection.md#deterministic-v0-inspectors),
+the [changelog](CHANGELOG.md#0230---2026-10-05), and the
 [release checklist](docs/releases.md). This version is published on GitHub
 only; the Arc registry is not updated by this release.
 
