@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-10-05
+
+### Changed
+
+- The orienteer skill gains `references/build-brief.md`, the template and
+  rules for a build node's body. A build node has nothing left to decide: a
+  choice the deciding node did not settle becomes a blocking grilling node, and
+  at a security or matching boundary the brief names a lossless mechanism or
+  prescribes fail-closed. The brief carries Given/When/Then acceptance criteria
+  with at least one failure case and a named test seam, assumptions as stop
+  triggers, and an out-of-scope list that binds review: a request for more
+  than the criteria becomes a follow-up node, while a defect the PR introduces
+  is fixed on the PR. One node is one vertical slice, a rule checked when the
+  node is filed rather than by line count. PRs that needed four or more review
+  rounds get a `/retro`. `walker.md`, the WalkTheMap workflow and the Build kind
+  in `map.md` point at it. Documentation only; no runtime change. (#741)
+
 ## [0.23.0] - 2026-10-05
 
 ### Fixed
@@ -1454,7 +1471,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.23.1...HEAD
+[0.23.1]: https://github.com/the-metafactory/soma/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/the-metafactory/soma/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/the-metafactory/soma/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/the-metafactory/soma/compare/v0.20.4...v0.21.0

@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.23.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.23.1-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,18 @@
 
 ---
 
-## Current release: 0.23.0
+## Current release: 0.23.1
+
+[0.23.1](https://github.com/the-metafactory/soma/releases/tag/v0.23.1) is a
+documentation release for the orienteer skill. A new
+`references/build-brief.md` sets the template and rules for a build node's
+body: nothing left to decide, Given/When/Then acceptance criteria with a failure
+case and a test seam, an out-of-scope list that binds review, and one vertical
+slice per node. The runtime is unchanged from 0.23.0. See the
+[changelog](CHANGELOG.md#0231---2026-10-05). This version is published on
+GitHub only; the Arc registry is not updated by this release.
+
+### 0.23.0
 
 [0.23.0](https://github.com/the-metafactory/soma/releases/tag/v0.23.0) stops the
 prompt guard from denying prose that describes a guard instead of asking to
