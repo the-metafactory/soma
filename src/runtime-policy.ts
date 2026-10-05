@@ -105,8 +105,19 @@ const SECRET_READ_PRINTERS = new Set([
 const RTK_PRINTER_ALIASES: Record<string, string> = { read: "cat", json: "jq", log: "cat", smart: "cat", grep: "grep", diff: "diff" };
 
 const GREP_FAMILY = new Set(["grep", "egrep", "fgrep", "rg", "ag", "ack"]);
-// Short flags whose value is the next token (or the rest of the cluster).
-const GREP_VALUE_FLAGS = new Set(["e", "f", "m", "A", "B", "C", "d", "D", "g", "t", "T", "M", "j"]);
+// Short flags whose value is the next token (or the rest of the cluster), per
+// family: grep's `-T` is initial-tab and ag's `-t` is all-text, neither takes a
+// value, so a shared set would swallow `grep -nT TOKEN .env`'s pattern and let
+// the file through as if it were one.
+const GREP_COMMON_VALUE_FLAGS = ["e", "f", "m", "A", "B", "C"];
+const GREP_VALUE_FLAGS: Record<string, ReadonlySet<string>> = {
+  grep: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "D"]),
+  egrep: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "D"]),
+  fgrep: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "D"]),
+  rg: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "g", "t", "T", "M", "j"]),
+  ag: new Set([...GREP_COMMON_VALUE_FLAGS, "g", "G"]),
+  ack: new Set(GREP_COMMON_VALUE_FLAGS),
+};
 const GREP_LONG_VALUE_FLAGS = new Set([
   "--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--glob", "--iglob", "--type", "--type-not",
   "--include", "--exclude", "--exclude-dir", "--max-columns", "--threads",
@@ -235,15 +246,8 @@ function inputHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function finding(
-  kind: string,
-  severity: RuntimePolicyFinding["severity"],
-  detail: string,
-  inspector: string,
-  decision?: RuntimePolicyFinding["decision"],
-  hint?: string,
-): RuntimePolicyFinding {
-  return { kind, severity, detail, inspector, ...(decision ? { decision } : {}), ...(hint ? { hint } : {}) };
+function finding(kind: string, severity: RuntimePolicyFinding["severity"], detail: string, inspector: string, decision?: RuntimePolicyFinding["decision"]): RuntimePolicyFinding {
+  return { kind, severity, detail, inspector, ...(decision ? { decision } : {}) };
 }
 
 function inspectPrompt(prompt: string): RuntimePolicyFinding[] {
@@ -304,7 +308,7 @@ interface TokenizeOptions {
 
 function tokenizeCommand(command: string, options: TokenizeOptions = {}): string[] {
   const source = options.newlineAsSeparator ? command.replace(/\\\n/gu, " ") : command;
-  const pattern = options.newlineAsSeparator ? /"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}|\n|[^\s|;<>]+/gu : /"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}|[^\s|;<>]+/gu;
+  const pattern = new RegExp(String.raw`"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}${options.newlineAsSeparator ? String.raw`|\n` : ""}|[^\s|;<>]+`, "gu");
   return [...source.matchAll(pattern)]
     .map((match) => {
       if (match[0] === "\n") return ";";
@@ -694,14 +698,10 @@ function secretReadPatterns(config: RuntimePolicyCommandInspectionConfig): strin
 function secretReadFinding(path: string, via: string): RuntimePolicyFinding {
   // High, not critical: a context leak, not an egress or an attack. The
   // explicit `deny` blocks it; the hint is what the model reads to recover.
-  return finding(
-    "secret-read",
-    "high",
-    `${via} reads ${path} raw into the model's context; it may hold tokens, passwords or seeds.`,
-    COMMAND_INSPECTOR_ID,
-    "deny",
-    `Read it with \`soma redact ${path}\` (masks secret values, keeps keys, structure and paths), or pipe the command through \`| soma redact -\`.`,
-  );
+  return {
+    ...finding("secret-read", "high", `${via} reads ${path} raw into the model's context; it may hold tokens, passwords or seeds.`, COMMAND_INSPECTOR_ID, "deny"),
+    hint: `Read it with \`soma redact ${path}\` (masks secret values, keeps keys, structure and paths), or pipe the command through \`| soma redact -\`.`,
+  };
 }
 
 /** Resolve the verb a segment runs, looking through `rtk` and `rtk proxy`. */
@@ -729,18 +729,32 @@ function isRedactorSegment(tokens: string[]): boolean {
   return (tokens[index + 1] ?? "").endsWith("cli.ts") && tokens[index + 2] === "redact";
 }
 
+// Redirect targets that send nothing around the redactor: discarding output,
+// or folding stderr into the stdout the redactor reads (`2>&1`).
+const HARMLESS_REDIRECT_TARGETS = new Set(["/dev/null", "&1"]);
+
+/** True when a stage redirects output anywhere but the pipe: `>&2`, `> /dev/stderr`, `>> log`, `&> f`. */
+function redirectsOutputElsewhere(tokens: string[]): boolean {
+  return tokens.some((token, index) => (token === ">" || token === ">>") && !HARMLESS_REDIRECT_TARGETS.has(tokens[index + 1] ?? ""));
+}
+
 /**
- * Whether a read's output reaches the redactor and nothing else. The chain the
- * read feeds must END in a redactor, and every stage between must be a pure
- * filter: `tee /dev/stderr`, or anything else that can write elsewhere, would
- * carry the raw file around the redactor. An allow-list, like the heredoc
- * sinks: a missing filter costs a false denial, a missing writer a leak.
+ * Whether a read's output reaches the redactor and nothing else. Every route
+ * by which raw content can bypass the redactor is a reason to refuse:
+ *   - the chain the read feeds must END in a stage that runs a redactor;
+ *   - every stage between must be a pure filter (an allow-list, like the
+ *     heredoc sinks: a missing filter costs a false denial, a missing writer a
+ *     leak — `tee /dev/stderr` is a writer);
+ *   - no stage before the redactor, the read included, may redirect its output
+ *     (`cat .env > /dev/stderr | soma redact -`, `| cat >&2 |`).
  */
 function pipeChainEndsInRedactor(segments: { tokens: string[]; operatorAfter?: string }[], from: number): boolean {
   let end = from;
   while (end < segments.length - 1 && segments[end].operatorAfter === "|") end += 1;
   if (end === from || !isRedactorSegment(segments[end].tokens)) return false;
-  return segments.slice(from + 1, end).every(({ tokens }) => REDACT_PIPE_FILTERS.has(secretReadVerb(tokens).verb));
+  const beforeRedactor = segments.slice(from, end);
+  if (beforeRedactor.some(({ tokens }) => redirectsOutputElsewhere(tokens))) return false;
+  return beforeRedactor.slice(1).every(({ tokens }) => REDACT_PIPE_FILTERS.has(secretReadVerb(tokens).verb));
 }
 
 /**
@@ -770,7 +784,7 @@ function grepFileArguments(verb: string, args: string[]): string[] | undefined {
       for (let at = 0; at < cluster.length; at += 1) {
         const flag = cluster[at];
         if (GREP_COUNT_ONLY_SHORT_FLAGS.has(flag) || (flag === "L" && GREP_FILES_WITHOUT_MATCH_FAMILY.has(verb))) return undefined;
-        if (GREP_VALUE_FLAGS.has(flag)) {
+        if (GREP_VALUE_FLAGS[verb]?.has(flag)) {
           if (flag === "e" || flag === "f") patternGiven = true;
           if (at === cluster.length - 1) index += 1;
           break;
@@ -886,11 +900,27 @@ function stringToolInput(input: Record<string, unknown> | undefined, ...keys: st
  */
 function inspectFileReadTool(options: RuntimePolicyInspectOptions, toolName: string): RuntimePolicyFinding[] {
   const input = options.toolCall?.input;
-  const path = stringToolInput(input, "file_path", "path", "notebook_path", "filePath", "target_file", "dir_path");
-  if (!path || !tokenMatchesAnyPattern(path, secretReadPatterns(commandConfig(options)))) return [];
-
   if (CONTENT_SEARCH_TOOLS.has(toolName) && typeof input?.output_mode === "string" && input.output_mode !== "content") return [];
-  return [secretReadFinding(path, options.toolCall?.toolName ?? toolName)];
+
+  const patterns = secretReadPatterns(commandConfig(options));
+  const path = stringToolInput(input, "file_path", "path", "notebook_path", "filePath", "target_file", "dir_path");
+  const glob = CONTENT_SEARCH_TOOLS.has(toolName) ? stringToolInput(input, "glob", "include") : undefined;
+  const target = [path, ...searchGlobCandidates(path, glob)].find((candidate) => candidate !== undefined && tokenMatchesAnyPattern(candidate, patterns));
+  return target === undefined ? [] : [secretReadFinding(target, options.toolCall?.toolName ?? toolName)];
+}
+
+/**
+ * Concrete paths a search glob can select, so `{ glob: ".env*" }` or
+ * `{ path: "~/.config/cortex", glob: "*.yaml" }` is checked like the files it
+ * reaches. A `*` is tried as empty and as one character; a leading `**\/` is
+ * dropped. A heuristic over common globs, not glob semantics.
+ */
+function searchGlobCandidates(path: string | undefined, glob: string | undefined): string[] {
+  if (!glob) return [];
+  const bare = glob.replace(/^(\*\*\/)+/u, "");
+  const expanded = [bare.replace(/\*/gu, ""), bare.replace(/\*/gu, "x")];
+  const base = path?.replace(/\/+$/u, "");
+  return [...expanded, ...(base ? expanded.map((name) => `${base}/${name}`) : [])];
 }
 
 function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFinding[] {

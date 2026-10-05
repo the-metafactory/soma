@@ -104,6 +104,16 @@ function withClaudeToolDefaults(toolName, input) {
   return input;
 }
 
+// Grep is on the matcher only for secret-read, which only fires on content
+// output. A Grep that lists files or counts can never be denied, so it skips
+// the cold `bun` spawn: Grep is a high-frequency tool.
+function grepListsOnly(input) {
+  const toolName = input.tool_name || input.toolName;
+  const toolInput = input.tool_input || input.toolInput || {};
+  if (toolName !== "Grep" || !toolInput || typeof toolInput !== "object" || Array.isArray(toolInput)) return false;
+  return withClaudeToolDefaults(toolName, toolInput).output_mode !== "content";
+}
+
 // Prompt surface → runtime-policy inspection (prompt injection, etc.).
 // Tool-call surface → the composite `policy guard` (runtime inspect +
 // write-target private-context check + inbound content scan) so Claude Code
@@ -174,6 +184,10 @@ function guard(input, surfaceEvent, deny) {
   }
   if (input.__somaParseError) {
     deny(unavailable(`${input.__somaParseError}.`));
+    return;
+  }
+  if (surfaceEvent !== "UserPromptSubmit" && grepListsOnly(input)) {
+    emitAndExit({ continue: true });
     return;
   }
 

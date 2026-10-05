@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-printing verbs pass. Principals extend the paths in
   `policy/secret-read.json`. The denial reason points at the new
   `soma redact <path|->`, which prints a file with secret values masked. The
-  Claude Code guard matcher now includes `Grep`, so each Grep call spawns the
-  guard too. (#716)
+  Claude Code guard matcher now includes `Grep`; only a content-mode Grep
+  starts the guard, since a Grep that lists files can never be denied. (#716)
 
 ## [0.21.0] - 2026-10-03
 

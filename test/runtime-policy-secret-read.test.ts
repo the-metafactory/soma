@@ -66,6 +66,11 @@ describe("secret-read: shell reads that put secrets in context are denied", () =
     ["a soma redact token pair in arguments is not a redactor", "cat .env | cat - soma redact"],
     ["redactor not at the end of the chain", "cat .env | soma redact - | cat .env"],
     ["echo naming soma redact is not a redactor", "cat .env | echo soma redact"],
+    ["the read redirects to stderr before the redactor", "cat .env > /dev/stderr | soma redact -"],
+    ["a filter redirects to stderr before the redactor", "cat .env | cat >&2 | soma redact -"],
+    ["a filter appends to a file before the redactor", "cat .env | head >> leak.txt | soma redact -"],
+    ["grep -T takes no value, so .env is a file", "grep -nT TOKEN .env"],
+    ["ag -t takes no value, so .env is a file", "ag -t TOKEN .env"],
     ["rg -L follows symlinks, it does not list files", "rg -L token ~/.config/cortex"],
     ["grep -e makes every positional a file", "grep -e foo .env"],
   ];
@@ -85,6 +90,9 @@ describe("secret-read: reads that keep secrets out of context are allowed", () =
     ["pipe through a filter into the repo-local CLI", "grep -n TOKEN ~/.config/cortex/stack.yaml | head -5 | bun run soma redact -"],
     ["bun src/cli.ts redact", "sed -n '1,40p' ~/.config/nats/leaf.conf | bun src/cli.ts redact -"],
     ["redact-cat (the local stopgap)", "cat .env | redact-cat -"],
+    ["discarding stderr before the redactor", "cat .env 2>/dev/null | soma redact -"],
+    ["folding stderr into the redacted stream", "cat .env 2>&1 | soma redact -"],
+    ["rg -t takes a type name", "rg -t yaml TOKEN src/"],
     ["count-only grep", "grep -c token .env"],
     ["list-only grep", "grep -l token ~/.config/cortex/a.yaml"],
     ["clustered list flag", "grep -rli token ~/.config/cortex"],
@@ -145,6 +153,21 @@ describe("secret-read: file-reading tools", () => {
 
   test("an explicit files_with_matches search is allowed", async () => {
     const result = await inspect("Grep", { pattern: "TOKEN", path: "/srv/app/.env", output_mode: "files_with_matches" });
+    expect(result.decision).toBe("allow");
+  });
+
+  test("Grep content search selecting .env through glob is denied", async () => {
+    const result = await inspect("Grep", { pattern: "TOKEN", glob: ".env*", output_mode: "content" });
+    expect(result.decision).toBe("deny");
+  });
+
+  test("Grep content search for creds files under a plain path is denied", async () => {
+    const result = await inspect("Grep", { pattern: "seed", path: "/srv/app", glob: "**/*.creds", output_mode: "content" });
+    expect(result.decision).toBe("deny");
+  });
+
+  test("Grep content search with an ordinary glob is allowed", async () => {
+    const result = await inspect("Grep", { pattern: "TOKEN", path: "/srv/app", glob: "*.ts", output_mode: "content" });
     expect(result.decision).toBe("allow");
   });
 
@@ -304,6 +327,13 @@ describe("soma redact", () => {
     );
   });
 
+  test("${VAR} references stay readable; a $-leading literal password does not", () => {
+    expect(redactSecrets("password: $ecretPass\ntoken: ${API_TOKEN}\nbase: ${BASE}/v1").text).toBe(
+      "password: <redacted:password>\ntoken: ${API_TOKEN}\nbase: ${BASE}/v1",
+    );
+    expect(redactSecrets("TOKEN=$OTHER_TOKEN\nSECRET=${VAULT_SECRET}", { envFile: true }).text).toBe("TOKEN=$OTHER_TOKEN\nSECRET=${VAULT_SECRET}");
+  });
+
   test("a block scalar under a secret-named key is masked line by line", () => {
     const { text } = redactSecrets("password: |\n  line-one-secret\n  line-two-secret\nuser: leaf");
     expect(text).toBe("password: |\n  <redacted:block-scalar>\n  <redacted:block-scalar>\nuser: leaf");
@@ -350,6 +380,12 @@ describe("secret-read through the projected Claude Code guard", () => {
       const denied = runGuard(homeDir, { pattern: "TOKEN", path: "/srv/app/.env", output_mode: "content" });
       expect(denied.hookSpecificOutput?.permissionDecision).toBe("deny");
       expect(denied.hookSpecificOutput?.permissionDecisionReason).toContain("soma redact /srv/app/.env");
+
+      const configPath = join(homeDir, ".claude/hooks/soma/soma-policy-guard.config.json");
+      const config = JSON.parse(await Bun.file(configPath).text()) as Record<string, unknown>;
+      await writeFile(configPath, JSON.stringify({ ...config, bunPath: join(homeDir, "no-such-bun") }));
+      expect(runGuard(homeDir, { pattern: "TOKEN", path: "/srv/app/.env" }).continue).toBe(true);
+      expect(runGuard(homeDir, { pattern: "TOKEN", path: "/srv/app/.env", output_mode: "content" }).hookSpecificOutput?.permissionDecision).toBe("deny");
     });
   }, 120_000);
 });

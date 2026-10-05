@@ -4,7 +4,7 @@
  * The `secret-read` runtime-policy rule denies raw reads of secret-bearing
  * config and points here: `soma redact <path|->` prints the same text with
  * secret VALUES masked and everything else — keys, structure, paths, public
- * NKEYs — left readable, so an agent can still reason about the file.
+ * NKEYs — left readable, so the assistant can still reason about the file.
  *
  * Masked: JWTs, NKEY seeds, creds/private-key blocks, long hex strings, URL
  * userinfo passwords, the whole value of a secret-named key in yaml/conf/json
@@ -46,7 +46,18 @@ const NUMBER = /^-?\d+(\.\d+)?$/u;
 const ALREADY_MASKED = /^<redacted:[^>]+>$/u;
 
 /** `${VAR}`, `$VAR` and `__PLACEHOLDER__` name a secret held elsewhere. */
-const isReference = (value: string) => /^\$\{?[A-Za-z_]/u.test(value) || /^__[A-Z0-9_]+__$/u.test(value);
+const indentOf = (line: string) => /^\s*/u.exec(line)?.[0] ?? "";
+
+/**
+ * The value names a secret held elsewhere instead of holding one: a whole
+ * `${VAR}` (optionally followed by a path, `${BASE}/v1`) or `__PLACEHOLDER__`.
+ * A bare `$NAME` is a reference only in `.env`, where dotenv expands it; in
+ * yaml/conf/json `password: $ecretPass` is a literal password.
+ */
+const isReference = (value: string, envFormat: boolean) =>
+  /^\$\{[A-Za-z_][A-Za-z0-9_]*\}(?:\/[\w./-]*)?$/u.test(value) ||
+  /^__[A-Z0-9_]+__$/u.test(value) ||
+  (envFormat && /^\$[A-Za-z_][A-Za-z0-9_]*$/u.test(value));
 
 /**
  * A filesystem path, which stays readable. Narrower than "starts with `/`": a
@@ -89,8 +100,8 @@ function splitValue(rest: string, jsonish: boolean): { open: string; value: stri
 }
 
 /** True when `value` under a key must be masked. Secret-named keys mask numbers too. */
-function shouldMask(value: string, secretKey: boolean): boolean {
-  if (value === "" || LITERAL.test(value) || ALREADY_MASKED.test(value) || isReference(value) || isPathValue(value)) return false;
+function shouldMask(value: string, secretKey: boolean, envFormat = false): boolean {
+  if (value === "" || LITERAL.test(value) || ALREADY_MASKED.test(value) || isReference(value, envFormat) || isPathValue(value)) return false;
   return secretKey || !NUMBER.test(value);
 }
 
@@ -116,7 +127,7 @@ export function redactSecrets(text: string, options: RedactOptions = {}): Redact
       const match = /^(\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*)(.*)$/u.exec(out);
       if (!match) return out;
       const { open, value, close } = splitValue(match[3], false);
-      return shouldMask(value, SECRET_KEY.test(match[2])) ? `${match[1]}${open}${mask("env-value")}${close}` : out;
+      return shouldMask(value, SECRET_KEY.test(match[2]), true) ? `${match[1]}${open}${mask("env-value")}${close}` : out;
     }
 
     // key: value / key = value / "key": "value" with a secret-looking key.
@@ -124,7 +135,7 @@ export function redactSecrets(text: string, options: RedactOptions = {}): Redact
     if (pair && SECRET_KEY.test(pair[3])) {
       const { open, value, close } = splitValue(pair[4], pair[2] === '"');
       if (BLOCK_SCALAR.test(value)) {
-        blockIndent = /^\s*/u.exec(out)?.[0].length ?? 0;
+        blockIndent = indentOf(out).length;
         return out;
       }
       if (shouldMask(value, true)) return `${pair[1]}${open}${mask(pair[3])}${close}`;
@@ -150,30 +161,25 @@ export function redactSecrets(text: string, options: RedactOptions = {}): Redact
   }
 
   let inSeedBlock = false;
-  const lines = text.split("\n").map((line, index) => {
-    let shown: string;
+  const lines = text.split("\n").map((line) => {
     // Inside a block scalar under a secret-named key (`password: |`): every
     // deeper-indented or blank line is the value.
     if (blockIndent !== null) {
-      if (line.trim() === "" || (/^\s*/u.exec(line)?.[0].length ?? 0) > blockIndent) {
-        shown = line.trim() === "" ? line : `${/^\s*/u.exec(line)?.[0] ?? ""}${mask("block-scalar")}`;
-        return options.number ? `${String(index + 1).padStart(6)}\t${shown}` : shown;
-      }
+      if (line.trim() === "") return line;
+      if (indentOf(line).length > blockIndent) return `${indentOf(line)}${mask("block-scalar")}`;
       blockIndent = null;
     }
     if (/-----BEGIN [A-Z ]*(SEED|PRIVATE KEY)-----/u.test(line)) {
       inSeedBlock = true;
-      shown = line;
-    } else if (/-----END [A-Z ]*(SEED|PRIVATE KEY)-----/u.test(line)) {
-      inSeedBlock = false;
-      shown = line;
-    } else if (inSeedBlock && line.trim() !== "") {
-      shown = mask("seed-block");
-    } else {
-      shown = redactLine(line);
+      return line;
     }
-    return options.number ? `${String(index + 1).padStart(6)}\t${shown}` : shown;
+    if (/-----END [A-Z ]*(SEED|PRIVATE KEY)-----/u.test(line)) {
+      inSeedBlock = false;
+      return line;
+    }
+    return inSeedBlock && line.trim() !== "" ? mask("seed-block") : redactLine(line);
   });
 
-  return { text: lines.join("\n"), redacted };
+  const shown = options.number ? lines.map((line, index) => `${String(index + 1).padStart(6)}\t${line}`) : lines;
+  return { text: shown.join("\n"), redacted };
 }
