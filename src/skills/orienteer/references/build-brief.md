@@ -2,14 +2,15 @@
 
 A build node's body is the worker's whole brief (`references/walker.md`). The
 worker reads it, the map's Destination, Constraints and Notes, and nothing else,
-then opens a PR that a reviewer judges round by round. Every rule below comes
-from a review analysis of 77 node → PR pairs (2026-10-05) and names the
-miss it prevents. Of the extra review rounds a brief can prevent, two causes
-dominated: **design left open in the brief**, which the worker settles by
-invention and the reviewer then takes apart one hole per round, and **work too
-wide for one review**, either bundled in from the start or added while the PR
-was in review. Raw size alone predicted little where briefs were already
-detailed; reviewer noise is not a brief problem and is not addressed here.
+then opens a PR that a reviewer judges round by round. The rules below come from
+reading the review threads of the costliest PRs among 77 node → PR pairs across
+ranger, soma and seelite (2026-10-05). That was a case reading, not a controlled
+study, and each rule cites the PR whose miss it targets so the reasoning can be
+checked there. Two patterns recurred in those threads: **design left open in
+the brief**, which the worker settles by invention and the reviewer then takes
+apart one hole per round, and **work too wide for one review**, either bundled
+in from the start or added while the PR was in review. Reviewer noise also cost
+rounds, but that is not a brief problem and is not addressed here.
 
 ## Nothing is left to decide
 
@@ -77,10 +78,13 @@ behaviour>
   asserted").
 - **Assumptions** are stop triggers, not a risk register. List only the ones
   whose failure would change the deliverable; `- none` is a real answer.
-- **Out of scope** binds the review too. A finding outside the acceptance
-  criteria becomes a follow-up node below this one, not another commit on the
-  PR. seelite#561 added five features after its seventh round and needed three
-  more.
+- **Out of scope** binds the review too. A finding that asks for *more* than the
+  acceptance criteria (a further feature, an adjacent improvement) becomes a
+  follow-up node below this one, not another commit on the PR. seelite#561
+  added five features after its seventh round and needed three more. A defect
+  the PR itself introduces is not new scope: a regression, a security hole or a
+  broken invariant in the changed code is fixed on the PR, whether or not the
+  criteria named it.
 
 ## One slice per node
 
