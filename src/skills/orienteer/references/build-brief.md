@@ -23,17 +23,19 @@ decision did not settle, the node is not ready:
 - leave the build in **Not yet specified** until the choice closes.
 
 Never hand the choice to the worker. A brief with a section headed "Shape (to
-settle in the build)" cost ranger#82 seven rounds: the worker hand-rolled a
-config-include walker, and each round found a new hole in it (unicode paths,
-`~user` expansion, symlinks), until the brief was amended to fail closed and the
+settle in the build)" let the worker on ranger#82 hand-roll a config-include
+walker, and rounds three to five each found a new hole in it (unicode paths,
+`~user` expansion, symlinks) until the brief was amended to fail closed and the
 walker deleted. A `[NEEDS CLARIFICATION]` marker anywhere in the body means
 the same thing: not ready to file as build.
 
 **Name the mechanism at a security or matching boundary.** Where the change
 decides what is allowed, matched, or trusted, the brief states the approach:
 an allowlist, fail-closed on the unknown case, an exact comparison over a
-canonical form. Left to the worker, every fix to an invented scheme opens the
-next bypass. ranger#74 took six rounds on 397 lines that way.
+canonical form. Naming it is necessary, not sufficient: the named form must be
+lossless. ranger#63 prescribed "sorted `key=value` records", and in PR #74 the
+sorting and then the serialisation each became the next bypass, six rounds on
+397 lines. Where losslessness is in doubt, prescribe fail-closed.
 
 ## The brief
 
