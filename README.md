@@ -41,7 +41,8 @@ secret values masked and keeps its structure. Principals add their own paths in
 `policy/secret-read.json`. The rule guards against accidental reads, not against
 a model working to evade it. Known gaps:
 - An upgraded Claude Code install keeps its old guard matcher, so `Grep` is
-  guarded only on a fresh install (#735).
+  guarded only after a fresh install or after adding `Grep` to the
+  `soma-policy-guard` matcher in `settings.json` by hand (#735).
 - A stage after `soma redact` in a pipe denies the read (#736).
 
 See the [secret-read section](docs/runtime-command-inspection.md#secret-reads-secret-read-716),
