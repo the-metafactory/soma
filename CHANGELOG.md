@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The prompt rules `security-disable-request` and `data-exfiltration-intent`
+  no longer fire on a verb whose subject makes it a description: a plural
+  noun phrase that runs back to a clause start ("Serialization collisions
+  bypass the tamper guard"), or "they", "I" or a relative pronoun. A verb
+  hyphen-joined into an identifier (`remove-observer`, the rule name itself)
+  is not a verb, and a verb and target split by a sentence end (`.`, `!` or
+  `?` followed by an uppercase letter) are not one request. Everything else
+  still fires, including descriptions such as "symlinks can bypass the guard"
+  and "allows an attacker to bypass the guard". These stopped the principal's
+  own prompts and headless `claude -p` sessions. (#544)
+- A prompt denial now shows the span that tripped it, for example
+  `security-disable-request (the words "bypass the tamper guard" tripped it)`.
+  Traces and events still store no raw input. (#544)
+
 ## [0.22.0] - 2026-10-05
 
 ### Added
