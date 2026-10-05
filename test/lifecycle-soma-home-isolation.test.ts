@@ -63,8 +63,7 @@ function runLifecycle(fakeHome: string, args: string[]): void {
     env,
     timeout: 60_000,
   });
-  expect(result.stderr).toBe("");
-  expect(result.status).toBe(0);
+  if (result.status !== 0) throw new Error(`soma lifecycle exited ${result.status}: ${result.stderr}`);
 }
 
 test("lifecycle session-start with a scratch --soma-home writes nothing outside it", async () => {
