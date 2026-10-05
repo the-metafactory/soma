@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Anything else still fires. These stopped the principal's own prompts and
   headless `claude -p` sessions. (#544)
 - A prompt denial now shows the span that tripped it, for example
-  `security-disable-request (tripped by the words "bypass the tamper guard")`.
+  `security-disable-request (the words "bypass the tamper guard" tripped it)`.
   Traces and events still store no raw input. (#544)
 
 ## [0.22.0] - 2026-10-05
