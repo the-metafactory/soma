@@ -13,7 +13,7 @@ import { writePaiIdentityFixture } from "./fixtures/pai-migration-fixtures";
 
 // The snapshot home lives under the OS temp dir, never inside the checkout
 // (#696): a snapshot is a real `git commit`, so a host-wide pre-commit hook runs
-// on it, and lefthook's falls back to `pnpm lefthook`. pnpm resolves the nearest
+// on it, and lefthook's hook falls back to `pnpm lefthook`. pnpm resolves the nearest
 // package.json, which inside the checkout is soma's, and installs into it.
 async function withSnapshotHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-snapshot-"));
