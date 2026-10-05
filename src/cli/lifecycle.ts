@@ -23,7 +23,8 @@ export interface ParsedLifecycleArgs {
 }
 
 const LIFECYCLE_USAGE =
-  "Usage: soma lifecycle <session-start|algorithm-updated|algorithm-observed|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>] [--work-registry-lock-timeout-ms <ms>]";
+  "Usage: soma lifecycle <session-start|algorithm-updated|algorithm-observed|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>] [--work-registry-lock-timeout-ms <ms>]\n" +
+  "  --home-dir resolves substrate homes (~/.claude, ~/.codex, ...). With a --soma-home other than ~/.soma and no --home-dir, substrate writes land under <soma-home>/.substrate-home; pass --home-dir to target a real substrate home on purpose.";
 
 export const LIFECYCLE_COMMAND_HELP: { usage: string; subcommands: Record<ParsedLifecycleArgs["event"], string> } = {
   usage: LIFECYCLE_USAGE,

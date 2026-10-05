@@ -39,6 +39,34 @@ export function resolveSomaHome(options: SomaLifecycleOptions = {}): string {
   return resolve(options.somaHome ?? join(home, ".soma"));
 }
 
+/** Where a scratch soma home's substrate writes land when no home dir is pinned. */
+export const SCRATCH_SUBSTRATE_HOME_DIRNAME = ".substrate-home";
+
+/**
+ * The home dir lifecycle resolves SUBSTRATE homes against (`~/.claude`, `~/.codex`,
+ * …) — the projected memory file, the projection self-repair sweep and the
+ * transcript handler all derive their paths from it (node #614).
+ *
+ * `--soma-home` alone used to redirect only Soma's state root: substrate writes
+ * still defaulted to `os.homedir()`, so a benchmark pinning a scratch soma home
+ * overwrote the operator's live projection. Now a soma home that is NOT the live
+ * default (`<os home>/.soma`) and comes without an explicit `homeDir` resolves its
+ * substrate homes under itself. An explicit `homeDir` always wins — the way to
+ * point a non-default soma home at the real substrate home on purpose.
+ *
+ * The live default is carved out because every substrate hook passes
+ * `--soma-home <~/.soma>` without `--home-dir` and must keep projecting into the
+ * real substrate home. Returns `undefined` when nothing is derived, so callees
+ * keep their own `os.homedir()` default.
+ */
+export function resolveLifecycleHomeDir(options: SomaLifecycleOptions = {}): string | undefined {
+  if (options.homeDir !== undefined) return options.homeDir;
+  if (options.somaHome === undefined) return undefined;
+  const somaHome = resolve(options.somaHome);
+  if (somaHome === resolve(homedir(), ".soma")) return undefined;
+  return join(somaHome, SCRATCH_SUBSTRATE_HOME_DIRNAME);
+}
+
 function substrate(options: SomaLifecycleOptions): SubstrateId {
   return options.substrate ?? "custom";
 }
@@ -329,6 +357,7 @@ async function loadActiveVsaForLifecycle(somaHome: string): Promise<{ slug: stri
 
 export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const startup = await buildSomaStartupContext(options);
+  const homeDir = resolveLifecycleHomeDir(options);
   const active = await loadActiveVsaForLifecycle(startup.somaHome);
   const activeNote = active === null ? "" : ` | active VSA: ${active.slug} (${active.isa.frontmatter.phase})`;
   const eventsPath = join(startup.somaHome, "memory/STATE/events.jsonl");
@@ -369,7 +398,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
         metadata: {
           sessionId: startup.sessionId,
           substrate: startup.substrate,
-          error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+          error: lifecycleErrorMessage(error, startup.somaHome, homeDir),
         },
       });
     }
@@ -389,7 +418,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   try {
     const memoryReproject = await reprojectSubstrateMemoryProjection({
       substrate: startup.substrate,
-      homeDir: options.homeDir,
+      homeDir,
       somaHome: startup.somaHome,
     });
     memoryProjectedFile = memoryReproject.projected ?? undefined;
@@ -402,7 +431,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
       metadata: {
         sessionId: startup.sessionId,
         substrate: startup.substrate,
-        error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+        error: lifecycleErrorMessage(error, startup.somaHome, homeDir),
       },
     });
   }
@@ -411,7 +440,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   // dependency-inverted (looked up by substrate; core imports no adapter). All of
   // it, including failure reporting, is guarded inside the helper so it can never
   // halt session start. See repairProjectionAtSessionStart.
-  const projectionRepairFiles = await repairProjectionAtSessionStart(startup, options);
+  const projectionRepairFiles = await repairProjectionAtSessionStart(startup, homeDir);
 
   // #458: deterministic session-start learning readback. It READS soma's own
   // LEARNING/wisdom/ratings/reflection trees (all substrate-neutral, under
@@ -844,12 +873,12 @@ export function registerProjectionRepairProvider(substrate: SubstrateId, provide
  */
 async function repairProjectionAtSessionStart(
   startup: SomaStartupContext,
-  options: SomaLifecycleOptions,
+  homeDir: string | undefined,
 ): Promise<string[]> {
   const repairProvider = projectionRepairProviders.get(startup.substrate);
   if (!repairProvider) return [];
   try {
-    const { substrateHome, artifacts } = repairProvider({ homeDir: options.homeDir, somaHome: startup.somaHome });
+    const { substrateHome, artifacts } = repairProvider({ homeDir, somaHome: startup.somaHome });
     const repair = await repairProjectedArtifacts({ substrateHome, artifacts });
     if (repair.healed.length > 0 || repair.drifted.length > 0 || repair.skipped.length > 0) {
       await appendSomaMemoryEvent(startup.somaHome, {
@@ -881,7 +910,7 @@ async function repairProjectionAtSessionStart(
         metadata: {
           sessionId: startup.sessionId,
           substrate: startup.substrate,
-          error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+          error: lifecycleErrorMessage(error, startup.somaHome, homeDir),
         },
       });
     } catch {
@@ -947,7 +976,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   if (options.transcriptPath && options.sessionId && transcriptHandler) {
     try {
       const fallback = await transcriptHandler({
-        homeDir: options.homeDir,
+        homeDir: resolveLifecycleHomeDir(options),
         somaHome,
         now: new Date(timestamp),
         substrate: substrate(options),
