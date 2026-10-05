@@ -106,7 +106,10 @@ function withClaudeToolDefaults(toolName, input) {
 
 // Grep is on the matcher only for secret-read, which only fires on content
 // output. A Grep that lists files or counts can never be denied, so it skips
-// the cold `bun` spawn: Grep is a high-frequency tool.
+// the cold `bun` spawn: Grep is a high-frequency tool. This assumes no other
+// core rule inspects Grep; the test "only secret-read inspects Grep" in
+// runtime-policy-secret-read.test.ts pins it. A rule that breaks the
+// assumption must narrow or remove this shortcut.
 function grepListsOnly(input) {
   const toolName = input.tool_name || input.toolName;
   const toolInput = input.tool_input || input.toolInput || {};

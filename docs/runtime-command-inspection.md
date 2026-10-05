@@ -64,6 +64,14 @@ events or traces by default.
 
 ## Secret Reads (`secret-read`, #716)
 
+Threat model: `secret-read` stops an assistant reading a secret into its own
+context BY ACCIDENT, the way #716 happened (a whole-file read, a line-range
+read). It is not a boundary against a model working to evade it: a command
+built to route raw content around the redactor, or a redactor impersonated
+by a script named `soma`, is out of scope. Where a cheap rule closes a whole
+class of accident (any output redirect before the redactor), it is taken; a
+construction that only an evasive command would use is not chased.
+
 The egress signals above cover content leaving the machine. `secret-read`
 covers the commoner leak: a raw read of a secret-bearing config file into the
 model's context. Once a token is in the transcript the model provider has seen
@@ -85,9 +93,9 @@ It fires on:
 It does not fire on:
 
 - a pipe chain whose last stage runs a redactor (`soma redact`,
-  `bun run soma redact`, `bun <path>/cli.ts redact` or `redact-cat`, resolved
-  from the command position) and whose stages in between are pure filters
-  (`head`, `tail`, `grep`, `cut`, `sort`, `jq`, …), none of which, the read
+  `bun run soma redact` or `redact-cat`, resolved from the command position)
+  and whose stages in between are filters with no way to write a file
+  (`head`, `tail`, `grep`, `rg`, `cut`, `tr`), none of which, the read
   included, redirects its output (`2>/dev/null` and `2>&1` are fine). Only the
   chain the read feeds counts, so `cat .env | soma redact -; cat .env` still
   fires, and so do `cat .env | tee /dev/stderr | soma redact -` and

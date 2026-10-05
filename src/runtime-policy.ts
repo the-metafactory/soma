@@ -110,10 +110,11 @@ const GREP_FAMILY = new Set(["grep", "egrep", "fgrep", "rg", "ag", "ack"]);
 // value, so a shared set would swallow `grep -nT TOKEN .env`'s pattern and let
 // the file through as if it were one.
 const GREP_COMMON_VALUE_FLAGS = ["e", "f", "m", "A", "B", "C"];
+const POSIX_GREP_VALUE_FLAGS: ReadonlySet<string> = new Set([...GREP_COMMON_VALUE_FLAGS, "d", "D"]);
 const GREP_VALUE_FLAGS: Record<string, ReadonlySet<string>> = {
-  grep: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "D"]),
-  egrep: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "D"]),
-  fgrep: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "D"]),
+  grep: POSIX_GREP_VALUE_FLAGS,
+  egrep: POSIX_GREP_VALUE_FLAGS,
+  fgrep: POSIX_GREP_VALUE_FLAGS,
   rg: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "g", "t", "T", "M", "j"]),
   ag: new Set([...GREP_COMMON_VALUE_FLAGS, "g", "G"]),
   ack: new Set(GREP_COMMON_VALUE_FLAGS),
@@ -128,8 +129,13 @@ const GREP_COUNT_ONLY_SHORT_FLAGS = new Set(["c", "l", "q"]);
 const GREP_COUNT_ONLY_LONG_FLAGS = new Set(["--count", "--count-matches", "--files-with-matches", "--files-without-match", "--quiet", "--silent", "--files"]);
 const GREP_FILES_WITHOUT_MATCH_FAMILY = new Set(["grep", "egrep", "fgrep", "ack"]);
 
-/** Stages that may sit between a read and its redactor: they transform stdin to stdout and write nowhere else. */
-const REDACT_PIPE_FILTERS = new Set(["head", "tail", "grep", "egrep", "fgrep", "rg", "cut", "sort", "uniq", "tr", "nl", "cat", "jq", "yq", "column", "fold"]);
+/**
+ * Stages that may sit between a read and its redactor: each has NO option or
+ * argument that writes anywhere but stdout. Kept that narrow on purpose:
+ * `sort -o f`, `uniq in out`, `yq -i` and jq's `stderr`/`debug` all can, so they
+ * are out — a filter that needs per-flag vetting does not belong here.
+ */
+const REDACT_PIPE_FILTERS = new Set(["head", "tail", "grep", "egrep", "fgrep", "rg", "cut", "tr"]);
 
 /** Tools that print a file's content, and tools that print matching lines. */
 const FILE_READ_TOOLS = new Set(["read", "read_file", "view", "view_file", "open_file", "notebookread"]);
@@ -715,9 +721,10 @@ function secretReadVerb(tokens: string[]): { verb: string; argsFrom: number } {
 }
 
 /**
- * The segment RUNS a redactor: `soma redact`, `bun run soma redact`,
- * `bun <path>/cli.ts redact` or `redact-cat`, resolved from the command
- * position — not merely a `soma redact` token pair somewhere in its arguments.
+ * The segment RUNS a redactor: `soma redact`, `bun run soma redact` or
+ * `redact-cat`, resolved from the command position — not merely a
+ * `soma redact` token pair somewhere in its arguments. `bun <any>/cli.ts` is
+ * not accepted: any script can be called `cli.ts`.
  */
 function isRedactorSegment(tokens: string[]): boolean {
   const index = skipCommandPrefixes(tokens);
@@ -725,8 +732,7 @@ function isRedactorSegment(tokens: string[]): boolean {
   if (name === "redact-cat") return true;
   if (name === "soma") return tokens[index + 1] === "redact";
   if (name !== "bun") return false;
-  if (tokens[index + 1] === "run" && shellCommandName(tokens[index + 2]) === "soma") return tokens[index + 3] === "redact";
-  return (tokens[index + 1] ?? "").endsWith("cli.ts") && tokens[index + 2] === "redact";
+  return tokens[index + 1] === "run" && shellCommandName(tokens[index + 2]) === "soma" && tokens[index + 3] === "redact";
 }
 
 // Redirect targets that send nothing around the redactor: discarding output,

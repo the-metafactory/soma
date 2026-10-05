@@ -45,7 +45,6 @@ const LITERAL = /^(true|false|null|~|\[\]|\{\}|""|'')$/iu;
 const NUMBER = /^-?\d+(\.\d+)?$/u;
 const ALREADY_MASKED = /^<redacted:[^>]+>$/u;
 
-/** `${VAR}`, `$VAR` and `__PLACEHOLDER__` name a secret held elsewhere. */
 const indentOf = (line: string) => /^\s*/u.exec(line)?.[0] ?? "";
 
 /**
@@ -107,13 +106,13 @@ function shouldMask(value: string, secretKey: boolean, envFormat = false): boole
 
 export function redactSecrets(text: string, options: RedactOptions = {}): RedactResult {
   let redacted = 0;
-  let blockIndent: number | null = null;
   const mask = (label: string) => {
     redacted += 1;
     return `<redacted:${label}>`;
   };
 
-  function redactBody(line: string, envLike: boolean): string {
+  /** One line, redacted; `opensBlock` is the key indent when a secret-named key starts a block scalar. */
+  function redactBody(line: string, envLike: boolean): { text: string; opensBlock?: number } {
     let out = line
       .replace(/eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gu, () => mask("jwt"))
       .replace(/\bS[AUONCPX][A-Z2-7]{50,}\b/gu, () => mask("nkey-seed"))
@@ -125,42 +124,44 @@ export function redactSecrets(text: string, options: RedactOptions = {}): Redact
     // numbers stay only under keys that are not secret-named (`PORT=8080`).
     if (envLike) {
       const match = /^(\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*)(.*)$/u.exec(out);
-      if (!match) return out;
+      if (!match) return { text: out };
       const { open, value, close } = splitValue(match[3], false);
-      return shouldMask(value, SECRET_KEY.test(match[2]), true) ? `${match[1]}${open}${mask("env-value")}${close}` : out;
+      return { text: shouldMask(value, SECRET_KEY.test(match[2]), true) ? `${match[1]}${open}${mask("env-value")}${close}` : out };
     }
 
     // key: value / key = value / "key": "value" with a secret-looking key.
     const pair = /^(\s*-?\s*(["']?)([A-Za-z0-9_.-]+)\2\s*[:=]\s*)(.*)$/u.exec(out);
     if (pair && SECRET_KEY.test(pair[3])) {
       const { open, value, close } = splitValue(pair[4], pair[2] === '"');
-      if (BLOCK_SCALAR.test(value)) {
-        blockIndent = indentOf(out).length;
-        return out;
-      }
-      if (shouldMask(value, true)) return `${pair[1]}${open}${mask(pair[3])}${close}`;
+      if (BLOCK_SCALAR.test(value)) return { text: out, opensBlock: indentOf(out).length };
+      if (shouldMask(value, true)) return { text: `${pair[1]}${open}${mask(pair[3])}${close}` };
     }
 
     // Inline pairs like `{ user: "x", "password": "p,w" }`: a quoted value under
     // a secret-named key anywhere on the line.
-    return out.replace(
+    const text = out.replace(
       /(^|[{,\s])(["']?)([A-Za-z0-9_.-]+)\2(\s*:\s*)(["'])((?:\\.|(?!\5).)*)\5/gu,
       (all, lead: string, keyQuote: string, key: string, separator: string, quote: string, value: string) =>
         SECRET_KEY.test(key) && shouldMask(value, true) ? `${lead}${keyQuote}${key}${keyQuote}${separator}${quote}${mask("inline")}${quote}` : all,
     );
+    return { text };
   }
 
-  function redactLine(raw: string): string {
+  function redactLine(raw: string): { text: string; opensBlock?: number } {
     // `grep -n`, `rg` and rtk prefix lines with "path:N:", "N:" or "N:0:". Split
     // the prefix off so the key rules see the real line, then put it back.
     const prefix = raw.match(/^((?:[^\s:]+[:-])?\d+(?::\d+)?[:-])(?=\s|["'A-Za-z_-])/u)?.[1] ?? "";
     const body = raw.slice(prefix.length);
     // An UPPER_CASE=value line is `.env` even on stdin, where the name is unknown.
     const envLike = options.envFile === true || /^\s*(?:export\s+)?[A-Z][A-Z0-9_]*=/u.test(body);
-    return prefix + redactBody(body, envLike);
+    const result = redactBody(body, envLike);
+    return { ...result, text: prefix + result.text };
   }
 
+  // The two multi-line modes, tracked together: a creds/private-key block and
+  // a YAML block scalar under a secret-named key.
   let inSeedBlock = false;
+  let blockIndent: number | null = null;
   const lines = text.split("\n").map((line) => {
     // Inside a block scalar under a secret-named key (`password: |`): every
     // deeper-indented or blank line is the value.
@@ -177,7 +178,10 @@ export function redactSecrets(text: string, options: RedactOptions = {}): Redact
       inSeedBlock = false;
       return line;
     }
-    return inSeedBlock && line.trim() !== "" ? mask("seed-block") : redactLine(line);
+    if (inSeedBlock && line.trim() !== "") return mask("seed-block");
+    const result = redactLine(line);
+    if (result.opensBlock !== undefined) blockIndent = result.opensBlock;
+    return result.text;
   });
 
   const shown = options.number ? lines.map((line, index) => `${String(index + 1).padStart(6)}\t${line}`) : lines;
