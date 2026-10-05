@@ -63,12 +63,13 @@ Prompt inspection currently detects:
 - ambiguous jailbreak language as advisory alert
 
 The disable and disclosure rules match a request, not a mention. A verb
-fires only when it is free-standing (not part of an identifier such as
-`remove-observer`), un-negated, and in request position: at a clause start or
-line start, or after a word that introduces a request ("please", "and", "you",
-"can you", "want you to"). The same verb after a noun subject describes a
-system ("collisions bypass the guard") and does not fire. Its target must sit
-in the same clause; a blank line or a sentence end cuts the window.
+fires when it is bare (not inflected), un-negated, not hyphen-joined into an
+identifier such as `remove-observer`, and not made a description by the words
+before it: a plural or pronoun subject ("collisions bypass the guard"), an
+inflected causative ("lets an attacker bypass"), a capability modal ("symlinks
+can bypass") or a purpose `to` ("allows an attacker to bypass"). Anything the
+rule does not recognise as a description still fires. Its target must sit in
+the same clause; a blank line or a sentence end cuts the window.
 
 A prompt-surface finding shows the span it matched in the returned reason, so
 a denial says what to rephrase. Traces and events store the finding without

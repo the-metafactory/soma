@@ -161,18 +161,18 @@ const INLINE_INTERPRETER_PATTERN = /\b(?:python|python3|node|ruby|perl|bun)\s+-(
  *   - FORM: only the bare imperative/infinitive is a request. Inflected forms
  *     ("disables", "was disabled", "the disabled branch", "bypassing") are
  *     descriptions of a system, not instructions to the assistant.
- *   - POSITION: a bare verb is a request only where a request can stand — at
- *     the start of a clause, or after a word that introduces one ("please",
- *     "and", "you", "can you", "want you to"). The same bare form after a
- *     noun is a finite verb in a description: "collisions bypass the tamper
- *     guard" is a review finding, not an instruction. A verb joined to
- *     another word by `-` or `/` is part of an identifier
- *     (`remove-observer`, `add/remove`, this rule's own name) and is no verb
+ *   - POSITION: a bare verb is a request unless the words before it make it
+ *     a description. "Collisions bypass the tamper guard" has a plural subject,
+ *     so the bare form is a finite verb in a review finding; "lets an attacker
+ *     bypass", "symlinks can bypass" and "allows an attacker to bypass" state
+ *     what a system permits. A verb joined to another word by `-` is part of
+ *     an identifier (`remove-observer`, this rule's own name) and is no verb
  *     at all.
  *
- * Every narrowing keeps every attack phrasing flagged — see the regression
- * tests, which pin both directions for each witnessed false positive (#472,
- * #544).
+ * Each narrowing clears only text that positively reads as a refusal, a
+ * description or an identifier; anything it does not recognise keeps
+ * firing. The regression tests pin both directions for each witnessed false
+ * positive (#472, #544) and for the request shapes review has raised.
  */
 const NEGATION_WINDOW = 40;
 const NEGATOR_PATTERN =
@@ -206,10 +206,12 @@ function isNegated(text: string, index: number): boolean {
 const CLAUSE_END = /\n[ \t]*\n|[.!?](?=\s+\p{Lu})/u;
 
 /**
- * Characters that join a word into an identifier: `remove-observer`, `add/remove`.
- * `_` needs no entry: it is a word character, so `\b` already refuses it.
+ * Characters that join a word into an identifier: `remove-observer`, this
+ * rule's own name. `_` needs no entry: it is a word character, so `\b` already
+ * refuses it. `/` is not a joiner: "disable/remove the hook" is an alternation
+ * of two verbs, and the alternation takes its first member's position.
  */
-const WORD_JOINERS = new Set(["-", "/"]);
+const WORD_JOINERS = new Set(["-"]);
 
 /** Markup that sits between a clause start and its first word: emphasis, quotes, code ticks, brackets. */
 const TRANSPARENT_TAIL = /[ \t*_`"'“”‘’([{<>]+$/u;
@@ -217,33 +219,53 @@ const TRANSPARENT_TAIL = /[ \t*_`"'“”‘’([{<>]+$/u;
 /** A clause starts after these: line start, sentence/clause punctuation, a list marker or dash. */
 const CLAUSE_START_CHARS = new Set(["\n", ".", "!", "?", ";", ":", ",", ")", "-", "+", "—", "–", "•"]);
 
-/** Words after which a bare verb reads as a request: politeness, sequencing, direct address. */
-const REQUEST_INTRODUCERS = new Set([
-  "please", "pls", "plz", "kindly", "now", "then", "and", "or", "but", "so", "just", "also", "first", "next",
-  "finally", "always", "go", "ahead", "do", "let", "lets", "help", "you", "we", "u", "me", "us", "ok", "okay",
-  "yes", "sure",
+/**
+ * Subjects that make a bare form a finite verb. A singular noun subject needs
+ * the inflected form ("collision bypasses"), which FORM already clears, so a
+ * description with the bare form has a plural subject or one of these.
+ */
+const DESCRIPTIVE_SUBJECTS = new Set([
+  "i", "it", "they", "he", "she", "one", "who", "which", "that", "anyone", "someone", "everyone", "anybody",
+  "somebody", "everybody", "nobody",
 ]);
 
+/** Words that end in "s" without being a plural noun subject. */
+const NOT_PLURAL = new Set([
+  "always", "lets", "yes", "pls", "plus", "perhaps", "thanks", "afterwards", "besides", "sometimes", "unless",
+  "does",
+]);
+
+/** Inflected causatives take an object and a bare verb: "lets an attacker bypass the guard" is a finding. */
+const CAUSATIVES = new Set(["lets", "letting", "makes", "making", "helps", "helping"]);
+
 /**
- * A modal makes a request only with the assistant or the team as subject:
- * "can you", "we must", and the third person injected content uses to address
- * a model ("the assistant must"). "Symlinks can bypass the guard" is a finding.
+ * A modal with a bare verb is a request only when it addresses someone: "can
+ * you", "we must", "Ivy must", and the third person injected content uses for
+ * a model ("the assistant must"). With a plural, pronoun or determiner-led
+ * subject it states a capability: "symlinks can", "an attacker can".
  */
 const MODALS = new Set(["can", "could", "would", "will", "shall", "should", "must", "may"]);
-const MODAL_SUBJECTS = new Set(["you", "we", "u", "assistant", "agent", "model", "ai", "claude", "llm"]);
+const MODAL_ADDRESSEES = new Set(["assistant", "agent", "model", "ai", "claude", "llm"]);
+const DETERMINERS = new Set([
+  "a", "an", "the", "any", "every", "each", "some", "this", "that", "these", "those", "no", "its", "their", "his",
+  "her", "our",
+]);
 
 /**
- * "to" makes a request after these: "want you to", "need to", "time to". After
- * anything else it is purpose or ability in a description: "allows an attacker
- * to bypass the guard" is a finding.
+ * Heads that make "to" purpose or ability rather than a request, within a few
+ * words before it: "allows an attacker to bypass", "possible to disable",
+ * "used to remove". Every other "to" keeps flagging: "make sure to", "feel
+ * free to", "want you to".
  */
-const INFINITIVE_HEADS = new Set([
-  "you", "me", "us", "need", "needs", "want", "wants", "have", "has", "going", "got", "try", "trying", "like",
-  "love", "ought", "time", "is", "are", "how",
-]);
+const DESCRIPTIVE_TO_HEAD =
+  /^(?:allow\w*|enabl\w*|permit\w*|caus\w*|leads?|used|able|unable|possible|impossible|easy|easier|trivial\w*|hard|harder|enough|order|attempt\w*|tries|tried|ways?)$/u;
+const TO_HEAD_WORDS = 4;
 
 /** How far back the position check looks; a clause start further away than this is not "directly before". */
 const POSITION_LOOKBACK = 200;
+
+/** Adverbs leave the position unchanged ("please temporarily disable"); this many are stepped over. */
+const MAX_ADVERB_CHAIN = 3;
 
 type PrecedingToken = { kind: "clause-start" } | { kind: "word"; word: string; start: number } | { kind: "other" };
 
@@ -260,27 +282,51 @@ function precedingToken(text: string, index: number): PrecedingToken {
   return { kind: "word", word: bare, start: from + word.index };
 }
 
+/** Up to `count` words directly before `index`, nearest first, stopping at anything that is not a word. */
+function wordsBefore(text: string, index: number, count: number): string[] {
+  const words: string[] = [];
+  for (let at = index; words.length < count; ) {
+    const token = precedingToken(text, at);
+    if (token.kind !== "word") break;
+    words.push(token.word);
+    at = token.start;
+  }
+  return words;
+}
+
+function looksPlural(word: string): boolean {
+  return word.length > 3 && word.endsWith("s") && !/(?:ss|us|is)$/u.test(word) && !NOT_PLURAL.has(word);
+}
+
+/** True when the subject before the modal at `modalStart` makes it a statement of capability. */
+function hasDescriptiveModalSubject(text: string, modalStart: number): boolean {
+  const subject = precedingToken(text, modalStart);
+  if (subject.kind !== "word" || MODAL_ADDRESSEES.has(subject.word)) return false;
+  if (looksPlural(subject.word) || DESCRIPTIVE_SUBJECTS.has(subject.word)) return true;
+  const determiner = precedingToken(text, subject.start);
+  return determiner.kind === "word" && DETERMINERS.has(determiner.word);
+}
+
 /**
- * True when the verb at `index` stands where a request can stand. Unknown
- * symbols before it count as a clause start: when in doubt, keep flagging.
+ * True unless the words before the verb at `index` positively make it a
+ * description. The default is a request: a security rule that clears only
+ * listed request shapes fails open on every shape nobody listed.
  */
 function inRequestPosition(text: string, index: number, depth = 0): boolean {
+  if (text[index - 1] === "/") {
+    const alternation = /\p{L}+\/$/u.exec(text.slice(Math.max(0, index - 40), index));
+    if (alternation) return inRequestPosition(text, index - alternation[0].length, depth);
+  }
   const token = precedingToken(text, index);
   if (token.kind !== "word") return true;
   const { word, start } = token;
-  if (REQUEST_INTRODUCERS.has(word)) return true;
-  // An adverb leaves the position unchanged: "please temporarily disable" vs
-  // "collisions silently bypass".
-  if (word.length > 3 && word.endsWith("ly") && depth < 3) return inRequestPosition(text, start, depth + 1);
-  if (MODALS.has(word)) {
-    const subject = precedingToken(text, start);
-    return subject.kind !== "word" || MODAL_SUBJECTS.has(subject.word);
+  if (word.length > 3 && word.endsWith("ly") && depth < MAX_ADVERB_CHAIN) {
+    return inRequestPosition(text, start, depth + 1);
   }
-  if (word === "to") {
-    const head = precedingToken(text, start);
-    return head.kind === "word" && INFINITIVE_HEADS.has(head.word);
-  }
-  return false;
+  if (MODALS.has(word)) return !hasDescriptiveModalSubject(text, start);
+  if (word === "to") return !wordsBefore(text, start, TO_HEAD_WORDS).some((head) => DESCRIPTIVE_TO_HEAD.test(head));
+  if (looksPlural(word) || DESCRIPTIVE_SUBJECTS.has(word)) return false;
+  return !wordsBefore(text, index, 3).some((head) => CAUSATIVES.has(head));
 }
 
 /** True when the match at `index..end` is a word of its own, not part of an identifier. */
@@ -361,37 +407,40 @@ function finding(kind: string, severity: RuntimePolicyFinding["severity"], detai
   return { kind, severity, detail, inspector, ...(decision ? { decision } : {}) };
 }
 
+/**
+ * A high-severity prompt finding for a request-position match, carrying the
+ * matched span as its excerpt; undefined when nothing in `prompt` is a request.
+ */
+function requestFinding(prompt: string, verbs: RegExp, targets: RegExp, kind: string, detail: string): RuntimePolicyFinding | undefined {
+  const excerpt = findUnnegatedRequest(prompt, verbs, targets);
+  return excerpt === undefined ? undefined : { ...finding(kind, "high", detail, PROMPT_INSPECTOR_ID), excerpt };
+}
+
 function inspectPrompt(prompt: string): RuntimePolicyFinding[] {
   const findings: RuntimePolicyFinding[] = [];
   const normalized = prompt.toLowerCase();
 
-  const disableRequest = findUnnegatedRequest(
+  const disableRequest = requestFinding(
     prompt,
     /\b(?:disable|turn off|bypass|remove)\b/u,
     /\b(?:soma\s+)?(?:security|policy|guard|hook)s?\b/u,
-  );
-  if (disableRequest !== undefined) {
+    "security-disable-request",
     // Gerunds, not bare verbs: the CLI prints this detail, and a report that
     // quotes it must not trip the rule it reports.
-    findings.push({
-      ...finding("security-disable-request", "high", "Prompt requests disabling or bypassing Soma runtime policy.", PROMPT_INSPECTOR_ID),
-      excerpt: disableRequest,
-    });
-  }
+    "Prompt requests disabling or bypassing Soma runtime policy.",
+  );
+  if (disableRequest) findings.push(disableRequest);
   if (/\b(ignore|override)\s+(all\s+)?(previous|prior|system|developer)\s+instructions\b/u.test(normalized)) {
     findings.push(finding("instruction-override", "high", "Prompt attempts to override higher-priority instructions.", PROMPT_INSPECTOR_ID));
   }
-  const exfiltrationRequest = findUnnegatedRequest(
+  const exfiltrationRequest = requestFinding(
     prompt,
     /\b(?:reveal|print|dump|exfiltrate|leak|steal)\b/u,
     /\b(?:private memory|secret|token|credential|private key)s?\b/u,
+    "data-exfiltration-intent",
+    "Prompt requests private memory or credential disclosure.",
   );
-  if (exfiltrationRequest !== undefined) {
-    findings.push({
-      ...finding("data-exfiltration-intent", "high", "Prompt requests private memory or credential disclosure.", PROMPT_INSPECTOR_ID),
-      excerpt: exfiltrationRequest,
-    });
-  }
+  if (exfiltrationRequest) findings.push(exfiltrationRequest);
   if (/\b(jailbreak|do anything now|roleplay as|pretend to be unrestricted)\b/u.test(normalized)) {
     findings.push(finding("jailbreak-language", "medium", "Prompt contains ambiguous jailbreak language.", PROMPT_INSPECTOR_ID));
   }
@@ -1427,9 +1476,11 @@ function reasonForDecision(decision: RuntimePolicyDecision, findings: RuntimePol
   if (decision === "allow") return "No deterministic runtime-policy findings.";
   // A denial that names only the kind leaves nobody able to tell what to
   // rephrase (#544), so a finding that knows its span shows it. The span is
-  // led by "matched", a plain word, so quoting this reason back does not put
-  // the span's verb in request position and re-trip the rule.
-  const kinds = findings.map((item) => (item.excerpt ? `${item.kind} (matched "${item.excerpt}")` : item.kind)).join(", ");
+  // led by the plural "words", which makes its verb read as a finite verb, so
+  // a report that quotes this reason back does not re-trip the rule.
+  const kinds = findings
+    .map((item) => (item.excerpt ? `${item.kind} (tripped by the words "${item.excerpt}")` : item.kind))
+    .join(", ");
   // The reason is all a substrate relays to the model, so a finding that names
   // its own recovery (`secret-read` → `soma redact`) carries it here.
   const guidance = findings.flatMap((item) => (item.hint ? [`${item.detail} ${item.hint}`] : [])).join(" ");
@@ -1524,12 +1575,17 @@ function inspectedInputRef(options: RuntimePolicyInspectOptions): {
   return { kind: options.surface };
 }
 
-/** Findings as traces and events store them: without excerpts, which are raw input. */
-function storedFindings(findings: RuntimePolicyFinding[]): RuntimePolicyFinding[] {
+/** A finding as traces and events store it: without its excerpt, which is raw input. */
+type StoredRuntimePolicyFinding = Omit<RuntimePolicyFinding, "excerpt">;
+
+/** The one boundary every persisted finding passes through. */
+function storedFindings(findings: RuntimePolicyFinding[]): StoredRuntimePolicyFinding[] {
   return findings.map(({ excerpt: _excerpt, ...stored }) => stored);
 }
 
-async function writeRuntimePolicyTrace(result: RuntimePolicyInspectResult, options: RuntimePolicyInspectOptions): Promise<string> {
+type StoredRuntimePolicyInspection = Omit<RuntimePolicyInspectResult, "findings"> & { findings: StoredRuntimePolicyFinding[] };
+
+async function writeRuntimePolicyTrace(result: StoredRuntimePolicyInspection, options: RuntimePolicyInspectOptions): Promise<string> {
   const traceRoot = runtimePolicyTraceRoot({ somaHome: result.somaHome });
   const timestamp = options.timestamp ?? new Date().toISOString();
   const safeTimestamp = timestamp.replace(/[:.]/gu, "-");
@@ -1553,7 +1609,7 @@ async function auditRuntimePolicy(result: RuntimePolicyInspectResult, options: R
   if (!eventRecordAllowed(options.record, result.decision)) return undefined;
 
   const findings = storedFindings(result.findings);
-  const stored = { ...result, findings, reason: reasonForDecision(result.decision, findings) };
+  const stored: StoredRuntimePolicyInspection = { ...result, findings, reason: reasonForDecision(result.decision, findings) };
   const tracePath = await writeRuntimePolicyTrace(stored, options);
   const event = await appendSomaMemoryEvent(result.somaHome, {
     timestamp: options.timestamp,
