@@ -72,7 +72,7 @@ test("policy guard: install is idempotent and patches PreToolUse + UserPromptSub
     expect(countHookCommandsContaining(settings, "soma-policy-guard.mjs")).toBe(2);
     const preTool = JSON.stringify(settings.hooks.PreToolUse ?? []);
     expect(preTool).toContain("soma-policy-guard.mjs");
-    expect(preTool).toContain("Bash|Read|Edit|Write|MultiEdit|NotebookEdit");
+    expect(preTool).toContain("Bash|Read|Grep|Edit|Write|MultiEdit|NotebookEdit");
     expect(JSON.stringify(settings.hooks.UserPromptSubmit ?? [])).toContain("soma-policy-guard.mjs");
   });
 });

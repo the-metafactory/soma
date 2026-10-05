@@ -2377,6 +2377,8 @@ export interface RuntimePolicyFinding {
   detail: string;
   inspector: string;
   decision?: Exclude<RuntimePolicyDecision, "allow">;
+  /** How to do the same thing safely; appended to the decision reason the model sees. */
+  hint?: string;
 }
 
 export interface RuntimePolicyToolCall {
@@ -2396,6 +2398,8 @@ export interface RuntimePolicyCommandInspectionConfig {
   outboundTools?: readonly string[];
   privatePathPatterns?: readonly string[];
   credentialPathPatterns?: readonly string[];
+  /** Extra path regexes for `secret-read`, on top of the defaults (soma#716). */
+  secretReadPathPatterns?: readonly string[];
   patternRules?: readonly RuntimePolicyCommandPatternRule[];
   inlineInterpreterDecision?: Exclude<RuntimePolicyDecision, "allow">;
 }

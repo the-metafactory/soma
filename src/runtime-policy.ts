@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
 import { createPaths } from "./paths";
@@ -66,6 +66,82 @@ const DEFAULT_PERMISSION_SENSITIVE_PATH_PATTERNS = [
   "(^|/)id_(rsa|dsa|ecdsa|ed25519)$",
   "\\.(pem|p12|pfx|key)$",
 ] as const;
+
+/**
+ * Secret-bearing config that must not be read raw into the model's context
+ * (soma#716). Egress rules cover content LEAVING the machine; this covers the
+ * commoner leak — a `cat`, `sed -n`, `grep -n` or Read of a stack config puts
+ * its tokens and seeds into the transcript, where the provider sees them and
+ * compaction keeps them.
+ *
+ * End-anchored on purpose, unlike DEFAULT_CREDENTIAL_PATH_PATTERNS: `.envrc`,
+ * `env.ts`, `process.env.X` and an nginx `*.conf` are not secrets (#474 is the
+ * same mistake on the egress side). `.env.example`/`.sample`/`.template`/`.dist`
+ * are committed templates, so they stay readable. A bare directory matches
+ * where the whole tree is secret-bearing, so `grep -rn x ~/.config/cortex` is
+ * caught as well as a single file. Principals extend this list in
+ * `policy/secret-read.json`.
+ */
+const DEFAULT_SECRET_READ_PATH_PATTERNS = [
+  "\\.(creds|nk)$",
+  "(^|/)nsc/keys(/|$)",
+  "(^|/)\\.config/nats(/?$|/creds(/|$)|/.*\\.(conf|creds|nk)(\\.[^/]*)?$)",
+  "(^|/)nats[^/]*\\.conf$",
+  "(^|/)\\.config/cortex(/?$|/.*\\.ya?ml(\\.[^/]*)?$)",
+  "(^|/)\\.env(\\.(?!example$|sample$|template$|dist$)[^/]+)?$",
+  "(^|/)\\.config/glab-cli(/|$)",
+] as const;
+
+export const SECRET_READ_CONFIG_RELATIVE_PATH = "policy/secret-read.json";
+
+/** Commands that print file content to stdout — i.e. into the model's context. */
+const SECRET_READ_PRINTERS = new Set([
+  "cat", "head", "tail", "less", "more", "bat", "batcat", "sed", "awk", "gawk", "grep", "egrep", "fgrep", "rg", "ag", "ack",
+  "jq", "yq", "strings", "xxd", "od", "hexdump", "nl", "tac", "cut", "sort", "uniq", "diff", "comm", "paste", "column",
+  "base64", "rev", "fold", "pr",
+]);
+
+/** rtk wraps printers under its own verbs; map them back to what they print. */
+const RTK_PRINTER_ALIASES: Record<string, string> = { read: "cat", json: "jq", log: "cat", smart: "cat", grep: "grep", diff: "diff" };
+
+const GREP_FAMILY = new Set(["grep", "egrep", "fgrep", "rg", "ag", "ack"]);
+// Short flags whose value is the next token (or the rest of the cluster), per
+// family: grep's `-T` is initial-tab and ag's `-t` is all-text, neither takes a
+// value, so a shared set would swallow `grep -nT TOKEN .env`'s pattern and let
+// the file through as if it were one.
+const GREP_COMMON_VALUE_FLAGS = ["e", "f", "m", "A", "B", "C"];
+const POSIX_GREP_VALUE_FLAGS: ReadonlySet<string> = new Set([...GREP_COMMON_VALUE_FLAGS, "d", "D"]);
+const GREP_VALUE_FLAGS: Record<string, ReadonlySet<string>> = {
+  grep: POSIX_GREP_VALUE_FLAGS,
+  egrep: POSIX_GREP_VALUE_FLAGS,
+  fgrep: POSIX_GREP_VALUE_FLAGS,
+  rg: new Set([...GREP_COMMON_VALUE_FLAGS, "d", "g", "t", "T", "M", "j"]),
+  ag: new Set([...GREP_COMMON_VALUE_FLAGS, "g", "G"]),
+  ack: new Set(GREP_COMMON_VALUE_FLAGS),
+};
+const GREP_LONG_VALUE_FLAGS = new Set([
+  "--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--glob", "--iglob", "--type", "--type-not",
+  "--include", "--exclude", "--exclude-dir", "--max-columns", "--threads",
+]);
+// Flags that make a grep print counts or file names, never lines. `-L` is
+// grep's files-without-match but rg/ag's follow-symlinks, so it is per family.
+const GREP_COUNT_ONLY_SHORT_FLAGS = new Set(["c", "l", "q"]);
+const GREP_COUNT_ONLY_LONG_FLAGS = new Set(["--count", "--count-matches", "--files-with-matches", "--files-without-match", "--quiet", "--silent", "--files"]);
+const GREP_FILES_WITHOUT_MATCH_FAMILY = new Set(["grep", "egrep", "fgrep", "ack"]);
+
+/**
+ * Stages that may sit between a read and its redactor: each has NO option or
+ * argument that writes anywhere but stdout. Kept that narrow on purpose:
+ * `sort -o f`, `uniq in out`, `yq -i` and jq's `stderr`/`debug` all can, so they
+ * are out — a filter that needs per-flag vetting does not belong here.
+ */
+const REDACT_PIPE_FILTERS = new Set(["head", "tail", "grep", "egrep", "fgrep", "rg", "cut", "tr"]);
+
+/** Tools that print a file's content, and tools that print matching lines. */
+const FILE_READ_TOOLS = new Set(["read", "read_file", "view", "view_file", "open_file", "notebookread"]);
+const CONTENT_SEARCH_TOOLS = new Set(["grep", "rg", "grep_search", "search_file_content"]);
+
+const SECRET_READ_MAX_DEPTH = 3;
 
 const INLINE_INTERPRETER_PATTERN = /\b(?:python|python3|node|ruby|perl|bun)\s+-(?:c|e)\b/u;
 
@@ -225,9 +301,26 @@ function cleanShellToken(token: string): string {
   return token.replace(/^[<>"']+|[>"']+$/g, "");
 }
 
-function tokenizeCommand(command: string): string[] {
-  return [...command.matchAll(/"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}|[^\s|;<>]+/gu)]
-    .map((match) => cleanShellToken(match[1] || match[2] || match[0]))
+interface TokenizeOptions {
+  /**
+   * Treat an unquoted newline as `;`: a script's next line is a new command, so
+   * without it `cd x\ncat .env` has verb `cd`. Quoted strings still span lines,
+   * so a multi-line commit message stays one argument. Line continuations join.
+   */
+  newlineAsSeparator?: boolean;
+  /** Keep `<`, `>` and `>>` as tokens (cleanup strips them) so a redirect target can be told from an argument. */
+  keepRedirects?: boolean;
+}
+
+function tokenizeCommand(command: string, options: TokenizeOptions = {}): string[] {
+  const source = options.newlineAsSeparator ? command.replace(/\\\n/gu, " ") : command;
+  const pattern = new RegExp(String.raw`"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}${options.newlineAsSeparator ? String.raw`|\n` : ""}|[^\s|;<>]+`, "gu");
+  return [...source.matchAll(pattern)]
+    .map((match) => {
+      if (match[0] === "\n") return ";";
+      if (options.keepRedirects && /^(?:<|>|>>)$/u.test(match[0])) return match[0];
+      return cleanShellToken(match[1] || match[2] || match[0]);
+    })
     .filter(Boolean);
 }
 
@@ -604,12 +697,245 @@ function inspectSegmentedCommand(command: string, options: RuntimePolicyInspectO
   return findings;
 }
 
+function secretReadPatterns(config: RuntimePolicyCommandInspectionConfig): string[] {
+  return [...DEFAULT_SECRET_READ_PATH_PATTERNS, ...(config.secretReadPathPatterns ?? [])];
+}
+
+function secretReadFinding(path: string, via: string): RuntimePolicyFinding {
+  // High, not critical: a context leak, not an egress or an attack. The
+  // explicit `deny` blocks it; the hint is what the model reads to recover.
+  return {
+    ...finding("secret-read", "high", `${via} reads ${path} raw into the model's context; it may hold tokens, passwords or seeds.`, COMMAND_INSPECTOR_ID, "deny"),
+    hint: `Read it with \`soma redact ${path}\` (masks secret values, keeps keys, structure and paths), or pipe the command through \`| soma redact -\`.`,
+  };
+}
+
+/** Resolve the verb a segment runs, looking through `rtk` and `rtk proxy`. */
+function secretReadVerb(tokens: string[]): { verb: string; argsFrom: number } {
+  const index = skipCommandPrefixes(tokens);
+  const name = shellCommandName(tokens[index]);
+  if (name !== "rtk") return { verb: name, argsFrom: index + 1 };
+  const sub = (tokens[index + 1] ?? "").toLowerCase();
+  if (sub === "proxy") return { verb: shellCommandName(tokens[index + 2]), argsFrom: index + 3 };
+  return { verb: RTK_PRINTER_ALIASES[sub] ?? `rtk-${sub}`, argsFrom: index + 2 };
+}
+
+/**
+ * The segment RUNS a redactor: `soma redact`, `bun run soma redact` or
+ * `redact-cat`, resolved from the command position — not merely a
+ * `soma redact` token pair somewhere in its arguments. `bun <any>/cli.ts` is
+ * not accepted: any script can be called `cli.ts`.
+ */
+function isRedactorSegment(tokens: string[]): boolean {
+  const index = skipCommandPrefixes(tokens);
+  const name = shellCommandName(tokens[index]);
+  if (name === "redact-cat") return true;
+  if (name === "soma") return tokens[index + 1] === "redact";
+  if (name !== "bun") return false;
+  return tokens[index + 1] === "run" && shellCommandName(tokens[index + 2]) === "soma" && tokens[index + 3] === "redact";
+}
+
+// Redirect targets that send nothing around the redactor: discarding output,
+// or folding stderr into the stdout the redactor reads (`2>&1`).
+const HARMLESS_REDIRECT_TARGETS = new Set(["/dev/null", "&1"]);
+
+/** True when a stage redirects output anywhere but the pipe: `>&2`, `> /dev/stderr`, `>> log`, `&> f`. */
+function redirectsOutputElsewhere(tokens: string[]): boolean {
+  return tokens.some((token, index) => (token === ">" || token === ">>") && !HARMLESS_REDIRECT_TARGETS.has(tokens[index + 1] ?? ""));
+}
+
+/**
+ * Whether a read's output reaches the redactor and nothing else. Every route
+ * by which raw content can bypass the redactor is a reason to refuse:
+ *   - the chain the read feeds must END in a stage that runs a redactor;
+ *   - every stage between must be a pure filter (an allow-list, like the
+ *     heredoc sinks: a missing filter costs a false denial, a missing writer a
+ *     leak — `tee /dev/stderr` is a writer);
+ *   - no stage before the redactor, the read included, may redirect its output
+ *     (`cat .env > /dev/stderr | soma redact -`, `| cat >&2 |`).
+ */
+function pipeChainEndsInRedactor(segments: { tokens: string[]; operatorAfter?: string }[], from: number): boolean {
+  let end = from;
+  while (end < segments.length - 1 && segments[end].operatorAfter === "|") end += 1;
+  if (end === from || !isRedactorSegment(segments[end].tokens)) return false;
+  const beforeRedactor = segments.slice(from, end);
+  if (beforeRedactor.some(({ tokens }) => redirectsOutputElsewhere(tokens))) return false;
+  return beforeRedactor.slice(1).every(({ tokens }) => REDACT_PIPE_FILTERS.has(secretReadVerb(tokens).verb));
+}
+
+/**
+ * The arguments a grep-family command reads as FILES. The first positional is
+ * the pattern unless `-e`/`-f` supplied one, so `grep -rn ".env" src/` — a
+ * search for the word — is not a read of `.env`. Returns undefined when the
+ * flags make the command count/list-only, which prints no content.
+ */
+function grepFileArguments(verb: string, args: string[]): string[] | undefined {
+  const positional: string[] = [];
+  let patternGiven = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === "--") {
+      positional.push(...args.slice(index + 1));
+      break;
+    }
+    if (token.startsWith("--")) {
+      const name = token.split("=")[0];
+      if (GREP_COUNT_ONLY_LONG_FLAGS.has(name)) return undefined;
+      if (name === "--regexp" || name === "--file") patternGiven = true;
+      if (!token.includes("=") && GREP_LONG_VALUE_FLAGS.has(name)) index += 1;
+      continue;
+    }
+    if (token.startsWith("-") && token.length > 1) {
+      const cluster = token.slice(1);
+      for (let at = 0; at < cluster.length; at += 1) {
+        const flag = cluster[at];
+        if (GREP_COUNT_ONLY_SHORT_FLAGS.has(flag) || (flag === "L" && GREP_FILES_WITHOUT_MATCH_FAMILY.has(verb))) return undefined;
+        if (GREP_VALUE_FLAGS[verb]?.has(flag)) {
+          if (flag === "e" || flag === "f") patternGiven = true;
+          if (at === cluster.length - 1) index += 1;
+          break;
+        }
+      }
+      continue;
+    }
+    positional.push(token);
+  }
+  return patternGiven ? positional : positional.slice(1);
+}
+
+/** Drop `> file` / `>> file` targets: a redirect writes the file, it does not print it. */
+function withoutOutputRedirects(args: string[]): string[] {
+  return args.filter((token, index) => token !== ">" && token !== ">>" && args[index - 1] !== ">" && args[index - 1] !== ">>" && token !== "<");
+}
+
+/** The tokens of a printer segment that name files whose content it prints. */
+function printedFileArguments(verb: string, args: string[]): string[] {
+  if (GREP_FAMILY.has(verb)) return grepFileArguments(verb, args) ?? [];
+  // In-place sed rewrites the file and prints nothing.
+  if (verb === "sed" && args.some((arg) => arg === "--in-place" || /^-[A-Za-z]*i/u.test(arg))) return [];
+  return args.filter((arg) => !(arg.startsWith("-") && arg.length > 1));
+}
+
+/**
+ * Blank the contents of single-quoted spans. The shell substitutes nothing
+ * inside `'…'`, so `git commit -m 'docs: \`cat .env\` is denied'` runs no
+ * `cat`; double-quoted spans keep their `$(…)`, because bash does run those.
+ */
+function blankSingleQuoted(command: string): string {
+  let out = "";
+  let quote: "'" | '"' | null = null;
+  for (const char of command) {
+    if (quote === "'") {
+      if (char === "'") quote = null;
+      out += char === "'" ? char : " ";
+      continue;
+    }
+    if (char === quote) quote = null;
+    else if (!quote && (char === "'" || char === '"')) quote = char;
+    out += char;
+  }
+  return out;
+}
+
+/** Nested command text: `$(…)`, backticks, `sh -c "…"`, `rtk run "…"`, `eval …`. */
+function nestedCommands(rawCommand: string, segments: { tokens: string[] }[]): string[] {
+  const substitutable = blankSingleQuoted(rawCommand);
+  const nested = [
+    ...[...substitutable.matchAll(/\$\(([^()]*)\)/gu)].map((match) => match[1]),
+    ...[...substitutable.matchAll(/`([^`]*)`/gu)].map((match) => match[1]),
+  ];
+  for (const { tokens } of segments) {
+    const index = skipCommandPrefixes(tokens);
+    const name = shellCommandName(tokens[index]);
+    if (["sh", "bash", "zsh", "dash", "ksh"].includes(name)) {
+      const flag = tokens.findIndex((token, at) => at > index && /^-[A-Za-z]*c$/u.test(token));
+      if (flag !== -1 && tokens[flag + 1]) nested.push(tokens[flag + 1]);
+    } else if (name === "rtk" && tokens[index + 1] === "run" && tokens[index + 2]) {
+      nested.push(tokens[index + 2]);
+    } else if (name === "eval") {
+      nested.push(tokens.slice(index + 1).join(" "));
+    }
+  }
+  return nested;
+}
+
+/**
+ * `secret-read` for shell commands: a printing verb whose file argument is a
+ * secret-bearing path, unless the pipe chain it feeds ends in a redactor.
+ * Non-printing verbs (`cp`, `tar`, `source`, `nats-server -t`) never fire.
+ */
+function inspectSecretReadCommand(command: string, config: RuntimePolicyCommandInspectionConfig, depth = 0): RuntimePolicyFinding[] {
+  // Data-heredoc bodies are stdin, not arguments: `cat <<'EOF' > notes.md`
+  // whose body mentions `.env` reads nothing (#540).
+  const stripped = stripDataHeredocBodies(command);
+  const segments = shellSegments(tokenizeCommand(stripped, { newlineAsSeparator: true, keepRedirects: true }));
+  const patterns = secretReadPatterns(config);
+  const findings: RuntimePolicyFinding[] = [];
+
+  segments.forEach((segment, position) => {
+    const { verb, argsFrom } = secretReadVerb(segment.tokens);
+    if (!SECRET_READ_PRINTERS.has(verb)) return;
+    const path = printedFileArguments(verb, withoutOutputRedirects(segment.tokens.slice(argsFrom))).find((token) => tokenMatchesAnyPattern(token, patterns));
+    if (!path || pipeChainEndsInRedactor(segments, position)) return;
+    findings.push(secretReadFinding(normalizePathLikeToken(path), "Command"));
+  });
+
+  if (findings.length === 0 && depth < SECRET_READ_MAX_DEPTH) {
+    for (const inner of nestedCommands(stripped, segments)) {
+      const nested = inspectSecretReadCommand(inner, config, depth + 1);
+      if (nested.length > 0) return nested;
+    }
+  }
+  return findings.slice(0, 1);
+}
+
+function stringToolInput(input: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = input?.[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
+/**
+ * `secret-read` for file-reading tools (Read, view, pi's `read`) and
+ * content-search tools (Grep). A search prints matching lines unless its
+ * input names a list or count `output_mode`. A substrate whose tool defaults
+ * to listing files (Claude Code's Grep) states that default in its adapter
+ * before inspection; the core does not know any tool's defaults.
+ */
+function inspectFileReadTool(options: RuntimePolicyInspectOptions, toolName: string): RuntimePolicyFinding[] {
+  const input = options.toolCall?.input;
+  if (CONTENT_SEARCH_TOOLS.has(toolName) && typeof input?.output_mode === "string" && input.output_mode !== "content") return [];
+
+  const patterns = secretReadPatterns(commandConfig(options));
+  const path = stringToolInput(input, "file_path", "path", "notebook_path", "filePath", "target_file", "dir_path");
+  const glob = CONTENT_SEARCH_TOOLS.has(toolName) ? stringToolInput(input, "glob", "include") : undefined;
+  const target = [path, ...searchGlobCandidates(path, glob)].find((candidate) => candidate !== undefined && tokenMatchesAnyPattern(candidate, patterns));
+  return target === undefined ? [] : [secretReadFinding(target, options.toolCall?.toolName ?? toolName)];
+}
+
+/**
+ * Concrete paths a search glob can select, so `{ glob: ".env*" }` or
+ * `{ path: "~/.config/cortex", glob: "*.yaml" }` is checked like the files it
+ * reaches. A `*` is tried as empty and as one character; a leading `**\/` is
+ * dropped. A heuristic over common globs, not glob semantics.
+ */
+function searchGlobCandidates(path: string | undefined, glob: string | undefined): string[] {
+  if (!glob) return [];
+  const bare = glob.replace(/^(\*\*\/)+/u, "");
+  const expanded = [bare.replace(/\*/gu, ""), bare.replace(/\*/gu, "x")];
+  const base = path?.replace(/\/+$/u, "");
+  return [...expanded, ...(base ? expanded.map((name) => `${base}/${name}`) : [])];
+}
+
 function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFinding[] {
   if (!options.toolCall || typeof options.toolCall.toolName !== "string") {
     return [finding("malformed-tool-call", "critical", "Tool-call inspection requires a toolName.", INPUT_INSPECTOR_ID)];
   }
 
   const toolName = options.toolCall.toolName.toLowerCase();
+  if (FILE_READ_TOOLS.has(toolName) || CONTENT_SEARCH_TOOLS.has(toolName)) return inspectFileReadTool(options, toolName);
   if (!/\b(bash|shell|exec_command)\b/u.test(toolName)) return [];
 
   const command = commandFromToolCall(options);
@@ -654,6 +980,7 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
 
   findings.push(...inspectConfiguredPatternRules(command, config));
   findings.push(...inspectSegmentedCommand(command, options, somaHome, config));
+  findings.push(...inspectSecretReadCommand(command, config));
   const hasCredentialFileEgress = findings.some((item) => item.kind === "credential-file-egress");
 
   if (hasEnvDump && hasOutboundIntent && !hasCredentialFileEgress) {
@@ -988,9 +1315,13 @@ function decisionForFindings(findings: RuntimePolicyFinding[]): RuntimePolicyDec
 function reasonForDecision(decision: RuntimePolicyDecision, findings: RuntimePolicyFinding[]): string {
   if (decision === "allow") return "No deterministic runtime-policy findings.";
   const kinds = findings.map((item) => item.kind).join(", ");
-  if (decision === "deny") return `Runtime policy denied this action: ${kinds}.`;
-  if (decision === "ask") return `Runtime policy requires principal approval: ${kinds}.`;
-  return `Runtime policy advisory alert: ${kinds}.`;
+  // The reason is all a substrate relays to the model, so a finding that names
+  // its own recovery (`secret-read` → `soma redact`) carries it here.
+  const guidance = findings.flatMap((item) => (item.hint ? [`${item.detail} ${item.hint}`] : [])).join(" ");
+  const suffix = guidance ? ` ${guidance}` : "";
+  if (decision === "deny") return `Runtime policy denied this action: ${kinds}.${suffix}`;
+  if (decision === "ask") return `Runtime policy requires principal approval: ${kinds}.${suffix}`;
+  return `Runtime policy advisory alert: ${kinds}.${suffix}`;
 }
 
 function eventRecordAllowed(record: RuntimePolicyInspectOptions["record"], decision: RuntimePolicyDecision): boolean {
@@ -1119,10 +1450,64 @@ async function auditRuntimePolicy(result: RuntimePolicyInspectResult, options: R
   return { event, tracePath };
 }
 
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The principal's own `secret-read` paths, from `policy/secret-read.json`:
+ * `{ "pathPatterns": ["(^|/)\\.config/acme/.*\\.toml$"] }`. Absent → defaults
+ * only. Unreadable or malformed → defaults plus an advisory finding, never a
+ * throw: this runs inside the fail-closed guard, where a throw denies EVERY
+ * tool call. An invalid regex is tolerated later by `matchesPattern`.
+ */
+async function loadSecretReadPatterns(somaHome: string): Promise<{ patterns: string[]; finding?: RuntimePolicyFinding }> {
+  const path = join(somaHome, SECRET_READ_CONFIG_RELATIVE_PATH);
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { patterns: [] };
+    return { patterns: [], finding: secretReadConfigFinding(`${path} is unreadable: ${errorText(err)}`) };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const patterns = (parsed as { pathPatterns?: unknown } | null)?.pathPatterns;
+    if (!Array.isArray(patterns) || !patterns.every((item) => typeof item === "string")) {
+      return { patterns: [], finding: secretReadConfigFinding(`${path} needs { "pathPatterns": string[] }`) };
+    }
+    return { patterns };
+  } catch (err: unknown) {
+    return { patterns: [], finding: secretReadConfigFinding(`${path} is not JSON: ${errorText(err)}`) };
+  }
+}
+
+function secretReadConfigFinding(detail: string): RuntimePolicyFinding {
+  return finding("secret-read-config-invalid", "medium", `${detail}; using the default secret-read paths only.`, CONFIG_INSPECTOR_ID, "alert");
+}
+
+async function withSecretReadConfig(options: RuntimePolicyInspectOptions, somaHome: string): Promise<{ options: RuntimePolicyInspectOptions; findings: RuntimePolicyFinding[] }> {
+  if (options.surface !== "tool_call") return { options, findings: [] };
+  const loaded = await loadSecretReadPatterns(somaHome);
+  if (loaded.patterns.length === 0) return { options, findings: loaded.finding ? [loaded.finding] : [] };
+  const command = options.runtimePolicy?.command ?? {};
+  return {
+    options: {
+      ...options,
+      runtimePolicy: {
+        ...options.runtimePolicy,
+        command: { ...command, secretReadPathPatterns: [...(command.secretReadPathPatterns ?? []), ...loaded.patterns] },
+      },
+    },
+    findings: [],
+  };
+}
+
 export async function inspectRuntimePolicy(options: RuntimePolicyInspectOptions): Promise<RuntimePolicyInspectResult> {
   const somaHome = createPaths(options).root();
   const surface = options.surface;
-  const findings = await inspectAllFindings(options, somaHome);
+  const configured = await withSecretReadConfig(options, somaHome);
+  const findings = [...configured.findings, ...await inspectAllFindings(configured.options, somaHome)];
   const decision = decisionForFindings(findings);
   const result: RuntimePolicyInspectResult = {
     somaHome,

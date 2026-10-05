@@ -91,6 +91,7 @@ import {
   runJudgeCli,
   type ParsedJudgeArgs,
 } from "./cli/judge";
+import { REDACT_COMMAND_HELP, parseRedactArgs, runRedactCli, type ParsedRedactArgs } from "./cli/redact";
 import {
   ROUTER_COMMAND_HELP,
   parseRouterArgs,
@@ -179,6 +180,7 @@ type ParsedArgs =
   | ParsedFeedbackArgs
   | ParsedJudgeArgs
   | ParsedRouterArgs
+  | ParsedRedactArgs
   | ParsedResultArgs
   | ParsedPolicyArgs
   | ParsedPreCompactArgs
@@ -213,6 +215,7 @@ const TOP_LEVEL_COMMANDS = [
   "policy",
   "precompact",
   "project-skill",
+  "redact",
   "relationship",
   "reproject",
   "unproject-skill",
@@ -239,6 +242,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   feedback: FEEDBACK_COMMAND_HELP,
   judge: JUDGE_COMMAND_HELP,
   router: ROUTER_COMMAND_HELP,
+  redact: REDACT_COMMAND_HELP,
   ...TOOL_COMMAND_HELP,
   result: RESULT_COMMAND_HELP,
   policy: POLICY_COMMAND_HELP,
@@ -323,6 +327,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "router") {
     return parseRouterArgs(args);
+  }
+
+  if (args[0] === "redact") {
+    return parseRedactArgs(args);
   }
 
   if (isToolCommand(args[0])) {
@@ -586,6 +594,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "router") {
     return runRouterCli(parsed);
+  }
+
+  if (parsed.command === "redact") {
+    return runRedactCli(parsed);
   }
 
   if (isParsedToolArgs(parsed)) {
