@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
@@ -10,10 +11,12 @@ import {
 } from "../src/index";
 import { writePaiIdentityFixture } from "./fixtures/pai-migration-fixtures";
 
+// The snapshot home lives under the OS temp dir, never inside the checkout
+// (#696): a snapshot is a real `git commit`, so a host-wide pre-commit hook runs
+// on it, and lefthook's hook falls back to `pnpm lefthook`. pnpm resolves the nearest
+// package.json, which inside the checkout is soma's, and installs into it.
 async function withSnapshotHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
-  const tmpRoot = join(import.meta.dir, "..", ".tmp-tests");
-  await mkdir(tmpRoot, { recursive: true });
-  const homeDir = await mkdtemp(join(tmpRoot, "soma-snapshot-"));
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-snapshot-"));
   try {
     return await fn(homeDir);
   } finally {
