@@ -1265,20 +1265,73 @@ export function isStructurallyValidCloseReceipt(body: string): boolean {
   const evidenceOffset = body.indexOf(evidenceMarker);
   const evidence = evidenceOffset === -1 ? "" : body.slice(evidenceOffset + evidenceMarker.length);
   const hasEvidence = /^- `[^`\n]+` — \S.+$/mu.test(evidence);
+  return hasReceiptFrame(body)
+    && autonomy !== undefined
+    && (autonomy !== "auto" || hasEvidence);
+}
+
+/** The receipt lines every renderer version has written. */
+function hasReceiptFrame(body: string): boolean {
   return body.includes(CLOSE_RECEIPT_MARKER)
     && /^- \*\*checkpoint:\*\* `[^`\n]+`$/mu.test(body)
     && /^- \*\*closed by:\*\* \S.+$/mu.test(body)
     && /^- \*\*at:\*\* \d{4}-\d{2}-\d{2}T[^\n]+$/mu.test(body)
     && /^- \*\*attestation:\*\* `(?:verified|unverified)`$/mu.test(body)
-    && /^### Evidence$/mu.test(body)
-    && autonomy !== undefined
-    && (autonomy !== "auto" || hasEvidence);
+    && /^### Evidence$/mu.test(body);
+}
+
+/**
+ * The first soma release whose renderer writes the `autonomy` line (#661):
+ * `git tag --contains adfb20b` starts at v0.19.0, and v0.18.3 is the last
+ * release without it.
+ *
+ * Merging #661 did not change installed copies: an older soma kept writing
+ * receipts without the line after it merged, so the receipt's own
+ * `closed with` version decides, not its date.
+ */
+const RECEIPT_AUTONOMY_LINE_RELEASE: readonly [number, number, number] = [0, 19, 0];
+
+/**
+ * The fallback for receipts with no `closed with` line (that line arrived
+ * 2026-08-10 and is optional): the moment #661 merged.
+ */
+const RECEIPT_AUTONOMY_LINE_SINCE = Date.parse("2026-08-27T13:31:54Z");
+
+/** Is `version` an earlier release than `cut`? Both are [major, minor, patch]. */
+function isOlderRelease(version: readonly number[], cut: readonly number[]): boolean {
+  for (let i = 0; i < cut.length; i++) {
+    if (version[i] !== cut[i]) return version[i] < cut[i];
+  }
+  return false;
+}
+
+/**
+ * A receipt rendered before #661 (#685): the full frame and no `autonomy`
+ * line, from a soma release older than the one that writes it. Accepted by the
+ * scan only. The close binding in `hasCurrentCloseReceipt` stays on the strict
+ * check: #661 also introduced the completion binding it compares against, so a
+ * receipt from an older soma has no binding to pass.
+ *
+ * Like every line the scan reads, `closed with` is comment text anyone with
+ * comment access can write; the strict check trusts an `auto` evidence line
+ * no further. The scan is a diagnostic, not an authority.
+ */
+function isLegacyCloseReceipt(body: string): boolean {
+  if (/^- \*\*autonomy:\*\*/mu.test(body) || !hasReceiptFrame(body)) return false;
+  const closedWith = /^- \*\*closed with:\*\* (.+)$/mu.exec(body)?.[1];
+  if (closedWith !== undefined) {
+    const version = /^soma (\d+)\.(\d+)\.(\d+)\b/u.exec(closedWith);
+    if (version === null) return false;
+    return isOlderRelease(version.slice(1).map(Number), RECEIPT_AUTONOMY_LINE_RELEASE);
+  }
+  const at = Date.parse(/^- \*\*at:\*\* (\S+)$/mu.exec(body)?.[1] ?? "");
+  return Number.isFinite(at) && at < RECEIPT_AUTONOMY_LINE_SINCE;
 }
 
 export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
   let found: string | undefined;
   for (const body of bodies) {
-    if (isStructurallyValidCloseReceipt(body)) found = body;
+    if (isStructurallyValidCloseReceipt(body) || isLegacyCloseReceipt(body)) found = body;
   }
   if (found === undefined) return { hasReceipt: false };
   const gist = RECEIPT_GIST_LINE.exec(found)?.[1]?.trim();
