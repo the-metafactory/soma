@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-05
+
 ### Added
 
 - `secret-read`, a runtime-policy rule that denies raw reads of
@@ -19,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `soma redact <path|->`, which prints a file with secret values masked. The
   Claude Code guard matcher now includes `Grep`; only a content-mode Grep
   starts the guard, since a Grep that lists files can never be denied. (#716)
+
+### Known issues
+
+- An existing Claude Code install keeps its old policy-guard matcher on
+  re-install, so `Grep` is not guarded until the matcher is updated by hand
+  or the install is fresh. (#735)
+- A pipe stage after the redactor (`… | soma redact - | grep x`) denies the
+  read, although that stage only sees masked text. (#736)
 
 ## [0.21.0] - 2026-10-03
 
@@ -1426,7 +1436,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/the-metafactory/soma/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/the-metafactory/soma/compare/v0.20.4...v0.21.0
 [0.20.1]: https://github.com/the-metafactory/soma/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/the-metafactory/soma/compare/v0.19.1...v0.20.0

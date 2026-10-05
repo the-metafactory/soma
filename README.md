@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.21.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.22.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,21 +30,23 @@
 
 ---
 
-## Current release: 0.21.0
+## Current release: 0.22.0
 
-[0.21.0](https://github.com/the-metafactory/soma/releases/tag/v0.21.0) starts the
-front-door router. `soma judge` records mode classifications from Claude Code,
-Codex and pi.dev in a ledger that keeps a SHA-256 of each prompt, never the
-prompt, beside the decision and its metadata (best-effort, so its counts are a
-lower bound), `soma router corpus` builds a private prompt sample, and
-`soma router embed` / `train` add a local, deterministic embedding arm for
-offline training. No trained router is wired into a live path yet; routing
-still uses the regex classifier, and no routing accuracy is claimed. Prompts
-that match no Algorithm pattern now stay native instead of defaulting to the
-Algorithm.
+[0.22.0](https://github.com/the-metafactory/soma/releases/tag/v0.22.0) adds the
+`secret-read` runtime-policy rule. It denies a raw read of secret-bearing config
+into the model's context, such as `cat`, `sed -n` or `grep -n` of a stack config,
+a NATS config, a `.env`, or a creds file, or a Read or content Grep of one. The
+denial points at the new `soma redact <path|->`, which prints the file with
+secret values masked and keeps its structure. Principals add their own paths in
+`policy/secret-read.json`. The rule guards against accidental reads, not against
+a model working to evade it. Known gaps:
+- An upgraded Claude Code install keeps its old guard matcher, so `Grep` is
+  guarded only after a fresh install or after adding `Grep` to the
+  `soma-policy-guard` matcher in `settings.json` by hand (#735).
+- A stage after `soma redact` in a pipe denies the read (#736).
 
-See the [routing rules](docs/routing-rules.md), the
-[changelog](CHANGELOG.md#0210---2026-10-03), and the
+See the [secret-read section](docs/runtime-command-inspection.md#secret-reads-secret-read-716),
+the [changelog](CHANGELOG.md#0220---2026-10-05), and the
 [release checklist](docs/releases.md). This version is published on GitHub
 only; the Arc registry is not updated by this release.
 
