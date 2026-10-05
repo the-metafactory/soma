@@ -363,9 +363,24 @@ test("the receipt scan accepts a receipt rendered before the autonomy line exist
   expect(scanCommentsForReceipt([PRE_661_RECEIPT])).toEqual({ hasReceipt: true, gist: "Completion requires a receipt at the close write." });
 });
 
-test("the receipt scan holds receipts stamped after #661 to the autonomy line (#685)", () => {
-  const late = PRE_661_RECEIPT.replace("2026-08-24T12:39:50.580Z", "2026-08-28T09:00:00.000Z");
-  expect(scanCommentsForReceipt([late])).toEqual({ hasReceipt: false });
+test("the receipt's soma version, not its date, decides whether it predates the autonomy line (#685)", () => {
+  const withSoma = (version: string, at = "2026-08-24T12:39:50.580Z") =>
+    PRE_661_RECEIPT.replace("soma 0.18.0 @ fe6be2a (dev tree)", version).replace("2026-08-24T12:39:50.580Z", at);
+  // An install older than 0.19.0 kept writing autonomy-less receipts after #661 merged.
+  expect(scanCommentsForReceipt([withSoma("soma 0.18.3 @ 1234567", "2026-09-10T09:00:00.000Z")]).hasReceipt).toBe(true);
+  expect(scanCommentsForReceipt([withSoma("soma 0.19.0 @ 1234567")]).hasReceipt).toBe(false);
+  expect(scanCommentsForReceipt([withSoma("soma 1.0.0")]).hasReceipt).toBe(false);
+  expect(scanCommentsForReceipt([withSoma("a hand-written note")]).hasReceipt).toBe(false);
+});
+
+test("a receipt with no version line falls back to the date #661 merged (#685)", () => {
+  const unversioned = PRE_661_RECEIPT.replace("- **closed with:** soma 0.18.0 @ fe6be2a (dev tree)\n", "");
+  expect(scanCommentsForReceipt([unversioned]).hasReceipt).toBe(true);
+  const late = unversioned.replace("2026-08-24T12:39:50.580Z", "2026-08-28T09:00:00.000Z");
+  expect(scanCommentsForReceipt([late]).hasReceipt).toBe(false);
+});
+
+test("a receipt with a malformed autonomy line is not read as legacy (#685)", () => {
   const malformed = PRE_661_RECEIPT.replace("- **attestation:**", "- **autonomy:** `sometimes`\n- **attestation:**");
   expect(scanCommentsForReceipt([malformed])).toEqual({ hasReceipt: false });
 });
