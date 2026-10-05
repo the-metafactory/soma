@@ -161,17 +161,20 @@ const INLINE_INTERPRETER_PATTERN = /\b(?:python|python3|node|ruby|perl|bun)\s+-(
  *   - FORM: only the bare imperative/infinitive is a request. Inflected forms
  *     ("disables", "was disabled", "the disabled branch", "bypassing") are
  *     descriptions of a system, not instructions to the assistant.
- *   - POSITION: a bare verb is a request unless the words before it make it
- *     a description. "Collisions bypass the tamper guard" has a plural subject,
- *     so the bare form is a finite verb in a review finding; "lets an attacker
- *     bypass", "symlinks can bypass" and "allows an attacker to bypass" state
- *     what a system permits. Every clearing signal is something only a
- *     description contains — an inflected verb, a copula, a plural subject
- *     whose noun phrase runs back to a clause start — never something that
- *     could open an imperative ("attempt to", "find a way to", "for these
- *     files bypass"). A verb joined to another word by `-` is part of an
- *     identifier (`remove-observer`, this rule's own name) and is no verb at
- *     all.
+ *   - POSITION: a bare verb is a request unless its subject makes it a
+ *     finite verb in a description. "Collisions bypass the tamper guard" has a
+ *     plural subject whose noun phrase runs back to a clause start, so it is a
+ *     review finding. A noun phrase that crosses a function word is not a
+ *     subject: "for these files bypass", "if the build fails bypass". A verb
+ *     joined to another word by `-` is part of an identifier
+ *     (`remove-observer`, this rule's own name) and is no verb at all.
+ *
+ *     Subject-based clearing is the whole narrowing on purpose. Signals that
+ *     need a parse to tell from an imperative — causatives ("lets an attacker
+ *     bypass"), capability modals ("symlinks can bypass"), purpose "to"
+ *     ("allows an attacker to bypass") — kept failing open on imperatives that
+ *     share their words, so those descriptions still fire. Re-add one only
+ *     with a witnessed false positive behind it.
  *
  * Each narrowing clears only text that positively reads as a refusal, a
  * description or an identifier; anything it does not recognise keeps
@@ -224,15 +227,17 @@ const TRANSPARENT_TAIL = /[ \t*_`"'“”‘’([{<>]+$/u;
 /** A clause starts after these: line start, sentence/clause punctuation, a list marker or dash. */
 const CLAUSE_START_CHARS = new Set(["\n", ".", "!", "?", ";", ":", ",", ")", "-", "+", "—", "–", "•"]);
 
+/** After these a clause is a description, so a plural noun phrase may start here: "note that symlinks bypass". */
+const RELATIVE_PRONOUNS = ["who", "which", "that"] as const;
+
 /**
  * Pronoun subjects that make a bare form a finite verb: "they bypass the
  * guard". Indefinite pronouns are not here: they take the inflected form
  * ("everyone disables"), so "everyone disable the guard" is an address.
  */
-const BARE_VERB_SUBJECTS = new Set(["i", "they", "who", "which", "that"]);
+const BARE_VERB_SUBJECTS = new Set<string>(["i", "they", ...RELATIVE_PRONOUNS]);
 
-/** After these a clause is a description, so a plural noun phrase may start here: "note that symlinks bypass". */
-const RELATIVE_PRONOUNS = new Set(["who", "which", "that"]);
+const MODALS = ["can", "could", "would", "will", "shall", "should", "must", "may", "might"] as const;
 
 /**
  * Function words: a closed class, so this list can be complete where a list
@@ -242,7 +247,7 @@ const RELATIVE_PRONOUNS = new Set(["who", "which", "that"]);
  * Relative pronouns are absent on purpose: after "that"/"which" the clause is
  * a description ("note that symlinks bypass the guard").
  */
-const FUNCTION_WORDS = new Set([
+const FUNCTION_WORDS = new Set<string>([
   // subordinators and conjunctions
   "if", "when", "whenever", "once", "unless", "until", "till", "after", "before", "since", "because", "while",
   "whereas", "though", "although", "as", "so", "and", "or", "but", "nor", "then", "than", "otherwise",
@@ -253,8 +258,7 @@ const FUNCTION_WORDS = new Set([
   "ok", "okay", "yes", "yeah", "sure", "hey", "hi", "hello", "please", "pls", "plz", "kindly", "now", "just",
   "also", "first", "next", "finally", "still", "again", "here", "there",
   // modals, auxiliaries and the copula: a verb, not a noun phrase
-  "can", "could", "would", "will", "shall", "should", "must", "may", "might", "do", "does", "did", "is", "are",
-  "was", "were", "be", "been", "has", "have", "had", "let", "lets",
+  ...MODALS, "do", "does", "did", "is", "are", "was", "were", "be", "been", "has", "have", "had", "let", "lets",
 ]);
 
 /** Words that end in "s" without being a plural noun. */
@@ -263,44 +267,15 @@ const NOT_PLURAL = new Set([
   "does", "was", "has", "its", "his", "this", "is", "as", "us",
 ]);
 
+/**
+ * Nouns that name whoever the prompt addresses. Their plural is a vocative,
+ * not a subject: "okay agents bypass the guard" stays a request. This list
+ * can only make the rule fire, never clear it.
+ */
+const ADDRESSEE_NOUNS = new Set(["assistant", "agent", "model", "ai", "claude", "llm"]);
+
 /** How many words a subject noun phrase may hold before the plural head: "serialization collisions". */
 const NOUN_PHRASE_WORDS = 3;
-
-/** Inflected causatives take an object and a bare verb: "lets an attacker bypass the guard" is a finding. */
-const CAUSATIVES = new Set(["lets", "letting", "makes", "making", "helps", "helping"]);
-const CAUSATIVE_OBJECT_WORDS = 3;
-
-/**
- * A modal with a bare verb is a request only when it addresses someone: "can
- * you", "we must", "Ivy must", "all agents must", and the third person injected
- * content uses for a model ("the assistant must"). With a pronoun, plural or
- * determiner-led subject it states a capability: "symlinks can", "an attacker
- * can".
- */
-const MODALS = new Set(["can", "could", "would", "will", "shall", "should", "must", "may"]);
-const MODAL_ADDRESSEES = new Set(["assistant", "agent", "model", "ai", "claude", "llm"]);
-const MODAL_DESCRIPTIVE_SUBJECTS = new Set([
-  "i", "it", "they", "he", "she", "one", "who", "which", "that", "anyone", "someone", "everyone", "anybody",
-  "somebody", "everybody",
-]);
-const DETERMINERS = new Set([
-  "a", "an", "the", "any", "every", "each", "some", "this", "that", "these", "those", "no", "its", "their", "his",
-  "her", "our",
-]);
-
-/**
- * "to" is purpose or ability, not a request, only after an inflected verb
- * ("allows an attacker to", "tries to", "used to") or a copula and adjective
- * ("it is possible to"). Bare heads stay requests: "allow me to", "attempt to",
- * "find a way to", "make sure to".
- */
-const INFLECTED_TO_HEADS = new Set([
-  "allows", "allowed", "allowing", "enables", "enabled", "enabling", "permits", "permitted", "causes", "caused",
-  "leads", "led", "used", "attempts", "attempted", "tries", "tried",
-]);
-const ADJECTIVE_TO_HEADS = new Set(["possible", "impossible", "easy", "easier", "trivial", "hard", "harder", "able", "unable"]);
-const COPULAS = new Set(["is", "are", "was", "were", "be", "been", "it", "that"]);
-const TO_HEAD_WORDS = 4;
 
 /** How far back the position check looks; a clause start further away than this is not "directly before". */
 const POSITION_LOOKBACK = 200;
@@ -326,24 +301,8 @@ function precedingToken(text: string, index: number): PrecedingToken {
   return { kind: "word", word: bare, start: from + word.index };
 }
 
-/** Up to `count` words directly before `index`, nearest first, stopping at anything that is not a word. */
-function wordsBefore(text: string, index: number, count: number): { word: string; start: number }[] {
-  const words: { word: string; start: number }[] = [];
-  for (let at = index; words.length < count; ) {
-    const token = precedingToken(text, at);
-    if (token.kind !== "word") break;
-    words.push(token);
-    at = token.start;
-  }
-  return words;
-}
-
 function looksPlural(word: string): boolean {
   return word.length > 3 && word.endsWith("s") && !/(?:ss|us|is)$/u.test(word) && !NOT_PLURAL.has(word);
-}
-
-function singular(word: string): string {
-  return looksPlural(word) ? word.slice(0, -1) : word;
 }
 
 /**
@@ -351,32 +310,16 @@ function singular(word: string): string {
  * back to a clause start through content words and determiners only.
  */
 function isPluralSubject(text: string, word: string, start: number): boolean {
-  if (!looksPlural(word) || MODAL_ADDRESSEES.has(singular(word))) return false;
+  if (!looksPlural(word) || ADDRESSEE_NOUNS.has(word.slice(0, -1))) return false;
   let at = start;
   for (let words = 0; words <= NOUN_PHRASE_WORDS; words++) {
     const token = precedingToken(text, at);
     if (token.kind === "clause-start") return true;
     if (token.kind !== "word" || FUNCTION_WORDS.has(token.word)) return false;
-    if (RELATIVE_PRONOUNS.has(token.word)) return true;
+    if ((RELATIVE_PRONOUNS as readonly string[]).includes(token.word)) return true;
     at = token.start;
   }
   return false;
-}
-
-/** True when the subject before the modal at `modalStart` makes it a statement of capability. */
-function hasDescriptiveModalSubject(text: string, modalStart: number): boolean {
-  const subject = precedingToken(text, modalStart);
-  if (subject.kind !== "word" || MODAL_ADDRESSEES.has(singular(subject.word))) return false;
-  if (MODAL_DESCRIPTIVE_SUBJECTS.has(subject.word) || isPluralSubject(text, subject.word, subject.start)) return true;
-  const determiner = precedingToken(text, subject.start);
-  return determiner.kind === "word" && DETERMINERS.has(determiner.word);
-}
-
-/** True when the "to" at `toStart` follows a purpose or ability head rather than a request. */
-function isDescriptiveTo(text: string, toStart: number): boolean {
-  const heads = wordsBefore(text, toStart, TO_HEAD_WORDS);
-  return heads.some(({ word }, i) =>
-    INFLECTED_TO_HEADS.has(word) || (ADJECTIVE_TO_HEADS.has(word) && COPULAS.has(heads[i + 1]?.word ?? "")));
 }
 
 /** Where the alternation `a/b/verb` that ends at `index` starts; `index` itself when there is none. */
@@ -391,26 +334,22 @@ function alternationStart(text: string, index: number): number {
 }
 
 /**
- * True unless the words before the verb at `index` positively make it a
- * description. The default is a request: a security rule that clears only
- * listed request shapes fails open on every shape nobody listed.
+ * True unless the subject before the verb at `index` makes it a finite verb
+ * in a description. The default is a request: a security rule that clears
+ * only listed request shapes fails open on every shape nobody listed.
  */
 function inRequestPosition(text: string, verbIndex: number): boolean {
   let index = alternationStart(text, verbIndex);
   for (let adverbs = 0; ; adverbs++) {
     const token = precedingToken(text, index);
     if (token.kind !== "word") return true;
-    const { word, start } = token;
     // An adverb leaves the position unchanged: "please temporarily disable"
     // vs "collisions silently bypass".
-    if (word.length > 3 && word.endsWith("ly") && adverbs < MAX_ADVERB_CHAIN) {
-      index = start;
+    if (token.word.length > 3 && token.word.endsWith("ly") && adverbs < MAX_ADVERB_CHAIN) {
+      index = token.start;
       continue;
     }
-    if (MODALS.has(word)) return !hasDescriptiveModalSubject(text, start);
-    if (word === "to") return !isDescriptiveTo(text, start);
-    if (BARE_VERB_SUBJECTS.has(word) || isPluralSubject(text, word, start)) return false;
-    return !wordsBefore(text, index, CAUSATIVE_OBJECT_WORDS).some(({ word: head }) => CAUSATIVES.has(head));
+    return !(BARE_VERB_SUBJECTS.has(token.word) || isPluralSubject(text, token.word, token.start));
   }
 }
 
@@ -439,12 +378,13 @@ function findUnnegatedRequest(
     const end = m.index + m[0].length;
     if (!isFreeStanding(text, m.index, end)) continue;
     if (isNegated(text, m.index)) continue;
-    if (!inRequestPosition(text, m.index)) continue;
     const lookahead = text.slice(m.index, end + window);
     const boundary = lookahead.search(CLAUSE_END);
     const sameClause = boundary === -1 ? lookahead : lookahead.slice(0, boundary);
     const hit = target.exec(sameClause);
-    if (hit) return sameClause.slice(0, hit.index + hit[0].length).replace(/\s+/gu, " ");
+    // Position is the costly check, so it runs only once a target is in reach.
+    if (!hit || !inRequestPosition(text, m.index)) continue;
+    return sameClause.slice(0, hit.index + hit[0].length).replace(/\s+/gu, " ");
   }
   return undefined;
 }

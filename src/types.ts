@@ -2494,6 +2494,11 @@ export interface RuntimePolicyInspectResult {
   somaHome: string;
   surface: RuntimePolicySurface;
   decision: RuntimePolicyDecision;
+  /**
+   * What the substrate relays to the model and the principal. A prompt denial
+   * quotes the input span that tripped it, so this may contain raw input:
+   * relay it, never persist it. Traces and events store a span-free reason.
+   */
   reason: string;
   findings: RuntimePolicyFinding[];
   audit?: RuntimePolicyInspectAudit;

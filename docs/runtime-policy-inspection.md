@@ -64,16 +64,19 @@ Prompt inspection currently detects:
 
 The disable and disclosure rules match a request, not a mention. A verb
 fires when it is bare (not inflected), un-negated, not hyphen-joined into an
-identifier such as `remove-observer`, and not made a description by the words
-before it: a plural or pronoun subject ("collisions bypass the guard"), an
-inflected causative ("lets an attacker bypass"), a capability modal ("symlinks
-can bypass") or a purpose `to` ("allows an attacker to bypass"). Anything the
-rule does not recognise as a description still fires. Its target must sit in
-the same clause; a blank line or a sentence end cuts the window.
+identifier such as `remove-observer`, and its subject does not make it a
+description. A plural noun phrase that runs back to a clause start ("collisions
+bypass the guard") or "they", "I" or a relative pronoun clears it; a noun
+phrase that crosses a function word ("for these files bypass") does not.
+Everything else fires, including descriptions built on modals ("symlinks can
+bypass"), causatives ("lets an attacker bypass") or purpose "to" ("allows an
+attacker to bypass"): those cannot be told from imperatives that share their
+words without a parse. The target must sit in the same clause; a blank line or
+a sentence end cuts the window.
 
 A prompt-surface finding shows the span it matched in the returned reason, so
-a denial says what to rephrase. Traces and events store the finding without
-that span.
+a denial says what to rephrase. The reason is relayed, never persisted: traces,
+events and the returned findings carry no span.
 
 Tool-call inspection currently covers shell-like tools and detects:
 
