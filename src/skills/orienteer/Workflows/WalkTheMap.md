@@ -79,7 +79,7 @@ resolution — do not pass both.
 
 ## 5. Advance the frontier
 
-- **Add newly-surfaced nodes**, wiring their blockers. On a map whose Notes allow Build nodes, build work a decision made specifiable is filed **unclaimed** unless this session builds it now. A claimed node is invisible to an autonomous walker (`references/walker.md`).
+- **Add newly-surfaced nodes**, wiring their blockers. On a map whose Notes allow Build nodes, build work a decision made specifiable is filed **unclaimed** unless this session builds it now. A claimed node is invisible to an autonomous walker (`references/walker.md`). Write each build node's body from `references/build-brief.md`, and split it there if it holds more than one slice; a choice the decision left open is a grilling node the build is blocked by, not part of the brief.
 - **Graduate any fog** the answer made specifiable, clearing each graduated
   patch from **Not yet specified** so it lives only as its new node.
 - **Rule out of scope** anything the answer revealed to sit past the

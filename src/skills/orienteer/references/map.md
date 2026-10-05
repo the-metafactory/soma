@@ -221,4 +221,5 @@ runtime holds you to it: HITL work belongs on `propose` or `approve`, never
   an autonomous walker takes (`references/walker.md`). A deliverable, so it is
   allowed only on a map whose **Notes** override "Plan, don't do" (`SKILL.md`
   §Invariants); absent that, chart decisions and stop. Resolved when the change
-  lands, shown by probes on what it created.
+  lands, shown by probes on what it created. The body follows
+  `references/build-brief.md`: one vertical slice, nothing left to decide.

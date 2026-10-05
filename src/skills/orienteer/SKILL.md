@@ -106,7 +106,7 @@ Load only what the task routes to.
 | `references/map.md` | Writing the map body, or creating a node — anatomy, constraints, `autonomy` vs `kind`, the five work kinds |
 | `references/closing.md` | Closing a node — checkpoints, probes, the probe registry, AFK vs HITL receipts, attestation |
 | `references/fog.md` | Deciding whether something is fog, a node, or out of scope — or a constraint instead (`map.md`) |
-| `references/walker.md` | Filing build work an autonomous walker (e.g. ranger) should take: unclaimed, `build` kind, a full brief, squash-safe probes, bundles split |
+| `references/walker.md`, `references/build-brief.md` | Filing build work an autonomous walker (e.g. ranger) should take: unclaimed, `build` kind, squash-safe probes, bundles split (walker); the body itself — the brief template, nothing left to decide, one vertical slice per node, retro the expensive PRs (build-brief) |
 
 ## Lineage
 

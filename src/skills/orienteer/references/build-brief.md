@@ -1,0 +1,117 @@
+# Writing a build node
+
+A build node's body is the worker's whole brief (`references/walker.md`). The
+worker reads it, the map's Destination, Constraints and Notes, and nothing else,
+then opens a PR that a reviewer judges round by round. The rules below come from
+reading the review threads of the costliest PRs among 77 node → PR pairs across
+ranger, soma and seelite (2026-10-05). That was a case reading, not a controlled
+study, and each rule cites the PR whose miss it targets so the reasoning can be
+checked there. Two patterns recurred in those threads: **design left open in
+the brief**, which the worker settles by invention and the reviewer then takes
+apart one hole per round, and **work too wide for one review**, either bundled
+in from the start or added while the PR was in review. Reviewer noise also cost
+rounds, but that is not a brief problem and is not addressed here.
+
+## Nothing is left to decide
+
+A build node is filed below a closed decision, because the decision made it
+specifiable (`references/fog.md`). If writing the brief surfaces a choice the
+decision did not settle, the node is not ready:
+
+- file the choice as a `grilling` node below the decision, and the build node
+  `--blocked-by` it, or
+- leave the build in **Not yet specified** until the choice closes.
+
+Never hand the choice to the worker. A brief with a section headed "Shape (to
+settle in the build)" let the worker on ranger#82 hand-roll a config-include
+walker, and rounds three to five each found a new hole in it (unicode paths,
+`~user` expansion, symlinks) until the brief was amended to fail closed and the
+walker deleted. A `[NEEDS CLARIFICATION]` marker anywhere in the body means
+the same thing: not ready to file as build.
+
+**Name the mechanism at a security or matching boundary.** Where the change
+decides what is allowed, matched, or trusted, the brief states the approach:
+an allowlist, fail-closed on the unknown case, an exact comparison over a
+canonical form. Naming it is necessary, not sufficient: the named form must be
+lossless. ranger#63 prescribed "sorted `key=value` records", and in PR #74 the
+sorting and then the serialisation each became the next bypass, six rounds on
+397 lines. Where losslessness is in doubt, prescribe fail-closed.
+
+## The brief
+
+```markdown
+## Deliverable
+
+<one sentence: what exists or behaves differently when this lands, observable
+from outside the module>
+
+## Settled by
+
+<the decision node this implements, by name with link, and the rule it settled,
+in one or two lines; never restate a map constraint>
+
+## Acceptance criteria
+
+- Given <state>, when <action>, then <observable result>
+- Given <a failure case: bad input, missing dependency, denied access>, when …,
+  then <the defined failure behaviour>
+
+Test seam: <the interface the tests drive, the highest one that reaches the
+behaviour>
+
+## Touches
+
+<modules or areas, not line numbers>
+
+## Assumptions
+
+- <assumption>: if it turns out false, stop and escalate on the node instead of
+  working around it
+
+## Out of scope
+
+- <adjacent work this node does not do>
+```
+
+- **Acceptance criteria** are testable and observable. "Fast", "robust",
+  "clean" are not criteria. At least one criterion is a failure case, and the
+  named seam is where the tests drive them; an untested failure path is what
+  reviewers flag round after round (seelite#687: "seed 0 only", "printed, not
+  asserted").
+- **Assumptions** are stop triggers, not a risk register. List only the ones
+  whose failure would change the deliverable; `- none` is a real answer.
+- **Out of scope** binds the review too. A finding that asks for *more* than the
+  acceptance criteria (a further feature, an adjacent improvement) becomes a
+  follow-up node below this one, not another commit on the PR. seelite#561
+  added five features after its seventh round and needed three more. A defect
+  the PR itself introduces is not new scope: a regression, a security hole or a
+  broken invariant in the changed code is fixed on the PR, whether or not the
+  criteria named it.
+
+## One slice per node
+
+One node is one vertical slice: a narrow path through every layer it needs,
+complete on its own and reviewable in one sitting. The size rule has to be
+checkable when the node is filed, before any code exists, so it is
+structural, not a line count:
+
+- **One cluster of acceptance criteria.** Criteria that could be met, merged,
+  and judged independently are separate nodes.
+- **No slices inside a node.** A brief whose plan reads "slice 1 / 2 / 3"
+  is three nodes chained with `--blocked-by`. seelite#687 shipped three slices
+  in one PR.
+- **Split before filing.** If the brief needs more than one Deliverable
+  sentence, or Touches lists areas that do not change together, split it now.
+  Splitting after a review has started costs the rounds already spent.
+- **Wide mechanical changes** (a rename, a schema migration) go expand →
+  migrate → contract, one node each, so no single PR has to be reviewed whole.
+
+A line budget belongs to the walker, which can measure the diff; orienteer
+cannot.
+
+## After the batch: retro the expensive ones
+
+When a walked batch lands, run `/retro` on any PR that needed four or more
+review rounds. The point is not the PR but the environment: a missing check, a
+reviewer rule that misfires, a brief section that would have caught it. A fix
+that belongs in this doctrine comes back here as a reviewed PR.
