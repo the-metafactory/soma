@@ -336,6 +336,40 @@ test("the receipt scan accepts a rendered HITL receipt without evidence", () => 
   expect(scanCommentsForReceipt([renderCloseReceipt(hitl)])).toEqual({ hasReceipt: true });
 });
 
+// #685: #661 made the scan require an `autonomy` line, which receipts rendered
+// before it never carried — audit called real closes receipt-less and
+// `decisions --write` blanked their gists. The body is #646's receipt, verbatim.
+const PRE_661_RECEIPT = [
+  "## Resolution",
+  "",
+  "W1 inventory.",
+  "",
+  "## Close receipt",
+  "",
+  "- **checkpoint:** `cp-evolution-w1-inventory`",
+  "- **gist:** Completion requires a receipt at the close write.",
+  "- **closed by:** jcfischer",
+  "- **closed with:** soma 0.18.0 @ fe6be2a (dev tree)",
+  "- **at:** 2026-08-24T12:39:50.580Z",
+  "- **attestation:** `unverified`",
+  "",
+  "### Evidence",
+  "",
+  "",
+  "### Attestation facts",
+].join("\n");
+
+test("the receipt scan accepts a receipt rendered before the autonomy line existed (#685)", () => {
+  expect(scanCommentsForReceipt([PRE_661_RECEIPT])).toEqual({ hasReceipt: true, gist: "Completion requires a receipt at the close write." });
+});
+
+test("the receipt scan holds receipts stamped after #661 to the autonomy line (#685)", () => {
+  const late = PRE_661_RECEIPT.replace("2026-08-24T12:39:50.580Z", "2026-08-28T09:00:00.000Z");
+  expect(scanCommentsForReceipt([late])).toEqual({ hasReceipt: false });
+  const malformed = PRE_661_RECEIPT.replace("- **attestation:**", "- **autonomy:** `sometimes`\n- **attestation:**");
+  expect(scanCommentsForReceipt([malformed])).toEqual({ hasReceipt: false });
+});
+
 test("spliceSection replaces only the marked span, and refuses malformed markers", () => {
   const body = `above\n${DECISIONS_BEGIN}\nold\n${DECISIONS_END}\nbelow`;
   const spliced = spliceSection(body, "- new line");

@@ -1265,20 +1265,43 @@ export function isStructurallyValidCloseReceipt(body: string): boolean {
   const evidenceOffset = body.indexOf(evidenceMarker);
   const evidence = evidenceOffset === -1 ? "" : body.slice(evidenceOffset + evidenceMarker.length);
   const hasEvidence = /^- `[^`\n]+` — \S.+$/mu.test(evidence);
+  return hasReceiptFrame(body)
+    && autonomy !== undefined
+    && (autonomy !== "auto" || hasEvidence);
+}
+
+/** The receipt lines every renderer version has written. */
+function hasReceiptFrame(body: string): boolean {
   return body.includes(CLOSE_RECEIPT_MARKER)
     && /^- \*\*checkpoint:\*\* `[^`\n]+`$/mu.test(body)
     && /^- \*\*closed by:\*\* \S.+$/mu.test(body)
     && /^- \*\*at:\*\* \d{4}-\d{2}-\d{2}T[^\n]+$/mu.test(body)
     && /^- \*\*attestation:\*\* `(?:verified|unverified)`$/mu.test(body)
-    && /^### Evidence$/mu.test(body)
-    && autonomy !== undefined
-    && (autonomy !== "auto" || hasEvidence);
+    && /^### Evidence$/mu.test(body);
+}
+
+/**
+ * When the renderer started writing the `autonomy` line (#661). A receipt
+ * stamped before it cannot carry one, so it is judged by the frame alone.
+ */
+const RECEIPT_AUTONOMY_LINE_SINCE = Date.parse("2026-08-27T13:31:54Z");
+
+/**
+ * A receipt rendered before #661: the full frame, no `autonomy` line, stamped
+ * before the renderer wrote one (#685). Accepted by the scan only — the close
+ * binding in `hasCurrentCloseReceipt` stays on the strict check, and no
+ * pre-#661 close carries a completion binding to compare against anyway.
+ */
+function isLegacyCloseReceipt(body: string): boolean {
+  if (/^- \*\*autonomy:\*\*/mu.test(body) || !hasReceiptFrame(body)) return false;
+  const at = Date.parse(/^- \*\*at:\*\* (\S+)$/mu.exec(body)?.[1] ?? "");
+  return Number.isFinite(at) && at < RECEIPT_AUTONOMY_LINE_SINCE;
 }
 
 export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
   let found: string | undefined;
   for (const body of bodies) {
-    if (isStructurallyValidCloseReceipt(body)) found = body;
+    if (isStructurallyValidCloseReceipt(body) || isLegacyCloseReceipt(body)) found = body;
   }
   if (found === undefined) return { hasReceipt: false };
   const gist = RECEIPT_GIST_LINE.exec(found)?.[1]?.trim();
