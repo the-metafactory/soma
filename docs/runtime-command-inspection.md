@@ -76,15 +76,20 @@ It fires on:
   a secret-bearing path as a file argument, including on a later script line,
   after `&&`/`;`, inside `$(…)` or backticks, and inside `sh -c`/`rtk run`;
 - a file-reading tool (`Read`, `read`, `view`, `read_file`) on such a path;
-- a content-search tool on such a path: Claude Code's `Grep` only with
-  `output_mode: "content"` (its default lists files), other substrates' `grep`
-  unless they ask for a list or count mode.
+- a content-search tool on such a path, unless its input names a list or
+  count `output_mode`. The core knows no tool's defaults; the Claude Code
+  adapter fills in `Grep`'s own default, `files_with_matches`, before
+  inspection, so a plain Claude `Grep` lists files and passes.
 
 It does not fire on:
 
-- a pipe chain that ends in a redactor: `soma redact`, `bun run soma redact`,
-  `bun src/cli.ts redact` or `redact-cat`. Only the chain the read feeds
-  counts, so `cat .env | soma redact -; cat .env` still fires;
+- a pipe chain whose last stage runs a redactor (`soma redact`,
+  `bun run soma redact`, `bun <path>/cli.ts redact` or `redact-cat`, resolved
+  from the command position) and whose stages in between are pure filters
+  (`head`, `tail`, `grep`, `cut`, `sort`, `jq`, …). Only the chain the read
+  feeds counts, so `cat .env | soma redact -; cat .env` still fires, and so does
+  `cat .env | tee /dev/stderr | soma redact -`, where `tee` carries the raw
+  file around the redactor;
 - count/list-only greps (`-c`, `-l`, `-L`, `-q`, `--count`, `--files…`), the
   grep pattern itself (`grep -rn ".env" src/` searches for the word), and
   in-place `sed -i`;
@@ -102,7 +107,11 @@ not match. Principals add their own in `<soma-home>/policy/secret-read.json`:
 { "pathPatterns": ["(^|/)\\.config/acme/.*\\.toml$"] }
 ```
 
-A missing file means defaults only. An unreadable or malformed file keeps the
+This follows the convention of `policy/probe-registry.json`: a principal-owned
+rule extension lives in `<soma-home>/policy/<rule>.json`, one file per rule,
+read by the core at inspection time. No single runtime-policy config file
+exists on disk; `RuntimePolicyInspectOptions.runtimePolicy` is the programmatic
+form. A missing file means defaults only. An unreadable or malformed file keeps the
 defaults and adds a `secret-read-config-invalid` alert; it never makes the
 guard throw. `command.secretReadPathPatterns` does the same for callers that
 pass `runtimePolicy` directly.
@@ -110,10 +119,15 @@ pass `runtimePolicy` directly.
 Severity is `high` with an explicit `deny`, not `critical`: this is a context
 leak, not an egress or an attack. The finding carries a hint, and the decision
 reason appends it, so the substrate tells the model the recovery:
-`soma redact <path>` prints the file with secret values masked (JWTs, NKEY
-seeds, creds/private-key blocks, long hex, values of secret-named keys, `.env`
-values that are not paths or scalars) and keeps keys, structure, paths and
-public NKEYs. The finding names the path, not its content, so the path lands in
+`soma redact <path>` prints the file with secret values masked and keeps keys,
+structure, paths and public NKEYs. It masks JWTs, NKEY seeds, creds and
+private-key blocks, long hex, URL userinfo passwords, and the whole value of a
+secret-named key: quoted values up to their closing quote, numbers included,
+and YAML block scalars line by line. In `.env` it masks every value that is
+not a path, a `${VAR}` reference or a literal, and keeps numbers only under
+keys that are not secret-named (`PORT=8080`). A value counts as a path only
+when it uses path characters and has a second segment or an extension, so a
+base64 secret that starts with `/` is still masked. The finding names the path, not its content, so the path lands in
 the trace and the event metadata.
 
 `secret-read` does not catch:

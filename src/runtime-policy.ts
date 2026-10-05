@@ -111,7 +111,14 @@ const GREP_LONG_VALUE_FLAGS = new Set([
   "--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--glob", "--iglob", "--type", "--type-not",
   "--include", "--exclude", "--exclude-dir", "--max-columns", "--threads",
 ]);
+// Flags that make a grep print counts or file names, never lines. `-L` is
+// grep's files-without-match but rg/ag's follow-symlinks, so it is per family.
+const GREP_COUNT_ONLY_SHORT_FLAGS = new Set(["c", "l", "q"]);
 const GREP_COUNT_ONLY_LONG_FLAGS = new Set(["--count", "--count-matches", "--files-with-matches", "--files-without-match", "--quiet", "--silent", "--files"]);
+const GREP_FILES_WITHOUT_MATCH_FAMILY = new Set(["grep", "egrep", "fgrep", "ack"]);
+
+/** Stages that may sit between a read and its redactor: they transform stdin to stdout and write nowhere else. */
+const REDACT_PIPE_FILTERS = new Set(["head", "tail", "grep", "egrep", "fgrep", "rg", "cut", "sort", "uniq", "tr", "nl", "cat", "jq", "yq", "column", "fold"]);
 
 /** Tools that print a file's content, and tools that print matching lines. */
 const FILE_READ_TOOLS = new Set(["read", "read_file", "view", "view_file", "open_file", "notebookread"]);
@@ -119,7 +126,7 @@ const CONTENT_SEARCH_TOOLS = new Set(["grep", "rg", "grep_search", "search_file_
 
 const SECRET_READ_MAX_DEPTH = 3;
 
-const INLINE_INTERPRETER_PATTERN =/\b(?:python|python3|node|ruby|perl|bun)\s+-(?:c|e)\b/u;
+const INLINE_INTERPRETER_PATTERN = /\b(?:python|python3|node|ruby|perl|bun)\s+-(?:c|e)\b/u;
 
 /**
  * Signal, not presence.
@@ -284,9 +291,26 @@ function cleanShellToken(token: string): string {
   return token.replace(/^[<>"']+|[>"']+$/g, "");
 }
 
-function tokenizeCommand(command: string): string[] {
-  return [...command.matchAll(/"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}|[^\s|;<>]+/gu)]
-    .map((match) => cleanShellToken(match[1] || match[2] || match[0]))
+interface TokenizeOptions {
+  /**
+   * Treat an unquoted newline as `;`: a script's next line is a new command, so
+   * without it `cd x\ncat .env` has verb `cd`. Quoted strings still span lines,
+   * so a multi-line commit message stays one argument. Line continuations join.
+   */
+  newlineAsSeparator?: boolean;
+  /** Keep `<`, `>` and `>>` as tokens (cleanup strips them) so a redirect target can be told from an argument. */
+  keepRedirects?: boolean;
+}
+
+function tokenizeCommand(command: string, options: TokenizeOptions = {}): string[] {
+  const source = options.newlineAsSeparator ? command.replace(/\\\n/gu, " ") : command;
+  const pattern = options.newlineAsSeparator ? /"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}|\n|[^\s|;<>]+/gu : /"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}|[^\s|;<>]+/gu;
+  return [...source.matchAll(pattern)]
+    .map((match) => {
+      if (match[0] === "\n") return ";";
+      if (options.keepRedirects && /^(?:<|>|>>)$/u.test(match[0])) return match[0];
+      return cleanShellToken(match[1] || match[2] || match[0]);
+    })
     .filter(Boolean);
 }
 
@@ -680,21 +704,6 @@ function secretReadFinding(path: string, via: string): RuntimePolicyFinding {
   );
 }
 
-// Same shape as tokenizeCommand, plus a newline token: a script's next line is
-// a new command, and without the separator `cd x\ncat .env` has verb `cd`.
-// Quoted strings still span lines, so a multi-line commit message stays one
-// argument rather than becoming commands. Redirect operators are kept (the
-// shared tokenizer strips them) so `cat t > .env` reads as a write to `.env`.
-function tokenizeShellLines(command: string): string[] {
-  return [...command.replace(/\\\n/gu, " ").matchAll(/"([^"]*)"|'([^']*)'|&&|\|\||[|;<>]{1,2}|\n|[^\s|;<>]+/gu)]
-    .map((match) => {
-      if (match[0] === "\n") return ";";
-      if (/^(?:<|>|>>)$/u.test(match[0])) return match[0];
-      return cleanShellToken(match[1] || match[2] || match[0]);
-    })
-    .filter(Boolean);
-}
-
 /** Resolve the verb a segment runs, looking through `rtk` and `rtk proxy`. */
 function secretReadVerb(tokens: string[]): { verb: string; argsFrom: number } {
   const index = skipCommandPrefixes(tokens);
@@ -705,10 +714,33 @@ function secretReadVerb(tokens: string[]): { verb: string; argsFrom: number } {
   return { verb: RTK_PRINTER_ALIASES[sub] ?? `rtk-${sub}`, argsFrom: index + 2 };
 }
 
-/** `soma redact …`, `bun run soma redact …`, `bun src/cli.ts redact …`, `redact-cat …`. */
+/**
+ * The segment RUNS a redactor: `soma redact`, `bun run soma redact`,
+ * `bun <path>/cli.ts redact` or `redact-cat`, resolved from the command
+ * position — not merely a `soma redact` token pair somewhere in its arguments.
+ */
 function isRedactorSegment(tokens: string[]): boolean {
-  if (shellCommandName(tokens[skipCommandPrefixes(tokens)]) === "redact-cat") return true;
-  return tokens.some((token, index) => token === "redact" && index > 0 && (shellCommandName(tokens[index - 1]) === "soma" || tokens[index - 1].endsWith("cli.ts")));
+  const index = skipCommandPrefixes(tokens);
+  const name = shellCommandName(tokens[index]);
+  if (name === "redact-cat") return true;
+  if (name === "soma") return tokens[index + 1] === "redact";
+  if (name !== "bun") return false;
+  if (tokens[index + 1] === "run" && shellCommandName(tokens[index + 2]) === "soma") return tokens[index + 3] === "redact";
+  return (tokens[index + 1] ?? "").endsWith("cli.ts") && tokens[index + 2] === "redact";
+}
+
+/**
+ * Whether a read's output reaches the redactor and nothing else. The chain the
+ * read feeds must END in a redactor, and every stage between must be a pure
+ * filter: `tee /dev/stderr`, or anything else that can write elsewhere, would
+ * carry the raw file around the redactor. An allow-list, like the heredoc
+ * sinks: a missing filter costs a false denial, a missing writer a leak.
+ */
+function pipeChainEndsInRedactor(segments: { tokens: string[]; operatorAfter?: string }[], from: number): boolean {
+  let end = from;
+  while (end < segments.length - 1 && segments[end].operatorAfter === "|") end += 1;
+  if (end === from || !isRedactorSegment(segments[end].tokens)) return false;
+  return segments.slice(from + 1, end).every(({ tokens }) => REDACT_PIPE_FILTERS.has(secretReadVerb(tokens).verb));
 }
 
 /**
@@ -737,8 +769,7 @@ function grepFileArguments(verb: string, args: string[]): string[] | undefined {
       const cluster = token.slice(1);
       for (let at = 0; at < cluster.length; at += 1) {
         const flag = cluster[at];
-        // `-L` lists non-matching files in grep but follows symlinks in rg/ag.
-        if (flag === "c" || flag === "l" || flag === "q" || (flag === "L" && !["rg", "ag"].includes(verb))) return undefined;
+        if (GREP_COUNT_ONLY_SHORT_FLAGS.has(flag) || (flag === "L" && GREP_FILES_WITHOUT_MATCH_FAMILY.has(verb))) return undefined;
         if (GREP_VALUE_FLAGS.has(flag)) {
           if (flag === "e" || flag === "f") patternGiven = true;
           if (at === cluster.length - 1) index += 1;
@@ -817,7 +848,7 @@ function inspectSecretReadCommand(command: string, config: RuntimePolicyCommandI
   // Data-heredoc bodies are stdin, not arguments: `cat <<'EOF' > notes.md`
   // whose body mentions `.env` reads nothing (#540).
   const stripped = stripDataHeredocBodies(command);
-  const segments = shellSegments(tokenizeShellLines(stripped));
+  const segments = shellSegments(tokenizeCommand(stripped, { newlineAsSeparator: true, keepRedirects: true }));
   const patterns = secretReadPatterns(config);
   const findings: RuntimePolicyFinding[] = [];
 
@@ -825,10 +856,7 @@ function inspectSecretReadCommand(command: string, config: RuntimePolicyCommandI
     const { verb, argsFrom } = secretReadVerb(segment.tokens);
     if (!SECRET_READ_PRINTERS.has(verb)) return;
     const path = printedFileArguments(verb, withoutOutputRedirects(segment.tokens.slice(argsFrom))).find((token) => tokenMatchesAnyPattern(token, patterns));
-    if (!path) return;
-    for (let next = position + 1; next < segments.length && segments[next - 1].operatorAfter === "|"; next += 1) {
-      if (isRedactorSegment(segments[next].tokens)) return;
-    }
+    if (!path || pipeChainEndsInRedactor(segments, position)) return;
     findings.push(secretReadFinding(normalizePathLikeToken(path), "Command"));
   });
 
@@ -851,19 +879,17 @@ function stringToolInput(input: Record<string, unknown> | undefined, ...keys: st
 
 /**
  * `secret-read` for file-reading tools (Read, view, pi's `read`) and
- * content-search tools (Grep). Claude Code's Grep lists files unless
- * `output_mode: "content"`; other substrates' grep tools print matching lines
- * by default, so only an explicit list/count mode is exempt there.
+ * content-search tools (Grep). A search prints matching lines unless its
+ * input names a list or count `output_mode`. A substrate whose tool defaults
+ * to listing files (Claude Code's Grep) states that default in its adapter
+ * before inspection; the core does not know any tool's defaults.
  */
 function inspectFileReadTool(options: RuntimePolicyInspectOptions, toolName: string): RuntimePolicyFinding[] {
   const input = options.toolCall?.input;
   const path = stringToolInput(input, "file_path", "path", "notebook_path", "filePath", "target_file", "dir_path");
   if (!path || !tokenMatchesAnyPattern(path, secretReadPatterns(commandConfig(options)))) return [];
 
-  if (CONTENT_SEARCH_TOOLS.has(toolName)) {
-    const mode = typeof input?.output_mode === "string" ? input.output_mode : options.substrate === "claude-code" ? "files_with_matches" : "content";
-    if (mode !== "content") return [];
-  }
+  if (CONTENT_SEARCH_TOOLS.has(toolName) && typeof input?.output_mode === "string" && input.output_mode !== "content") return [];
   return [secretReadFinding(path, options.toolCall?.toolName ?? toolName)];
 }
 
@@ -1388,6 +1414,10 @@ async function auditRuntimePolicy(result: RuntimePolicyInspectResult, options: R
   return { event, tracePath };
 }
 
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * The principal's own `secret-read` paths, from `policy/secret-read.json`:
  * `{ "pathPatterns": ["(^|/)\\.config/acme/.*\\.toml$"] }`. Absent → defaults
@@ -1402,7 +1432,7 @@ async function loadSecretReadPatterns(somaHome: string): Promise<{ patterns: str
     raw = await readFile(path, "utf8");
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { patterns: [] };
-    return { patterns: [], finding: secretReadConfigFinding(`${path} is unreadable: ${err instanceof Error ? err.message : String(err)}`) };
+    return { patterns: [], finding: secretReadConfigFinding(`${path} is unreadable: ${errorText(err)}`) };
   }
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -1412,7 +1442,7 @@ async function loadSecretReadPatterns(somaHome: string): Promise<{ patterns: str
     }
     return { patterns };
   } catch (err: unknown) {
-    return { patterns: [], finding: secretReadConfigFinding(`${path} is not JSON: ${err instanceof Error ? err.message : String(err)}`) };
+    return { patterns: [], finding: secretReadConfigFinding(`${path} is not JSON: ${errorText(err)}`) };
   }
 }
 

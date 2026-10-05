@@ -96,6 +96,14 @@ function unavailable(detail) {
   return `${GUARD_UNAVAILABLE}: ${detail} Recover with: soma install claude-code --apply, or soma runtime rollback --substrate claude-code.`;
 }
 
+// The portable engine knows no tool's defaults: a search with no output_mode
+// is inspected as printing lines. Claude Code's Grep defaults to listing file
+// names, so the adapter states that default before inspection (soma#716).
+function withClaudeToolDefaults(toolName, input) {
+  if (toolName === "Grep" && typeof input.output_mode !== "string") return { ...input, output_mode: "files_with_matches" };
+  return input;
+}
+
 // Prompt surface → runtime-policy inspection (prompt injection, etc.).
 // Tool-call surface → the composite `policy guard` (runtime inspect +
 // write-target private-context check + inbound content scan) so Claude Code
@@ -115,7 +123,7 @@ function runInspect(config, surface, payload) {
     ];
   } else {
     const input = payload.input && typeof payload.input === "object" && !Array.isArray(payload.input) ? payload.input : { raw: String(payload.input ?? "") };
-    env.SOMA_RUNTIME_POLICY_TOOL_INPUT = JSON.stringify(input);
+    env.SOMA_RUNTIME_POLICY_TOOL_INPUT = JSON.stringify(withClaudeToolDefaults(payload.toolName, input));
     args = [
       "src/cli.ts", "policy", "guard",
       "--soma-home", config.somaHome,

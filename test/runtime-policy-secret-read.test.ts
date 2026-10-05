@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,6 +7,7 @@ import { inspectRuntimePolicy } from "../src/runtime-policy";
 import { evaluateToolCallPolicyGuard } from "../src/tool-policy-guard";
 import { redactSecrets } from "../src/redact";
 import { parseRedactArgs, runRedactCli } from "../src/cli/redact";
+import { installSomaForClaudeCode } from "../src/index";
 import type { SubstrateId } from "../src/types";
 
 // soma#716: raw reads of secret-bearing config into the model's context.
@@ -17,6 +19,11 @@ async function withSomaHome<T>(fn: (somaHome: string) => Promise<T>): Promise<T>
   } finally {
     await rm(somaHome, { recursive: true, force: true });
   }
+}
+
+async function writeSecretReadConfig(somaHome: string, body: string): Promise<void> {
+  await mkdir(join(somaHome, "policy"), { recursive: true });
+  await writeFile(join(somaHome, "policy", "secret-read.json"), body);
 }
 
 async function inspect(toolName: string, input: Record<string, unknown>, options: { somaHome?: string; substrate?: SubstrateId } = {}) {
@@ -55,6 +62,10 @@ describe("secret-read: shell reads that put secrets in context are denied", () =
     ["rtk grep", "rtk grep TOKEN ~/.config/cortex/stack.yaml"],
     ["env-prefixed printer", "LC_ALL=C cat .env"],
     ["redactor in a different command", "cat .env | soma redact - ; cat .env"],
+    ["tee to stderr carries the raw file around the redactor", "cat .env | tee /dev/stderr | soma redact -"],
+    ["a soma redact token pair in arguments is not a redactor", "cat .env | cat - soma redact"],
+    ["redactor not at the end of the chain", "cat .env | soma redact - | cat .env"],
+    ["echo naming soma redact is not a redactor", "cat .env | echo soma redact"],
     ["rg -L follows symlinks, it does not list files", "rg -L token ~/.config/cortex"],
     ["grep -e makes every positional a file", "grep -e foo .env"],
   ];
@@ -127,8 +138,13 @@ describe("secret-read: file-reading tools", () => {
     expect(result.decision).toBe("deny");
   });
 
-  test("Claude Code Grep defaults to listing files and is allowed", async () => {
+  test("the core treats a search with no output_mode as printing lines", async () => {
     const result = await inspect("Grep", { pattern: "TOKEN", path: "/srv/app/.env" });
+    expect(result.decision).toBe("deny");
+  });
+
+  test("an explicit files_with_matches search is allowed", async () => {
+    const result = await inspect("Grep", { pattern: "TOKEN", path: "/srv/app/.env", output_mode: "files_with_matches" });
     expect(result.decision).toBe("allow");
   });
 
@@ -177,8 +193,7 @@ describe("secret-read: the denial points at a redacting reader", () => {
 describe("secret-read: principal-extendable paths in policy/secret-read.json", () => {
   test("a principal pattern extends the defaults", async () => {
     await withSomaHome(async (somaHome) => {
-      await mkdir(join(somaHome, "policy"), { recursive: true });
-      await writeFile(join(somaHome, "policy", "secret-read.json"), JSON.stringify({ pathPatterns: ["(^|/)\\.config/acme/.*\\.toml$"] }));
+      await writeSecretReadConfig(somaHome, JSON.stringify({ pathPatterns: ["(^|/)\\.config/acme/.*\\.toml$"] }));
       expect((await inspect("Bash", { command: "cat ~/.config/acme/app.toml" }, { somaHome })).decision).toBe("deny");
       expect((await inspect("Bash", { command: "cat .env" }, { somaHome })).decision).toBe("deny");
     });
@@ -190,8 +205,7 @@ describe("secret-read: principal-extendable paths in policy/secret-read.json", (
 
   test("a malformed file alerts and keeps the defaults; it never throws", async () => {
     await withSomaHome(async (somaHome) => {
-      await mkdir(join(somaHome, "policy"), { recursive: true });
-      await writeFile(join(somaHome, "policy", "secret-read.json"), "{ not json");
+      await writeSecretReadConfig(somaHome, "{ not json");
       const benign = await inspect("Bash", { command: "ls" }, { somaHome });
       expect(benign.decision).toBe("alert");
       expect(benign.findings).toContainEqual(expect.objectContaining({ kind: "secret-read-config-invalid", decision: "alert" }));
@@ -202,8 +216,7 @@ describe("secret-read: principal-extendable paths in policy/secret-read.json", (
 
   test("a wrong shape alerts", async () => {
     await withSomaHome(async (somaHome) => {
-      await mkdir(join(somaHome, "policy"), { recursive: true });
-      await writeFile(join(somaHome, "policy", "secret-read.json"), JSON.stringify({ pathPatterns: "nope" }));
+      await writeSecretReadConfig(somaHome, JSON.stringify({ pathPatterns: "nope" }));
       const result = await inspect("Bash", { command: "ls" }, { somaHome });
       expect(result.findings.map((item) => item.kind)).toEqual(["secret-read-config-invalid"]);
     });
@@ -211,8 +224,7 @@ describe("secret-read: principal-extendable paths in policy/secret-read.json", (
 
   test("an invalid regex does not throw", async () => {
     await withSomaHome(async (somaHome) => {
-      await mkdir(join(somaHome, "policy"), { recursive: true });
-      await writeFile(join(somaHome, "policy", "secret-read.json"), JSON.stringify({ pathPatterns: ["(unclosed"] }));
+      await writeSecretReadConfig(somaHome, JSON.stringify({ pathPatterns: ["(unclosed"] }));
       const result = await inspect("Bash", { command: "cat x(unclosed" }, { somaHome });
       expect(result.decision).toBe("deny");
     });
@@ -267,6 +279,36 @@ describe("soma redact", () => {
     );
   });
 
+  test("quoted values keep their , } ' # characters inside the mask", () => {
+    const { text } = redactSecrets(
+      ['password: "ab,cd}#e"', "token: 'p,w'", '{"password": "p,w", "user": "x"}', '  "apiToken": "a}b",', "secret: ab,cd # rotated"].join("\n"),
+    );
+    for (const secret of ["ab,cd", "p,w", "a}b"]) expect(text).not.toContain(secret);
+    expect(text).toContain('"user": "x"');
+    expect(text).toContain('  "apiToken": "<redacted:apiToken>",');
+    expect(text).toContain("secret: <redacted:secret> # rotated");
+  });
+
+  test("numbers under secret-named keys are masked; elsewhere they stay", () => {
+    const { text } = redactSecrets("password: 20231234\npin_secret: 9911\nport: 4222\nTOKEN=123456\nPORT=8080");
+    expect(text).toBe("password: <redacted:password>\npin_secret: <redacted:pin_secret>\nport: 4222\nTOKEN=<redacted:env-value>\nPORT=8080");
+  });
+
+  test("JSON and slash-leading base64 values in .env are masked; real paths stay", () => {
+    const { text } = redactSecrets(
+      'GCP_CREDENTIALS={"private_key":"abc"}\nSIGNING_KEY=/x9Ab+cdEF==\nDATA_DIR=/var/lib/app\nCONFIG=./conf/app.yaml\nAPI_URL=${BASE}/v1',
+      { envFile: true },
+    );
+    expect(text).toBe(
+      "GCP_CREDENTIALS=<redacted:env-value>\nSIGNING_KEY=<redacted:env-value>\nDATA_DIR=/var/lib/app\nCONFIG=./conf/app.yaml\nAPI_URL=${BASE}/v1",
+    );
+  });
+
+  test("a block scalar under a secret-named key is masked line by line", () => {
+    const { text } = redactSecrets("password: |\n  line-one-secret\n  line-two-secret\nuser: leaf");
+    expect(text).toBe("password: |\n  <redacted:block-scalar>\n  <redacted:block-scalar>\nuser: leaf");
+  });
+
   test("grep -n prefixes survive redaction", () => {
     const { text } = redactSecrets("stack.yaml:12:    apiToken: abcdefghijklmnop");
     expect(text).toBe("stack.yaml:12:    apiToken: <redacted:apiToken>");
@@ -287,4 +329,27 @@ describe("soma redact", () => {
     expect(() => parseRedactArgs(["redact"])).toThrow("Usage: soma redact");
     expect(() => parseRedactArgs(["redact", "--bogus", "x"])).toThrow("Unknown option");
   });
+});
+
+describe("secret-read through the projected Claude Code guard", () => {
+  const GUARD_REL = ".claude/hooks/soma/soma-policy-guard.mjs";
+
+  function runGuard(homeDir: string, toolInput: Record<string, unknown>) {
+    const result = spawnSync(process.execPath, [join(homeDir, GUARD_REL)], {
+      input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Grep", tool_input: toolInput }),
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    return JSON.parse(result.stdout) as { continue?: boolean; hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
+  }
+
+  test("Grep with no output_mode lists files and is allowed; content output is denied with the pointer", async () => {
+    await withSomaHome(async (homeDir) => {
+      await installSomaForClaudeCode({ homeDir, policyGuard: true });
+      expect(runGuard(homeDir, { pattern: "TOKEN", path: "/srv/app/.env" }).continue).toBe(true);
+      const denied = runGuard(homeDir, { pattern: "TOKEN", path: "/srv/app/.env", output_mode: "content" });
+      expect(denied.hookSpecificOutput?.permissionDecision).toBe("deny");
+      expect(denied.hookSpecificOutput?.permissionDecisionReason).toContain("soma redact /srv/app/.env");
+    });
+  }, 120_000);
 });
