@@ -62,6 +62,18 @@ Prompt inspection currently detects:
 - private-memory or credential disclosure intent
 - ambiguous jailbreak language as advisory alert
 
+The disable and disclosure rules match a request, not a mention. A verb
+fires only when it is free-standing (not part of an identifier such as
+`remove-observer`), un-negated, and in request position: at a clause start or
+line start, or after a word that introduces a request ("please", "and", "you",
+"can you", "want you to"). The same verb after a noun subject describes a
+system ("collisions bypass the guard") and does not fire. Its target must sit
+in the same clause; a blank line or a sentence end cuts the window.
+
+A prompt-surface finding shows the span it matched in the returned reason, so
+a denial says what to rephrase. Traces and events store the finding without
+that span.
+
 Tool-call inspection currently covers shell-like tools and detects:
 
 - environment dump with outbound intent: `deny`

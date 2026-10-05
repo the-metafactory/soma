@@ -2379,6 +2379,12 @@ export interface RuntimePolicyFinding {
   decision?: Exclude<RuntimePolicyDecision, "allow">;
   /** How to do the same thing safely; appended to the decision reason the model sees. */
   hint?: string;
+  /**
+   * The input span that tripped the finding, so a denial says what to
+   * rephrase. Shown in the returned reason only: traces and events store
+   * findings without it, because they never hold raw input.
+   */
+  excerpt?: string;
 }
 
 export interface RuntimePolicyToolCall {
