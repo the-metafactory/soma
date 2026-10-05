@@ -56,7 +56,7 @@ export const SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH = "hooks/soma/soma-statusline.
 // PreToolUse matcher for the fail-closed enforcement guard: every tool whose
 // input can carry a dangerous command, an outbound exfiltration, or a
 // credential-path read/write that the runtime policy must inspect.
-const SOMA_CLAUDE_POLICY_GUARD_MATCHER = "Bash|Read|Edit|Write|MultiEdit|NotebookEdit";
+const SOMA_CLAUDE_POLICY_GUARD_MATCHER = "Bash|Read|Grep|Edit|Write|MultiEdit|NotebookEdit";
 const SOMA_CLAUDE_SETTINGS_RELATIVE_PATH = "settings.json";
 const SOMA_DVSABLED_HOOKS_KEY = "somaDisabledHooks";
 const PAI_MODE_CLASSIFIER_KEY = "paiModeClassifier";

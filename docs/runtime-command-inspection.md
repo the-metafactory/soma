@@ -48,6 +48,8 @@ are not the policy source of truth.
 
 The #257 deterministic command inspector detects:
 
+- raw reads of secret-bearing config into context (`secret-read`): `deny`,
+  see [Secret Reads](#secret-reads-secret-read-716)
 - environment dumps combined with outbound intent: `deny`
 - credential-like terms combined with outbound intent: `deny`
 - credential-file path upload through outbound tools: `deny`
@@ -59,6 +61,60 @@ The #257 deterministic command inspector detects:
 The inspector records finding kinds and hash-bound input references in the
 existing runtime policy trace. It does not store raw command text in normalized
 events or traces by default.
+
+## Secret Reads (`secret-read`, #716)
+
+The egress signals above cover content leaving the machine. `secret-read`
+covers the commoner leak: a raw read of a secret-bearing config file into the
+model's context. Once a token is in the transcript the model provider has seen
+it, and it survives compaction.
+
+It fires on:
+
+- a shell command whose printing verb (`cat`, `head`, `tail`, `sed`, `awk`,
+  `grep`, `rg`, `jq`, `xxd`, `base64`, … and rtk's `read`/`grep`/`proxy`) takes
+  a secret-bearing path as a file argument, including on a later script line,
+  after `&&`/`;`, inside `$(…)` or backticks, and inside `sh -c`/`rtk run`;
+- a file-reading tool (`Read`, `read`, `view`, `read_file`) on such a path;
+- a content-search tool on such a path: Claude Code's `Grep` only with
+  `output_mode: "content"` (its default lists files), other substrates' `grep`
+  unless they ask for a list or count mode.
+
+It does not fire on:
+
+- a pipe chain that ends in a redactor: `soma redact`, `bun run soma redact`,
+  `bun src/cli.ts redact` or `redact-cat`. Only the chain the read feeds
+  counts, so `cat .env | soma redact -; cat .env` still fires;
+- count/list-only greps (`-c`, `-l`, `-L`, `-q`, `--count`, `--files…`), the
+  grep pattern itself (`grep -rn ".env" src/` searches for the word), and
+  in-place `sed -i`;
+- verbs that do not print (`cp`, `tar`, `source`, `nats-server -t`, `ls`) and
+  `> file` redirect targets;
+- data-heredoc bodies and quoted arguments such as a commit message.
+
+Default path classes: `*.creds`, `*.nk`, `nsc/keys/`, NATS `*.conf` under
+`~/.config/nats/` or named `nats*.conf`, `~/.config/cortex/**.yaml`, `.env` and
+`.env.*` (not `.env.example`/`.sample`/`.template`/`.dist`), and the glab config
+dir. The patterns are end-anchored, so `.envrc`, `env.ts` and `nginx.conf` do
+not match. Principals add their own in `<soma-home>/policy/secret-read.json`:
+
+```json
+{ "pathPatterns": ["(^|/)\\.config/acme/.*\\.toml$"] }
+```
+
+A missing file means defaults only. An unreadable or malformed file keeps the
+defaults and adds a `secret-read-config-invalid` alert; it never makes the
+guard throw. `command.secretReadPathPatterns` does the same for callers that
+pass `runtimePolicy` directly.
+
+Severity is `high` with an explicit `deny`, not `critical`: this is a context
+leak, not an egress or an attack. The finding carries a hint, and the decision
+reason appends it, so the substrate tells the model the recovery:
+`soma redact <path>` prints the file with secret values masked (JWTs, NKEY
+seeds, creds/private-key blocks, long hex, values of secret-named keys, `.env`
+values that are not paths or scalars) and keeps keys, structure, paths and
+public NKEYs. The finding names the path, not its content, so the path lands in
+the trace and the event metadata.
 
 ## Non-Guarantees
 
