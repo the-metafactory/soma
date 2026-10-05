@@ -224,9 +224,13 @@ const REQUEST_INTRODUCERS = new Set([
   "yes", "sure",
 ]);
 
-/** A modal makes a request only with the assistant or the team as subject: "can you", "we must". */
+/**
+ * A modal makes a request only with the assistant or the team as subject:
+ * "can you", "we must", and the third person injected content uses to address
+ * a model ("the assistant must"). "Symlinks can bypass the guard" is a finding.
+ */
 const MODALS = new Set(["can", "could", "would", "will", "shall", "should", "must", "may"]);
-const MODAL_SUBJECTS = new Set(["you", "we", "u"]);
+const MODAL_SUBJECTS = new Set(["you", "we", "u", "assistant", "agent", "model", "ai", "claude", "llm"]);
 
 /**
  * "to" makes a request after these: "want you to", "need to", "time to". After
