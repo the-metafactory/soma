@@ -48,6 +48,7 @@ describe("secret-read: shell reads that put secrets in context are denied", () =
     ["after &&", "ls && cat .env"],
     ["command substitution in quotes", 'echo "$(cat ~/.env)"'],
     ["backticks", "echo `cat .env`"],
+    ["$() inside a double-quoted argument runs", 'git commit -m "x $(cat .env)"'],
     ["sh -c", "bash -c 'head -5 .env.local'"],
     ["rtk read", "rtk read ~/.config/glab-cli/config.yml"],
     ["rtk proxy", "rtk proxy cat .env"],
@@ -92,6 +93,8 @@ describe("secret-read: reads that keep secrets out of context are allowed", () =
     ["process.env in a grep pattern", "grep -rn process.env.TOKEN src/"],
     ["heredoc body mentioning a secret path", "cat <<'EOF' > notes.md\ncat ~/.env\nEOF"],
     ["multi-line commit message", 'git commit -m "docs\n\ncat .env is now denied"'],
+    ["backticks inside single quotes are not substituted", "git commit -m 'docs: `cat .env` is now denied'"],
+    ["$() inside single quotes is not substituted", "gh issue comment 1 --body 'run $(cat .env) to see it'"],
     ["plain project file", "cat src/env.ts"],
   ];
   for (const [label, command] of allowed) {
@@ -255,6 +258,13 @@ describe("soma redact", () => {
   test(".env: every non-path, non-scalar value is masked", () => {
     const { text } = redactSecrets("API_URL_HOST=internal-host\nDATA_DIR=/var/data\nDEBUG=true\nexport SESSION=abc123", { envFile: true });
     expect(text).toBe("API_URL_HOST=<redacted:env-value>\nDATA_DIR=/var/data\nDEBUG=true\nexport SESSION=<redacted:env-value>");
+  });
+
+  test("passwords in URL userinfo are masked under any key", () => {
+    const { text } = redactSecrets("url: postgres://app:pw-123@db.internal/x\nremotes:\n  - url: nats-leaf://leaf:leafpass@hub:7422\n  - url: nats://hub:4222");
+    expect(text).toBe(
+      "url: postgres://app:<redacted:url-password>@db.internal/x\nremotes:\n  - url: nats-leaf://leaf:<redacted:url-password>@hub:7422\n  - url: nats://hub:4222",
+    );
   });
 
   test("grep -n prefixes survive redaction", () => {

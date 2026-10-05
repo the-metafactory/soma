@@ -116,6 +116,17 @@ values that are not paths or scalars) and keeps keys, structure, paths and
 public NKEYs. The finding names the path, not its content, so the path lands in
 the trace and the event metadata.
 
+`secret-read` does not catch:
+
+- a recursive search of an ordinary directory that happens to contain a
+  secret file (`grep -rn KEY .`); only paths that match a pattern count;
+- `git diff`, `git show` or `git log -p` of a tracked secret file;
+- a read by an interpreter (`bun -e`, `python -c`) or through a variable
+  (`f=.env; cat $f`).
+
+`soma redact` masks what it recognises. A secret under a key it does not
+recognise, in a format it does not parse, prints.
+
 ## Non-Guarantees
 
 Runtime command inspection does not guarantee:

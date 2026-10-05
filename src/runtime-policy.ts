@@ -765,11 +765,33 @@ function printedFileArguments(verb: string, args: string[]): string[] {
   return args.filter((arg) => !(arg.startsWith("-") && arg.length > 1));
 }
 
+/**
+ * Blank the contents of single-quoted spans. The shell substitutes nothing
+ * inside `'…'`, so `git commit -m 'docs: \`cat .env\` is denied'` runs no
+ * `cat`; double-quoted spans keep their `$(…)`, because bash does run those.
+ */
+function blankSingleQuoted(command: string): string {
+  let out = "";
+  let quote: "'" | '"' | null = null;
+  for (const char of command) {
+    if (quote === "'") {
+      if (char === "'") quote = null;
+      out += char === "'" ? char : " ";
+      continue;
+    }
+    if (char === quote) quote = null;
+    else if (!quote && (char === "'" || char === '"')) quote = char;
+    out += char;
+  }
+  return out;
+}
+
 /** Nested command text: `$(…)`, backticks, `sh -c "…"`, `rtk run "…"`, `eval …`. */
 function nestedCommands(rawCommand: string, segments: { tokens: string[] }[]): string[] {
+  const substitutable = blankSingleQuoted(rawCommand);
   const nested = [
-    ...[...rawCommand.matchAll(/\$\(([^()]*)\)/gu)].map((match) => match[1]),
-    ...[...rawCommand.matchAll(/`([^`]*)`/gu)].map((match) => match[1]),
+    ...[...substitutable.matchAll(/\$\(([^()]*)\)/gu)].map((match) => match[1]),
+    ...[...substitutable.matchAll(/`([^`]*)`/gu)].map((match) => match[1]),
   ];
   for (const { tokens } of segments) {
     const index = skipCommandPrefixes(tokens);

@@ -6,9 +6,9 @@
  * secret VALUES masked and everything else — keys, structure, paths, public
  * NKEYs — left readable, so an agent can still reason about the file.
  *
- * Masked: JWTs, NKEY seeds, creds/private-key blocks, long hex strings, the
- * values of secret-named keys in yaml/conf/json, and every `.env` value that is
- * not a path or a plain scalar. A SHA-256 digest beside a hash-like word stays.
+ * Masked: JWTs, NKEY seeds, creds/private-key blocks, long hex strings, URL
+ * userinfo passwords, the values of secret-named keys in yaml/conf/json, and
+ * every `.env` value that is not a path or a plain scalar. A SHA-256 digest beside a hash-like word stays.
  *
  * This is a heuristic, not a guarantee: it masks what it recognises. That is
  * the right trade for its job — keeping secrets out of a transcript by
@@ -53,7 +53,9 @@ export function redactSecrets(text: string, options: RedactOptions = {}): Redact
     let out = line
       .replace(/eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gu, () => mask("jwt"))
       .replace(/\bS[AUONCPX][A-Z2-7]{50,}\b/gu, () => mask("nkey-seed"))
-      .replace(/\b[a-fA-F0-9]{40,}\b/gu, (match) => (match.length === 64 && /sha256|hash|digest|sum/iu.test(line) ? match : mask("hex")));
+      .replace(/\b[a-fA-F0-9]{40,}\b/gu, (match) => (match.length === 64 && /sha256|hash|digest|sum/iu.test(line) ? match : mask("hex")))
+      // `scheme://user:password@host` — a credential under a key that is not secret-named (`url:`, a NATS remote).
+      .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@"']+:)([^\s@/"']+)(@)/giu, (_all, pre: string, _password: string, at: string) => `${pre}${mask("url-password")}${at}`);
 
     // .env: KEY=VALUE — every value except paths and plain scalars.
     if (envLike) {
