@@ -36,10 +36,11 @@
 prompt guard from denying prose that describes a guard instead of asking to
 defeat one. `security-disable-request` and `data-exfiltration-intent` now clear
 a verb only when its subject makes it a description ("Serialization collisions
-bypass the tamper guard"), a verb hyphen-joined into an identifier, or a verb
-and target split by a sentence end. Everything else still fires. A denial now
-shows the words that tripped it, and traces and events still hold no raw
-input. Known trade-offs:
+bypass the tamper guard"), when it is hyphen-joined into an identifier, or when
+a sentence end splits it from its target. Other bare, un-negated verbs near a
+target fire as before. A denial now shows the words that tripped it. That text
+goes only into the reason relayed to the substrate; Soma's own traces and events
+still hold no raw input, which the regression tests check. Known trade-offs:
 - Descriptions built on modals, causatives or purpose "to" ("symlinks can
   bypass the guard", "allows an attacker to bypass the guard") still fire.
 - A plural vocative with no comma ("Workers bypass the guard") passes.
