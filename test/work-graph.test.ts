@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
+import { RECEIPT_0_18_0_ISSUE_646, RECEIPT_0_18_0_ISSUE_648 } from "./fixtures/close-receipts-0.18.0";
 import {
   WorkGraph,
   WorkGraphError,
@@ -30,6 +31,7 @@ import {
   type Probe,
   type WorkGraphNode,
 } from "../src/index";
+import { isStructurallyValidCloseReceipt } from "../src/work-graph";
 
 test("the close hash binds store-owned home without changing other node hashes", () => {
   const base = { autonomy: "approve" as const };
@@ -334,6 +336,56 @@ test("the receipt scan rejects marker-only comments and accepts a rendered recei
 test("the receipt scan accepts a rendered HITL receipt without evidence", () => {
   const hitl: CloseReceipt = { checkpointId: "cp-hitl", closedBy: "jcfischer", at: "2026-08-24T12:00:00.000Z", attestation: "unverified", evidence: [], probeResults: [] };
   expect(scanCommentsForReceipt([renderCloseReceipt(hitl)])).toEqual({ hasReceipt: true });
+});
+
+// #685: receipts rendered by soma 0.18.0 (before #661) carry no autonomy line.
+// Pinned to the verbatim public comments; see the fixture header for sources.
+test("a verbatim 0.18.0 receipt is accepted with its node's autonomy, gist intact (#685)", () => {
+  expect(scanCommentsForReceipt([RECEIPT_0_18_0_ISSUE_646], "propose")).toEqual({
+    hasReceipt: true,
+    gist: "Completion requires a receipt at the close write; durable-memory commits require governance plus an event; tracker state and raw changes are diagnostics, while guard artifacts and private roots still need binding.",
+  });
+  const scan648 = scanCommentsForReceipt([RECEIPT_0_18_0_ISSUE_648], "approve");
+  expect(scan648.hasReceipt).toBe(true);
+  expect(scan648.gist).toStartWith("W1 uses a lightweight immutable runtime");
+});
+
+test("a 0.18.0 receipt with no known node autonomy is refused, not passed by default (#685)", () => {
+  for (const body of [RECEIPT_0_18_0_ISSUE_646, RECEIPT_0_18_0_ISSUE_648]) {
+    expect(isStructurallyValidCloseReceipt(body)).toBe(false);
+    expect(scanCommentsForReceipt([body])).toEqual({ hasReceipt: false });
+    expect(isStructurallyValidCloseReceipt(body, "bogus" as never)).toBe(false);
+  }
+});
+
+test("a 0.18.0 receipt on an auto node still needs evidence (#685)", () => {
+  // Both verbatim receipts have an empty Evidence section.
+  expect(isStructurallyValidCloseReceipt(RECEIPT_0_18_0_ISSUE_646, "auto")).toBe(false);
+  expect(isStructurallyValidCloseReceipt(RECEIPT_0_18_0_ISSUE_648, "auto")).toBe(false);
+  const withEvidence = RECEIPT_0_18_0_ISSUE_646.replace("### Evidence\n\n", "### Evidence\n\n- `probed` — test passed\n");
+  expect(isStructurallyValidCloseReceipt(withEvidence, "auto")).toBe(true);
+});
+
+test("a 0.18.0 receipt missing a required line is refused even with node autonomy (#685)", () => {
+  const required = [/^- \*\*checkpoint:\*\* .*$/mu, /^- \*\*at:\*\* .*$/mu, /^- \*\*attestation:\*\* .*$/mu, /^- \*\*closed by:\*\* .*$/mu, /^### Evidence$/mu];
+  for (const line of required) {
+    const stripped = RECEIPT_0_18_0_ISSUE_646.replace(line, "");
+    expect(stripped).not.toBe(RECEIPT_0_18_0_ISSUE_646);
+    expect(isStructurallyValidCloseReceipt(stripped, "propose")).toBe(false);
+  }
+  expect(isStructurallyValidCloseReceipt(RECEIPT_0_18_0_ISSUE_646.replaceAll("## Close receipt", "## Closing notes"), "propose")).toBe(false);
+});
+
+test("a current receipt's own autonomy line still governs; node autonomy never overrides it (#685)", () => {
+  const current = renderCloseReceipt({ checkpointId: "cp-x", closedBy: "ivy", autonomy: "propose", at: "2026-08-24T12:00:00.000Z", attestation: "unverified", evidence: [], probeResults: [] });
+  expect(isStructurallyValidCloseReceipt(current)).toBe(true);
+  expect(isStructurallyValidCloseReceipt(current, "auto")).toBe(true);
+  const invalid = current.replace("- **autonomy:** `propose`", "- **autonomy:** `bogus`");
+  expect(invalid).not.toBe(current);
+  expect(isStructurallyValidCloseReceipt(invalid)).toBe(false);
+  expect(isStructurallyValidCloseReceipt(invalid, "propose")).toBe(false);
+  const autoNoEvidence = current.replace("`propose`", "`auto`");
+  expect(isStructurallyValidCloseReceipt(autoNoEvidence, "approve")).toBe(false);
 });
 
 test("spliceSection replaces only the marked span, and refuses malformed markers", () => {
