@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-05
+
 ### Fixed
 
 - The prompt rules `security-disable-request` and `data-exfiltration-intent`
@@ -1452,7 +1454,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/the-metafactory/soma/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/the-metafactory/soma/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/the-metafactory/soma/compare/v0.20.4...v0.21.0
 [0.20.1]: https://github.com/the-metafactory/soma/compare/v0.20.0...v0.20.1
