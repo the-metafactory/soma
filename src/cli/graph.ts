@@ -39,7 +39,8 @@ import {
   WorkGraph,
   WorkGraphError,
   agentExternalEvidenceKinds,
-  assertClosable,
+  assertCloseTarget,
+  assertNodeOpen,
   describeProbeTree,
   estimateReceiptChars,
   renderCloseReceipt,
@@ -1031,6 +1032,26 @@ async function runClose(
   const ref: NodeRef = { id: parsed.target };
   const state = await graph.readNode(ref);
 
+  // The same rule `assertCloseTarget` applies, run before any probe and in every
+  // mode — the dry run, which used to report ACCEPTED on a close the write then
+  // refused, and `--propose`, which would publish a proposal nobody can act on
+  // (#600). The core owns the rule; this only adds the hint a CLI user needs.
+  try {
+    assertNodeOpen(state);
+  } catch (error) {
+    if (!(error instanceof WorkGraphError)) throw error;
+    throw new SomaCliError(
+      [
+        `Close refused: ${error.message}.`,
+        "",
+        "If the tracker closed it itself — a merged PR with a closing keyword before its number — it carries no receipt; `soma graph audit` names those.",
+        "",
+        "Nothing was written, and no probe ran.",
+      ].join("\n"),
+      1,
+    );
+  }
+
   if (parsed.options.propose === true) {
     const body = await resolveBody(deps, parsed.options.body, parsed.options.bodyFile);
     if (body === undefined || body.trim().length === 0) {
@@ -1310,7 +1331,7 @@ async function runClose(
   if (parsed.options.dryRun === true) {
     let verdict = "would be ACCEPTED";
     try {
-      assertClosable(state.node, receipt);
+      assertCloseTarget(state, receipt);
     } catch (error) {
       verdict = `would be REFUSED — ${error instanceof WorkGraphError ? error.message : String(error)}`;
     }
@@ -1345,9 +1366,21 @@ interface ScannedNode {
   scan: ReceiptScan;
 }
 
-/** Closed nodes of the subtree, receipts scanned, in the walk's order. Shared by audit and decisions. */
-async function scanClosedNodes(graph: WorkGraph, root: NodeRef): Promise<{ subtree: NodeState[]; closed: ScannedNode[] }> {
-  const subtree = await graph.readSubtree(root);
+/**
+ * Closed nodes of the subtree, receipts scanned, in the walk's order. Shared by audit and decisions.
+ *
+ * `readSubtree` returns descendants only. `includeRoot` puts the root first, for
+ * the audit: without it a node with no children audits as "Clean, 0 nodes"
+ * whatever its own state (#600). `decisions` leaves it out — the map root holds
+ * the index, it is not an entry in it.
+ */
+async function scanClosedNodes(
+  graph: WorkGraph,
+  root: NodeRef,
+  options: { includeRoot?: boolean } = {},
+): Promise<{ subtree: NodeState[]; closed: ScannedNode[] }> {
+  const descendants = await graph.readSubtree(root);
+  const subtree = options.includeRoot === true ? [await graph.readNode(root), ...descendants] : descendants;
   const closedStates = subtree.filter((state) => state.status === "closed");
   const closed = await mapBounded(closedStates, COMMENT_READ_CONCURRENCY, async (state) => {
     const comments = await graph.listComments(state.ref);
@@ -1360,8 +1393,9 @@ async function scanClosedNodes(graph: WorkGraph, root: NodeRef): Promise<{ subtr
  * What the gates cannot see, reported rather than guessed at (#588's lesson):
  *
  * - **Closed with no receipt** — the tracker closed it, the gate never ran.
- *   GitHub auto-closes a node two seconds after a PR saying `Implements #N`
- *   merges, and `state: closed` is not evidence a close happened properly; only
+ *   GitHub auto-closes a node when a PR whose body holds a closing keyword
+ *   before its number merges — on #588 the past-tense prose "closed #588" did
+ *   it (#600) — and `state: closed` is not evidence a close happened properly; only
  *   a receipt is. This is the fail-open path §2.4 names, made visible.
  * - **Open with no checkpoint** — a node that can never close. `add` now refuses
  *   to create one, but hand-authored tickets and pre-rule nodes still exist.
@@ -1371,7 +1405,7 @@ async function scanClosedNodes(graph: WorkGraph, root: NodeRef): Promise<{ subtr
  * writer with its own race. It names; the human acts.
  */
 async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: string): Promise<string> {
-  const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target });
+  const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target }, { includeRoot: true });
 
   const unreceipted = closed.filter((entry) => !entry.scan.hasReceipt).map((entry) => entry.state);
   const uncloseable = subtree.filter(

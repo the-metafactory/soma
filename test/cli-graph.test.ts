@@ -558,6 +558,11 @@ function autoGraph(): FakeStore {
     .seed("520", { node: autoNode("520"), parent: "495", author: "ivy-agent" });
 }
 
+/** The auto graph with 520 already closed — by the verb or by the tracker, the store cannot tell. */
+function closedNodeStore(): FakeStore {
+  return autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
+}
+
 test("an auto close runs the probes, derives probed evidence, and writes the receipt", async () => {
   const store = autoGraph();
   const output = await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
@@ -1479,8 +1484,37 @@ test("closing refuses before reading the node when the installed runtime is inva
 });
 
 test("a closed node is not closed twice", async () => {
-  const store = autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
-  expect(await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store)).toContain("already closed");
+  const store = closedNodeStore();
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
+  expect(message).toContain("node 520 is already closed");
+  // Conditional: a node closed properly through the verb hits this refusal too.
+  expect(message).toContain("If the tracker closed it itself");
+});
+
+test("--dry-run refuses a closed node the way the write does, before a probe runs (#600)", async () => {
+  // The live instance: the tracker closed the node on a merge, the dry run said
+  // "close would be ACCEPTED", and the real close then refused.
+  const store = closedNodeStore();
+  const probed: string[] = [];
+  const message = await failure(["graph", "close", "520", "--dry-run", "--repo", REPO, ...RESOLUTION], store, {
+    runProbes: async (probes) => {
+      probed.push("ran");
+      return probes.map<ProbeResult>((probe) => ({ probe, state: "probed", outcome: "pass", observed: "exit 0", at: AT.toISOString() }));
+    },
+  });
+
+  expect(message).toContain("already closed");
+  expect(message).not.toContain("would be ACCEPTED");
+  expect(probed).toEqual([]);
+  expect(store.closed).toHaveLength(0);
+  expect(store.comments.size).toBe(0);
+});
+
+test("--propose on a closed node refuses rather than publish a proposal nobody can act on (#600)", async () => {
+  const store = closedNodeStore();
+
+  expect(await failure(["graph", "close", "520", "--propose", "--body", "x", "--repo", REPO], store)).toContain("already closed");
+  expect(store.comments.size).toBe(0);
 });
 
 // --- every close carries prose (#556) --------------------------------------
@@ -1689,6 +1723,39 @@ test("a clean subtree audits clean", async () => {
 
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
 
+  expect(output).toContain("Clean");
+});
+
+test("audit checks the root itself — a standalone node is not 'Clean, 0 nodes' (#600)", async () => {
+  // claw/crisis-simulator#61: no parent, no children, closed by a merge with no
+  // receipt. The subtree walk returns descendants only, so it was never checked.
+  const store = new FakeStore().seed("61", { node: autoNode("61"), status: "closed" });
+
+  const output = await run(["graph", "audit", "61", "--repo", REPO], store);
+  expect(output).toContain("1 node(s)");
+  expect(output).toContain("Closed without a close receipt");
+  expect(output).toMatch(/^- 61 /mu);
+  expect(output).not.toContain("Clean");
+
+  const json = JSON.parse(await run(["graph", "audit", "61", "--repo", REPO, "--json"], store)) as {
+    nodes: number;
+    closedWithoutReceipt: string[];
+  };
+  expect(json.nodes).toBe(1);
+  expect(json.closedWithoutReceipt).toEqual(["61"]);
+});
+
+test("a charted map root is counted by audit and still audits clean (#600)", async () => {
+  // `chart` refuses a root without --checkpoint, so counting the root adds one
+  // node and no finding to an ordinary map.
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["520"] })
+    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+  await store.postComment({ id: "520" }, validReceipt("cp-520"));
+
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store);
+
+  expect(output).toContain("2 node(s)");
   expect(output).toContain("Clean");
 });
 

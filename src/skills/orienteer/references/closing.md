@@ -11,6 +11,40 @@ checks that the node *has* a checkpoint first, so it cannot publish a proposal
 that can never be acted on — but the probes have not run at that point, so a
 proposal can still be posted for a close that later fails on its probes.
 
+## Reference the node; never let the tracker close it
+
+A close the tracker makes on its own skips the gate: the node reaches `closed`
+with no receipt, no probe and no prose. The usual trigger is good practice, a PR
+that names the node it delivers with a closing keyword, so the more disciplined
+the walk, the more often it happens (#600). Link the node without one:
+
+- In PR and MR titles and bodies and in commit messages, write `Refs #N` or
+  `node #N`. Never put a closing keyword in front of a node reference: `close`,
+  `fix` or `resolve` in any form, on GitHub and GitLab, and on GitLab `implement`
+  too. Prose counts. #588 was closed by a PR body that said "my first attempt
+  closed #588". A squash merge can also copy the PR body into the commit on the
+  default branch, so a keyword in the body ends up in the commit message as well.
+- Don't link the PR to the node through the tracker's own "linked issues"
+  sidebar either. GitHub closes those on merge as well.
+- After the merge, close the node with `soma graph close`. Probes that hold after
+  a squash merge are in `references/walker.md`.
+
+Ranger already enforces this for the PRs it opens. It refuses to push a branch
+whose commits carry a closing keyword, refuses a node title that would carry
+one into the PR title, and writes the PR body itself without one (ranger
+`src/implement.ts`, `src/git-ops.ts`). This rule asks the same of every other
+PR that delivers a node. It is a rule, not a gate: nothing in soma reads PR
+text.
+
+Anything that slips through anyway, such as a person closing the node in the web
+UI or another tool, is listed by `soma graph audit <root>` under *closed without
+a close receipt*. There is no retro-receipt. `soma graph close` refuses a node
+that is already closed, `--dry-run` included, because a receipt counts only when
+it was posted before the close by the account that made the close. Relaxing that
+would let anyone who can close an issue mint a valid-looking receipt. A person
+can reopen such a node and close it through the verb, or leave a comment saying
+why the close stands.
+
 ## Attach the checkpoint at creation
 
 `soma graph add` **refuses to create a node without `--checkpoint <id>`**. There

@@ -541,11 +541,22 @@ frontier forever — no claim, no close, no error).
   **Known fail-open path (phase 1):** frontier derives "blockers closed"
   purely from tracker status, so a blocker hand-closed via raw tracker writes
   (bypassing `soma graph close`) releases its dependents without any
-  checkpoint gate having run. This is the §2.6 bypass propagated one hop —
-  accepted in phase 1 and, until the phase-2 auditor is built, undetected as
-  well as unprevented. That auditor is the design's answer — it reopens the
-  hollow-closed blocker and thereby re-blocks the dependents — and it does not
-  exist yet.
+  checkpoint gate having run. This is the §2.6 bypass propagated one hop.
+  It is still accepted, but it is no longer undetected: `soma graph audit`
+  (#597) names every closed node with no receipt. It does not repair them,
+  since an auditor that reopened nodes would be a second writer with its own
+  race. **Decided in #600:** the common source, a PR whose closing keyword
+  makes the tracker close the node on merge, is addressed **at the source, by
+  doctrine**. Orienteer forbids closing keywords in PRs, MRs and commits that
+  deliver a node (`references/closing.md`), and ranger enforces it for the PRs
+  it opens. That rule binds whoever writes the PR, not the tracker. Nothing in
+  soma checks PR or commit text, so a person or another tool can still close a
+  node this way, and `audit` stays the detector for that. The frontier does not filter
+  receipt-less nodes, and there is **no retro-receipt**. A receipt counts only
+  when it was posted before the close by the same account that closed the
+  node (`hasCurrentCloseReceipt` in the GitHub store, which is what the §2.7
+  bridge reads as done), and that check is not relaxed: a receipt posted after
+  someone else's close would let anyone who can close an issue mint one.
 - **Claim** = the executing identity becoming the node's **sole** assignee,
   written **before any work**. GitHub offers no compare-and-swap, so the
   claim verb re-reads assignees after writing; if the re-read shows more than
@@ -650,12 +661,14 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
 soma graph chart ...               # create a typed graph root; GitLab requires
                                    # --home-project <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;
+                                   # refuses an already-closed node, --dry-run too;
                                    # --gist records the map index's one-line entry
 soma graph audit <root>            # what the gates cannot see: closed nodes with
                                    # no receipt (a tracker-side close — the gate
                                    # never ran), open nodes that can never close,
-                                   # claimed nodes in flight. Read-only: it names,
-                                   # the human acts.
+                                   # claimed nodes in flight — the root included, so
+                                   # a standalone node is audited too. Read-only: it
+                                   # names, the human acts.
 soma graph decisions <root>        # the map's decision index, DERIVED from close
                                    # receipts (gist + link per closed node);
                                    # --write splices it into the map body between
@@ -667,9 +680,11 @@ soma graph decisions <root>        # the map's decision index, DERIVED from clos
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
 phase 1 — but no longer *undetected*: `audit` reports every closed node whose
 comments carry no close receipt, which is exactly the signature a tracker-side
-close leaves (including GitHub auto-closing a node when a PR that says
-`Implements #N` merges — observed live on #588, two seconds after the merge,
-`commit_id: null`). A close run from a dev
+close leaves (including GitHub auto-closing a node when a PR whose body holds
+a closing keyword before the node's number merges — observed live on #588, two
+seconds after #590 merged, `commit_id: null`. The keyword was past-tense prose,
+"my first attempt closed #588", which GitHub parses like any `Closes #N`; #600).
+A close run from a dev
 tree warns on stderr rather than refusing — refusing would make the primitive
 undevelopable, and the warning keeps the gap visible state rather than silent.
 Every receipt also stamps `closedWith` — tool version, source tree, best-effort

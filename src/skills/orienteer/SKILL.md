@@ -62,7 +62,7 @@ reflect each forge's capabilities.
 | `soma graph release <id>` | identity-bound self-release: abandon your own claim (the claim-race loser's DELETE-self, promoted to a verb); only ever unassigns the acting identity |
 | `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges), structurally validated; refuses without a checkpoint |
 | `soma graph chart … --checkpoint <id>` | create a typed map root; GitLab requires `--home-project <group/project>` |
-| `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close |
+| `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close. A PR, MR or commit says `Refs #N`, never a closing keyword: the tracker would close the node on merge and skip the gate (`references/closing.md`) |
 | `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |
 | `soma graph decisions <root> [--write]` | the map's decision index, derived from receipts; `--write` splices it into the map body |
 
