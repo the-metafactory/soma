@@ -77,6 +77,10 @@ A bare `owner/name` takes the remote's host, and refuses outside a checkout.
   hand off. Map **Notes** can override this (how a walked map allows **Build**
   nodes, `references/walker.md`); absent that, produce decisions, not deliverables.
 - **One node per session** — research nodes excepted.
+- **Reference a node; never close it from a PR.** Write `Refs #N`, never a
+  closing keyword (`closes`/`fixes`/`resolves #N`, and `implements #N` on GitLab)
+  in a PR, MR or commit. The tracker would close the node on merge and skip the
+  gate. Close it with the verb after the merge (`references/closing.md`).
 - **Claim first**, before any work, so concurrent sessions skip it.
 - **Refer by name.** In everything the human reads, name a map or node by its
   title, never by a bare id. A wall of `#42, #43, #44` is illegible; the id and

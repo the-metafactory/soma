@@ -541,11 +541,19 @@ frontier forever — no claim, no close, no error).
   **Known fail-open path (phase 1):** frontier derives "blockers closed"
   purely from tracker status, so a blocker hand-closed via raw tracker writes
   (bypassing `soma graph close`) releases its dependents without any
-  checkpoint gate having run. This is the §2.6 bypass propagated one hop —
-  accepted in phase 1 and, until the phase-2 auditor is built, undetected as
-  well as unprevented. That auditor is the design's answer — it reopens the
-  hollow-closed blocker and thereby re-blocks the dependents — and it does not
-  exist yet.
+  checkpoint gate having run. This is the §2.6 bypass propagated one hop.
+  It is still accepted, but it is no longer undetected: `soma graph audit`
+  (#597) names every closed node with no receipt. It does not repair them,
+  since an auditor that reopened nodes would be a second writer with its own
+  race. **Decided in #600:** the common source, a PR whose closing keyword
+  makes the tracker close the node on merge, is **prevented at the source**.
+  Orienteer doctrine forbids closing keywords in PRs, MRs and commits that
+  deliver a node (`references/closing.md`). The frontier does not filter
+  receipt-less nodes, and there is **no retro-receipt**. A receipt counts only
+  when it was posted before the close by the same account that closed the
+  node (`hasCurrentCloseReceipt` in the GitHub store, which is what the §2.7
+  bridge reads as done), and that check is not relaxed: a receipt posted after someone
+  else's close would let anyone who can close an issue mint one.
 - **Claim** = the executing identity becoming the node's **sole** assignee,
   written **before any work**. GitHub offers no compare-and-swap, so the
   claim verb re-reads assignees after writing; if the re-read shows more than
