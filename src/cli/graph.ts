@@ -40,6 +40,7 @@ import {
   WorkGraphError,
   agentExternalEvidenceKinds,
   assertCloseTarget,
+  assertNodeOpen,
   describeProbeTree,
   estimateReceiptChars,
   renderCloseReceipt,
@@ -1031,16 +1032,19 @@ async function runClose(
   const ref: NodeRef = { id: parsed.target };
   const state = await graph.readNode(ref);
 
-  // `assertCloseTarget` refuses this too; refusing here as well costs no probe
-  // run and covers every mode — the dry run, which used to report ACCEPTED on a
-  // close the write then refused, and `--propose`, which would publish a
-  // proposal nobody can act on (#600).
-  if (state.status === "closed") {
+  // The same rule `assertCloseTarget` applies, run before any probe and in every
+  // mode — the dry run, which used to report ACCEPTED on a close the write then
+  // refused, and `--propose`, which would publish a proposal nobody can act on
+  // (#600). The core owns the rule; this only adds the hint a CLI user needs.
+  try {
+    assertNodeOpen(state);
+  } catch (error) {
+    if (!(error instanceof WorkGraphError)) throw error;
     throw new SomaCliError(
       [
-        `Close refused: node ${ref.id} is already closed.`,
+        `Close refused: ${error.message}.`,
         "",
-        "A close the tracker made itself — a merged PR saying `Closes #N` — carries no receipt; `soma graph audit` names those.",
+        "If the tracker closed it itself — a merged PR with a closing keyword before its number — it carries no receipt; `soma graph audit` names those.",
         "",
         "Nothing was written, and no probe ran.",
       ].join("\n"),

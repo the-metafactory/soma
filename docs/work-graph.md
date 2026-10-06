@@ -546,9 +546,12 @@ frontier forever — no claim, no close, no error).
   (#597) names every closed node with no receipt. It does not repair them,
   since an auditor that reopened nodes would be a second writer with its own
   race. **Decided in #600:** the common source, a PR whose closing keyword
-  makes the tracker close the node on merge, is **prevented at the source**.
-  Orienteer doctrine forbids closing keywords in PRs, MRs and commits that
-  deliver a node (`references/closing.md`). The frontier does not filter
+  makes the tracker close the node on merge, is addressed **at the source, by
+  doctrine**. Orienteer forbids closing keywords in PRs, MRs and commits that
+  deliver a node (`references/closing.md`), and ranger enforces it for the PRs
+  it opens. That rule binds whoever writes the PR, not the tracker. Nothing in
+  soma checks PR or commit text, so a person or another tool can still close a
+  node this way, and `audit` stays the detector for that. The frontier does not filter
   receipt-less nodes, and there is **no retro-receipt**. A receipt counts only
   when it was posted before the close by the same account that closed the
   node (`hasCurrentCloseReceipt` in the GitHub store, which is what the §2.7

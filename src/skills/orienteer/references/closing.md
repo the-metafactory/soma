@@ -29,8 +29,12 @@ the walk, the more often it happens (#600). Link the node without one:
 - After the merge, close the node with `soma graph close`. Probes that hold after
   a squash merge are in `references/walker.md`.
 
-Ranger's implement lane already refuses to push a commit that contains a closing
-keyword. This rule extends the same discipline to every PR that delivers a node.
+Ranger already enforces this for the PRs it opens. It refuses to push a branch
+whose commits carry a closing keyword, refuses a node title that would carry
+one into the PR title, and writes the PR body itself without one (ranger
+`src/implement.ts`, `src/git-ops.ts`). This rule asks the same of every other
+PR that delivers a node. It is a rule, not a gate: nothing in soma reads PR
+text.
 
 Anything that slips through anyway, such as a person closing the node in the web
 UI or another tool, is listed by `soma graph audit <root>` under *closed without

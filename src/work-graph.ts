@@ -1191,10 +1191,15 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
  * refuses — #600 caught exactly that on a node the tracker had already closed.
  */
 export function assertCloseTarget(state: NodeState, receipt: CloseReceipt): void {
+  assertNodeOpen(state);
+  assertClosable(state.node, receipt);
+}
+
+/** The half of {@link assertCloseTarget} that needs no receipt, so a caller can refuse before building one. */
+export function assertNodeOpen(state: NodeState): void {
   if (state.status === "closed") {
     throw new WorkGraphError("node-closed", `node ${state.ref.id} is already closed`);
   }
-  assertClosable(state.node, receipt);
 }
 
 /**

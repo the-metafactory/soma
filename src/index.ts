@@ -734,6 +734,7 @@ export {
   agentExternalEvidenceKinds,
   assertClosable,
   assertCloseTarget,
+  assertNodeOpen,
   hashGatedNodeFields,
   normalizeKind,
   parseNodeSpec,

@@ -1737,6 +1737,28 @@ test("audit checks the root itself — a standalone node is not 'Clean, 0 nodes'
   expect(json.closedWithoutReceipt).toEqual(["61"]);
 });
 
+test("a charted map root is counted by audit and still audits clean (#600)", async () => {
+  // `chart` refuses a root without --checkpoint, so counting the root adds one
+  // node and no finding to an ordinary map.
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["520"] })
+    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+  await store.postComment({ id: "520" }, validReceipt("cp-520"));
+
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store);
+
+  expect(output).toContain("2 node(s)");
+  expect(output).toContain("Clean");
+});
+
+test("the already-closed refusal does not assume the tracker made the close", async () => {
+  const store = autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
+
+  expect(message).toContain("node 520 is already closed");
+  expect(message).toContain("If the tracker closed it itself");
+});
+
 test("decisions derives the index from receipts — gist when recorded, honest fallbacks otherwise", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), children: ["520", "521", "522"] })
