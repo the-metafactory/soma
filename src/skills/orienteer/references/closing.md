@@ -21,8 +21,9 @@ the walk, the more often it happens (#600). Link the node without one:
 - In PR and MR titles and bodies and in commit messages, write `Refs #N` or
   `node #N`. Never put a closing keyword in front of a node reference: `close`,
   `fix` or `resolve` in any form, on GitHub and GitLab, and on GitLab `implement`
-  too. A squash merge can copy the PR body into the commit on the default
-  branch, so a keyword in the body ends up in the commit message as well.
+  too. Prose counts. #588 was closed by a PR body that said "my first attempt
+  closed #588". A squash merge can also copy the PR body into the commit on the
+  default branch, so a keyword in the body ends up in the commit message as well.
 - Don't link the PR to the node through the tracker's own "linked issues"
   sidebar either. GitHub closes those on merge as well.
 - After the merge, close the node with `soma graph close`. Probes that hold after

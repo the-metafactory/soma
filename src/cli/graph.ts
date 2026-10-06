@@ -1389,8 +1389,9 @@ async function scanClosedNodes(
  * What the gates cannot see, reported rather than guessed at (#588's lesson):
  *
  * - **Closed with no receipt** — the tracker closed it, the gate never ran.
- *   GitHub auto-closes a node two seconds after a PR saying `Implements #N`
- *   merges, and `state: closed` is not evidence a close happened properly; only
+ *   GitHub auto-closes a node when a PR whose body holds a closing keyword
+ *   before its number merges — on #588 the past-tense prose "closed #588" did
+ *   it (#600) — and `state: closed` is not evidence a close happened properly; only
  *   a receipt is. This is the fail-open path §2.4 names, made visible.
  * - **Open with no checkpoint** — a node that can never close. `add` now refuses
  *   to create one, but hand-authored tickets and pre-rule nodes still exist.
