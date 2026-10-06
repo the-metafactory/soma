@@ -22,7 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is fixed on the PR. One node is one vertical slice, a rule checked when the
   node is filed rather than by line count. PRs that needed four or more review
   rounds get a `/retro`. `walker.md`, the WalkTheMap workflow and the Build kind
-  in `map.md` point at it. Documentation only; no runtime change. (#741)
+  in `map.md` point at it. (#741)
+
+### Fixed
+
+- `soma graph audit` and `soma graph decisions --write` count close receipts
+  rendered before receipts carried an autonomy line. #661 made the receipt scan
+  require a `- **autonomy:**` line, so older receipts were reported as
+  receipt-less and their gists were replaced. The scan now also accepts a
+  receipt with the full frame and no autonomy line, dated by the Soma release
+  that wrote it; the close binding keeps the strict check. (#685, #744)
 
 ## [0.23.0] - 2026-10-05
 
