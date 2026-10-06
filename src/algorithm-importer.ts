@@ -2,18 +2,17 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { defaultSomaRepoPath } from "./repo-path";
+import { readBundledSkillFile as readBundledFile } from "./bundled-skill-source";
 import type { AlgorithmImportOptions, AlgorithmImportPlan, AlgorithmImportResult, ImportSourceCheck } from "./types";
 
 const FALLBACK_ALGORITHM_SOURCE = "v6.3.0.md";
 
 // soma#354: the-algorithm SKILL.md + RunAlgorithm.md ship as plain `.md` in the
 // repo (no longer code-generated). Read them from the bundled source on import,
-// the same way the VSA skill is sourced from `src/skills/VSA`.
-const BUNDLED_SKILL_SUBPATH = "src/skills/the-algorithm";
-
+// the same way the VSA skill is sourced from `src/skills/VSA` — embedded, so a
+// compiled binary has them too (orienteer node #612).
 function readBundledSkillFile(rel: string): Promise<string> {
-  return readFile(join(defaultSomaRepoPath(), BUNDLED_SKILL_SUBPATH, rel), "utf8");
+  return readBundledFile("the-algorithm", rel);
 }
 
 const OPTIONAL_SOURCE_FILES = [
