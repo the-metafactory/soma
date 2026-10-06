@@ -32,12 +32,14 @@
 
 ## Current release: 0.23.1
 
-[0.23.1](https://github.com/the-metafactory/soma/releases/tag/v0.23.1) is a
-documentation release for the orienteer skill. A new
-`references/build-brief.md` sets the template and rules for a build node's
-body: nothing left to decide, Given/When/Then acceptance criteria with a failure
-case and a test seam, an out-of-scope list that binds review, and one vertical
-slice per node. The runtime is unchanged from 0.23.0. See the
+[0.23.1](https://github.com/the-metafactory/soma/releases/tag/v0.23.1) adds a
+build-node brief to the orienteer skill and fixes receipt counting in the work
+graph. A new `references/build-brief.md` sets the template and rules for a build
+node's body: nothing left to decide, Given/When/Then acceptance criteria with a
+failure case and a test seam, an out-of-scope list that binds review, and one
+vertical slice per node. `soma graph audit` and `decisions --write` again count
+close receipts written before receipts carried an autonomy line, so those closes
+are no longer reported as receipt-less (#744). See the
 [changelog](CHANGELOG.md#0231---2026-10-05). This version is published on
 GitHub only; the Arc registry is not updated by this release.
 
