@@ -558,6 +558,11 @@ function autoGraph(): FakeStore {
     .seed("520", { node: autoNode("520"), parent: "495", author: "ivy-agent" });
 }
 
+/** The auto graph with 520 already closed — by the verb or by the tracker, the store cannot tell. */
+function closedNodeStore(): FakeStore {
+  return autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
+}
+
 test("an auto close runs the probes, derives probed evidence, and writes the receipt", async () => {
   const store = autoGraph();
   const output = await run(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
@@ -1479,14 +1484,17 @@ test("closing refuses before reading the node when the installed runtime is inva
 });
 
 test("a closed node is not closed twice", async () => {
-  const store = autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
-  expect(await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store)).toContain("already closed");
+  const store = closedNodeStore();
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
+  expect(message).toContain("node 520 is already closed");
+  // Conditional: a node closed properly through the verb hits this refusal too.
+  expect(message).toContain("If the tracker closed it itself");
 });
 
 test("--dry-run refuses a closed node the way the write does, before a probe runs (#600)", async () => {
   // The live instance: the tracker closed the node on a merge, the dry run said
   // "close would be ACCEPTED", and the real close then refused.
-  const store = autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
+  const store = closedNodeStore();
   const probed: string[] = [];
   const message = await failure(["graph", "close", "520", "--dry-run", "--repo", REPO, ...RESOLUTION], store, {
     runProbes: async (probes) => {
@@ -1503,7 +1511,7 @@ test("--dry-run refuses a closed node the way the write does, before a probe run
 });
 
 test("--propose on a closed node refuses rather than publish a proposal nobody can act on (#600)", async () => {
-  const store = autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
+  const store = closedNodeStore();
 
   expect(await failure(["graph", "close", "520", "--propose", "--body", "x", "--repo", REPO], store)).toContain("already closed");
   expect(store.comments.size).toBe(0);
@@ -1749,14 +1757,6 @@ test("a charted map root is counted by audit and still audits clean (#600)", asy
 
   expect(output).toContain("2 node(s)");
   expect(output).toContain("Clean");
-});
-
-test("the already-closed refusal does not assume the tracker made the close", async () => {
-  const store = autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
-  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
-
-  expect(message).toContain("node 520 is already closed");
-  expect(message).toContain("If the tracker closed it itself");
 });
 
 test("decisions derives the index from receipts — gist when recorded, honest fallbacks otherwise", async () => {

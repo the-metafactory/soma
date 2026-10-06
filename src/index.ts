@@ -733,8 +733,6 @@ export {
   WorkGraphError,
   agentExternalEvidenceKinds,
   assertClosable,
-  assertCloseTarget,
-  assertNodeOpen,
   hashGatedNodeFields,
   normalizeKind,
   parseNodeSpec,
