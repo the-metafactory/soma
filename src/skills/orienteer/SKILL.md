@@ -62,7 +62,7 @@ reflect each forge's capabilities.
 | `soma graph release <id>` | identity-bound self-release: abandon your own claim (the claim-race loser's DELETE-self, promoted to a verb); only ever unassigns the acting identity |
 | `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges), structurally validated; refuses without a checkpoint |
 | `soma graph chart … --checkpoint <id>` | create a typed map root; GitLab requires `--home-project <group/project>` |
-| `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close |
+| `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close. A PR, MR or commit says `Refs #N`, never a closing keyword: the tracker would close the node on merge and skip the gate (`references/closing.md`) |
 | `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |
 | `soma graph decisions <root> [--write]` | the map's decision index, derived from receipts; `--write` splices it into the map body |
 
@@ -77,10 +77,6 @@ A bare `owner/name` takes the remote's host, and refuses outside a checkout.
   hand off. Map **Notes** can override this (how a walked map allows **Build**
   nodes, `references/walker.md`); absent that, produce decisions, not deliverables.
 - **One node per session** — research nodes excepted.
-- **Reference a node; never close it from a PR.** Write `Refs #N`, never a
-  closing keyword (`closes`/`fixes`/`resolves #N`, and `implements #N` on GitLab)
-  in a PR, MR or commit. The tracker would close the node on merge and skip the
-  gate. Close it with the verb after the merge (`references/closing.md`).
 - **Claim first**, before any work, so concurrent sessions skip it.
 - **Refer by name.** In everything the human reads, name a map or node by its
   title, never by a bare id. A wall of `#42, #43, #44` is illegible; the id and
