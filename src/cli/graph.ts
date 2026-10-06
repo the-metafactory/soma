@@ -39,7 +39,7 @@ import {
   WorkGraph,
   WorkGraphError,
   agentExternalEvidenceKinds,
-  assertClosable,
+  assertCloseTarget,
   describeProbeTree,
   estimateReceiptChars,
   renderCloseReceipt,
@@ -1031,6 +1031,23 @@ async function runClose(
   const ref: NodeRef = { id: parsed.target };
   const state = await graph.readNode(ref);
 
+  // `assertCloseTarget` refuses this too; refusing here as well costs no probe
+  // run and covers every mode — the dry run, which used to report ACCEPTED on a
+  // close the write then refused, and `--propose`, which would publish a
+  // proposal nobody can act on (#600).
+  if (state.status === "closed") {
+    throw new SomaCliError(
+      [
+        `Close refused: node ${ref.id} is already closed.`,
+        "",
+        "A close the tracker made itself — a merged PR saying `Closes #N` — carries no receipt; `soma graph audit` names those.",
+        "",
+        "Nothing was written, and no probe ran.",
+      ].join("\n"),
+      1,
+    );
+  }
+
   if (parsed.options.propose === true) {
     const body = await resolveBody(deps, parsed.options.body, parsed.options.bodyFile);
     if (body === undefined || body.trim().length === 0) {
@@ -1310,7 +1327,7 @@ async function runClose(
   if (parsed.options.dryRun === true) {
     let verdict = "would be ACCEPTED";
     try {
-      assertClosable(state.node, receipt);
+      assertCloseTarget(state, receipt);
     } catch (error) {
       verdict = `would be REFUSED — ${error instanceof WorkGraphError ? error.message : String(error)}`;
     }
@@ -1345,9 +1362,21 @@ interface ScannedNode {
   scan: ReceiptScan;
 }
 
-/** Closed nodes of the subtree, receipts scanned, in the walk's order. Shared by audit and decisions. */
-async function scanClosedNodes(graph: WorkGraph, root: NodeRef): Promise<{ subtree: NodeState[]; closed: ScannedNode[] }> {
-  const subtree = await graph.readSubtree(root);
+/**
+ * Closed nodes of the subtree, receipts scanned, in the walk's order. Shared by audit and decisions.
+ *
+ * `readSubtree` returns descendants only. `includeRoot` puts the root first, for
+ * the audit: without it a node with no children audits as "Clean, 0 nodes"
+ * whatever its own state (#600). `decisions` leaves it out — the map root holds
+ * the index, it is not an entry in it.
+ */
+async function scanClosedNodes(
+  graph: WorkGraph,
+  root: NodeRef,
+  options: { includeRoot?: boolean } = {},
+): Promise<{ subtree: NodeState[]; closed: ScannedNode[] }> {
+  const descendants = await graph.readSubtree(root);
+  const subtree = options.includeRoot === true ? [await graph.readNode(root), ...descendants] : descendants;
   const closedStates = subtree.filter((state) => state.status === "closed");
   const closed = await mapBounded(closedStates, COMMENT_READ_CONCURRENCY, async (state) => {
     const comments = await graph.listComments(state.ref);
@@ -1371,7 +1400,7 @@ async function scanClosedNodes(graph: WorkGraph, root: NodeRef): Promise<{ subtr
  * writer with its own race. It names; the human acts.
  */
 async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: string): Promise<string> {
-  const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target });
+  const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target }, { includeRoot: true });
 
   const unreceipted = closed.filter((entry) => !entry.scan.hasReceipt).map((entry) => entry.state);
   const uncloseable = subtree.filter(

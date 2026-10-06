@@ -1185,6 +1185,19 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
 }
 
 /**
+ * The whole gate a close passes, against the node as the store reports it: the
+ * node must still be open, then {@link assertClosable}. One function for the
+ * write and for `--dry-run`, so the preview cannot accept a close the write then
+ * refuses — #600 caught exactly that on a node the tracker had already closed.
+ */
+export function assertCloseTarget(state: NodeState, receipt: CloseReceipt): void {
+  if (state.status === "closed") {
+    throw new WorkGraphError("node-closed", `node ${state.ref.id} is already closed`);
+  }
+  assertClosable(state.node, receipt);
+}
+
+/**
  * What a tracker comment can hold. GitHub's hard cap is 65 536 characters; this
  * is the budget a close is allowed to plan for, leaving room for the parts of a
  * receipt that vary (#527).
@@ -1601,16 +1614,13 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
   }
 
   /**
-   * Consuming mutation (§1 clause 2): gated by {@link assertClosable} against
+   * Consuming mutation (§1 clause 2): gated by {@link assertCloseTarget} against
    * the node as the store currently reports it — never against a caller-supplied
    * copy, which the agent authors.
    */
   async close(ref: NodeRef, receipt: CloseReceipt): Promise<void> {
     const state = await this.store.readNode(ref);
-    if (state.status === "closed") {
-      throw new WorkGraphError("node-closed", `node ${ref.id} is already closed`);
-    }
-    assertClosable(state.node, receipt);
+    assertCloseTarget(state, receipt);
     await this.store.close(ref, { ...receipt, autonomy: state.node.autonomy }, hashGatedNodeFields(state.node, state.storeFields));
   }
 }

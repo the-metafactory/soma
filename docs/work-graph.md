@@ -650,12 +650,14 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
 soma graph chart ...               # create a typed graph root; GitLab requires
                                    # --home-project <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;
+                                   # refuses an already-closed node, --dry-run too;
                                    # --gist records the map index's one-line entry
 soma graph audit <root>            # what the gates cannot see: closed nodes with
                                    # no receipt (a tracker-side close — the gate
                                    # never ran), open nodes that can never close,
-                                   # claimed nodes in flight. Read-only: it names,
-                                   # the human acts.
+                                   # claimed nodes in flight — the root included, so
+                                   # a standalone node is audited too. Read-only: it
+                                   # names, the human acts.
 soma graph decisions <root>        # the map's decision index, DERIVED from close
                                    # receipts (gist + link per closed node);
                                    # --write splices it into the map body between
