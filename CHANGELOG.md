@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-07
+
 ### Added
 
 - `soma graph link <id> --blocked-by <ref>…` adds blocking edges to an
@@ -28,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identity, so it stays off the frontier, and the error prints the `link`
   command that finishes the wiring (and `release`, when the hold landed);
   under `--json` the failure is JSON. (#750)
+- `soma graph close --dry-run` refuses a closed node, as the real close does:
+  the dry run and the write share one gate, which runs before any probe.
+  `soma graph audit` includes the root node, so a standalone node is no longer
+  reported as clean with 0 nodes. (#747)
+
+### Changed
+
+- Orienteer forbids closing keywords in a PR, MR or commit that delivers a
+  node: the tracker would close it on merge and skip the checkpoint gate. The
+  node is closed with `soma graph close` after the merge. (#747, #600)
 
 ## [0.23.1] - 2026-10-05
 
@@ -1502,7 +1514,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.23.1...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/the-metafactory/soma/compare/v0.23.1...v0.24.0
 [0.23.1]: https://github.com/the-metafactory/soma/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/the-metafactory/soma/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/the-metafactory/soma/compare/v0.21.0...v0.22.0
