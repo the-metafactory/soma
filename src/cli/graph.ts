@@ -53,7 +53,7 @@ import {
   type CloseEvidence,
   type CloseReceipt,
   type CommentRef,
-  type EdgeWrites,
+  type CreatedNode,
   type GraphStore,
   type NodeRef,
   type NodeState,
@@ -103,7 +103,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <forge>:<host>/<path>] [--json]",
-    link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach a parentless one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
+    link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <forge>:<host>/<path>]",
@@ -1035,9 +1035,10 @@ async function runAdd(
   const { edges } = created;
   if (!created.attached) {
     if (parsed.options.json === true) {
-      throw new SomaCliError(JSON.stringify({ ...base, ...edges, attached: false }, null, 2), 1);
+      const attachError = created.attachError === undefined ? {} : { attachError: created.attachError };
+      throw new SomaCliError(JSON.stringify({ ...base, ...edges, attached: false, ...attachError }, null, 2), 1);
     }
-    throw new SomaCliError(partialAddReport(parentShown, repo, created, edges), 1);
+    throw new SomaCliError(partialAddReport(parentShown, repo, created), 1);
   }
 
   if (parsed.options.json === true) {
@@ -1051,15 +1052,23 @@ async function runAdd(
   ].join("\n");
 }
 
-/** What a partly wired `add` says (#740): what failed, what landed, that the node is unattached, and the one command that finishes the job. */
-function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges: EdgeWrites): string {
-  const { written, failed } = edges;
+/**
+ * What a partly wired `add` says (#740): what failed (an edge, or the attach
+ * after every edge landed), what landed, that the node is unattached, and the
+ * one command that finishes the job. `audit` cannot see an unattached node, so
+ * this message is the only pointer to it.
+ */
+function partialAddReport(parent: string, repo: RepoRef, created: CreatedNode): string {
+  const { written, failed } = created.edges;
+  const blockers = failed.map((edge) => `--blocked-by ${shellWord(edge.id)} `).join("");
   return [
-    `Created node ${created.id}, but ${failed.length} of ${failed.length + written.length} blocking edge(s) failed:`,
+    failed.length > 0
+      ? `Created node ${created.id}, but ${failed.length} of ${failed.length + written.length} blocking edge(s) failed:`
+      : `Created node ${created.id} and wrote its blocking edges, but attaching it to ${parent} failed: ${created.attachError ?? "unknown error"}`,
     ...failed.map((edge) => `- blocked by ${edge.id}: ${edge.reason}`),
     written.length > 0 ? `Edges written: ${written.map((id) => edgeLabel(created.id, id)).join("; ")}` : "No blocking edges were written.",
-    `Node ${created.id} was not attached to ${parent}, so it is on no frontier.`,
-    `Finish wiring: soma graph link ${shellWord(created.id)} ${failed.map((edge) => `--blocked-by ${shellWord(edge.id)}`).join(" ")} --parent ${shellWord(parent)} --repo ${formatRepoRef(repo)}`,
+    `Node ${created.id} was not attached to ${parent}, so it is unattached: on no frontier, and invisible to audit.`,
+    `Finish wiring: soma graph link ${shellWord(created.id)} ${blockers}--parent ${shellWord(parent)} --repo ${formatRepoRef(repo)}`,
   ].join("\n");
 }
 
@@ -1071,6 +1080,8 @@ function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges
  * already has is skipped, so a re-run is safe. The parent is attached last,
  * and only when every edge landed, for the same reason `add` orders it so.
  */
+const PARENT_STATUS_TEXT = { attached: "attached", already: "already there", "not attached": "NOT attached — an edge failed" } as const;
+
 async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: RepoRef): Promise<string> {
   const blocked = { id: parsed.target };
   const [state] = await Promise.all([graph.readNode(blocked), checkBlockers(graph, parsed.options.blockedBy, "link", parsed.options.json === true)]);
@@ -1079,7 +1090,8 @@ async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: Repo
   const { written, failed } = await graph.addBlockingEdges(blocked, parsed.options.blockedBy.filter((id) => !existing.has(id)).map((id) => ({ id })));
   const parent = parsed.options.parent;
   const attach = parent === undefined || failed.length > 0 ? undefined : await graph.attach(blocked, { id: parent });
-  const parentResult = parent === undefined ? {} : { parent, attached: attach?.attached === true || state.parent?.id === parent };
+  const parentStatus = attach?.status ?? "not attached";
+  const parentResult = parent === undefined ? {} : { parent, parentStatus };
 
   if (parsed.options.json === true) {
     const result = JSON.stringify({ repo: displayRepo(repo), node: parsed.target, written, already, failed, ...parentResult }, null, 2);
@@ -1091,7 +1103,7 @@ async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: Repo
     ...written.map((id) => `- blocked by ${id}: written`),
     ...already.map((id) => `- blocked by ${id}: already there`),
     ...failed.map((edge) => `- blocked by ${edge.id}: FAILED — ${edge.reason}`),
-    ...(parent === undefined ? [] : [`- under ${parent}: ${attach === undefined ? "NOT attached — an edge failed" : attach.attached ? "attached" : "already there"}`]),
+    ...(parent === undefined ? [] : [`- under ${parent}: ${PARENT_STATUS_TEXT[parentStatus]}`]),
   ];
   if (failed.length > 0) throw new SomaCliError(lines.join("\n"), 1);
   return lines.join("\n");

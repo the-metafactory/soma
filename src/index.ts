@@ -761,6 +761,7 @@ export {
   type CommentRef,
   type CreateNodeOptions,
   type CreateNodeSpec,
+  type CreatedNode,
   type EdgeWrites,
   type GraphStore,
   type NodeBudget,

@@ -569,7 +569,9 @@ frontier forever — no claim, no close, no error).
   and a node with an open blocker (`blocked`, naming the blockers). The claim
   reads the node right before writing, so a walker whose frontier read
   predates an edge, or a person claiming by hand, is refused rather than
-  taking blocked work.
+  taking blocked work. It is a check-then-write, not a lock: an edge that
+  lands between the read and the assignee write is not seen, which is why
+  `add` closes the larger window by construction (below).
   **A node becomes reachable only once it is fully blocked** (#740). A frontier
   walk reaches a node only through its membership edge, so `add` creates the
   node detached, writes every `--blocked-by` edge, and attaches it to its
@@ -596,7 +598,7 @@ interface GraphStore {
                                              // be independently attested here?
   actingIdentity(): Promise<string>;         // who this session is on this forge (#537)
   checkConfinement(): Promise<ConfinementResult>; // §3.2 conjunct 2, this forge's probes
-  createNode(spec: Omit<WorkGraphNode, "id">, rehome?, options?: { detached?: boolean }): Promise<NodeRef>;
+  createNode(spec, rehome?: RehomeSelection, options?: CreateNodeOptions): Promise<NodeRef>;
                                              // store assigns id; detached = no
                                              // membership edge yet (#740)
   attachToParent(child: NodeRef, parent: NodeRef): Promise<void>; // the edge a
@@ -693,7 +695,7 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
 soma graph link <node> [--blocked-by <ref>]... [--parent <id>]
                                    # add blocking edges to an existing node, cycle
                                    # check included; an edge it has is skipped;
-                                   # --parent then attaches a parentless node,
+                                   # --parent then attaches an unattached node,
                                    # only once every edge landed (#740)
 soma graph chart ...               # create a typed graph root; GitLab requires
                                    # --home-project <group/project>

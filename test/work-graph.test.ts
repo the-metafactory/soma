@@ -470,7 +470,10 @@ class FakeStore implements GraphStore {
     return { id };
   }
 
+  failAttach = false;
+
   async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> {
+    if (this.failAttach) throw new Error("sub_issues write failed");
     this.calls.push(`attach ${child.id} ${parent.id}`);
     this.children.set(parent.id, [...(this.children.get(parent.id) ?? []), child.id]);
     const entry = this.nodes.get(child.id);
@@ -707,8 +710,8 @@ test("attach links a parentless node, is a no-op under the same parent, and refu
   store.add("deep", { parent: { id: "orphan" } });
   const graph = new WorkGraph(store);
 
-  expect(await graph.attach({ id: "orphan" }, { id: "root" })).toEqual({ attached: true });
-  expect(await graph.attach({ id: "orphan" }, { id: "root" })).toEqual({ attached: false });
+  expect(await graph.attach({ id: "orphan" }, { id: "root" })).toEqual({ status: "attached" });
+  expect(await graph.attach({ id: "orphan" }, { id: "root" })).toEqual({ status: "already" });
   expect(await asyncCodeOf(() => graph.attach({ id: "other" }, { id: "orphan" }))).toBe("invalid-edge");
   store.add("loop");
   store.add("below-loop", { parent: { id: "loop" } });
@@ -736,4 +739,19 @@ test("claim takes a node whose blockers are all closed", async () => {
 
   expect((await new WorkGraph(store).claim({ id: "86" }, "ivy-agent")).held).toBe(true);
   expect(store.claims).toEqual(["86:ivy-agent"]);
+});
+
+test("an attach that fails after every edge landed still returns the node, unattached, with the reason", async () => {
+  const store = new FakeStore();
+  store.add("root");
+  store.add("81");
+  store.failAttach = true;
+  const created = await new WorkGraph(store).createNode({ title: "t", autonomy: "approve", checkpointId: "cp", parent: { id: "root" } }, [{ id: "81" }]);
+
+  expect(created).toMatchObject({ id: "1000", attached: false, attachError: "sub_issues write failed", edges: { written: ["81"], failed: [] } });
+});
+
+test("a create with no parent reports attached: true — there was nothing to attach", async () => {
+  const created = await new WorkGraph(new FakeStore()).createNode({ title: "t", autonomy: "approve", checkpointId: "cp" });
+  expect(created.attached).toBe(true);
 });

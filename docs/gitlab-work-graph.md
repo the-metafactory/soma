@@ -106,7 +106,7 @@ hierarchy parent, every link is written, and only then is the parent set
 (`workItemUpdate`), so the child is never reachable before it is blocked (#740).
 If a link write still fails, the child remains in GitLab with no parent, on no
 frontier, and the CLI prints the `soma graph link … --parent` command that
-finishes the wiring. `audit` cannot see a parentless child, so that printed
+finishes the wiring. `audit` cannot see an unattached child, so that printed
 command is the only pointer to it; confirm with `soma graph node` that the
 blockers and parent are listed. Do not assume an error rolled back a tracker
 write.

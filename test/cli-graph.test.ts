@@ -120,7 +120,10 @@ class FakeStore implements GraphStore {
     return { id };
   }
 
+  failAttach = false;
+
   async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> {
+    if (this.failAttach) throw new Error("sub_issues write failed");
     this.calls.push(`attach ${child.id} ${parent.id}`);
     const seed = this.nodes.get(child.id);
     if (seed !== undefined) seed.parent = parent.id;
@@ -621,9 +624,21 @@ test("an edge that fails after creation does not strand the others, and the node
   expect(message).toContain("1 of 2 blocking edge(s) failed");
   expect(message).toContain("- blocked by 96: edge write for 96 failed");
   expect(message).toContain("Edges written: 900 blocked by 97");
-  expect(message).toContain("Node 900 was not attached to 495, so it is on no frontier.");
+  expect(message).toContain("Node 900 was not attached to 495, so it is unattached: on no frontier, and invisible to audit.");
   expect(message).toContain(`soma graph link 900 --blocked-by 96 --parent 495 --repo github:github.com/the-metafactory/soma`);
   expect(message).not.toContain("soma graph release");
+});
+
+test("an attach that fails after the edges landed prints the reason and the --parent repair (#740)", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("96", { node: autoNode("96") });
+  store.failAttach = true;
+
+  const message = await failure(addArgs("96"), store);
+
+  expect(message).toContain("Created node 900 and wrote its blocking edges, but attaching it to 495 failed: sub_issues write failed");
+  expect(message).toContain("Edges written: 900 blocked by 96");
+  expect(message).toContain("soma graph link 900 --parent 495 --repo github:github.com/the-metafactory/soma");
+  expect(JSON.parse(await failure([...addArgs("96"), "--json"], store))).toMatchObject({ attached: false, attachError: "sub_issues write failed", failed: [] });
 });
 
 test("the printed repair command quotes ids a shell would misread", async () => {

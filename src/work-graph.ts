@@ -658,6 +658,23 @@ export interface EdgeWrites {
   failed: { id: string; reason: string }[];
 }
 
+/**
+ * What {@link WorkGraph.createNode} did. It resolves even when the wiring is
+ * incomplete, because the node exists either way and the caller needs its id
+ * to repair it. **A caller must check `attached`:** `false` means the node is
+ * unattached (no membership edge, so in no subtree, on no frontier, and
+ * invisible to `audit`), and only the caller can tell anyone it is there.
+ */
+export interface CreatedNode extends NodeRef {
+  rehomedFrom?: NodeRef;
+  rehomedTo?: NodeRef;
+  edges: EdgeWrites;
+  /** True when the node sits where it was asked to (always, for a create with no parent). */
+  attached: boolean;
+  /** Why the attach itself failed, after every edge landed. */
+  attachError?: string;
+}
+
 export interface GraphStore<TStoreData extends StoreCreationData = StoreCreationData> {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
@@ -1493,42 +1510,41 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
    * With blockers, the node is created detached, every edge is written, and
    * only then is it attached to its parent (#740). A frontier walk reaches a
    * node only through its parent, so there is no window in which the node is
-   * reachable and unblocked. An edge that fails leaves the node unattached
-   * (`attached: false`): off every frontier, waiting for a repair.
+   * reachable and unblocked. An edge or attach that fails leaves the node
+   * unattached (`attached: false`): on no frontier, waiting for a repair.
    */
-  async createNode(
-    spec: unknown,
-    blockedBy: readonly NodeRef[] = [],
-  ): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef; edges: EdgeWrites; attached: boolean }> {
+  async createNode(spec: unknown, blockedBy: readonly NodeRef[] = []): Promise<CreatedNode> {
     const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
     const requested = parsed.parent === undefined || this.store.selectRehomeParent === undefined ? undefined : await this.store.readNode(parsed.parent);
     const rehome = requested === undefined ? undefined : await this.store.selectRehomeParent?.(requested);
     const parent = rehome?.parent ?? parsed.parent;
     const rehomed = requested === undefined || rehome === undefined ? {} : { rehomedFrom: requested.ref, rehomedTo: rehome.parent };
     const target = { ...parsed, ...(parent === undefined ? {} : { parent }) };
+    // Without blockers there is no window to close, so the store attaches in its own create.
+    const detached = parent !== undefined && blockedBy.length > 0;
 
-    if (blockedBy.length === 0 || parent === undefined) {
-      const created = await this.store.createNode(target, rehome);
-      const edges = await this.addBlockingEdges(created, blockedBy);
-      return { ...created, ...rehomed, edges, attached: parent !== undefined };
-    }
-
-    const created = await this.store.createNode(target, rehome, { detached: true });
+    const created = await this.store.createNode(target, rehome, { detached });
     const edges = await this.addBlockingEdges(created, blockedBy);
-    if (edges.failed.length > 0) return { ...created, ...rehomed, edges, attached: false };
-    await this.store.attachToParent(created, parent);
-    return { ...created, ...rehomed, edges, attached: true };
+    const result = { ...created, ...rehomed, edges };
+    if (!detached) return { ...result, attached: true };
+    if (edges.failed.length > 0) return { ...result, attached: false };
+    try {
+      await this.store.attachToParent(created, parent);
+    } catch (error) {
+      return { ...result, attached: false, attachError: error instanceof Error ? error.message : String(error) };
+    }
+    return { ...result, attached: true };
   }
 
   /**
-   * Attach an existing, parentless node below `parent` — the repair for a
+   * Attach an existing unattached node below `parent` — the repair for a
    * create whose edges failed (#740). A node already below `parent` is left
    * alone, so a re-run is safe; one below another parent is refused, because
    * moving a node is not a repair.
    */
-  async attach(child: NodeRef, parent: NodeRef): Promise<{ attached: boolean }> {
+  async attach(child: NodeRef, parent: NodeRef): Promise<{ status: "attached" | "already" }> {
     const state = await this.store.readNode(child);
-    if (state.parent?.id === parent.id) return { attached: false };
+    if (state.parent?.id === parent.id) return { status: "already" };
     if (state.parent !== undefined) {
       throw new WorkGraphError("invalid-edge", `node ${child.id} is already attached to ${state.parent.id}; refusing to move it to ${parent.id}`);
     }
@@ -1538,7 +1554,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
       seen.add(ancestor.id);
     }
     await this.store.attachToParent(child, parent);
-    return { attached: true };
+    return { status: "attached" };
   }
 
   /** Write each edge, collecting failures rather than stopping at the first, so one bad edge never strands the good ones. */
