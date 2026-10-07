@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { isEnoent } from "./fs-errors";
-import { comparePaths, toPosixRelative, walkFiles } from "./fs-walk";
+import { comparePaths, toPosixRelative, walkFilesAsync } from "./fs-walk";
 import { defaultSomaRepoPath } from "./repo-path";
 
 /**
@@ -33,11 +33,11 @@ export interface BundledSkillFile {
 
 const byPath = (a: BundledSkillFile, b: BundledSkillFile): number => comparePaths(a.path, b.path);
 
-function readsEmbeddedTree(somaRepoPath: string): boolean {
-  return resolve(somaRepoPath) === defaultSomaRepoPath();
+function readsEmbeddedTree(somaRepoPath?: string): boolean {
+  return somaRepoPath === undefined || resolve(somaRepoPath) === defaultSomaRepoPath();
 }
 
-function diskSkillsRoot(somaRepoPath: string): string {
+function diskSkillsRoot(somaRepoPath = defaultSomaRepoPath()): string {
   return join(resolve(somaRepoPath), SKILLS_SUBPATH);
 }
 
@@ -50,7 +50,7 @@ async function embeddedFiles(): Promise<Readonly<Record<string, string>>> {
 
 /** Sorted skill names; an empty tree returns `[]`, but an invalid explicit root throws. */
 export async function bundledSkillNames(somaRepoPath?: string): Promise<string[]> {
-  if (somaRepoPath === undefined || readsEmbeddedTree(somaRepoPath)) {
+  if (readsEmbeddedTree(somaRepoPath)) {
     const names = new Set(Object.keys(await embeddedFiles()).map((path) => path.slice(0, path.indexOf("/"))));
     return [...names].sort();
   }
@@ -66,7 +66,7 @@ export async function bundledSkillNames(somaRepoPath?: string): Promise<string[]
  * repo does not ship that skill.
  */
 export async function readBundledSkill(name: string, somaRepoPath?: string): Promise<BundledSkillFile[] | undefined> {
-  if (somaRepoPath === undefined || readsEmbeddedTree(somaRepoPath)) {
+  if (readsEmbeddedTree(somaRepoPath)) {
     const prefix = `${name}/`;
     const files = Object.entries(await embeddedFiles())
       .filter(([path]) => path.startsWith(prefix))
@@ -77,7 +77,7 @@ export async function readBundledSkill(name: string, somaRepoPath?: string): Pro
   const skillDir = join(diskSkillsRoot(somaRepoPath), name);
   const files: BundledSkillFile[] = [];
   try {
-    for (const absPath of walkFiles(skillDir)) {
+    for await (const absPath of walkFilesAsync(skillDir)) {
       files.push({ path: toPosixRelative(skillDir, absPath), content: await readFile(absPath) });
     }
   } catch (error) {
@@ -89,7 +89,7 @@ export async function readBundledSkill(name: string, somaRepoPath?: string): Pro
 
 /** One text file of a bundled skill; throws when the skill or the file is absent. */
 export async function readBundledSkillFile(name: string, path: string, somaRepoPath?: string): Promise<string> {
-  if (somaRepoPath === undefined || readsEmbeddedTree(somaRepoPath)) {
+  if (readsEmbeddedTree(somaRepoPath)) {
     const content = (await embeddedFiles())[`${name}/${path}`];
     if (content !== undefined) return content;
   } else {

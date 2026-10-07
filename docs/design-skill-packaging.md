@@ -23,7 +23,20 @@ bytes with source bytes and rejects lossy decoding. Binary assets need a
 different embedding mechanism before they can join this built-in tree.
 After adding, removing, or renaming files, run
 `bun run generate-bundled-skill-files`. Explicit custom repository paths still
-copy skill files from disk without decoding their bytes.
+copy non-VSA skill files from disk without decoding their bytes; the VSA
+installer decodes text for its projection transforms.
+
+Both source runs and compiled binaries use the generated import module for
+the default repository. It records file names, not a snapshot of their text:
+a fresh source process reads edits to existing files through Bun's text
+imports without regeneration. Adding, removing, or renaming files requires
+regenerating the module; a compiled binary requires rebuilding for any edit.
+Custom repository paths read their live tree directly from disk.
+
+Installation rejects invalid explicit skill roots. Doctor preserves its
+read-only diagnostic behavior when a checkout or its skill root is missing:
+only that optional inventory's `ENOENT` becomes `[]`, so it can still return
+projection findings for an installed home. Other filesystem faults propagate.
 
 Embedded skill content does not make the entire CLI installation portable as
 a standalone binary. Installation also stages an immutable source runtime;

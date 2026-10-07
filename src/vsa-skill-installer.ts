@@ -349,9 +349,9 @@ async function installVsaSkillInternal(options: InternalVsaSkillInstallOptions =
   if (source === undefined) {
     // No bundled skill at the configured somaRepoPath — install runs as a
     // no-op so callers passing custom repo paths without the skill (tests,
-    // partial installs) don't break. Production callers resolve via
-    // defaultSomaRepoPath(), whose skill content is embedded, so this branch is
-    // unreachable for them even inside a compiled binary (orienteer node #612).
+    // partial installs) don't break. The compiled helper regression supplies
+    // embedded VSA content for defaultSomaRepoPath(); the real compiled CLI
+    // install currently fails earlier at source-runtime staging (node #612).
     return {
       somaHome,
       skillDir: runtimeDir,

@@ -1,4 +1,5 @@
 import { readdirSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 
 /** Regular files recursively; symlinks are not followed. */
@@ -11,6 +12,16 @@ export function walkFiles(root: string, options: { skipHidden?: boolean } = {}):
     else if (entry.isFile()) files.push(path);
   }
   return files;
+}
+
+/** Async runtime walk; regular files only, without following symlinks. */
+export async function* walkFilesAsync(root: string, options: { skipHidden?: boolean } = {}): AsyncGenerator<string> {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (options.skipHidden && entry.name.startsWith(".")) continue;
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) yield* walkFilesAsync(path, options);
+    else if (entry.isFile()) yield path;
+  }
 }
 
 export function toPosixRelative(root: string, path: string): string {
