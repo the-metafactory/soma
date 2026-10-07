@@ -974,11 +974,15 @@ function edgeLabel(node: string, blocker: string): string {
  * left half-wired. The reads are independent, so they run together, and every
  * failure is reported at once, not just the first.
  */
-async function checkBlockers(graph: WorkGraph, blockedBy: readonly string[], verb: string): Promise<void> {
+async function checkBlockers(graph: WorkGraph, blockedBy: readonly string[], verb: string, json: boolean): Promise<void> {
   const reads = await Promise.allSettled(blockedBy.map(async (id) => await graph.readNode({ id })));
-  const unreadable = reads.flatMap((read, index) => (read.status === "rejected" ? [`- ${blockedBy[index]}: ${errorMessage(read.reason)}`] : []));
+  const unreadable = reads.flatMap((read, index) => (read.status === "rejected" ? [{ id: blockedBy[index], reason: errorMessage(read.reason) }] : []));
   if (unreadable.length === 0) return;
-  throw new SomaCliError([`soma graph ${verb} refused: ${unreadable.length} blocker(s) cannot be read, so nothing was written.`, ...unreadable].join("\n"), 1);
+  if (json) throw new SomaCliError(JSON.stringify({ refused: true, written: [], unreadable }, null, 2), 1);
+  throw new SomaCliError(
+    [`soma graph ${verb} refused: ${unreadable.length} blocker(s) cannot be read, so nothing was written.`, ...unreadable.map((entry) => `- ${entry.id}: ${entry.reason}`)].join("\n"),
+    1,
+  );
 }
 
 interface NodeHold {
@@ -1033,7 +1037,7 @@ async function runAdd(
   const { bodyFile, ...rest } = parsed.options.spec;
   const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
   const blockedBy = parsed.options.blockedBy;
-  await checkBlockers(graph, blockedBy, "add");
+  await checkBlockers(graph, blockedBy, "add", parsed.options.json === true);
 
   const isGitLabEpic = repo.forge === "gitlab" && parseLocatedNodeId(parsed.target)?.sigil === "&";
   const storeData = repo.forge !== "gitlab" ? rest.storeData : { ...(rest.storeData !== undefined && typeof rest.storeData === "object" ? rest.storeData as Record<string, unknown> : {}), ...(isGitLabEpic ? {} : { scopeProject: repo.path }) };
@@ -1048,13 +1052,14 @@ async function runAdd(
   // under-blocked, and an under-blocked node is takeable on the next walker
   // tick — so the node is held before the error is raised.
   const rehomed = created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id };
+  const parentShown = created.rehomedTo?.id ?? parsed.target;
   const edges = await writeBlockingEdges(graph, created, blockedBy);
   if (edges.failed.length > 0) {
     const hold = await holdNode(store, graph, created);
     if (parsed.options.json === true) {
       throw new SomaCliError(JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, ...rehomed, ...edges, held: hold.held }, null, 2), 1);
     }
-    throw new SomaCliError(partialAddReport(created.rehomedTo?.id ?? parsed.target, repo, created, edges, hold), 1);
+    throw new SomaCliError(partialAddReport(parentShown, repo, created, edges, hold), 1);
   }
 
   if (parsed.options.json === true) {
@@ -1062,7 +1067,7 @@ async function runAdd(
   }
 
   return [
-    `Created node ${created.id} under ${created.rehomedTo?.id ?? parsed.target} (${displayRepo(repo)}).`,
+    `Created node ${created.id} under ${parentShown} (${displayRepo(repo)}).`,
     ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
     ...(edges.written.length > 0 ? ["", "Blocking edges:", ...edges.written.map((id) => `- ${edgeLabel(created.id, id)}`)] : []),
   ].join("\n");
@@ -1090,7 +1095,7 @@ function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges
  */
 async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: RepoRef): Promise<string> {
   const blocked = { id: parsed.target };
-  const [state] = await Promise.all([graph.readNode(blocked), checkBlockers(graph, parsed.options.blockedBy, "link")]);
+  const [state] = await Promise.all([graph.readNode(blocked), checkBlockers(graph, parsed.options.blockedBy, "link", parsed.options.json === true)]);
   const existing = new Set(state.blockedBy.map((blocker) => blocker.id));
   const already = parsed.options.blockedBy.filter((id) => existing.has(id));
   const { written, failed } = await writeBlockingEdges(graph, blocked, parsed.options.blockedBy.filter((id) => !existing.has(id)));

@@ -209,26 +209,14 @@ export function createGraphStore(repo: RepoRef): GraphStore {
  * bare id passes through unchanged.
  */
 export function localNodeId(text: string, repo: RepoRef): string {
-  if (!isQualifiedRef(text)) {
-    // A GitLab store is host-scoped and its ids carry their project
-    // (`storeNodeId`), so a bare `12` or `#12` is read in the repo's own path —
-    // one id shape per store, whichever way the node was named, built in one place.
-    // On GitHub the same `#12` is just `12`: the store's id is the bare number.
-    const iid = parseBareNodeNumber(text);
-    if (iid !== undefined) return storeNodeId({ repo, sigil: "#", iid });
-    // A located `owner/name#N` is read on the store's forge and host and held to
-    // the same one-store rule as a qualified ref. Passed through, it would reach
-    // the GitHub store's issue routes, which follow a located id to its own repo
-    // since #749: a claim, close or child on another repo's node, under this
-    // store's probe registry.
-    if (parseLocatedNodeId(text) === undefined) return text;
-    const located = locatedOnStore(text.trim(), repo);
-    if (!sameStore(located.repo, repo)) throw crossStoreError(text, located.repo, repo);
-    return storeNodeId(located);
-  }
-  const qualified = parseQualifiedNodeRef(text);
-  if (!sameStore(qualified.repo, repo)) throw crossStoreError(text, qualified.repo, repo);
-  return storeNodeId(qualified);
+  // A non-ref (a test double's `root`) passes through: the store owns it.
+  const ref = readNodeText(text, repo);
+  if (ref === undefined) return text;
+  // One store, whichever way the node is named. A located `owner/name#N` is
+  // held to this too: passed through, it would reach the GitHub store's read
+  // routes, which follow a located id to its own repo since #749.
+  if (!sameStore(ref.repo, repo)) throw crossStoreError(text, ref.repo, repo);
+  return storeNodeId(ref);
 }
 
 function crossStoreError(text: string, lives: RepoRef, repo: RepoRef): WorkGraphError {
@@ -242,41 +230,46 @@ function crossStoreError(text: string, lives: RepoRef, repo: RepoRef): WorkGraph
  * A blocker named in any form, reduced to the id `repo`'s store reads (#749).
  *
  * The one place an edge's far end is resolved, so `add` and `link` cannot read
- * a ref two ways. Accepts a bare `97` / `#97`, a located `owner/name#707` (read
- * on the store's forge and host), or a qualified forge ref. A blocker may sit in
- * a sibling repo — see {@link edgeNodeId} — but never on another forge or host:
- * a store writes edges through its own forge's API, and a GitHub store opens
- * github.com only.
+ * a ref two ways. A blocker may sit in a sibling repo — see {@link edgeNodeId}
+ * — but never on another forge or host: a store writes edges through its own
+ * forge's API, and a GitHub store opens github.com only.
  *
- * Anything else refuses. A string that is not a node ref used to pass through
- * untouched and reach a REST path, where `#707` became a URL fragment.
+ * Anything that is not a node ref refuses. It used to pass through untouched
+ * and reach a REST path, where `#707` became a URL fragment.
  */
 export function localBlockerId(text: string, repo: RepoRef): string {
-  const trimmed = text.trim();
-  const iid = parseBareNodeNumber(trimmed);
-  if (iid !== undefined) return storeNodeId({ repo, sigil: "#", iid });
-
-  const qualified = isQualifiedRef(trimmed) ? parseQualifiedNodeRef(trimmed) : locatedOnStore(trimmed, repo);
-  if (qualified.repo.forge !== repo.forge || qualified.repo.host !== repo.host) {
+  const ref = readNodeText(text, repo);
+  if (ref === undefined) {
     throw new WorkGraphError(
       "invalid-node",
-      `${trimmed} lives on ${qualified.repo.forge}:${qualified.repo.host}, not on this graph's forge (${repo.forge}:${repo.host}). A blocker may sit in another repo, never on another forge or host.`,
+      `"${text.trim()}" is not a node ref. Expected a number (97), a located ref (owner/name#707) or a qualified ref (${formatRepoRef(repo)}#97).`,
     );
   }
-  return edgeNodeId(qualified, repo);
+  if (ref.repo.forge !== repo.forge || ref.repo.host !== repo.host) {
+    throw new WorkGraphError(
+      "invalid-node",
+      `${text.trim()} lives on ${ref.repo.forge}:${ref.repo.host}, not on this graph's forge (${repo.forge}:${repo.host}). A blocker may sit in another repo, never on another forge or host.`,
+    );
+  }
+  return edgeNodeId(ref, repo);
 }
 
-/** `owner/name#N` (or a GitLab `group&N`) with no forge word: read on the store's forge and host. */
-function locatedOnStore(text: string, repo: RepoRef): QualifiedNodeRef {
-  const located = parseLocatedNodeId(text);
-  if (located === undefined) {
-    throw new WorkGraphError(
-      "invalid-node",
-      `"${text}" is not a node ref. Expected a number (97), a located ref (owner/name#707) or a qualified ref (${formatRepoRef(repo)}#97).`,
-    );
-  }
+/**
+ * Every form a node can be typed in, read as one qualified ref, so
+ * {@link localNodeId} and {@link localBlockerId} differ only in policy: a bare
+ * `12` / `#12` in `repo`, a located `owner/name#N` (or GitLab `group&N`) on
+ * `repo`'s forge and host, or a qualified forge ref. Undefined for text that
+ * is none of these.
+ */
+function readNodeText(text: string, repo: RepoRef): QualifiedNodeRef | undefined {
+  const trimmed = text.trim();
+  const iid = parseBareNodeNumber(trimmed);
+  if (iid !== undefined) return { repo, sigil: "#", iid };
+  if (isQualifiedRef(trimmed)) return parseQualifiedNodeRef(trimmed);
+  const located = parseLocatedNodeId(trimmed);
+  if (located === undefined) return undefined;
   if (located.sigil === "&" && repo.forge !== "gitlab") {
-    throw new WorkGraphError("invalid-node", `"${text}": only GitLab has epics (&N).`);
+    throw new WorkGraphError("invalid-node", `"${trimmed}": only GitLab has epics (&N).`);
   }
   return { repo: validateRepoRef({ forge: repo.forge, host: repo.host, path: located.path }), sigil: located.sigil, iid: located.iid };
 }

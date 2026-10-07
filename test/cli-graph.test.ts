@@ -572,6 +572,16 @@ test("add refuses before creating anything when any blocker cannot be read (#750
   expect(store.edges).toHaveLength(0);
 });
 
+test("an add refused for an unreadable blocker is JSON under --json", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") });
+
+  const parsed = JSON.parse(await failure([...addArgs("404"), "--json"], store));
+
+  expect(parsed.refused).toBe(true);
+  expect(parsed.unreadable.map((entry: { id: string }) => entry.id)).toEqual(["404"]);
+  expect(store.created).toHaveLength(0);
+});
+
 test("an edge that fails after creation does not strand the others, and the node is held off the frontier (#750)", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495") })

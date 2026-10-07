@@ -646,9 +646,12 @@ interface GraphStore {
 A blocker (`--blocked-by` on `add` and `link`) may live in another repo on the
 same forge and host, named `owner/name#N` or in full (#749): a map can wait on
 another repo's decision. It reads back with its repo, so `node` shows
-`owner/name#N` and the frontier judges it by its own status. Targets and
-membership stay in the store's own repo, and the GitHub store refuses any
-write (claim, release, comment, body, close, child, edge) to a node outside it.
+`owner/name#N` and the frontier judges it by its own status. Targets stay in
+the store's own repo, and the membership edges soma writes do too: the GitHub
+store refuses any write (claim, release, comment, body, close, child, edge) to
+a node outside it. A sub-issue added by hand in another repo is still reported
+by the walk, under its `owner/name#N` id rather than hidden or misnamed; a claim
+on it refuses, so it reads as present but not takeable from this store.
 
 ```bash
 soma graph frontier <root>         # open, unassigned, unblocked, over the whole

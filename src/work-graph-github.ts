@@ -302,6 +302,10 @@ function localIssueId(storeRepo: string, issue: { number: number; repo?: string 
   return gitHubNodeId(storeRepo, issue.repo ?? storeRepo, issue.number);
 }
 
+function withRepo(repo: string | undefined): { repo?: string } {
+  return repo === undefined ? {} : { repo };
+}
+
 function readIssue(value: unknown, context: string): GitHubIssue {
   const record = asRecord(value, context);
   const assignees = Array.isArray(record.assignees)
@@ -320,7 +324,7 @@ function readIssue(value: unknown, context: string): GitHubIssue {
     author: readLogin(record.user),
     assignees,
     ...(typeof record.html_url === "string" ? { url: record.html_url } : {}),
-    ...(repo === undefined ? {} : { repo }),
+    ...withRepo(repo),
     ...(parent === undefined ? {} : { parent }),
   };
 }
@@ -414,7 +418,7 @@ const BLOCKER_PAGE = 20;
  * few frontier nodes. Nothing here establishes where that crosses over — revisit
  * when payload rather than round trips is what a real map is paying.
  */
-const NODE_FIELDS = `number title state body url databaseId author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state repository{nameWithOwner}}}`;
+const NODE_FIELDS = `number title state body url databaseId repository{nameWithOwner} author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state repository{nameWithOwner}}}`;
 
 /** A node in the walk: its confirmed state, its children, and what arrived short. */
 interface SubtreeNode {
@@ -533,6 +537,7 @@ function readSubtreeState(storeRepo: string, record: Record<string, unknown>): {
     author: readLogin(record.author),
     assignees: assignees.entries.map((entry) => readLogin(entry)).filter((login) => login.length > 0),
     ...(typeof record.url === "string" ? { url: record.url } : {}),
+    ...withRepo(readIssueRepo(record)),
   };
 
   return {
@@ -767,8 +772,7 @@ class GitHubGraphStore implements GraphStore {
 
   async readNode(ref: NodeRef): Promise<NodeState> {
     const issue = await this.fetchIssue(ref);
-    // A parent the payload does not place lives with its child, never in the store's repo by default.
-    const parentId = issue.parent === undefined ? await this.fetchParentId(ref, issue.repo) : localIssueId(this.repo, { ...issue.parent, repo: issue.parent.repo ?? issue.repo });
+    const parentId = issue.parent === undefined ? await this.fetchParentId(ref, issue.repo) : this.parentId(issue.parent, issue.repo);
     const state = toNodeState(this.repo, issue, await this.fetchBlockers(ref), parentId === undefined ? undefined : { id: parentId });
     if (issue.status !== "closed") return state;
     if (state.node.completion === undefined) return { ...state, currentCloseReceipt: false };
@@ -802,20 +806,20 @@ class GitHubGraphStore implements GraphStore {
    * `readNode`, whose REST paths paginate.
    */
   async readSubtree(root: NodeRef): Promise<NodeState[]> {
-    const rootNumber = Number(root.id);
-    if (!Number.isInteger(rootNumber)) {
+    if (!BARE_ISSUE_ID.test(root.id)) {
       throw new WorkGraphError("backend", `readSubtree: ${root.id} is not an issue number`);
     }
 
     const states: NodeState[] = [];
     // Guards the result against a node reachable by two paths, and the walk
     // against a cycle. Sub-issues are a tree today; the seam promises nothing.
-    const seen = new Set<number>([rootNumber]);
+    // Keyed by store id, not number: a sub-issue in a sibling repo may share one.
+    const seen = new Set<string>([root.id]);
 
     const visit = async (node: SubtreeNode, parent: NodeRef): Promise<void> => {
-      const number = Number(node.state.ref.id);
-      if (seen.has(number)) return;
-      seen.add(number);
+      const id = node.state.ref.id;
+      if (seen.has(id)) return;
+      seen.add(id);
       // The walk knows the parent — it is whoever we arrived from — so the
       // membership edge costs nothing to report. Traverse closed nodes and
       // report them too: `readSubtree` states what the subtree holds, and §2.4
@@ -831,7 +835,7 @@ class GitHubGraphStore implements GraphStore {
     };
 
     try {
-      const rootNode = await this.fetchSubtree(rootNumber);
+      const rootNode = await this.fetchSubtree(root);
       for (const child of await this.completeChildren(rootNode)) await visit(child, root);
       return states;
     } catch (error) {
@@ -887,7 +891,7 @@ class GitHubGraphStore implements GraphStore {
    */
   private async completeChildren(node: SubtreeNode): Promise<SubtreeNode[]> {
     if (!node.childrenTruncated) return node.children;
-    return (await this.fetchSubtree(Number(node.state.ref.id))).children;
+    return (await this.fetchSubtree(node.state.ref)).children;
   }
 
   /**
@@ -900,9 +904,11 @@ class GitHubGraphStore implements GraphStore {
    * shortfall through {@link SubtreeNode.childrenTruncated}, but a top level
    * that quietly ends is indistinguishable from a complete one.
    */
-  private async fetchSubtree(issueNumber: number): Promise<SubtreeNode> {
+  private async fetchSubtree(ref: NodeRef): Promise<SubtreeNode> {
     const context = "subtree walk";
-    const [owner, name] = this.repo.split("/");
+    // A hand-added sub-issue in a sibling repo is re-rooted in its own repo.
+    const { repo, number: issueNumber } = this.locate(ref);
+    const [owner, name] = repo.split("/");
     const children: SubtreeNode[] = [];
     let self: { state: NodeState; truncated: boolean };
     let after: string | null = null;
@@ -922,7 +928,7 @@ class GitHubGraphStore implements GraphStore {
       const issue = (response as { data?: { repository?: { issue?: unknown } | null } } | null)?.data?.repository
         ?.issue;
       if (issue === undefined || issue === null) {
-        throw new WorkGraphError("backend", `${context}: issue ${issueNumber} not found in ${this.repo}`);
+        throw new WorkGraphError("backend", `${context}: issue ${issueNumber} not found in ${repo}`);
       }
 
       const record = asRecord(issue, context);
@@ -1211,11 +1217,16 @@ class GitHubGraphStore implements GraphStore {
         await this.transport({ method: "GET", path: `${this.readPath(ref)}/parent` }),
         `parent of issue ${ref.id}`,
       );
-      return localIssueId(this.repo, { ...parent, repo: parent.repo ?? childRepo });
+      return this.parentId(parent, childRepo);
     } catch (error) {
       if (isMissingRestResource(error)) return undefined;
       throw error;
     }
+  }
+
+  /** A parent the payload does not place lives with its child, never in the store's repo by default. */
+  private parentId(parent: { number: number; repo?: string }, childRepo: string | undefined): string {
+    return localIssueId(this.repo, { ...parent, repo: parent.repo ?? childRepo });
   }
 
   /** An issue lives where its id routed when the payload does not say, so a located read never comes back bare. */

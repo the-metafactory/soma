@@ -604,6 +604,25 @@ test("a short assignees or blockedBy page is repaired by a direct read, never tr
   ]);
 });
 
+test("the walk names a sibling-repo child with its repo and re-roots it there (#749)", async () => {
+  const pages: Record<string, unknown> = {
+    "495": gql(495, "OPEN", conn([gql(116, "OPEN", counted(1), { repository: { nameWithOwner: "the-metafactory/ranger" } })])),
+  };
+  const seen: unknown[] = [];
+  const transport: GitHubApiTransport = async (request) => {
+    if (request.path !== "graphql") throw new Error(`unexpected rest ${request.path}`);
+    const variables = (request.body as { variables: { owner: string; name: string; number: number } }).variables;
+    seen.push(variables);
+    if (variables.name === "ranger") return { data: { repository: { issue: gql(116, "OPEN", conn([gql(5, "OPEN", counted(0), { repository: { nameWithOwner: "the-metafactory/ranger" } })]), { repository: { nameWithOwner: "the-metafactory/ranger" } }) } } };
+    return { data: { repository: { issue: pages[String(variables.number)] } } };
+  };
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+
+  expect(ids(subtree)).toEqual(["the-metafactory/ranger#116", "the-metafactory/ranger#5"]);
+  expect(seen).toContainEqual(expect.objectContaining({ owner: "the-metafactory", name: "ranger", number: 116 }));
+});
+
 test("the walk names a sibling-repo blocker with its repo (#749)", async () => {
   const blockedBy = {
     totalCount: 2,
