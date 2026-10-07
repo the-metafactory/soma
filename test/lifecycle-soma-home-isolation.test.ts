@@ -12,7 +12,7 @@ import { portableProjectionInput } from "./fixtures";
 import { defaultSubstrateHome } from "../src/install-spec-registry";
 import { CODEX_LIFECYCLE_CONFIG_PATH } from "../src/adapters/codex/projection-constants";
 import { GROK_LIFECYCLE_CONFIG_PATH } from "../src/adapters/grok/projection-constants";
-import { PI_DEV_HOME_EXTENSION_PATH } from "../src/adapters/pi-dev/projection-constants";
+import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "../src/adapters/pi-dev/projection-constants";
 import { SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH, renderClaudeCodeStatusLineScript } from "../src/adapters/claude-code/hooks";
 
 // node #614: `--soma-home <scratch>` reads as "this invocation is sandboxed", but
@@ -291,13 +291,13 @@ test.each([
 });
 
 test.each([
-  ["codex", buildCodexHomeProjection],
-  ["grok", buildGrokHomeProjection],
-] as const)("%s projection binds the substrate home independently of its custom Soma source", (substrate, build) => {
+  ["codex", buildCodexHomeProjection, CODEX_LIFECYCLE_CONFIG_PATH],
+  ["grok", buildGrokHomeProjection, GROK_LIFECYCLE_CONFIG_PATH],
+] as const)("%s projection binds the substrate home independently of its custom Soma source", (substrate, build, configPath) => {
   const homeDir = resolve("/target-substrate-home");
   const somaHome = resolve("/custom-soma-home");
   const projection = build(portableProjectionInput, { homeDir, somaHome });
-  const configFile = projection.bundle.files.find((file) => file.path === "hooks/soma-lifecycle.config.json");
+  const configFile = projection.bundle.files.find((file) => file.path === configPath);
   expect(JSON.parse(configFile?.content ?? "{}")).toMatchObject({ somaHome, homeDir });
   const entry = projection.bundle.files.find((file) => file.path === `hooks/${substrate}-hook-entry.mjs`);
   expect(entry?.content).toContain('"--home-dir", config.homeDir ?? homedir()');
@@ -306,7 +306,7 @@ test.each([
 test("pi-dev binds both generated lifecycle extensions to the installation home", () => {
   const homeDir = resolve("/target-pi-home");
   const projection = buildPiDevHomeProjection(portableProjectionInput, { homeDir, somaHome: resolve("/custom-soma-home") });
-  for (const path of ["agent/extensions/soma.ts", "agent/extensions/soma-algorithm.ts"]) {
+  for (const path of [PI_DEV_HOME_EXTENSION_PATH, PI_DEV_ALGORITHM_EXTENSION_PATH]) {
     const content = projection.bundle.files.find((file) => file.path === path)?.content ?? "";
     expect(content).toContain(JSON.stringify(homeDir));
     expect(content).toContain('"--home-dir"');

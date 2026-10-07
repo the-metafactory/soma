@@ -411,8 +411,10 @@ directories or trust binding metadata copied inside the Soma source. Grok has
 no substrate-home environment override in its adapter; its default resolves
 from HOME/USERPROFILE.
 
-This compatibility applies to CLI hooks; library callers targeting a live
-substrate must supply `homeDir` when they supply `somaHome`.
+This compatibility applies to CLI hooks. This is a breaking change for library
+callers: supplying `somaHome` without `homeDir` now redirects substrate writes
+to `<somaHome>/.substrate-home`, with no CLI diagnostic. Library callers targeting
+a live substrate must supply `homeDir` when they supply `somaHome`.
 
 The derived substrate tree stays inside the scratch root to contain every
 write in the caller's sandbox. It is disposable projection output, not an

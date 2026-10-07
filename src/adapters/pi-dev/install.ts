@@ -1,4 +1,4 @@
-import { PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
+import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
 import { skillsLoaderUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { PI_DEV_DEFAULT_HOME, piDevProjectionPrivateRoots } from "../private-roots";
 import {
@@ -12,7 +12,7 @@ import { isPiDevSkillProjectionPath, projectPiDevHome } from "./adapter";
 export const PI_DEV_HOME_FILES = [
   PI_DEV_HOME_EXTENSION_PATH,
   "agent/extensions/soma-path-guard.ts",
-  "agent/extensions/soma-algorithm.ts",
+  PI_DEV_ALGORITHM_EXTENSION_PATH,
   "agent/soma/context.md",
   "agent/soma/profile.md",
   "agent/soma/startup-context.md",

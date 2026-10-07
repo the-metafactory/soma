@@ -914,6 +914,7 @@ async function repairProjectionAtSessionStart(
 
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
+  const homeDir = resolveLifecycleHomeDir(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
@@ -968,7 +969,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   if (options.transcriptPath && options.sessionId && transcriptHandler) {
     try {
       const fallback = await transcriptHandler({
-        homeDir: resolveLifecycleHomeDir(options),
+        homeDir,
         somaHome,
         now: new Date(timestamp),
         substrate: substrate(options),

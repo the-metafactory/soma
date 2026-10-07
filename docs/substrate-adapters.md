@@ -477,6 +477,11 @@ They do not invoke a substrate: optional invocation belongs to a separate
 projection-only substrate remains first-class and reports no execution
 capability rather than returning a misleading adapter-level failure stub.
 
+Lifecycle hooks must persist the installation `homeDir` and pass both
+`--soma-home` and `--home-dir` explicitly. Without a bound destination, an
+explicit Soma source uses an isolated substrate tree; see
+[lifecycle home isolation](./architecture.md#lifecycle-home-isolation).
+
 Shared work state is a core contract, not a substrate convention. Adapters that
 can identify a session should update:
 

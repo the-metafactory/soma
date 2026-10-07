@@ -15,10 +15,10 @@
  * 3. `soma install` replaces Soma entries written with another Bun path
  *    instead of appending a second set.
  */
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { installSomaForClaudeCode } from "../src/index";
 import {
@@ -67,6 +67,10 @@ async function waitForFile(path: string, timeoutMs: number): Promise<string | un
  */
 async function installWithRecorder(homeDir: string): Promise<{ hookPath: string; recordPath: string }> {
   await installSomaForClaudeCode({ homeDir });
+  return pointHookAtRecorder(homeDir);
+}
+
+async function pointHookAtRecorder(homeDir: string): Promise<{ hookPath: string; recordPath: string }> {
   const hookDir = join(homeDir, ".claude/hooks/soma");
   const hookPath = join(hookDir, "soma-claude-code-hook.mjs");
   const configPath = join(hookDir, "soma-claude-code-hook.config.json");
@@ -79,14 +83,67 @@ async function installWithRecorder(homeDir: string): Promise<{ hookPath: string;
   return { hookPath, recordPath };
 }
 
-function runHook(hookPath: string, event: string, entrypoint: string, homeDir: string) {
+function runHook(hookPath: string, event: string, entrypoint: string, homeDir: string, runtimeHome?: string) {
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
   env.CLAUDE_CODE_ENTRYPOINT = entrypoint;
+  if (runtimeHome !== undefined) {
+    env.HOME = runtimeHome;
+    env.USERPROFILE = runtimeHome;
+    env.BUN_RUNTIME_TRANSPILER_CACHE_PATH = "0";
+  }
   return spawnSync(process.execPath, [hookPath, event], {
     input: JSON.stringify({ session_id: "fanout-test-session", cwd: homeDir }),
     env,
     encoding: "utf8",
   });
+}
+
+for (const operation of ["install", "reproject"] as const) {
+  for (const event of ["session-start", "session-end"] as const) {
+    test(`${operation} binds the Claude Code ${event} hook to a custom home despite a different runtime HOME`, async () => {
+      await withTempHome(async (root) => {
+        const homeDir = join(root, "installation-home");
+        const runtimeHome = join(root, "runtime-home");
+        const somaHome = join(root, "soma-source");
+        await mkdir(runtimeHome);
+        await installSomaForClaudeCode({ homeDir, somaHome });
+
+        if (operation === "reproject") {
+          // Simulate a legacy hook config before reprojection, so retaining the
+          // original install's homeDir cannot make this case pass accidentally.
+          const configPath = join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json");
+          const config = JSON.parse(await readFile(configPath, "utf8"));
+          delete config.homeDir;
+          await writeFile(configPath, JSON.stringify(config));
+          const result = spawnSync(process.execPath, [
+            "src/cli.ts", "reproject", "claude-code", "--home-dir", homeDir, "--soma-home", somaHome,
+          ], {
+            cwd: resolve(import.meta.dir, ".."),
+            env: { ...process.env, HOME: runtimeHome, USERPROFILE: runtimeHome, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
+            encoding: "utf8",
+            timeout: 30_000,
+          });
+          expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+        }
+
+        const configPath = join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json");
+        expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({ homeDir, somaHome });
+        const { hookPath, recordPath } = await pointHookAtRecorder(homeDir);
+        const result = runHook(hookPath, event, "cli", homeDir, runtimeHome);
+        expect(result.status).toBe(0);
+        const recorded = await waitForFile(recordPath, 5000);
+        expect(recorded).toBeDefined();
+        const args = (recorded ?? "").trim().split("\n");
+        expect(args).toContain("lifecycle");
+        expect(args).toContain(event);
+        for (const [flag, value] of [["--soma-home", somaHome], ["--home-dir", homeDir]] as const) {
+          const index = args.indexOf(flag);
+          expect(index).toBeGreaterThan(-1);
+          expect(args[index + 1]).toBe(value);
+        }
+      });
+    }, 30_000);
+  }
 }
 
 for (const event of ["session-start", "session-end"] as const) {

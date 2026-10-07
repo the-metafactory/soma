@@ -1,4 +1,4 @@
-import { PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
+import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
@@ -713,7 +713,7 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string, homeD
       // helpers via file:// URLs into the Soma repo so the runtime
       // stays locked to the parser/widget unit tests.
       {
-        path: "agent/extensions/soma-algorithm.ts",
+        path: PI_DEV_ALGORITHM_EXTENSION_PATH,
         content: renderSomaAlgorithmExtension({ somaHome, homeDir: substrateHomeDir }),
       },
       // YAML-frontmatter skill file — same exclusion reasoning as grok/codex's
