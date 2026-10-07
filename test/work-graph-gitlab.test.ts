@@ -172,7 +172,7 @@ test("GitLab attachToParent refuses a parent outside the child's home project or
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport });
 
   await expect(store.attachToParent({ id: "saca/secacademy#2" }, { id: "saca&1" })).rejects.toThrow(/not in saca&1's home project saca\/other/u);
-  await expect(store.attachToParent({ id: "saca/secacademy#2" }, { id: "saca/secacademy#3" })).rejects.toThrow(/cannot attach a Issue below a Issue/u);
+  await expect(store.attachToParent({ id: "saca/secacademy#2" }, { id: "saca/secacademy#3" })).rejects.toThrow("cannot attach Issue saca/secacademy#2 below Issue saca/secacademy#3: only Task goes there");
   expect(calls.some((call) => String(call.body?.query).includes("workItemUpdate"))).toBe(false);
 });
 

@@ -1092,9 +1092,10 @@ async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: Repo
   const already = parsed.options.blockedBy.filter((id) => existing.has(id));
   const { written, failed } = await graph.addBlockingEdges(blocked, parsed.options.blockedBy.filter((id) => !existing.has(id)).map((id) => ({ id })));
   const parent = parsed.options.parent;
-  let parentStatus: ParentStatus = "not attached";
+  // With an edge failed the attach does not run, but a node already under `parent` is not "not attached".
+  let parentStatus: ParentStatus = parent !== undefined && state.parent?.id === parent ? "already" : "not attached";
   let attachError: string | undefined;
-  if (parent !== undefined && failed.length === 0) {
+  if (parent !== undefined && failed.length === 0 && parentStatus !== "already") {
     try {
       parentStatus = (await graph.attach(blocked, { id: parent })).status;
     } catch (error) {

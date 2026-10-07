@@ -737,6 +737,19 @@ test("link --parent reports a failed attach with the edges that landed, as JSON 
   expect(parsed).toMatchObject({ parent: "495", parentStatus: "failed", attachError: "sub_issues write failed" });
 });
 
+test("link --parent with a failed edge reports a node already under that parent as already there", async () => {
+  const store = new FakeStore()
+    .seed("900", { node: autoNode("900"), parent: "495" })
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") });
+  store.failingEdges.add("96");
+
+  const message = await failure(["graph", "link", "900", "--blocked-by", "96", "--parent", "495", "--repo", REPO], store);
+
+  expect(message).toContain("- under 495: already there");
+  expect(store.calls).toEqual([]);
+});
+
 test("claim refuses a node with an open blocker (#740)", async () => {
   const store = new FakeStore().seed("86", { node: autoNode("86"), blockedBy: [{ id: "81", status: "open" }] });
 

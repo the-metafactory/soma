@@ -1487,6 +1487,10 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
 // Contract layer
 // ---------------------------------------------------------------------------
 
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * The rules, over any {@link GraphStore}. Verbs (`soma graph …`, #498) call
  * this; nothing here knows what a tracker is.
@@ -1531,7 +1535,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     try {
       await this.store.attachToParent(created, parent);
     } catch (error) {
-      return { ...result, attached: false, attachError: error instanceof Error ? error.message : String(error) };
+      return { ...result, attached: false, attachError: errorText(error) };
     }
     return { ...result, attached: true };
   }
@@ -1565,7 +1569,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
         await this.addBlockingEdge(blocker, blocked);
         edges.written.push(blocker.id);
       } catch (error) {
-        edges.failed.push({ id: blocker.id, reason: error instanceof Error ? error.message : String(error) });
+        edges.failed.push({ id: blocker.id, reason: errorText(error) });
       }
     }
     return edges;
