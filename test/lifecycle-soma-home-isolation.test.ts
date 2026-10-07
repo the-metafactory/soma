@@ -9,7 +9,11 @@ import { memoryNotePath, type WritableType } from "../src/memory-write";
 import { resolveInstalledLifecycleHomeDir } from "../src/adapters/shared/lifecycle-home-binding";
 import { buildCodexHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection } from "../src/home-projection";
 import { portableProjectionInput } from "./fixtures";
-import { renderClaudeCodeStatusLineScript } from "../src/adapters/claude-code/hooks";
+import { defaultSubstrateHome } from "../src/install-spec-registry";
+import { CODEX_LIFECYCLE_CONFIG_PATH } from "../src/adapters/codex/projection-constants";
+import { GROK_LIFECYCLE_CONFIG_PATH } from "../src/adapters/grok/projection-constants";
+import { PI_DEV_HOME_EXTENSION_PATH } from "../src/adapters/pi-dev/projection-constants";
+import { SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH, renderClaudeCodeStatusLineScript } from "../src/adapters/claude-code/hooks";
 
 // node #614: `--soma-home <scratch>` reads as "this invocation is sandboxed", but
 // substrate homes used to resolve against `os.homedir()` regardless, so a
@@ -31,6 +35,13 @@ async function withTempRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
 async function listFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true });
   return entries.filter((entry) => !entry.isDirectory()).map((entry) => join(entry.parentPath, entry.name));
+}
+
+async function writeLegacyClaudeBinding(home: string, somaHome: string): Promise<string> {
+  const configPath = join(home, defaultSubstrateHome("claude-code"), SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH);
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFile(configPath, JSON.stringify({ somaHome }));
+  return configPath;
 }
 
 // A non-empty memory index is what makes session-start project a substrate
@@ -56,7 +67,7 @@ async function seedScratchSomaHome(somaHome: string): Promise<void> {
   await writeFile(path, serializeMemoryNote(n), "utf8");
 }
 
-function runLifecycle(fakeHome: string, args: string[], event = "session-start"): void {
+function runLifecycle(fakeHome: string, args: string[], event = "session-start") {
   // Bun's own transpiler cache lives under HOME; it is not Soma's write, so keep
   // it out of the fake home rather than filter it from the assertions.
   const env: Record<string, string | undefined> = { ...process.env, HOME: fakeHome, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" };
@@ -71,6 +82,7 @@ function runLifecycle(fakeHome: string, args: string[], event = "session-start")
     timeout: 60_000,
   });
   if (result.status !== 0) throw new Error(`soma lifecycle exited ${result.status}: ${result.stderr}`);
+  return result;
 }
 
 test.each(["absolute", "relative"])("lifecycle session-start with %s scratch --soma-home writes nothing outside it", async (pathKind) => {
@@ -134,9 +146,7 @@ test.each(["implicit", "explicit"])("lifecycle with the %s default soma home sti
     await seedScratchSomaHome(somaHome);
 
     // A legacy installation explicitly binds the live substrate to this source.
-    const configPath = join(fakeHome, ".claude/hooks/soma/soma-claude-code-hook.config.json");
-    await mkdir(dirname(configPath), { recursive: true });
-    await writeFile(configPath, JSON.stringify({ somaHome }));
+    await writeLegacyClaudeBinding(fakeHome, somaHome);
     runLifecycle(fakeHome, pathKind === "explicit" ? ["--soma-home", somaHome] : []);
 
     const projected = join(fakeHome, ".claude", "rules", "soma", "MEMORY.md");
@@ -177,9 +187,7 @@ test.each(["source", "symlink"])("legacy custom live installation keeps projecti
     await seedScratchSomaHome(somaHome);
     const alias = join(root, "alias-soma");
     await symlink(somaHome, alias, "dir");
-    const configPath = join(fakeHome, ".claude/hooks/soma/soma-claude-code-hook.config.json");
-    await mkdir(dirname(configPath), { recursive: true });
-    await writeFile(configPath, JSON.stringify({ somaHome }));
+    await writeLegacyClaudeBinding(fakeHome, somaHome);
     runLifecycle(fakeHome, ["--soma-home", kind === "symlink" ? alias : somaHome]);
     expect((await stat(join(fakeHome, ".claude/rules/soma/MEMORY.md"))).isFile()).toBe(true);
     await expect(stat(join(somaHome, SCRATCH_SUBSTRATE_HOME_DIRNAME))).rejects.toThrow();
@@ -193,10 +201,8 @@ test("a live installation bound to another source cannot authorize scratch write
     const scratch = join(root, "scratch-soma");
     await seedScratchSomaHome(live);
     await seedScratchSomaHome(scratch);
-    const configPath = join(fakeHome, ".claude/hooks/soma/soma-claude-code-hook.config.json");
-    await mkdir(dirname(configPath), { recursive: true });
+    const configPath = await writeLegacyClaudeBinding(fakeHome, live);
     const config = JSON.stringify({ somaHome: live });
-    await writeFile(configPath, config);
     // A copy of live metadata inside scratch is not a binding from the substrate.
     await mkdir(join(scratch, "projections"), { recursive: true });
     await writeFile(join(scratch, "projections", "live-binding.json"), config);
@@ -239,21 +245,25 @@ test("session-end passes the derived home to a registered transcript handler", a
     const scratch = join(root, "scratch-soma");
     await seedScratchSomaHome(scratch);
     let receivedHome: string | undefined;
-    registerSessionEndTranscriptHandler("custom", async (input) => {
+    const restore = registerSessionEndTranscriptHandler("custom", async (input) => {
       receivedHome = input.homeDir;
       return { outcome: "skipped" };
     });
-    await runSomaLifecycleSessionEnd({ somaHome: scratch, substrate: "custom", sessionId: "scratch-handler", transcriptPath: join(scratch, "session.jsonl") });
-    expect(receivedHome).toBe(join(scratch, SCRATCH_SUBSTRATE_HOME_DIRNAME));
+    try {
+      await runSomaLifecycleSessionEnd({ somaHome: scratch, substrate: "custom", sessionId: "scratch-handler", transcriptPath: join(scratch, "session.jsonl") });
+      expect(receivedHome).toBe(join(scratch, SCRATCH_SUBSTRATE_HOME_DIRNAME));
+    } finally {
+      restore();
+    }
   });
 });
 
 
 test.each([
-  ["claude-code", ".claude/hooks/soma/soma-claude-code-hook.config.json"],
-  ["codex", ".codex/hooks/soma-lifecycle.config.json"],
-  ["grok", ".grok/hooks/soma-lifecycle.config.json"],
-  ["pi-dev", ".pi/agent/extensions/soma.ts"],
+  ["claude-code", SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH],
+  ["codex", CODEX_LIFECYCLE_CONFIG_PATH],
+  ["grok", GROK_LIFECYCLE_CONFIG_PATH],
+  ["pi-dev", PI_DEV_HOME_EXTENSION_PATH],
 ] as const)("legacy %s bindings accept aliases and reject copied or invalid sources", async (substrate, bindingPath) => {
   await withTempRoot(async (root) => {
     const liveHome = join(root, "home");
@@ -263,9 +273,11 @@ test.each([
     await mkdir(source);
     await mkdir(scratch);
     await symlink(source, alias, "dir");
-    const binding = join(liveHome, bindingPath);
+    const binding = join(liveHome, defaultSubstrateHome(substrate), bindingPath);
     await mkdir(dirname(binding), { recursive: true });
-    const raw = substrate === "pi-dev" ? `const SOMA_HOME = ${JSON.stringify(source)};\n` : JSON.stringify({ somaHome: source });
+    const raw = substrate === "pi-dev"
+      ? buildPiDevHomeProjection(portableProjectionInput, { homeDir: liveHome, somaHome: source }).bundle.files.find((file) => file.path === PI_DEV_HOME_EXTENSION_PATH)!.content
+      : JSON.stringify({ somaHome: source });
     await writeFile(binding, raw);
     expect(await resolveInstalledLifecycleHomeDir({ somaHome: source, substrate }, liveHome)).toBe(liveHome);
     expect(await resolveInstalledLifecycleHomeDir({ somaHome: alias, substrate }, liveHome)).toBe(liveHome);
@@ -312,3 +324,61 @@ test("the default Soma path without an installed binding is isolated too", async
     expect((await stat(join(scratch, SCRATCH_SUBSTRATE_HOME_DIRNAME, ".claude/rules/soma/MEMORY.md"))).isFile()).toBe(true);
   });
 }, 120_000);
+
+// Arbitrary install-time --home-dir values are not available to an old hook's
+// subprocess. Do not guess a destination from copied Soma-side metadata.
+test("a relocated legacy installation reports isolation and requires an explicit destination", async () => {
+  await withTempRoot(async (root) => {
+    const fakeHome = join(root, "os-home");
+    const relocatedHome = join(root, "relocated-home");
+    const somaHome = join(root, "live-soma");
+    await mkdir(fakeHome);
+    await seedScratchSomaHome(somaHome);
+    const configPath = await writeLegacyClaudeBinding(relocatedHome, somaHome);
+    const config = JSON.stringify({ somaHome });
+    const memoryPath = join(relocatedHome, ".claude/rules/soma/MEMORY.md");
+    await mkdir(dirname(memoryPath), { recursive: true });
+    await writeFile(memoryPath, "previous live projection\n");
+
+    const isolated = runLifecycle(fakeHome, ["--soma-home", somaHome]);
+    expect(isolated.stderr).toContain("Soma lifecycle: no matching installed home binding");
+    expect(isolated.stderr).toContain("--home-dir");
+    expect(isolated.stderr).toContain("reproject");
+    expect(isolated.stdout).toContain("substrate destination: isolated");
+    expect(await readFile(memoryPath, "utf8")).toBe("previous live projection\n");
+    expect(await readFile(configPath, "utf8")).toBe(config);
+    expect(await listFiles(fakeHome)).toEqual([]);
+    expect((await stat(join(somaHome, SCRATCH_SUBSTRATE_HOME_DIRNAME, ".claude/rules/soma/MEMORY.md"))).isFile()).toBe(true);
+
+    const explicit = runLifecycle(fakeHome, ["--soma-home", somaHome, "--home-dir", relocatedHome]);
+    expect(explicit.stderr).not.toContain("no matching installed home binding");
+    expect(await readFile(memoryPath, "utf8")).toContain("isolation-fact");
+    expect(await listFiles(fakeHome)).toEqual([]);
+  });
+}, 120_000);
+
+test("disposing a temporary transcript handler restores the previous registration", async () => {
+  await withTempRoot(async (root) => {
+    const scratch = join(root, "soma");
+    await seedScratchSomaHome(scratch);
+    const calls: string[] = [];
+    const restoreOriginal = registerSessionEndTranscriptHandler("custom", async () => {
+      calls.push("previous");
+      return { outcome: "skipped" };
+    });
+    const restorePrevious = registerSessionEndTranscriptHandler("custom", async () => {
+      calls.push("temporary");
+      return { outcome: "skipped" };
+    });
+    const options = { somaHome: scratch, substrate: "custom" as const, sessionId: "restore-handler", transcriptPath: join(scratch, "session.jsonl") };
+    try {
+      await runSomaLifecycleSessionEnd(options);
+      restorePrevious();
+      await runSomaLifecycleSessionEnd(options);
+      expect(calls).toEqual(["temporary", "previous"]);
+    } finally {
+      restorePrevious();
+      restoreOriginal();
+    }
+  });
+});

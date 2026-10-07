@@ -389,11 +389,28 @@ without `--soma-home` retains normal live-home behavior.
 
 Installed lifecycle hooks bind both homes explicitly, including custom Soma
 homes. Re-running `soma reproject <substrate>` regenerates older hooks with that
-binding. Until then, the lifecycle CLI reads the existing live substrate's
-Soma hook config (or pi-dev's generated extension): it retains the live home
-only when that installation's recorded Soma source matches the requested home
-by realpath. Symlink aliases keep working; a copied scratch tree does not match.
+binding. Until then, compatibility lookup covers only the default substrate
+location under the OS home (`~/.claude`, `~/.codex`, `~/.grok`, or `~/.pi`). The
+CLI reads its Soma hook config (or pi-dev's generated extension) and retains the
+live home only when the recorded Soma source matches the requested home by
+realpath. Symlink aliases keep working; a copied scratch tree does not match.
 No directory name or default-path comparison implies a live installation.
+
+A legacy installation made with a custom `--home-dir`, or a relocated substrate
+home (including `CODEX_HOME`), cannot be discovered from the old lifecycle
+arguments. The CLI reports an isolated substrate destination on stdout and
+explains the missing binding and migration on stderr instead of redirecting
+silently. Pin `--home-dir <installation-home>` in the lifecycle invocation, or
+run `soma reproject <substrate> --home-dir <installation-home> --soma-home <source>`
+to regenerate the hooks for that base home. Lifecycle uses the adapter's default
+relative substrate layout under `homeDir`; it does not consume `CODEX_HOME` or
+an independent install-time `--substrate-home` override. Such installations
+need a base home with that layout for lifecycle refreshes; reprojection alone
+does not add arbitrary substrate-path support. Soma does not search arbitrary
+directories or trust binding metadata copied inside the Soma source. Grok has
+no substrate-home environment override in its adapter; its default resolves
+from HOME/USERPROFILE.
+
 This compatibility applies to CLI hooks; library callers targeting a live
 substrate must supply `homeDir` when they supply `somaHome`.
 

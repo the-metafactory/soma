@@ -6,6 +6,7 @@ import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../
 import { removeProjectedSkillLinks } from "../../projected-skill-links";
 import { GROK_DEFAULT_HOME, grokProjectionPrivateRoots } from "../private-roots";
 import {
+  GROK_LIFECYCLE_CONFIG_PATH,
   GROK_AGENT_MARKER,
   GROK_PERSONA_MARKER,
   GROK_ROLE_MARKER,
@@ -41,7 +42,7 @@ export const GROK_STATIC_PROJECTION_FILES = [
   "skills/soma/communication.md",
   "hooks/soma-lifecycle.json",
   "hooks/soma-lifecycle.mjs",
-  "hooks/soma-lifecycle.config.json",
+  GROK_LIFECYCLE_CONFIG_PATH,
   "hooks/grok-hook-entry.mjs",
   // The shell-extraction core precedes its importer so a reproject never
   // has a window where grok-policy-targets.mjs is on disk without it.

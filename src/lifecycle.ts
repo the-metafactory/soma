@@ -826,9 +826,15 @@ export type SessionEndTranscriptHandler = (input: {
 
 const sessionEndTranscriptHandlers = new Map<SubstrateId, SessionEndTranscriptHandler>();
 
-/** Register a substrate's SessionEnd transcript-digest fallback (see the type doc). */
-export function registerSessionEndTranscriptHandler(substrate: SubstrateId, handler: SessionEndTranscriptHandler): void {
+/** Register a transcript-digest fallback; returns a disposer restoring the previous handler. */
+export function registerSessionEndTranscriptHandler(substrate: SubstrateId, handler: SessionEndTranscriptHandler): () => void {
+  const previous = sessionEndTranscriptHandlers.get(substrate);
   sessionEndTranscriptHandlers.set(substrate, handler);
+  return () => {
+    if (sessionEndTranscriptHandlers.get(substrate) !== handler) return;
+    if (previous === undefined) sessionEndTranscriptHandlers.delete(substrate);
+    else sessionEndTranscriptHandlers.set(substrate, previous);
+  };
 }
 
 /**

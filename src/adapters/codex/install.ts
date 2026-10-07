@@ -1,3 +1,4 @@
+import { CODEX_LIFECYCLE_CONFIG_PATH } from "./projection-constants";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { configureCodexInstall } from "./config";
@@ -11,7 +12,7 @@ export const CODEX_HOME_FILES = [
   "rules/soma.rules",
   "hooks.json",
   "hooks/soma-lifecycle.mjs",
-  "hooks/soma-lifecycle.config.json",
+  CODEX_LIFECYCLE_CONFIG_PATH,
   "hooks/codex-hook-entry.mjs",
   "hooks/soma-feedback-capture.mjs",
   "hooks/codex-policy-hook.mjs",

@@ -1,3 +1,4 @@
+import { PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
@@ -645,6 +646,7 @@ export function projectPiDev(input: ProjectionInput): Projection {
 }
 
 export function projectPiDevHome(input: ProjectionInput, somaHome: string, homeDir = homedir()): Projection {
+  const substrateHomeDir = resolve(homeDir);
   const instructions = renderInstructions(input);
   const portableSkillFiles = buildPiDevPortableSkillFiles(projectableSkills(input.profile.skills, input.bundledSkillNames));
 
@@ -657,8 +659,8 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string, homeD
       // Script goal source text, not Module goal (ECMA-262 Annex B.1.1), so
       // it would be a syntax error here (soma#370 investigation).
       {
-        path: "agent/extensions/soma.ts",
-        content: renderHomeExtension(somaHome, resolve(homeDir)),
+        path: PI_DEV_HOME_EXTENSION_PATH,
+        content: renderHomeExtension(somaHome, substrateHomeDir),
       },
       // soma#370: plain markdown narrative files carry the byte-stable
       // provenance header so `soma doctor` can distinguish a managed
@@ -712,7 +714,7 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string, homeD
       // stays locked to the parser/widget unit tests.
       {
         path: "agent/extensions/soma-algorithm.ts",
-        content: renderSomaAlgorithmExtension({ somaHome, homeDir: resolve(homeDir) }),
+        content: renderSomaAlgorithmExtension({ somaHome, homeDir: substrateHomeDir }),
       },
       // YAML-frontmatter skill file — same exclusion reasoning as grok/codex's
       // skills/soma/SKILL.md.

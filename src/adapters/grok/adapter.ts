@@ -9,6 +9,7 @@ import { defaultInboundContentSecurityConfig } from "../../inbound-security";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
 import {
+  GROK_LIFECYCLE_CONFIG_PATH,
   GROK_AGENT_MARKER,
   GROK_PERSONA_MARKER,
   GROK_ROLE_MARKER,
@@ -619,7 +620,7 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
       // harmless POSIX parity — Grok invokes via the explicit bunPath.
       { path: "hooks/soma-lifecycle.mjs", content: readGrokHookAsset("soma-lifecycle.mjs"), executable: true },
       {
-        path: "hooks/soma-lifecycle.config.json",
+        path: GROK_LIFECYCLE_CONFIG_PATH,
         content: `${JSON.stringify(grokLifecycleConfig(somaHome, grokHome, options.homeDir, somaRepoPath), null, 2)}\n`,
       },
       { path: "hooks/grok-hook-entry.mjs", content: renderGrokHookEntry() },
