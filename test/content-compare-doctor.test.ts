@@ -112,7 +112,7 @@ test("soma#370: content-compare does NOT fail open on an unbootstrapped home —
   });
 });
 
-test("soma#370: loadProjectionInputForDoctor distinguishes a missing home (typed error) from a bad repo path (no error)", async () => {
+test("soma#370: loadProjectionInputForDoctor distinguishes a missing home from a bad repo path", async () => {
   await withTempHome(async (homeDir) => {
     const somaHome = join(homeDir, ".soma");
 
@@ -124,30 +124,30 @@ test("soma#370: loadProjectionInputForDoctor distinguishes a missing home (typed
     ).rejects.toBeInstanceOf(SomaHomeNotLoadableError);
 
     // (b) Installed home + a BOGUS repo path → the loader must NOT throw
-    // SomaHomeNotLoadableError (the home IS loadable). The repo miss is
-    // isolated to listBundledSkills, which degrades to [] — a repo-path
-    // problem is never conflated with the user's home being uninstalled.
+    // SomaHomeNotLoadableError (the home IS loadable). The repo error propagates
+    // as a setup fault, never as an empty skill inventory.
     await installSomaForCursor({ homeDir });
-    const input = await loadProjectionInputForDoctor({ somaHome, somaRepoPath: join(homeDir, "no-such-repo") });
-    expect(input.bundledSkillNames).toEqual([]);
+    const load = () => loadProjectionInputForDoctor({ somaHome, somaRepoPath: join(homeDir, "no-such-repo") });
+    await expect(load()).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(load()).rejects.not.toBeInstanceOf(SomaHomeNotLoadableError);
   });
 });
 
-test("soma#370: a bad soma repo path on an installed home does NOT masquerade as not-diagnosable", async () => {
+test("soma#370: doctor propagates a bad repo path on an installed home instead of reporting not-diagnosable", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCursor({ homeDir });
 
     // A repo-path (source-checkout) problem is an internal/setup fault, not a
     // "Soma not installed" state — the doctor must NOT emit the
     // not-diagnosable finding nor the "soma install" remediation for it.
-    const findings = await diagnoseContentCompareDrift({
+    const diagnosis = diagnoseContentCompareDrift({
       substrate: "cursor",
       homeDir,
       somaHome: join(homeDir, ".soma"),
       somaRepoPath: join(homeDir, "no-such-repo"),
     });
-    expect(findings.find((f) => f.id === "cursor-not-diagnosable")).toBeUndefined();
-    expect(findings.some((f) => f.action === "soma install cursor")).toBe(false);
+    await expect(diagnosis).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(diagnosis).rejects.not.toBeInstanceOf(SomaHomeNotLoadableError);
   });
 });
 

@@ -12,27 +12,19 @@
  *
  * `test/repo-path-compile.test.ts` fails while the committed module is stale.
  */
-import { readdirSync, writeFileSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { writeFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { toPosixRelative, walkFiles } from "../src/fs-walk";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 export const BUNDLED_SKILL_FILES_MODULE = join(REPO_ROOT, "src", "bundled-skill-files.generated.ts");
 const SKILLS_ROOT = join(REPO_ROOT, "src", "skills");
 
-export function walk(root: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) out.push(...walk(path));
-    else if (entry.isFile()) out.push(path);
-  }
-  return out;
-}
-
 /** Posix paths of every file under `src/skills/<skill>/`, sorted by code unit. */
 export function bundledSkillFilePaths(skillsRoot = SKILLS_ROOT): string[] {
-  return walk(skillsRoot)
-    .map((path) => relative(skillsRoot, path).split(sep).join("/"))
+  // Checkout-local Finder/editor files must never become compiled imports.
+  return walkFiles(skillsRoot, { skipHidden: true })
+    .map((path) => toPosixRelative(skillsRoot, path))
     // A loose file directly under src/skills belongs to no skill.
     .filter((path) => path.includes("/"))
     .sort();

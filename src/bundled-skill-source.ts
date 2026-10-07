@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { isEnoent } from "./fs-errors";
+import { comparePaths, toPosixRelative, walkFiles } from "./fs-walk";
 import { defaultSomaRepoPath } from "./repo-path";
 
 /**
@@ -11,9 +12,10 @@ import { defaultSomaRepoPath } from "./repo-path";
  * Reading `<defaultSomaRepoPath()>/src/skills` instead breaks under
  * `bun build --compile`: `import.meta.dirname` resolves into the virtual
  * `/$bunfs` root, which holds no files, and every caller treats a missing tree
- * as "no skills" — so a compiled `soma install` wrote no skill content and
- * reported success. Source and compiled runs take the same path here, so the
- * suite exercises what the binary ships.
+ * as "no skills", letting the skill APIs succeed without writing content.
+ * Source and compiled runs take the same path here. The CLI's separate
+ * source-runtime staging requirement is covered in repo-path-compile.test.ts;
+ * embedded skills alone do not make compiled CLI installation work.
  *
  * Any OTHER repo path (test fixtures, a staged runtime copy) is read from disk.
  */
@@ -29,10 +31,14 @@ export interface BundledSkillFile {
   content: string | Buffer;
 }
 
-const byPath = (a: BundledSkillFile, b: BundledSkillFile): number => a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+const byPath = (a: BundledSkillFile, b: BundledSkillFile): number => comparePaths(a.path, b.path);
 
-function readsEmbeddedTree(somaRepoPath: string | undefined): boolean {
-  return somaRepoPath === undefined || resolve(somaRepoPath) === defaultSomaRepoPath();
+function readsEmbeddedTree(somaRepoPath: string): boolean {
+  return resolve(somaRepoPath) === defaultSomaRepoPath();
+}
+
+function diskSkillsRoot(somaRepoPath: string): string {
+  return join(resolve(somaRepoPath), SKILLS_SUBPATH);
 }
 
 async function embeddedFiles(): Promise<Readonly<Record<string, string>>> {
@@ -42,25 +48,13 @@ async function embeddedFiles(): Promise<Readonly<Record<string, string>>> {
   return (await import("./bundled-skill-files.generated")).BUNDLED_SKILL_FILES;
 }
 
-async function* walkFiles(root: string): AsyncGenerator<string> {
-  for (const entry of await readdir(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) {
-      yield* walkFiles(path);
-    } else if (entry.isFile()) {
-      yield path;
-    }
-  }
-}
-
-/** Directory names of the bundled skills, sorted. `[]` when the repo ships none. */
+/** Sorted skill names; an empty tree returns `[]`, but an invalid explicit root throws. */
 export async function bundledSkillNames(somaRepoPath?: string): Promise<string[]> {
-  if (readsEmbeddedTree(somaRepoPath)) {
+  if (somaRepoPath === undefined || readsEmbeddedTree(somaRepoPath)) {
     const names = new Set(Object.keys(await embeddedFiles()).map((path) => path.slice(0, path.indexOf("/"))));
     return [...names].sort();
   }
-  const root = join(resolve(somaRepoPath ?? ""), SKILLS_SUBPATH);
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const entries = await readdir(diskSkillsRoot(somaRepoPath), { withFileTypes: true });
   return entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -72,7 +66,7 @@ export async function bundledSkillNames(somaRepoPath?: string): Promise<string[]
  * repo does not ship that skill.
  */
 export async function readBundledSkill(name: string, somaRepoPath?: string): Promise<BundledSkillFile[] | undefined> {
-  if (readsEmbeddedTree(somaRepoPath)) {
+  if (somaRepoPath === undefined || readsEmbeddedTree(somaRepoPath)) {
     const prefix = `${name}/`;
     const files = Object.entries(await embeddedFiles())
       .filter(([path]) => path.startsWith(prefix))
@@ -80,11 +74,11 @@ export async function readBundledSkill(name: string, somaRepoPath?: string): Pro
       .sort(byPath);
     return files.length > 0 ? files : undefined;
   }
-  const skillDir = join(resolve(somaRepoPath ?? ""), SKILLS_SUBPATH, name);
+  const skillDir = join(diskSkillsRoot(somaRepoPath), name);
   const files: BundledSkillFile[] = [];
   try {
-    for await (const absPath of walkFiles(skillDir)) {
-      files.push({ path: relative(skillDir, absPath).split(sep).join("/"), content: await readFile(absPath) });
+    for (const absPath of walkFiles(skillDir)) {
+      files.push({ path: toPosixRelative(skillDir, absPath), content: await readFile(absPath) });
     }
   } catch (error) {
     if (isEnoent(error) && files.length === 0) return undefined;
@@ -95,12 +89,12 @@ export async function readBundledSkill(name: string, somaRepoPath?: string): Pro
 
 /** One text file of a bundled skill; throws when the skill or the file is absent. */
 export async function readBundledSkillFile(name: string, path: string, somaRepoPath?: string): Promise<string> {
-  if (readsEmbeddedTree(somaRepoPath)) {
+  if (somaRepoPath === undefined || readsEmbeddedTree(somaRepoPath)) {
     const content = (await embeddedFiles())[`${name}/${path}`];
     if (content !== undefined) return content;
   } else {
     try {
-      return await readFile(join(resolve(somaRepoPath ?? ""), SKILLS_SUBPATH, name, path), "utf8");
+      return await readFile(join(diskSkillsRoot(somaRepoPath), name, path), "utf8");
     } catch (error) {
       if (!isEnoent(error)) throw error;
     }

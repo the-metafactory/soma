@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve, sep } from "node:path";
-import { walk } from "../scripts/generate-bundled-skill-files";
+import { join, resolve } from "node:path";
+import { comparePaths, toPosixRelative, walkFiles as walk } from "../src/fs-walk";
 
 /**
  * Regression guard for orienteer node #612: bundled skill content must survive
@@ -14,8 +14,9 @@ import { walk } from "../scripts/generate-bundled-skill-files";
  * files — so reading `src/skills` from it found nothing, and the readers were
  * built to swallow exactly that: `listBundledSkills()` returned `[]`, the
  * bundled-skill install copied nothing, and the VSA installer took its
- * `no-source` branch. `soma install … --apply` reported success with zero skill
- * content written. Unlike the version.ts break (d0fe14e), nothing failed loudly.
+ * `no-source` branch. These APIs could report success without writing content.
+ * This proves a skill-reader defect, not successful compiled CLI installation:
+ * the current CLI fails earlier while staging its source-based runtime.
  *
  * The helper binary below isolates bundled-skill APIs and compares their output
  * with the checkout byte for byte. It does not stand in for the shipped CLI.
@@ -32,7 +33,8 @@ interface ProbeReport {
   names: string[];
   explicitNames: string[];
   customNames: string[];
-  missingNames: string[];
+  rootErrors: Record<string, string | null>;
+  emptyNames: string[];
   vsaAction: string;
   algorithm: string;
 }
@@ -40,19 +42,21 @@ interface ProbeReport {
 let workRoot = "";
 let binary = "";
 let cliBinary = "";
+let compiledProbe: ReturnType<typeof runProbe>;
+let sourceProbe: ReturnType<typeof runProbe>;
 
 /** Every file under `root`, keyed by its posix path relative to `root`. */
-function tree(root: string): Map<string, Buffer> {
+function tree(root: string, skipHidden = false): Map<string, Buffer> {
   return new Map(
-    walk(root)
-      .map((path) => [relative(root, path).split(sep).join("/"), readFileSync(path)] as const)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    walk(root, { skipHidden })
+      .map((path) => [toPosixRelative(root, path), readFileSync(path)] as const)
+      .sort(([a], [b]) => comparePaths(a, b)),
   );
 }
 
 function sourceSkillNames(): string[] {
   return readdirSync(SKILLS_ROOT, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
     .map((entry) => entry.name)
     .sort();
 }
@@ -70,6 +74,12 @@ function runProbe(command: string, args: string[], label: string): { report: Pro
   writeFileSync(join(customSkill, "references", "fixture.md"), "Custom reference\n");
   // Invalid UTF-8 and a BOM must survive a custom repository copy unchanged.
   writeFileSync(join(customSkill, "references", "asset.bin"), Buffer.from([0xef, 0xbb, 0xbf, 0, 0xff, 0x80, 0xc0]));
+  // Generator exclusions must not alter explicit repositories' copy contract.
+  writeFileSync(join(customSkill, ".metadata"), "Custom hidden file\n");
+  mkdirSync(join(work, "missing-skills"), { recursive: true });
+  mkdirSync(join(work, "not-directory", "src"), { recursive: true });
+  writeFileSync(join(work, "not-directory", "src", "skills"), "not a directory\n");
+  mkdirSync(join(work, "empty-repo", "src", "skills"), { recursive: true });
   const result = spawnSync(command, [...args, work], { encoding: "utf8", timeout: 60_000 });
   if (result.status !== 0) {
     throw new Error(`${label} probe exited ${String(result.status)}:\n${result.stdout}\n${result.stderr}`);
@@ -97,7 +107,19 @@ beforeAll(() => {
       `const explicitNames = await listBundledSkills(somaRepoPath);`,
       `const customRepo = join(work, "custom-repo");`,
       `const customNames = await listBundledSkills(customRepo);`,
-      `const missingNames = await listBundledSkills(join(work, "missing-repo"));`,
+      `const rootErrors: Record<string, string | null> = {};`,
+      `for (const label of ["missing-repo", "missing-skills", "not-directory"]) {`,
+      `  const repo = join(work, label);`,
+      `  for (const action of ["list", "install"]) {`,
+      `    const key = label + ":" + action;`,
+      `    try {`,
+      `      if (action === "list") await listBundledSkills(repo);`,
+      `      else await installBundledSkillsIntoHome({ somaHome: join(work, label + "-home"), somaRepoPath: repo });`,
+      `      rootErrors[key] = null;`,
+      `    } catch (error) { rootErrors[key] = (error as NodeJS.ErrnoException).code ?? String(error); }`,
+      `  }`,
+      `}`,
+      `const emptyNames = await listBundledSkills(join(work, "empty-repo"));`,
       `await installBundledSkillsIntoHome({ somaHome: join(work, "home") });`,
       `await installBundledSkillsIntoHome({ somaHome: join(work, "explicit-home"), somaRepoPath });`,
       `await installBundledSkillsIntoHome({ somaHome: join(work, "custom-home"), somaRepoPath: customRepo });`,
@@ -106,7 +128,7 @@ beforeAll(() => {
       `let algorithm = "ok";`,
       `try { await importAlgorithm({ paiAlgorithmDir: join(work, "pai"), somaHome: join(work, "algorithm-home") }); }`,
       `catch (error) { algorithm = String(error); }`,
-      `console.log(JSON.stringify({ names, explicitNames, customNames, missingNames, vsaAction: vsa.action, algorithm }));`,
+      `console.log(JSON.stringify({ names, explicitNames, customNames, rootErrors, emptyNames, vsaAction: vsa.action, algorithm }));`,
       "",
     ].join("\n"),
   );
@@ -123,6 +145,8 @@ beforeAll(() => {
     timeout: 120_000,
   });
   if (cliBuild.status !== 0) throw new Error(`CLI bun build --compile failed:\n${cliBuild.stdout}\n${cliBuild.stderr}`);
+  compiledProbe = runProbe(binary, [], "compiled");
+  sourceProbe = runProbe(process.execPath, [entry], "source");
 }, 180_000);
 
 afterAll(() => {
@@ -130,8 +154,8 @@ afterAll(() => {
 });
 
 test("a compiled binary lists the same bundled skills as the source checkout", () => {
-  const compiled = runProbe(binary, [], "compiled").report;
-  const source = runProbe(process.execPath, [join(workRoot, "probe.ts")], "source").report;
+  const compiled = compiledProbe.report;
+  const source = sourceProbe.report;
 
   expect(sourceSkillNames()).toEqual(["Memory", "VSA", "migrate-pai-purpose", "orienteer", "the-algorithm"]);
   expect(source.names).toEqual(sourceSkillNames());
@@ -141,7 +165,7 @@ test("a compiled binary lists the same bundled skills as the source checkout", (
 }, 120_000);
 
 test("a compiled binary installs every bundled skill file byte-identical to src/skills", () => {
-  const { report, work } = runProbe(binary, [], "compiled-install");
+  const { report, work } = compiledProbe;
 
   // The silent branch this node exists to close: no source found, success reported.
   expect(report.vsaAction).not.toBe("no-source");
@@ -149,7 +173,7 @@ test("a compiled binary installs every bundled skill file byte-identical to src/
 
   const installed = tree(join(work, "home", "skills"));
   const explicit = tree(join(work, "explicit-home", "skills"));
-  const expected = tree(SKILLS_ROOT);
+  const expected = tree(SKILLS_ROOT, true);
   expect([...installed.keys()]).toEqual([...expected.keys()]);
   expect([...explicit.keys()]).toEqual([...expected.keys()]);
   for (const [path, bytes] of expected) {
@@ -164,10 +188,9 @@ test("a compiled binary installs every bundled skill file byte-identical to src/
 }, 120_000);
 
 test("a compiled binary honors custom repository paths instead of falling back to its embedded skills", () => {
-  const { report, work } = runProbe(binary, [], "compiled-custom");
+  const { report, work } = compiledProbe;
 
   expect(report.customNames).toEqual(["fixture-skill"]);
-  expect(report.missingNames).toEqual([]);
   const installed = tree(join(work, "custom-home", "skills"));
   const expected = tree(join(work, "custom-repo", "src", "skills"));
   expect([...installed.keys()]).toEqual([...expected.keys()]);
@@ -176,18 +199,49 @@ test("a compiled binary honors custom repository paths instead of falling back t
   }
 }, 120_000);
 
+test("source and compiled skill APIs reject invalid explicit roots instead of reporting empty success", () => {
+  const errors = {
+    "missing-repo:list": "ENOENT",
+    "missing-repo:install": "ENOENT",
+    "missing-skills:list": "ENOENT",
+    "missing-skills:install": "ENOENT",
+    "not-directory:list": "ENOTDIR",
+    "not-directory:install": "ENOTDIR",
+  };
+  for (const { report } of [sourceProbe, compiledProbe]) {
+    expect(report.rootErrors).toEqual(errors);
+    expect(report.emptyNames).toEqual([]);
+  }
+});
+
 test("the embedded skill module is current: same files, same bytes as src/skills", async () => {
   const { BUNDLED_SKILL_FILES_MODULE, renderBundledSkillFilesModule } = await import("../scripts/generate-bundled-skill-files");
   // Stale after adding, removing or renaming a skill file: `bun run generate-bundled-skill-files`.
   expect(readFileSync(BUNDLED_SKILL_FILES_MODULE, "utf8")).toBe(renderBundledSkillFilesModule());
 
   const { BUNDLED_SKILL_FILES } = await import("../src/bundled-skill-files.generated");
-  const disk = [...tree(SKILLS_ROOT)].filter(([path]) => path.includes("/"));
+  const disk = [...tree(SKILLS_ROOT, true)].filter(([path]) => path.includes("/"));
   expect(Object.keys(BUNDLED_SKILL_FILES).sort()).toEqual(disk.map(([path]) => path));
   // A text import decodes UTF-8, so a non-UTF-8 asset (or a BOM) would ship altered. Fail here instead.
   for (const [path, bytes] of disk) {
     expect({ path, same: Buffer.from(BUNDLED_SKILL_FILES[path] ?? "", "utf8").equals(bytes) }).toEqual({ path, same: true });
   }
+});
+
+test("the skill generator excludes hidden checkout files, hidden directories and symlinks", async () => {
+  const { bundledSkillFilePaths, renderBundledSkillFilesModule } = await import("../scripts/generate-bundled-skill-files");
+  const root = join(workRoot, "generator-skills");
+  const skill = join(root, "fixture");
+  mkdirSync(join(skill, ".editor"), { recursive: true });
+  mkdirSync(join(root, ".hidden-skill"), { recursive: true });
+  writeFileSync(join(skill, "SKILL.md"), "# Fixture\n");
+  writeFileSync(join(skill, ".DS_Store"), Buffer.from([0xff, 0x80]));
+  writeFileSync(join(skill, ".editor", "swap.md"), "ignored\n");
+  writeFileSync(join(root, ".hidden-skill", "SKILL.md"), "ignored\n");
+  symlinkSync(join(skill, "SKILL.md"), join(skill, "linked.md"));
+  expect(bundledSkillFilePaths(root)).toEqual(["fixture/SKILL.md"]);
+  expect(renderBundledSkillFilesModule(root)).toContain('import file0 from "./skills/fixture/SKILL.md" with { type: "text" };');
+  expect(renderBundledSkillFilesModule(root)).not.toContain("file1");
 });
 
 test("the real compiled CLI imports embedded Algorithm skill content", () => {
@@ -227,7 +281,7 @@ test("default repo path consumers stay inventoried for compiled coverage", () =>
   const consumers = walk(join(REPO_ROOT, "src"))
     .filter((path) => path.endsWith(".ts") && !path.endsWith("repo-path.ts"))
     .filter((path) => readFileSync(path, "utf8").includes("defaultSomaRepoPath"))
-    .map((path) => relative(REPO_ROOT, path).split(sep).join("/"))
+    .map((path) => toPosixRelative(REPO_ROOT, path))
     .sort();
   // The helper exercises bundled-skill-source and VSA; the real CLI import
   // exercises algorithm-importer (which no longer uses the default repo path).
@@ -251,7 +305,7 @@ test("only bundled-skill-source.ts loads the embedded skill text, and only dynam
   const loaders = walk(join(REPO_ROOT, "src"))
     .filter((path) => /\.(?:ts|mts|mjs|js)$/u.test(path) && !path.endsWith(".generated.ts"))
     .filter((path) => readFileSync(path, "utf8").includes("bundled-skill-files.generated"))
-    .map((path) => relative(REPO_ROOT, path).split(sep).join("/"));
+    .map((path) => toPosixRelative(REPO_ROOT, path));
   expect(loaders).toEqual(["src/bundled-skill-source.ts"]);
 
   const source = readFileSync(join(REPO_ROOT, "src", "bundled-skill-source.ts"), "utf8");

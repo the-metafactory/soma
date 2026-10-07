@@ -64,11 +64,9 @@ export async function loadProjectionInputForDoctor(
     throw error;
   }
 
-  // The home loaded, so the rest is genuinely present-or-soft-failing: the VSA
-  // and memory loaders return null/undefined when their optional sources are
-  // absent, and `listBundledSkills` swallows a missing repo path to `[]`. Any
-  // error that DOES escape here is a real internal fault and must propagate,
-  // never be disguised as "not installed".
+  // The optional VSA and memory sources may be absent. An invalid explicit repo
+  // path is a setup fault: listBundledSkills propagates it, never disguising it
+  // as an empty skill inventory or a home that is "not installed".
   const [activeVsa, memoryIndexContent, bundledSkillNames] = await Promise.all([
     loadActiveVsaForBundle({ somaHome: options.somaHome }),
     loadMemoryIndexForProjection({ somaHome: options.somaHome }),
