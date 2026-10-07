@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `soma graph add --blocked-by` no longer exposes the new node on the
+  frontier before its blockers land. The node is created detached, every
+  edge is written, and only then is it attached to its parent, on GitHub and
+  GitLab alike. A walker claimed ranger#86 in that window. An edge that
+  still fails leaves the node unattached instead of claimed, and the error
+  prints `soma graph link <id> --blocked-by … --parent <id>`, which writes the
+  edges first and attaches last. (#740)
+- `soma graph claim` refuses a node with an open blocker (error code
+  `blocked`, naming the blockers), so a frontier read that predates an edge,
+  or a manual claim, cannot take blocked work. (#740)
+
+### Changed
+
+- A partly wired `soma graph add --json` reports `attached: false` in place
+  of `held`; the #750 hold-by-claim is gone, since an unattached node is on
+  no frontier.
+
 ## [0.24.0] - 2026-10-07
 
 ### Added

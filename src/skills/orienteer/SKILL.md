@@ -58,10 +58,10 @@ reflect each forge's capabilities.
 | --- | --- |
 | `soma graph frontier <root>` | open ∧ unassigned ∧ unblocked, confirmed by direct fetch |
 | `soma graph node <id>` | read one node, body included — never `gh issue view` |
-| `soma graph claim <id>` | assign, re-read, tie-break on race |
+| `soma graph claim <id>` | assign, re-read, tie-break on race; refuses a closed node or one with an open blocker |
 | `soma graph release <id>` | identity-bound self-release: abandon your own claim (the claim-race loser's DELETE-self, promoted to a verb); only ever unassigns the acting identity |
 | `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges, which may name `owner/name#N` in another repo), structurally validated; refuses without a checkpoint or with an unreadable blocker |
-| `soma graph link <id> --blocked-by <ref>…` | add blocking edges to an existing node: a dependency found later, or the repair a failed `add` prints |
+| `soma graph link <id> --blocked-by <ref>… [--parent <id>]` | add blocking edges to an existing node: a dependency found later; with `--parent`, the repair a failed `add` prints (edges first, then attach) |
 | `soma graph chart … --checkpoint <id>` | create a typed map root; GitLab requires `--home-project <group/project>` |
 | `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close. A PR, MR or commit says `Refs #N`, never a closing keyword: the tracker would close the node on merge and skip the gate (`references/closing.md`) |
 | `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |

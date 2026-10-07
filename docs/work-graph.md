@@ -565,6 +565,18 @@ frontier forever — no claim, no close, no error).
   removes itself (#492 correction 2). All racers compute the same rule over
   the same eventual assignee set, so the race converges to one holder without
   coordination.
+  **Claim refuses what the frontier would not offer** (#740): a closed node,
+  and a node with an open blocker (`blocked`, naming the blockers). The claim
+  reads the node right before writing, so a walker whose frontier read
+  predates an edge, or a person claiming by hand, is refused rather than
+  taking blocked work.
+  **A node becomes reachable only once it is fully blocked** (#740). A frontier
+  walk reaches a node only through its membership edge, so `add` creates the
+  node detached, writes every `--blocked-by` edge, and attaches it to its
+  parent last. Attaching first left a window of seconds in which the node was
+  reachable with no blockers, and a walker claimed it (ranger#86). An edge
+  that fails leaves the node unattached, on no frontier, and the error prints
+  the `soma graph link … --parent` that finishes the wiring.
   **Self-release is a verb, not a raw write.** The claim-race loser's
   self-removal — DELETE self from the assignee set — is promoted to
   `soma graph release <node>`, the **identity-bound self-release**: a walker
@@ -670,12 +682,15 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
                                    # validated; --checkpoint is REQUIRED, since a
                                    # node without one can never close and no verb
                                    # attaches one later. Every --blocked-by is read
-                                   # before the node is created; an edge that still
-                                   # fails leaves the node claimed by the acting
-                                   # identity, off the frontier (#750)
-soma graph link <node> --blocked-by <ref>...
+                                   # before the node is created; every edge is
+                                   # written before the node is attached to its
+                                   # parent, and an edge that still fails leaves
+                                   # it unattached, on no frontier (#740)
+soma graph link <node> [--blocked-by <ref>]... [--parent <id>]
                                    # add blocking edges to an existing node, cycle
-                                   # check included; an edge it has is skipped
+                                   # check included; an edge it has is skipped;
+                                   # --parent then attaches a parentless node,
+                                   # only once every edge landed (#740)
 soma graph chart ...               # create a typed graph root; GitLab requires
                                    # --home-project <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;

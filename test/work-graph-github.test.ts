@@ -253,6 +253,48 @@ test("createNode writes the block into the body and attaches to the parent by da
   expect(calls[1]?.body).toEqual({ sub_issue_id: 999 });
 });
 
+test("a node created with blockers gets every blocked_by edge before its sub_issues link (#740)", async () => {
+  const { transport, calls } = fakeTransport({
+    [`POST repos/${REPO}/issues`]: issuePayload({ number: 513, id: 999 }),
+    [`GET repos/${REPO}/issues/498`]: issuePayload({ number: 498, id: 4980 }),
+    [`GET repos/${REPO}/issues/498/dependencies/blocked_by`]: [],
+    [`POST repos/${REPO}/issues/513/dependencies/blocked_by`]: {},
+    [`GET repos/${REPO}/issues/513`]: issuePayload({ number: 513, id: 999 }),
+    [`POST repos/${REPO}/issues/495/sub_issues`]: {},
+  });
+
+  const created = await new WorkGraph(createGitHubGraphStore({ repo: REPO, transport })).createNode(
+    { title: "blocked", autonomy: "approve", checkpointId: "cp", parent: { id: "495" } },
+    [{ id: "498" }],
+  );
+
+  expect(created.attached).toBe(true);
+  const writes = calls.filter((call) => call.method === "POST").map((call) => call.key);
+  expect(writes).toEqual([
+    `POST repos/${REPO}/issues`,
+    `POST repos/${REPO}/issues/513/dependencies/blocked_by`,
+    `POST repos/${REPO}/issues/495/sub_issues`,
+  ]);
+  expect(calls.at(-1)?.body).toEqual({ sub_issue_id: 999 });
+});
+
+test("a failed blocked_by write leaves the GitHub issue with no sub_issues link (#740)", async () => {
+  const { transport, calls } = fakeTransport({
+    [`POST repos/${REPO}/issues`]: issuePayload({ number: 513, id: 999 }),
+    [`GET repos/${REPO}/issues/498`]: issuePayload({ number: 498, id: 4980 }),
+    [`GET repos/${REPO}/issues/498/dependencies/blocked_by`]: [],
+  });
+
+  const created = await new WorkGraph(createGitHubGraphStore({ repo: REPO, transport })).createNode(
+    { title: "blocked", autonomy: "approve", checkpointId: "cp", parent: { id: "495" } },
+    [{ id: "498" }],
+  );
+
+  expect(created.attached).toBe(false);
+  expect(created.edges.failed.map((edge) => edge.id)).toEqual(["498"]);
+  expect(calls.some((call) => call.path.endsWith("/sub_issues"))).toBe(false);
+});
+
 test("createNode writes labels through, deduplicated and trimmed", async () => {
   const { transport, calls } = fakeTransport({
     [`POST repos/${REPO}/issues`]: issuePayload({ number: 514, id: 1000 }),

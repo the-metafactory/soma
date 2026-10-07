@@ -22,7 +22,9 @@ import {
   type ReleaseResult,
   type CloseReceipt,
   type CommentRef,
+  type CreateNodeOptions,
   type CreateNodeSpec,
+  type RehomeSelection,
   type ConfinementResult,
   type GraphStore,
   type NodeRef,
@@ -437,6 +439,9 @@ class FakeStore implements GraphStore {
   readonly created: CreateNodeSpec[] = [];
   readonly edges: [string, string][] = [];
   readonly claims: string[] = [];
+  /** Every topology write, in order, so a test can assert what landed before what (#740). */
+  readonly calls: string[] = [];
+  readonly failingEdges = new Set<string>();
   private nextId = 1000;
 
   add(id: string, overrides: Partial<NodeState> = {}, blockers: string[] = []): void {
@@ -456,14 +461,25 @@ class FakeStore implements GraphStore {
     });
   }
 
-  async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
+  async createNode(spec: CreateNodeSpec, _rehome?: RehomeSelection, options: CreateNodeOptions = {}): Promise<NodeRef> {
     this.created.push(spec);
     const id = String(this.nextId++);
     this.add(id);
+    this.calls.push(`create ${id}`);
+    if (spec.parent !== undefined && options.detached !== true) await this.attachToParent({ id }, spec.parent);
     return { id };
   }
 
+  async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> {
+    this.calls.push(`attach ${child.id} ${parent.id}`);
+    this.children.set(parent.id, [...(this.children.get(parent.id) ?? []), child.id]);
+    const entry = this.nodes.get(child.id);
+    if (entry) entry.state = { ...entry.state, parent };
+  }
+
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> {
+    if (this.failingEdges.has(blocker.id)) throw new Error(`edge write for ${blocker.id} failed`);
+    this.calls.push(`edge ${blocker.id} ${blocked.id}`);
     this.edges.push([blocker.id, blocked.id]);
     const entry = this.nodes.get(blocked.id);
     if (entry) entry.blockers.push(blocker.id);
@@ -645,4 +661,79 @@ test("close gates on the node as the store reports it, not on a caller-supplied 
   await graph.close({ id: "497" }, receipt());
   expect(store.closed).toHaveLength(1);
   expect(await asyncCodeOf(() => graph.close({ id: "497" }, receipt()))).toBe("node-closed");
+});
+
+// --- #740: no window in which a blocked node is reachable and unblocked -----
+
+test("createNode with blockers writes every edge before the parent link", async () => {
+  const store = new FakeStore();
+  store.add("root");
+  store.add("81");
+  store.add("82");
+  const created = await new WorkGraph(store).createNode({ title: "t", autonomy: "approve", checkpointId: "cp", parent: { id: "root" } }, [{ id: "81" }, { id: "82" }]);
+
+  expect(store.calls).toEqual(["create 1000", "edge 81 1000", "edge 82 1000", "attach 1000 root"]);
+  expect(created).toMatchObject({ id: "1000", attached: true, edges: { written: ["81", "82"], failed: [] } });
+});
+
+test("a failed edge leaves the node unattached, and the other edges still land", async () => {
+  const store = new FakeStore();
+  store.add("root");
+  store.add("81");
+  store.add("82");
+  store.failingEdges.add("81");
+  const graph = new WorkGraph(store);
+  const created = await graph.createNode({ title: "t", autonomy: "approve", checkpointId: "cp", parent: { id: "root" } }, [{ id: "81" }, { id: "82" }]);
+
+  expect(store.calls).toEqual(["create 1000", "edge 82 1000"]);
+  expect(created).toMatchObject({ attached: false, edges: { written: ["82"], failed: [{ id: "81", reason: "edge write for 81 failed" }] } });
+  expect((await graph.frontier({ id: "root" })).map((state) => state.ref.id)).toEqual([]);
+});
+
+test("createNode without blockers attaches in the create, as before", async () => {
+  const store = new FakeStore();
+  store.add("root");
+  const created = await new WorkGraph(store).createNode({ title: "t", autonomy: "approve", checkpointId: "cp", parent: { id: "root" } });
+
+  expect(store.calls).toEqual(["create 1000", "attach 1000 root"]);
+  expect(created.attached).toBe(true);
+});
+
+test("attach links a parentless node, is a no-op under the same parent, and refuses a move or a cycle", async () => {
+  const store = new FakeStore();
+  store.add("root");
+  store.add("orphan");
+  store.add("other", { parent: { id: "root" } });
+  store.add("deep", { parent: { id: "orphan" } });
+  const graph = new WorkGraph(store);
+
+  expect(await graph.attach({ id: "orphan" }, { id: "root" })).toEqual({ attached: true });
+  expect(await graph.attach({ id: "orphan" }, { id: "root" })).toEqual({ attached: false });
+  expect(await asyncCodeOf(() => graph.attach({ id: "other" }, { id: "orphan" }))).toBe("invalid-edge");
+  store.add("loop");
+  store.add("below-loop", { parent: { id: "loop" } });
+  expect(await asyncCodeOf(() => graph.attach({ id: "loop" }, { id: "below-loop" }))).toBe("cycle");
+  expect(store.calls).toEqual(["attach orphan root"]);
+});
+
+test("claim refuses a node with an open blocker and writes no assignee", async () => {
+  const store = new FakeStore();
+  store.add("81");
+  store.add("86", {}, ["81"]);
+
+  const graph = new WorkGraph(store);
+  const error = await graph.claim({ id: "86" }, "ivy-agent").catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(WorkGraphError);
+  expect((error as WorkGraphError).code).toBe("blocked");
+  expect((error as WorkGraphError).message).toContain("81");
+  expect(store.claims).toEqual([]);
+});
+
+test("claim takes a node whose blockers are all closed", async () => {
+  const store = new FakeStore();
+  store.add("81", { status: "closed" });
+  store.add("86", {}, ["81"]);
+
+  expect((await new WorkGraph(store).claim({ id: "86" }, "ivy-agent")).held).toBe(true);
+  expect(store.claims).toEqual(["86:ivy-agent"]);
 });

@@ -13,6 +13,7 @@ import {
   type CommentRef,
   type ConfinementProbeRecord,
   type ConfinementResult,
+  type CreateNodeOptions,
   type CreateNodeSpec,
   type GraphStore,
   type NodeComment,
@@ -261,7 +262,7 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
     return refs.map((ref, index) => { const namespace = rec(gqlValue(response, `item${index}`), "work item namespace"); const item = itemFrom(namespace.workItem, `work item ${ref.id}`, parsed[index]!.path); if (item.linksTruncated) throw new WorkGraphError("backend", `GitLab blockers for ${ref.id} are paginated; refusing incomplete graph state`); return item; }); }
   private async item(ref: NodeRef): Promise<Item> { return (await this.items([ref]))[0]!; }
   async readNode(ref: NodeRef): Promise<NodeState> { const item = await this.item(ref); const state = stateFrom(item) as HydratedNodeState; Object.defineProperty(state, GITLAB_ITEM, { value: item }); return state; }
-  async createNode(spec: CreateNodeSpec<GitLabCreateData>, rehome?: RehomeSelection): Promise<NodeRef> {
+  async createNode(spec: CreateNodeSpec<GitLabCreateData>, rehome?: RehomeSelection, options: CreateNodeOptions = {}): Promise<NodeRef> {
     if (spec.labels !== undefined && spec.labels.length > 0) throw new WorkGraphError("invalid-node", "GitLab GraphStore does not support labels; use the Epic or node ref");
     if (spec.parent !== undefined && spec.storeData?.homeProject !== undefined) throw new WorkGraphError("invalid-node", "GitLab home belongs on the map root, not a child node");
     const context = rehome?.context;
@@ -284,12 +285,14 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
       const parentHomeProject = parent.type === "Epic" ? parent.homeProject : parent.path;
       if (parentHomeProject === undefined || spec.storeData?.scopeProject !== undefined && parentHomeProject !== spec.storeData.scopeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${spec.parent?.id} has no valid home project under the selected repository`);
       validHomeProject(this.host, parentHomeProject, parent.type === "Epic" ? parent.path : undefined);
-      input = { projectPath: parentHomeProject, workItemTypeId: await this.workItemTypeId(parentHomeProject, type), title: spec.title, descriptionWidget: { description }, hierarchyWidget: { parentId: parent.id }, ...(related === undefined ? {} : { linkedItemsWidget: { linkType: "RELATED", workItemsIds: [related.id] } }) };
+      input = { projectPath: parentHomeProject, workItemTypeId: await this.workItemTypeId(parentHomeProject, type), title: spec.title, descriptionWidget: { description }, ...(options.detached === true ? {} : { hierarchyWidget: { parentId: parent.id } }), ...(related === undefined ? {} : { linkedItemsWidget: { linkType: "RELATED", workItemsIds: [related.id] } }) };
     }
     const created = mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemCreateInput!){workItemCreate(input:$input){workItem{id iid namespace{fullPath} workItemType{name}} errors}}`, variables: { input } } }), "workItemCreate");
     const item = rec(created.workItem, "created work item"); const namespace = rec(item.namespace, "created work item namespace"); const iid = item.iid;
     return nodeId(str(namespace, "fullPath", "created work item namespace"), typeof iid === "string" ? Number(iid) : num(item, "iid", "created work item"), typeName(item.workItemType) === "Epic" ? "&" : "#");
   }
+  /** The hierarchy edge a detached create left out (#740); GitLab validates the parent's type against the child's here. */
+  async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> { const [childItem, parentItem] = await Promise.all([this.item(child), this.item(parent)]); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemUpdateInput!){workItemUpdate(input:$input){errors}}`, variables: { input: { id: childItem.id, hierarchyWidget: { parentId: parentItem.id } } } } }), "workItemUpdate"); }
   private async addLinkedEdge(source: NodeRef, related: NodeRef, linkType: "BLOCKS" | "RELATED"): Promise<void> { const [left, right] = await Promise.all([this.item(source), this.item(related)]); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($source:WorkItemID!,$target:WorkItemID!,$linkType:WorkItemRelatedLinkType!){workItemAddLinkedItems(input:{id:$source,workItemsIds:[$target],linkType:$linkType}){errors}}`, variables: { source: left.id, target: right.id, linkType } } }), "workItemAddLinkedItems"); }
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> { await this.addLinkedEdge(blocker, blocked, "BLOCKS"); }
   async selectRehomeParent(requested: NodeState): Promise<RehomeSelection | undefined> { if (requested.trackerType !== "Task") return undefined; const related = (requested as HydratedNodeState)[GITLAB_ITEM] ?? await this.item(requested.ref); let parent = requested.parent; while (parent !== undefined) { const candidate = await this.readNode(parent) as HydratedNodeState; if (candidate.trackerType === "Issue") { const parentItem = candidate[GITLAB_ITEM]; if (parentItem === undefined) throw new WorkGraphError("backend", `GitLab re-home parent ${candidate.ref.id} was not hydrated`); return { parent: candidate.ref, context: { [GITLAB_REHOME]: true, parent: parentItem, related } satisfies GitLabRehomeContext }; } parent = candidate.parent; } throw new WorkGraphError("invalid-node", `cannot re-home parent ${requested.ref.id}: no allowed ancestor`); }
