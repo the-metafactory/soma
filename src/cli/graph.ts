@@ -1072,16 +1072,19 @@ function partialAddReport(parent: string, repo: RepoRef, created: CreatedNode): 
   ].join("\n");
 }
 
+type ParentStatus = "attached" | "already" | "not attached" | "failed";
+
+const PARENT_STATUS_TEXT: Record<ParentStatus, string> = { attached: "attached", already: "already there", "not attached": "NOT attached — an edge failed", failed: "attach FAILED" };
+
 /**
  * Add blocking edges to a node that already exists (#750, #703) — the way to
  * wire a dependency discovered later — and, with `--parent`, attach it: the
  * repair for a partly wired `add` (#740). Edges go through
  * {@link WorkGraph.addBlockingEdge}, so the cycle check runs; an edge the node
  * already has is skipped, so a re-run is safe. The parent is attached last,
- * and only when every edge landed, for the same reason `add` orders it so.
+ * and only when every edge landed, for the same reason `add` orders it so. A
+ * failed attach is reported with the edges that landed, never thrown past them.
  */
-const PARENT_STATUS_TEXT = { attached: "attached", already: "already there", "not attached": "NOT attached — an edge failed" } as const;
-
 async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: RepoRef): Promise<string> {
   const blocked = { id: parsed.target };
   const [state] = await Promise.all([graph.readNode(blocked), checkBlockers(graph, parsed.options.blockedBy, "link", parsed.options.json === true)]);
@@ -1089,13 +1092,22 @@ async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: Repo
   const already = parsed.options.blockedBy.filter((id) => existing.has(id));
   const { written, failed } = await graph.addBlockingEdges(blocked, parsed.options.blockedBy.filter((id) => !existing.has(id)).map((id) => ({ id })));
   const parent = parsed.options.parent;
-  const attach = parent === undefined || failed.length > 0 ? undefined : await graph.attach(blocked, { id: parent });
-  const parentStatus = attach?.status ?? "not attached";
-  const parentResult = parent === undefined ? {} : { parent, parentStatus };
+  let parentStatus: ParentStatus = "not attached";
+  let attachError: string | undefined;
+  if (parent !== undefined && failed.length === 0) {
+    try {
+      parentStatus = (await graph.attach(blocked, { id: parent })).status;
+    } catch (error) {
+      parentStatus = "failed";
+      attachError = errorMessage(error);
+    }
+  }
+  const parentResult = parent === undefined ? {} : { parent, parentStatus, ...(attachError === undefined ? {} : { attachError }) };
+  const incomplete = failed.length > 0 || parentStatus === "failed";
 
   if (parsed.options.json === true) {
     const result = JSON.stringify({ repo: displayRepo(repo), node: parsed.target, written, already, failed, ...parentResult }, null, 2);
-    if (failed.length > 0) throw new SomaCliError(result, 1);
+    if (incomplete) throw new SomaCliError(result, 1);
     return result;
   }
   const lines = [
@@ -1103,9 +1115,9 @@ async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: Repo
     ...written.map((id) => `- blocked by ${id}: written`),
     ...already.map((id) => `- blocked by ${id}: already there`),
     ...failed.map((edge) => `- blocked by ${edge.id}: FAILED — ${edge.reason}`),
-    ...(parent === undefined ? [] : [`- under ${parent}: ${PARENT_STATUS_TEXT[parentStatus]}`]),
+    ...(parent === undefined ? [] : [`- under ${parent}: ${PARENT_STATUS_TEXT[parentStatus]}${attachError === undefined ? "" : ` — ${attachError}`}`]),
   ];
-  if (failed.length > 0) throw new SomaCliError(lines.join("\n"), 1);
+  if (incomplete) throw new SomaCliError(lines.join("\n"), 1);
   return lines.join("\n");
 }
 

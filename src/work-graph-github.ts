@@ -650,6 +650,8 @@ class GitHubGraphStore implements GraphStore {
   private readonly repo: string;
   private readonly host: string;
   private readonly transport: GitHubApiTransport;
+  /** Issue number → database id for nodes this store created detached, so their attach skips a re-read (#740). */
+  private readonly detachedIds = new Map<string, number>();
   private readonly confinement: ConfinementDeps;
 
   constructor(options: GitHubGraphStoreOptions) {
@@ -752,13 +754,17 @@ class GitHubGraphStore implements GraphStore {
       "createNode",
     );
     if (parentPath !== undefined && options.detached !== true) await this.postSubIssue(parentPath, created.id);
+    if (options.detached === true) this.detachedIds.set(String(created.number), created.id);
     return { id: String(created.number) };
   }
 
   async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> {
     const parentPath = this.writePath(parent);
-    // `sub_issues` keys on the database id, not the issue number.
-    await this.postSubIssue(parentPath, (await this.fetchIssue(child)).id);
+    // `sub_issues` keys on the database id, not the issue number. A detached
+    // create already holds it; the `link --parent` repair reads it.
+    const databaseId = this.detachedIds.get(child.id) ?? (await this.fetchIssue(child)).id;
+    await this.postSubIssue(parentPath, databaseId);
+    this.detachedIds.delete(child.id);
   }
 
   private async postSubIssue(parentPath: string, subIssueId: number): Promise<void> {

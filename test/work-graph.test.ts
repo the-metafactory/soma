@@ -702,21 +702,21 @@ test("createNode without blockers attaches in the create, as before", async () =
   expect(created.attached).toBe(true);
 });
 
-test("attach links a parentless node, is a no-op under the same parent, and refuses a move or a cycle", async () => {
+test("attach links an unattached node, is a no-op under the same parent, and refuses a move or a cycle", async () => {
   const store = new FakeStore();
   store.add("root");
-  store.add("orphan");
+  store.add("unattached");
   store.add("other", { parent: { id: "root" } });
-  store.add("deep", { parent: { id: "orphan" } });
+  store.add("deep", { parent: { id: "unattached" } });
   const graph = new WorkGraph(store);
 
-  expect(await graph.attach({ id: "orphan" }, { id: "root" })).toEqual({ status: "attached" });
-  expect(await graph.attach({ id: "orphan" }, { id: "root" })).toEqual({ status: "already" });
-  expect(await asyncCodeOf(() => graph.attach({ id: "other" }, { id: "orphan" }))).toBe("invalid-edge");
+  expect(await graph.attach({ id: "unattached" }, { id: "root" })).toEqual({ status: "attached" });
+  expect(await graph.attach({ id: "unattached" }, { id: "root" })).toEqual({ status: "already" });
+  expect(await asyncCodeOf(() => graph.attach({ id: "other" }, { id: "unattached" }))).toBe("invalid-edge");
   store.add("loop");
   store.add("below-loop", { parent: { id: "loop" } });
   expect(await asyncCodeOf(() => graph.attach({ id: "loop" }, { id: "below-loop" }))).toBe("cycle");
-  expect(store.calls).toEqual(["attach orphan root"]);
+  expect(store.calls).toEqual(["attach unattached root"]);
 });
 
 test("claim refuses a node with an open blocker and writes no assignee", async () => {

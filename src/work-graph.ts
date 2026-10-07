@@ -646,7 +646,7 @@ export interface CreateNodeOptions {
    * Validate `spec.parent` and derive what it decides (type, project), but write
    * no membership edge: the caller attaches later through
    * {@link GraphStore.attachToParent}. A node is reachable from its root only
-   * through that edge, so a node created detached stays off every frontier
+   * through that edge, so a node created this way stays off every frontier
    * until it is attached (#740).
    */
   readonly detached?: boolean;
@@ -702,7 +702,7 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
   parseCreateData?(value: unknown): TStoreData;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
   createNode(spec: CreateNodeSpec<TStoreData>, rehome?: RehomeSelection, options?: CreateNodeOptions): Promise<NodeRef>;
-  /** Write the membership edge a detached create left out. Callers reach this through {@link WorkGraph.attach} or {@link WorkGraph.createNode}. */
+  /** Write the membership edge a `detached` create left out. Callers reach this through {@link WorkGraph.attach} or {@link WorkGraph.createNode}. */
   attachToParent(child: NodeRef, parent: NodeRef): Promise<void>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
@@ -1507,7 +1507,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
    * Validate at the boundary, then create. Additive mutation — free after
    * structural validation (§1 clause 2).
    *
-   * With blockers, the node is created detached, every edge is written, and
+   * With blockers, the node is created unattached (`detached`), every edge is written, and
    * only then is it attached to its parent (#740). A frontier walk reaches a
    * node only through its parent, so there is no window in which the node is
    * reachable and unblocked. An edge or attach that fails leaves the node

@@ -722,6 +722,21 @@ test("link --parent does not attach while an edge still fails", async () => {
   expect(() => parseGraphArgs(["graph", "link", "900"])).toThrow(/--blocked-by or --parent/u);
 });
 
+test("link --parent reports a failed attach with the edges that landed, as JSON under --json", async () => {
+  const store = new FakeStore()
+    .seed("900", { node: autoNode("900") })
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") });
+  store.failAttach = true;
+
+  const message = await failure(["graph", "link", "900", "--blocked-by", "96", "--parent", "495", "--repo", REPO], store);
+  expect(message).toContain("- blocked by 96: written");
+  expect(message).toContain("- under 495: attach FAILED — sub_issues write failed");
+
+  const parsed = JSON.parse(await failure(["graph", "link", "900", "--parent", "495", "--repo", REPO, "--json"], store));
+  expect(parsed).toMatchObject({ parent: "495", parentStatus: "failed", attachError: "sub_issues write failed" });
+});
+
 test("claim refuses a node with an open blocker (#740)", async () => {
   const store = new FakeStore().seed("86", { node: autoNode("86"), blockedBy: [{ id: "81", status: "open" }] });
 

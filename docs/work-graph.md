@@ -565,20 +565,26 @@ frontier forever — no claim, no close, no error).
   removes itself (#492 correction 2). All racers compute the same rule over
   the same eventual assignee set, so the race converges to one holder without
   coordination.
-  **Claim refuses what the frontier would not offer** (#740): a closed node,
+  **Claim refuses a closed or blocked node** (#740): a closed node,
   and a node with an open blocker (`blocked`, naming the blockers). The claim
   reads the node right before writing, so a walker whose frontier read
   predates an edge, or a person claiming by hand, is refused rather than
   taking blocked work. It is a check-then-write, not a lock: an edge that
   lands between the read and the assignee write is not seen, which is why
-  `add` closes the larger window by construction (below).
+  `add` closes the larger window by construction (below). It does not refuse
+  an unattached node claimed by id: such a node may carry no blocker at all
+  (its edge write failed), and the frontier never offers it.
   **A node becomes reachable only once it is fully blocked** (#740). A frontier
   walk reaches a node only through its membership edge, so `add` creates the
-  node detached, writes every `--blocked-by` edge, and attaches it to its
+  node unattached, writes every `--blocked-by` edge, and attaches it to its
   parent last. Attaching first left a window of seconds in which the node was
-  reachable with no blockers, and a walker claimed it (ranger#86). An edge
-  that fails leaves the node unattached, on no frontier, and the error prints
-  the `soma graph link … --parent` that finishes the wiring.
+  reachable with no blockers, and a walker claimed it (ranger#86). An edge or
+  attach that fails leaves the node unattached, on no frontier, and the error
+  prints the `soma graph link … --parent` that finishes the wiring. The cost
+  is a quieter failure: a process killed between the create and the attach
+  leaves an unattached node that no message names and `audit` cannot see. The
+  #750 order had the same create-then-wire window but failed loud, as a node
+  on the frontier; this order trades that for never exposing blocked work.
   **Self-release is a verb, not a raw write.** The claim-race loser's
   self-removal — DELETE self from the assignee set — is promoted to
   `soma graph release <node>`, the **identity-bound self-release**: a walker
@@ -602,7 +608,7 @@ interface GraphStore {
                                              // store assigns id; detached = no
                                              // membership edge yet (#740)
   attachToParent(child: NodeRef, parent: NodeRef): Promise<void>; // the edge a
-                                             // detached create left out
+                                             // create with `detached` left out
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   readSubtree(root: NodeRef): Promise<NodeState[]>;         // whole subtree, pre-order,

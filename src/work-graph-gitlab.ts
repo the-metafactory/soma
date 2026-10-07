@@ -291,8 +291,22 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
     const item = rec(created.workItem, "created work item"); const namespace = rec(item.namespace, "created work item namespace"); const iid = item.iid;
     return nodeId(str(namespace, "fullPath", "created work item namespace"), typeof iid === "string" ? Number(iid) : num(item, "iid", "created work item"), typeName(item.workItemType) === "Epic" ? "&" : "#");
   }
-  /** The hierarchy edge a detached create left out (#740); GitLab validates the parent's type against the child's here. */
-  async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> { const [childItem, parentItem] = await Promise.all([this.item(child), this.item(parent)]); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemUpdateInput!){workItemUpdate(input:$input){errors}}`, variables: { input: { id: childItem.id, hierarchyWidget: { parentId: parentItem.id } } } } }), "workItemUpdate"); }
+  /**
+   * The hierarchy edge a `detached` create left out (#740). The parent is held to
+   * the rules `createNode` applies — the type pairing and the parent's home
+   * project — so `link --parent` cannot hang a node under another map.
+   */
+  async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> {
+    const [childItem, parentItem] = await this.items([child, parent]);
+    if (childItem === undefined || parentItem === undefined) throw new WorkGraphError("backend", `GitLab attach read returned no work item for ${child.id} or ${parent.id}`);
+    const expected = parentItem.type === "Epic" ? "Issue" : parentItem.type === "Issue" ? "Task" : undefined;
+    if (expected === undefined || childItem.type !== expected) throw new WorkGraphError("invalid-node", `GitLab cannot attach a ${childItem.type || "work item"} below a ${parentItem.type || "work item"} (${parent.id})`);
+    if (parentItem.type === "Epic" && parentItem.nodeBlockError !== undefined) throw new WorkGraphError("invalid-node", `GitLab Epic ${parent.id} has an invalid typed node block: ${parentItem.nodeBlockError}`);
+    const parentHomeProject = parentItem.type === "Epic" ? parentItem.homeProject : parentItem.path;
+    if (parentHomeProject === undefined || childItem.path !== parentHomeProject) throw new WorkGraphError("invalid-node", `GitLab ${child.id} lives in ${childItem.path}, not in ${parent.id}'s home project ${parentHomeProject ?? "(none)"}`);
+    validHomeProject(this.host, parentHomeProject, parentItem.type === "Epic" ? parentItem.path : undefined);
+    mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($input:WorkItemUpdateInput!){workItemUpdate(input:$input){errors}}`, variables: { input: { id: childItem.id, hierarchyWidget: { parentId: parentItem.id } } } } }), "workItemUpdate");
+  }
   private async addLinkedEdge(source: NodeRef, related: NodeRef, linkType: "BLOCKS" | "RELATED"): Promise<void> { const [left, right] = await Promise.all([this.item(source), this.item(related)]); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($source:WorkItemID!,$target:WorkItemID!,$linkType:WorkItemRelatedLinkType!){workItemAddLinkedItems(input:{id:$source,workItemsIds:[$target],linkType:$linkType}){errors}}`, variables: { source: left.id, target: right.id, linkType } } }), "workItemAddLinkedItems"); }
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> { await this.addLinkedEdge(blocker, blocked, "BLOCKS"); }
   async selectRehomeParent(requested: NodeState): Promise<RehomeSelection | undefined> { if (requested.trackerType !== "Task") return undefined; const related = (requested as HydratedNodeState)[GITLAB_ITEM] ?? await this.item(requested.ref); let parent = requested.parent; while (parent !== undefined) { const candidate = await this.readNode(parent) as HydratedNodeState; if (candidate.trackerType === "Issue") { const parentItem = candidate[GITLAB_ITEM]; if (parentItem === undefined) throw new WorkGraphError("backend", `GitLab re-home parent ${candidate.ref.id} was not hydrated`); return { parent: candidate.ref, context: { [GITLAB_REHOME]: true, parent: parentItem, related } satisfies GitLabRehomeContext }; } parent = candidate.parent; } throw new WorkGraphError("invalid-node", `cannot re-home parent ${requested.ref.id}: no allowed ancestor`); }
