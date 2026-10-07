@@ -370,6 +370,37 @@ test("addBlockingEdge reads a sibling-repo blocker's database id where it lives"
   expect(calls[1]?.body).toEqual({ issue_id: 7_000_097 });
 });
 
+test("the store never writes to a sibling repo's node, whatever id it is handed", async () => {
+  const { transport, calls } = fakeTransport({
+    // Assigned to the acting identity, so a release would have to write.
+    [`GET repos/${RANGER}/issues/116`]: issuePayload({ number: 116, assignees: [{ login: "ivy" }] }),
+    [`GET repos/${REPO}/issues/497`]: issuePayload(),
+  });
+  const store = createGitHubGraphStore({ repo: REPO, transport });
+  const sibling = { id: `${RANGER}#116` };
+
+  await expect(store.claim(sibling, "ivy")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.release(sibling, "ivy")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.postComment(sibling, "hi")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.writeRawBody(sibling, "body")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.addBlockingEdge({ id: "497" }, sibling)).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.createNode({ title: "t", autonomy: "approve", checkpointId: "cp", parent: sibling } as never)).rejects.toThrow();
+  expect(calls.filter((call) => call.method !== "GET" && call.path !== `repos/${REPO}/issues`)).toEqual([]);
+});
+
+test("a sibling repo's path reads back lower-cased, the same id a typed ref resolves to", async () => {
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload(),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [
+      issuePayload({ number: 116, id: 1, repository_url: "https://api.github.com/repos/The-Metafactory/Ranger" }),
+    ],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+
+  expect(state.blockedBy).toEqual([{ id: `${RANGER}#116`, status: "open" }]);
+});
+
 test("an id that is neither a number nor owner/name#N never reaches a request path", async () => {
   const { transport, calls } = fakeTransport({});
   const store = createGitHubGraphStore({ repo: REPO, transport });
@@ -625,6 +656,29 @@ test("a GraphQL rate limit falls back to a whole REST subtree in depth-first ord
     `GET repos/${REPO}/issues/556/dependencies/blocked_by`,
     `GET repos/${REPO}/issues/556/sub_issues?per_page=100`,
   ]);
+});
+
+test("the REST fallback reads a sibling-repo child's blockers in that repo (#749)", async () => {
+  const calls: string[] = [];
+  const transport: GitHubApiTransport = async (request) => {
+    const key = `${request.method} ${request.path}`;
+    calls.push(key);
+    if (key === "POST graphql") throw new WorkGraphError("backend", "GraphQL: API rate limit exceeded");
+    const responses: Record<string, unknown> = {
+      [`GET repos/${REPO}/issues/495/sub_issues?per_page=100`]: [
+        issuePayload({ number: 116, id: 5_000_116, repository_url: "https://api.github.com/repos/the-metafactory/ranger" }),
+      ],
+      [`GET repos/the-metafactory/ranger/issues/116/dependencies/blocked_by`]: [],
+      [`GET repos/the-metafactory/ranger/issues/116/sub_issues?per_page=100`]: [],
+    };
+    if (!(key in responses)) throw new Error(`unstubbed request: ${key}`);
+    return responses[key];
+  };
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+
+  expect(ids(subtree)).toEqual(["the-metafactory/ranger#116"]);
+  expect(calls).toContain(`GET repos/the-metafactory/ranger/issues/116/dependencies/blocked_by`);
 });
 
 test("REST subtree fallback deduplicates repeated and cyclic membership edges", async () => {

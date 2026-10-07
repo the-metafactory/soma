@@ -601,7 +601,28 @@ test("when the hold also fails, add says the node is on the frontier", async () 
   const message = await failure(addArgs("96"), store);
 
   expect(message).toContain("Could not hold node 900 (gh is not logged in): it IS on the frontier");
+  expect(message).toContain("soma graph link 900 --blocked-by 96");
+  expect(message).not.toContain("soma graph release");
   expect(store.claims).toEqual([]);
+});
+
+test("a partly wired add under --json fails with JSON, naming what landed and whether it is held", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") })
+    .seed("97", { node: autoNode("97") });
+  store.failingEdges.add("96");
+
+  const message = await failure([...addArgs("96", "97"), "--json"], store);
+
+  expect(JSON.parse(message)).toEqual({
+    repo: "the-metafactory/soma",
+    node: "900",
+    parent: "495",
+    written: ["97"],
+    failed: [{ id: "96", reason: "edge write for 96 failed" }],
+    held: true,
+  });
 });
 
 // --- link -------------------------------------------------------------------

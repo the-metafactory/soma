@@ -45,7 +45,7 @@ import { decodeNodeBlock, encodeNodeBlock } from "./work-graph-node-block";
 export { decodeNodeBlock, encodeNodeBlock, type DecodedBody } from "./work-graph-node-block";
 import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation";
 import { runCommand } from "./work-graph-probes";
-import { GITHUB_DOTCOM, parseLocatedNodeId, validateRepoRef } from "./work-graph-ref";
+import { GITHUB_DOTCOM, gitHubNodeId, parseLocatedNodeId, validateRepoRef } from "./work-graph-ref";
 
 export interface GitHubApiRequest {
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -296,14 +296,12 @@ function readIssueRepo(record: Record<string, unknown>): string | undefined {
 }
 
 /**
- * The store-local id of an issue: the bare number in the store's own repo, and
- * `owner/name#N` in a sibling (#749), the form {@link GitHubGraphStore.issuePath}
- * routes back to its own repo.
+ * The store-local id of an issue (#749), through {@link gitHubNodeId}: the
+ * bare number in the store's own repo, `owner/name#N` in a sibling, which
+ * {@link GitHubGraphStore.readPath} routes back to its own repo.
  */
 function localIssueId(storeRepo: string, issue: { number: number; repo?: string }): string {
-  return issue.repo === undefined || issue.repo.toLowerCase() === storeRepo.toLowerCase()
-    ? String(issue.number)
-    : `${issue.repo}#${issue.number}`;
+  return gitHubNodeId(storeRepo, issue.repo ?? storeRepo, issue.number);
 }
 
 function readIssue(value: unknown, context: string): GitHubIssue {
@@ -672,13 +670,13 @@ class GitHubGraphStore implements GraphStore {
   }
 
   /**
-   * The REST path of one issue. A store id is the bare number in this repo, or
-   * `owner/name#N` for a node in a sibling repo (#749), the form
-   * {@link localIssueId} produces. Every issue route goes through here, so a
-   * located id reaches its own repo on every read, and anything else refuses
-   * rather than landing in a URL, where `#707` became a fragment.
+   * The REST path of one issue **to read**. A store id is the bare number in
+   * this repo, or `owner/name#N` for a node in a sibling repo (#749), the form
+   * {@link localIssueId} produces: a blocker may live there, and reading it is
+   * how its status, database id and cycle walk are resolved. Anything else
+   * refuses rather than landing in a URL, where `#707` became a fragment.
    */
-  private issuePath(ref: NodeRef): string {
+  private readPath(ref: NodeRef): string {
     if (/^[1-9]\d*$/u.test(ref.id)) return `repos/${this.repo}/issues/${ref.id}`;
     const located = parseLocatedNodeId(ref.id);
     if (located !== undefined && located.sigil === "#") {
@@ -686,6 +684,21 @@ class GitHubGraphStore implements GraphStore {
       return `repos/${repo.path}/issues/${located.iid}`;
     }
     throw new WorkGraphError("invalid-node", `"${ref.id}" is not a GitHub node id: expected an issue number or owner/name#<number>.`);
+  }
+
+  /**
+   * The REST path of one issue **to write**: this repo only. A store is one
+   * repository, so a claim, comment, body rewrite, close or child never lands
+   * on a sibling's node — enforced here rather than only in the CLI's target
+   * resolution, because `readNode` hands back located ids in `blockedBy` and a
+   * library caller could feed one straight into `claim` or `close`.
+   */
+  private writePath(ref: NodeRef): string {
+    if (/^[1-9]\d*$/u.test(ref.id)) return `repos/${this.repo}/issues/${ref.id}`;
+    throw new WorkGraphError(
+      "invalid-node",
+      `"${ref.id}" is not a node in ${this.repo}: this store writes only to its own repository. A node in another repo can only be a blocker.`,
+    );
   }
 
   /** `GET /user` — the login `gh` authenticates as, the same call `gh api user` made before the store owned it. */
@@ -724,7 +737,7 @@ class GitHubGraphStore implements GraphStore {
     if (spec.parent !== undefined) {
       await this.transport({
         method: "POST",
-        path: `${this.issuePath(spec.parent)}/sub_issues`,
+        path: `${this.writePath(spec.parent)}/sub_issues`,
         body: { sub_issue_id: created.id },
       });
     }
@@ -739,7 +752,7 @@ class GitHubGraphStore implements GraphStore {
     const blockerIssue = await this.fetchIssue(blocker);
     await this.transport({
       method: "POST",
-      path: `${this.issuePath(blocked)}/dependencies/blocked_by`,
+      path: `${this.writePath(blocked)}/dependencies/blocked_by`,
       // The dependency endpoint keys on the database id, not the issue number.
       body: { issue_id: blockerIssue.id },
     });
@@ -839,7 +852,7 @@ class GitHubGraphStore implements GraphStore {
       const children = asArray(
         await this.transport({
           method: "GET",
-          path: `${this.issuePath(parent)}/sub_issues?per_page=100`,
+          path: `${this.readPath(parent)}/sub_issues?per_page=100`,
           paginate: true,
         }),
         `REST subtree children of ${parent.id}`,
@@ -847,7 +860,7 @@ class GitHubGraphStore implements GraphStore {
 
       for (const entry of children) {
         const issue = readIssue(entry, `REST subtree child of ${parent.id}`);
-        const ref = { id: String(issue.number) };
+        const ref = { id: localIssueId(this.repo, issue) };
         if (seen.has(ref.id)) continue;
         seen.add(ref.id);
         states.push(toNodeState(this.repo, issue, await this.fetchBlockers(ref), parent));
@@ -954,7 +967,7 @@ class GitHubGraphStore implements GraphStore {
     }
     await this.transport({
       method: "POST",
-      path: `${this.issuePath(ref)}/assignees`,
+      path: `${this.writePath(ref)}/assignees`,
       body: { assignees: [identity] },
     });
 
@@ -963,7 +976,7 @@ class GitHubGraphStore implements GraphStore {
     if (!held && after.assignees.includes(identity)) {
       await this.transport({
         method: "DELETE",
-        path: `${this.issuePath(ref)}/assignees`,
+        path: `${this.writePath(ref)}/assignees`,
         body: { assignees: [identity] },
       });
       return { held, identity, holder, assignees: after.assignees.filter((login) => login !== identity) };
@@ -987,7 +1000,7 @@ class GitHubGraphStore implements GraphStore {
     }
     await this.transport({
       method: "DELETE",
-      path: `${this.issuePath(ref)}/assignees`,
+      path: `${this.writePath(ref)}/assignees`,
       body: { assignees: [identity] },
     });
     const after = await this.fetchIssue(ref);
@@ -999,7 +1012,7 @@ class GitHubGraphStore implements GraphStore {
 
   async postComment(ref: NodeRef, body: string): Promise<CommentRef> {
     const comment = readComment(
-      await this.transport({ method: "POST", path: `${this.issuePath(ref)}/comments`, body: { body } }),
+      await this.transport({ method: "POST", path: `${this.writePath(ref)}/comments`, body: { body } }),
       "postComment",
     );
     return {
@@ -1053,7 +1066,7 @@ class GitHubGraphStore implements GraphStore {
     if (completion.gatedNodeHash !== hashGatedNodeFields(node)) return false;
     const [comments, events] = await Promise.all([
       this.listComments(ref),
-      this.transport({ method: "GET", path: `${this.issuePath(ref)}/events`, paginate: true }),
+      this.transport({ method: "GET", path: `${this.readPath(ref)}/events`, paginate: true }),
     ]);
     const comment = comments.find((entry) => entry.id === completion.receiptCommentId);
     if (comment === undefined || comment.author !== completion.closer || !isStructurallyValidCloseReceipt(comment.body)) return false;
@@ -1108,7 +1121,7 @@ class GitHubGraphStore implements GraphStore {
     const comments = asArray(
       await this.transport({
         method: "GET",
-        path: `${this.issuePath(ref)}/comments`,
+        path: `${this.readPath(ref)}/comments`,
         paginate: true,
       }),
       "listComments",
@@ -1132,7 +1145,7 @@ class GitHubGraphStore implements GraphStore {
   async writeRawBody(ref: NodeRef, body: string): Promise<void> {
     await this.transport({
       method: "PATCH",
-      path: this.issuePath(ref),
+      path: this.writePath(ref),
       body: { body },
     });
   }
@@ -1165,7 +1178,7 @@ class GitHubGraphStore implements GraphStore {
       .filter((part) => part.length > 0).join("\n\n");
     await this.transport({
       method: "PATCH",
-      path: this.issuePath(ref),
+      path: this.writePath(ref),
       body: { body, state: "closed", state_reason: "completed" },
     });
   }
@@ -1187,7 +1200,7 @@ class GitHubGraphStore implements GraphStore {
   private async fetchParentId(ref: NodeRef): Promise<string | undefined> {
     try {
       const parent = readIssue(
-        await this.transport({ method: "GET", path: `${this.issuePath(ref)}/parent` }),
+        await this.transport({ method: "GET", path: `${this.readPath(ref)}/parent` }),
         `parent of issue ${ref.id}`,
       );
       return localIssueId(this.repo, parent);
@@ -1199,7 +1212,7 @@ class GitHubGraphStore implements GraphStore {
 
   private async fetchIssue(ref: NodeRef): Promise<GitHubIssue> {
     return readIssue(
-      await this.transport({ method: "GET", path: this.issuePath(ref) }),
+      await this.transport({ method: "GET", path: this.readPath(ref) }),
       `issue ${ref.id}`,
     );
   }
@@ -1208,7 +1221,7 @@ class GitHubGraphStore implements GraphStore {
     return asArray(
       await this.transport({
         method: "GET",
-        path: `${this.issuePath(ref)}/dependencies/blocked_by`,
+        path: `${this.readPath(ref)}/dependencies/blocked_by`,
         paginate: true,
       }),
       `node ${ref.id} blocked_by`,

@@ -20,12 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repo in `node`, `frontier` and the subtree walk. Before, a cross-repo ref was
   sent to the API as an issue number, and a cross-repo edge written by hand read
   back as the same number in the store's repo. A blocker on another forge or
-  host, or text that is not a node ref, now refuses. (#749)
+  host, or text that is not a node ref, now refuses, and the GitHub store
+  refuses any write to a node outside its own repo. (#749)
 - `soma graph add` reads every `--blocked-by` before it creates the node and
   refuses the whole add if any cannot be read. An edge that still fails after
   creation no longer stops the others; the node is claimed by the acting
-  identity, so it stays off the frontier, and the error prints the `link` and
-  `release` commands that finish the wiring. (#750)
+  identity, so it stays off the frontier, and the error prints the `link`
+  command that finishes the wiring (and `release`, when the hold landed);
+  under `--json` the failure is JSON. (#750)
 
 ## [0.23.1] - 2026-10-05
 

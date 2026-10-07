@@ -288,6 +288,8 @@ test("a blocker in the store's own repo collapses to the bare id, however it is 
 test("a blocker in a sibling repo on the same forge keeps its location", () => {
   expect(localBlockerId("the-metafactory/ranger#116", SOMA)).toBe("the-metafactory/ranger#116");
   expect(localBlockerId("github:github.com/the-metafactory/ranger#116", SOMA)).toBe("the-metafactory/ranger#116");
+  // GitHub paths are case-insensitive; the id is lower-cased so it matches what the API reads back.
+  expect(localBlockerId("The-Metafactory/Ranger#116", SOMA)).toBe("the-metafactory/ranger#116");
 });
 
 test("a GitLab blocker keeps the store's located id shape", () => {

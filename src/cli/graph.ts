@@ -960,41 +960,62 @@ async function resolveBody(
   return body;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function edgeLabel(node: string, blocker: string): string {
+  return `${node} blocked by ${blocker}`;
+}
+
 /**
  * Every blocker must be a node the store can read before anything is written
  * (#750): a typo or an unreadable ref refuses the whole verb, so nothing is
- * left half-wired. All failures are reported at once, not just the first.
+ * left half-wired. The reads are independent, so they run together, and every
+ * failure is reported at once, not just the first.
  */
 async function checkBlockers(graph: WorkGraph, blockedBy: readonly string[], verb: string): Promise<void> {
-  const unreadable: string[] = [];
-  for (const id of blockedBy) {
-    try {
-      await graph.readNode({ id });
-    } catch (error) {
-      unreadable.push(`- ${id}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
+  const reads = await Promise.allSettled(blockedBy.map(async (id) => await graph.readNode({ id })));
+  const unreadable = reads.flatMap((read, index) => (read.status === "rejected" ? [`- ${blockedBy[index]}: ${errorMessage(read.reason)}`] : []));
   if (unreadable.length === 0) return;
   throw new SomaCliError([`soma graph ${verb} refused: ${unreadable.length} blocker(s) cannot be read, so nothing was written.`, ...unreadable].join("\n"), 1);
 }
 
+interface EdgeWrites {
+  written: string[];
+  failed: { id: string; reason: string }[];
+}
+
 /** Write each edge, collecting failures rather than stopping at the first, so one bad edge never strands the good ones. */
-async function writeBlockingEdges(
-  graph: WorkGraph,
-  blocked: NodeRef,
-  blockedBy: readonly string[],
-): Promise<{ written: string[]; failed: { id: string; reason: string }[] }> {
-  const written: string[] = [];
-  const failed: { id: string; reason: string }[] = [];
+async function writeBlockingEdges(graph: WorkGraph, blocked: NodeRef, blockedBy: readonly string[]): Promise<EdgeWrites> {
+  const edges: EdgeWrites = { written: [], failed: [] };
   for (const id of blockedBy) {
     try {
       await graph.addBlockingEdge({ id }, blocked);
-      written.push(id);
+      edges.written.push(id);
     } catch (error) {
-      failed.push({ id, reason: error instanceof Error ? error.message : String(error) });
+      edges.failed.push({ id, reason: errorMessage(error) });
     }
   }
-  return { written, failed };
+  return edges;
+}
+
+/**
+ * Hold a partly wired node off the frontier (#750) by claiming it as the
+ * acting identity: the frontier already skips an assigned node, so no new
+ * state is needed. Never throws — a hold that fails is reported, because the
+ * caller has to say the node is takeable rather than imply it is safe.
+ */
+async function holdNode(store: GraphStore, graph: WorkGraph, node: NodeRef): Promise<{ held: boolean; line: string }> {
+  try {
+    const identity = await store.actingIdentity();
+    const claim = await graph.claim(node, identity);
+    return claim.held
+      ? { held: true, line: `Held node ${node.id} by claiming it as ${identity}, so it stays off the frontier.` }
+      : { held: false, line: `Could not hold node ${node.id}: it is claimed by ${claim.holder}.` };
+  } catch (error) {
+    return { held: false, line: `Could not hold node ${node.id} (${errorMessage(error)}): it IS on the frontier until its blockers are wired.` };
+  }
 }
 
 async function runAdd(
@@ -1020,9 +1041,15 @@ async function runAdd(
 
   // The node exists from here on. An edge that still fails leaves it
   // under-blocked, and an under-blocked node is takeable on the next walker
-  // tick — so the node is held by claiming it before the error is raised.
-  const { written, failed } = await writeBlockingEdges(graph, created, blockedBy);
-  if (failed.length > 0) throw new SomaCliError(await partialAddReport(parsed, store, graph, repo, created, written, failed), 1);
+  // tick — so the node is held before the error is raised.
+  const edges = await writeBlockingEdges(graph, created, blockedBy);
+  if (edges.failed.length > 0) {
+    const hold = await holdNode(store, graph, created);
+    if (parsed.options.json === true) {
+      throw new SomaCliError(JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, ...edges, held: hold.held }, null, 2), 1);
+    }
+    throw new SomaCliError(partialAddReport(parsed.target, repo, created, edges, hold), 1);
+  }
 
   if (parsed.options.json === true) {
     return JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, blockedBy, ...(created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id }) }, null, 2);
@@ -1031,44 +1058,21 @@ async function runAdd(
   return [
     `Created node ${created.id} under ${created.rehomedTo?.id ?? parsed.target} (${displayRepo(repo)}).`,
     ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
-    ...(written.length > 0 ? ["", "Blocking edges:", ...written.map((id) => `- ${created.id} blocked by ${id}`)] : []),
+    ...(edges.written.length > 0 ? ["", "Blocking edges:", ...edges.written.map((id) => `- ${edgeLabel(created.id, id)}`)] : []),
   ].join("\n");
 }
 
-/**
- * What a partly wired `add` says (#750). It holds the node off the frontier by
- * claiming it as the acting identity — the frontier already skips an assigned
- * node, so no new state is needed — and names the commands that finish the
- * wiring and drop the hold. If the hold itself fails, it says the node is
- * takeable rather than implying it is safe.
- */
-async function partialAddReport(
-  parsed: ParsedGraphAddArgs,
-  store: GraphStore,
-  graph: WorkGraph,
-  repo: RepoRef,
-  created: NodeRef,
-  written: readonly string[],
-  failed: readonly { id: string; reason: string }[],
-): Promise<string> {
+/** What a partly wired `add` says (#750): what failed, what landed, the hold, and the commands that finish the job. */
+function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges: EdgeWrites, hold: { held: boolean; line: string }): string {
   const repoFlag = `--repo ${formatRepoRef(repo)}`;
-  let hold: string;
-  try {
-    const identity = await store.actingIdentity();
-    const claim = await graph.claim(created, identity);
-    hold = claim.held
-      ? `Held node ${created.id} by claiming it as ${identity}, so it stays off the frontier.`
-      : `Could not hold node ${created.id}: it is claimed by ${claim.holder}.`;
-  } catch (error) {
-    hold = `Could not hold node ${created.id} (${error instanceof Error ? error.message : String(error)}): it IS on the frontier until its blockers are wired.`;
-  }
+  const { written, failed } = edges;
   return [
-    `Created node ${created.id} under ${parsed.target} (${displayRepo(repo)}), but ${failed.length} of ${failed.length + written.length} blocking edge(s) failed:`,
+    `Created node ${created.id} under ${parent} (${displayRepo(repo)}), but ${failed.length} of ${failed.length + written.length} blocking edge(s) failed:`,
     ...failed.map((edge) => `- blocked by ${edge.id}: ${edge.reason}`),
-    written.length > 0 ? `Edges written: ${written.map((id) => `${created.id} blocked by ${id}`).join("; ")}` : "No blocking edges were written.",
-    hold,
+    written.length > 0 ? `Edges written: ${written.map((id) => edgeLabel(created.id, id)).join("; ")}` : "No blocking edges were written.",
+    hold.line,
     `Finish wiring: soma graph link ${created.id} ${failed.map((edge) => `--blocked-by ${edge.id}`).join(" ")} ${repoFlag}`,
-    `Then drop the hold: soma graph release ${created.id} ${repoFlag}`,
+    ...(hold.held ? [`Then drop the hold: soma graph release ${created.id} ${repoFlag}`] : []),
   ].join("\n");
 }
 

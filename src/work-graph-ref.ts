@@ -199,10 +199,19 @@ export function storeNodeId(ref: QualifiedNodeRef): string {
  * The caller has already checked forge and host agree; this only names the id.
  */
 export function edgeNodeId(ref: QualifiedNodeRef, store: RepoRef): string {
-  if (ref.repo.forge === "github" && ref.repo.path.toLowerCase() !== store.path.toLowerCase()) {
-    return `${ref.repo.path}#${ref.iid}`;
-  }
-  return storeNodeId(ref);
+  return ref.repo.forge === "github" ? gitHubNodeId(store.path, ref.repo.path, ref.iid) : storeNodeId(ref);
+}
+
+/**
+ * The one producer of a GitHub store-local id, shared by what a caller types
+ * ({@link edgeNodeId}) and what the API reads back (the GitHub store), so the
+ * two can never name one node two ways. GitHub repo paths are
+ * case-insensitive, so a sibling's path is lower-cased: `Owner/Name#7` typed
+ * and `owner/name#7` read back are one id to a dedupe or a cycle walk.
+ */
+export function gitHubNodeId(storePath: string, path: string, iid: number): string {
+  const sibling = path.toLowerCase();
+  return sibling === storePath.toLowerCase() ? String(iid) : `${sibling}#${iid}`;
 }
 
 /**
