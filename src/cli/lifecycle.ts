@@ -4,6 +4,8 @@ import {
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
 } from "../index";
+import { resolveLifecycleHomeDir } from "../lifecycle";
+import { resolveInstalledLifecycleHomeDir } from "../adapters/shared/lifecycle-home-binding";
 import type { SomaLifecycleOptions, SomaLifecycleResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
@@ -23,7 +25,8 @@ export interface ParsedLifecycleArgs {
 }
 
 const LIFECYCLE_USAGE =
-  "Usage: soma lifecycle <session-start|algorithm-updated|algorithm-observed|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>] [--work-registry-lock-timeout-ms <ms>]";
+  "Usage: soma lifecycle <session-start|algorithm-updated|algorithm-observed|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>] [--work-registry-lock-timeout-ms <ms>]\n" +
+  "  --home-dir resolves substrate homes (~/.claude, ~/.codex, ...). With an explicit --soma-home and no --home-dir, substrate writes land under <soma-home>/.substrate-home unless the live substrate installation is bound to that same Soma source. Legacy lookup only covers default substrate locations under the OS home. Relocated legacy installs require --home-dir or reprojection. Installed hooks pass --home-dir; pass it explicitly to select another destination.";
 
 export const LIFECYCLE_COMMAND_HELP: { usage: string; subcommands: Record<ParsedLifecycleArgs["event"], string> } = {
   usage: LIFECYCLE_USAGE,
@@ -106,26 +109,36 @@ export function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
 }
 
 export async function runLifecycleCli(parsed: ParsedLifecycleArgs): Promise<string> {
+  const homeDir = await resolveInstalledLifecycleHomeDir(parsed.options);
+  const isolatedHome = homeDir === undefined && parsed.options.somaHome !== undefined
+    ? resolveLifecycleHomeDir(parsed.options)
+    : undefined;
+  if (isolatedHome !== undefined) {
+    console.error("Soma lifecycle: no matching installed home binding at the default substrate location; using an isolated substrate destination. For a relocated legacy installation, pass --home-dir <installation-home> or reproject it with that destination pinned.");
+  }
+  const format = (result: SomaLifecycleResult): string => formatLifecycleResult(result, isolatedHome);
+  parsed = { ...parsed, options: { ...parsed.options, ...(homeDir === undefined ? {} : { homeDir }) } };
   if (parsed.event === "session-start") {
-    return formatLifecycleResult(await runSomaLifecycleSessionStart(parsed.options));
+    return format(await runSomaLifecycleSessionStart(parsed.options));
   }
 
   if (parsed.event === "algorithm-updated") {
-    return formatLifecycleResult(await runSomaLifecycleAlgorithmUpdated(parsed.options));
+    return format(await runSomaLifecycleAlgorithmUpdated(parsed.options));
   }
 
   if (parsed.event === "algorithm-observed") {
-    return formatLifecycleResult(await runSomaLifecycleAlgorithmObserved(parsed.options));
+    return format(await runSomaLifecycleAlgorithmObserved(parsed.options));
   }
 
-  return formatLifecycleResult(await runSomaLifecycleSessionEnd(parsed.options));
+  return format(await runSomaLifecycleSessionEnd(parsed.options));
 }
 
-function formatLifecycleResult(result: SomaLifecycleResult): string {
+function formatLifecycleResult(result: SomaLifecycleResult, isolatedHome?: string): string {
   const lines = [
     "Soma lifecycle event handled",
     `event: ${result.event}`,
     `somaHome: ${result.somaHome}`,
+    ...(isolatedHome === undefined ? [] : [`substrate destination: isolated (${isolatedHome})`]),
     `timestamp: ${result.timestamp}`,
     "",
     "Files:",

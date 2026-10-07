@@ -1,3 +1,4 @@
+import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
 import { skillsLoaderUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { PI_DEV_DEFAULT_HOME, piDevProjectionPrivateRoots } from "../private-roots";
 import {
@@ -9,9 +10,9 @@ import { validatePiDevInstallRuntime } from "./version";
 import { isPiDevSkillProjectionPath, projectPiDevHome } from "./adapter";
 
 export const PI_DEV_HOME_FILES = [
-  "agent/extensions/soma.ts",
+  PI_DEV_HOME_EXTENSION_PATH,
   "agent/extensions/soma-path-guard.ts",
-  "agent/extensions/soma-algorithm.ts",
+  PI_DEV_ALGORITHM_EXTENSION_PATH,
   "agent/soma/context.md",
   "agent/soma/profile.md",
   "agent/soma/startup-context.md",
@@ -31,7 +32,7 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
   defaultHome: PI_DEV_DEFAULT_HOME,
   homeFiles: PI_DEV_HOME_FILES,
   homeProjection: {
-    build: (input, context) => projectPiDevHome(input, context.somaHome),
+    build: (input, context) => projectPiDevHome(input, context.somaHome, context.homeDir),
     isSkillProjectionPath: isPiDevSkillProjectionPath,
   },
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (agent/extensions + agent/skills shared.)

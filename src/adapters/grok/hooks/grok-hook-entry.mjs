@@ -19,6 +19,7 @@
 //     block on 0.2.38 (only PreToolUse can); its runtime inspection
 //     still records denials (`--record deny`) and emits the block shape
 //     as the tested, forward-compatible contract.
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -88,7 +89,7 @@ function runSomaCommand(config, args, env = {}) {
 }
 
 function runSomaLifecycle(config, event, sessionId) {
-  const args = ["lifecycle", event, "--soma-home", config.somaHome, "--substrate", "grok"];
+  const args = ["lifecycle", event, "--soma-home", config.somaHome, "--home-dir", config.homeDir ?? homedir(), "--substrate", "grok"];
   if (sessionId) {
     args.push("--session-id", sessionId);
   }

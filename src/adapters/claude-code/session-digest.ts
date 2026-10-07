@@ -242,7 +242,7 @@ export async function writeSessionDigestFromTranscript(options: ClaudeSessionDig
   // Path containment: transcriptPath is HOOK-CONTROLLED, so validate it before reading —
   // a forged/confused payload must not read an arbitrary local file into recall. Require
   // an absolute `.jsonl` path resolving inside the Claude transcript root.
-  const root = resolve(options.transcriptRoot ?? process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT ?? join(homedir(), ".claude", "projects"));
+  const root = resolve(options.transcriptRoot ?? process.env.SOMA_CLAUDE_TRANSCRIPT_ROOT ?? join(options.homeDir ?? homedir(), ".claude", "projects"));
   const target = resolve(options.transcriptPath);
   const rel = relative(root, target);
   if (!isAbsolute(options.transcriptPath) || !target.endsWith(".jsonl") || rel === "" || rel.startsWith("..") || isAbsolute(rel)) {

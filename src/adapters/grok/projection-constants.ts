@@ -25,3 +25,6 @@ export const GROK_SOMA_REPO_POINTER_PATH = "skills/soma/soma-repo.txt";
 export const GROK_PERSONA_MARKER = "Soma persona (projected by Soma)";
 export const GROK_ROLE_MARKER = "Soma Algorithm role (projected by Soma)";
 export const GROK_AGENT_MARKER = "Soma exploration agent (projected by Soma)";
+
+/** Adapter-owned lifecycle binding path, relative to the Grok home. */
+export const GROK_LIFECYCLE_CONFIG_PATH = "hooks/soma-lifecycle.config.json";

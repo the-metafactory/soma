@@ -467,6 +467,8 @@ converting it is not part of this rail.
 
 ## Adapter Contract
 
+### Adapter ownership
+
 Adapters should be thin. They do not own identity, memory, VSA, skill schemas, or
 policy semantics. They only project those contracts into a substrate's native
 mechanisms, and write back substrate-side events through the writeback gate.
@@ -474,6 +476,11 @@ They do not invoke a substrate: optional invocation belongs to a separate
 `SubstrateExecutor` with probe, prepare, execute, and cancel contracts. A
 projection-only substrate remains first-class and reports no execution
 capability rather than returning a misleading adapter-level failure stub.
+
+Lifecycle hooks must persist the installation `homeDir` and pass both
+`--soma-home` and `--home-dir` explicitly. Without a bound destination, an
+explicit Soma source uses an isolated substrate tree; see
+[lifecycle home isolation](./architecture.md#lifecycle-home-isolation).
 
 Shared work state is a core contract, not a substrate convention. Adapters that
 can identify a session should update:

@@ -25,7 +25,8 @@
  * executes. Soma's package.json is unchanged.
  */
 
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export interface RenderSomaAlgorithmExtensionOptions {
@@ -37,6 +38,7 @@ export interface RenderSomaAlgorithmExtensionOptions {
    */
   readonly runtimeModuleDir?: string;
   readonly somaHome?: string;
+  readonly homeDir?: string;
 }
 
 function defaultRuntimeModuleDir(): string {
@@ -129,6 +131,7 @@ const MAX_CHECKPOINTS_PER_RUN = 8;
 const RESTORE_ENTRY_SCAN_LIMIT = 16;
 const MAX_POLICY_TARGETS = 16;
 const INSTALLED_SOMA_HOME = ${installedSomaHome};
+const INSTALLED_HOME_DIR = ${JSON.stringify(resolve(options.homeDir ?? homedir()))};
 const SOMA_CLI_ENTRYPOINT = ${somaCliEntrypoint};
 
 interface SeenPhase {
@@ -175,7 +178,7 @@ function somaHomePath(): string {
 }
 
 function runSomaLifecycle(event: "algorithm-observed"): void {
-  execFile("bun", [SOMA_CLI_ENTRYPOINT, "lifecycle", event, "--soma-home", somaHomePath(), "--substrate", "pi-dev"], {
+  execFile("bun", [SOMA_CLI_ENTRYPOINT, "lifecycle", event, "--soma-home", somaHomePath(), "--home-dir", INSTALLED_HOME_DIR, "--substrate", "pi-dev"], {
     encoding: "utf8",
     timeout: 25000,
   }, () => undefined);

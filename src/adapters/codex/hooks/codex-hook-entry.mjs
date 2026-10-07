@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -78,7 +79,7 @@ function resolveSessionTranscript(config, input, sessionId) {
 function runSomaLifecycle(config, event, input) {
   const CODEX_SESSION_END_WORK_REGISTRY_LOCK_TIMEOUT_MS = 1_000;
   const sessionId = typeof input.session_id === "string" && input.session_id.trim().length > 0 ? input.session_id : undefined;
-  const args = ["run", "soma", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "codex"];
+  const args = ["run", "soma", "lifecycle", event, "--soma-home", config.somaHome, "--home-dir", config.homeDir ?? homedir(), "--substrate", "codex"];
   if (sessionId) {
     args.push("--session-id", sessionId);
   }

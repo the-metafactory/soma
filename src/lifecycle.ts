@@ -39,6 +39,20 @@ export function resolveSomaHome(options: SomaLifecycleOptions = {}): string {
   return resolve(options.somaHome ?? join(home, ".soma"));
 }
 
+/** Where a scratch soma home's substrate writes land when no home dir is pinned. */
+export const SCRATCH_SUBSTRATE_HOME_DIRNAME = ".substrate-home";
+
+/**
+ * Explicit Soma homes keep substrate writes inside themselves unless a caller
+ * also pins homeDir. The CLI supplies that binding for installed legacy hooks;
+ * new hooks pass it explicitly. No path spelling implies a live installation.
+ */
+export function resolveLifecycleHomeDir(options: SomaLifecycleOptions = {}): string | undefined {
+  if (options.homeDir !== undefined) return options.homeDir;
+  if (options.somaHome === undefined) return undefined;
+  return join(resolve(options.somaHome), SCRATCH_SUBSTRATE_HOME_DIRNAME);
+}
+
 function substrate(options: SomaLifecycleOptions): SubstrateId {
   return options.substrate ?? "custom";
 }
@@ -329,6 +343,7 @@ async function loadActiveVsaForLifecycle(somaHome: string): Promise<{ slug: stri
 
 export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const startup = await buildSomaStartupContext(options);
+  const homeDir = resolveLifecycleHomeDir(options);
   const active = await loadActiveVsaForLifecycle(startup.somaHome);
   const activeNote = active === null ? "" : ` | active VSA: ${active.slug} (${active.isa.frontmatter.phase})`;
   const eventsPath = join(startup.somaHome, "memory/STATE/events.jsonl");
@@ -369,7 +384,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
         metadata: {
           sessionId: startup.sessionId,
           substrate: startup.substrate,
-          error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+          error: lifecycleErrorMessage(error, startup.somaHome, homeDir),
         },
       });
     }
@@ -389,7 +404,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   try {
     const memoryReproject = await reprojectSubstrateMemoryProjection({
       substrate: startup.substrate,
-      homeDir: options.homeDir,
+      homeDir,
       somaHome: startup.somaHome,
     });
     memoryProjectedFile = memoryReproject.projected ?? undefined;
@@ -402,7 +417,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
       metadata: {
         sessionId: startup.sessionId,
         substrate: startup.substrate,
-        error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+        error: lifecycleErrorMessage(error, startup.somaHome, homeDir),
       },
     });
   }
@@ -411,7 +426,7 @@ export async function runSomaLifecycleSessionStart(options: SomaLifecycleOptions
   // dependency-inverted (looked up by substrate; core imports no adapter). All of
   // it, including failure reporting, is guarded inside the helper so it can never
   // halt session start. See repairProjectionAtSessionStart.
-  const projectionRepairFiles = await repairProjectionAtSessionStart(startup, options);
+  const projectionRepairFiles = await repairProjectionAtSessionStart(startup, homeDir);
 
   // #458: deterministic session-start learning readback. It READS soma's own
   // LEARNING/wisdom/ratings/reflection trees (all substrate-neutral, under
@@ -811,9 +826,15 @@ export type SessionEndTranscriptHandler = (input: {
 
 const sessionEndTranscriptHandlers = new Map<SubstrateId, SessionEndTranscriptHandler>();
 
-/** Register a substrate's SessionEnd transcript-digest fallback (see the type doc). */
-export function registerSessionEndTranscriptHandler(substrate: SubstrateId, handler: SessionEndTranscriptHandler): void {
+/** Register a transcript-digest fallback; returns a disposer restoring the previous handler. */
+export function registerSessionEndTranscriptHandler(substrate: SubstrateId, handler: SessionEndTranscriptHandler): () => void {
+  const previous = sessionEndTranscriptHandlers.get(substrate);
   sessionEndTranscriptHandlers.set(substrate, handler);
+  return () => {
+    if (sessionEndTranscriptHandlers.get(substrate) !== handler) return;
+    if (previous === undefined) sessionEndTranscriptHandlers.delete(substrate);
+    else sessionEndTranscriptHandlers.set(substrate, previous);
+  };
 }
 
 /**
@@ -844,12 +865,12 @@ export function registerProjectionRepairProvider(substrate: SubstrateId, provide
  */
 async function repairProjectionAtSessionStart(
   startup: SomaStartupContext,
-  options: SomaLifecycleOptions,
+  homeDir: string | undefined,
 ): Promise<string[]> {
   const repairProvider = projectionRepairProviders.get(startup.substrate);
   if (!repairProvider) return [];
   try {
-    const { substrateHome, artifacts } = repairProvider({ homeDir: options.homeDir, somaHome: startup.somaHome });
+    const { substrateHome, artifacts } = repairProvider({ homeDir, somaHome: startup.somaHome });
     const repair = await repairProjectedArtifacts({ substrateHome, artifacts });
     if (repair.healed.length > 0 || repair.drifted.length > 0 || repair.skipped.length > 0) {
       await appendSomaMemoryEvent(startup.somaHome, {
@@ -881,7 +902,7 @@ async function repairProjectionAtSessionStart(
         metadata: {
           sessionId: startup.sessionId,
           substrate: startup.substrate,
-          error: lifecycleErrorMessage(error, startup.somaHome, options.homeDir),
+          error: lifecycleErrorMessage(error, startup.somaHome, homeDir),
         },
       });
     } catch {
@@ -893,6 +914,7 @@ async function repairProjectionAtSessionStart(
 
 export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions = {}): Promise<SomaLifecycleResult> {
   const somaHome = resolveSomaHome(options);
+  const homeDir = resolveLifecycleHomeDir(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
   const index = await writeAlgorithmWorkIndex({ ...options, somaHome, timestamp });
   const learningFiles = await captureCompletedAlgorithmLearnings({ ...options, somaHome, timestamp });
@@ -947,7 +969,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   if (options.transcriptPath && options.sessionId && transcriptHandler) {
     try {
       const fallback = await transcriptHandler({
-        homeDir: options.homeDir,
+        homeDir,
         somaHome,
         now: new Date(timestamp),
         substrate: substrate(options),
