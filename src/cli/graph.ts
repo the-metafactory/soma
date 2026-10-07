@@ -981,6 +981,11 @@ async function checkBlockers(graph: WorkGraph, blockedBy: readonly string[], ver
   throw new SomaCliError([`soma graph ${verb} refused: ${unreadable.length} blocker(s) cannot be read, so nothing was written.`, ...unreadable].join("\n"), 1);
 }
 
+interface NodeHold {
+  held: boolean;
+  line: string;
+}
+
 interface EdgeWrites {
   written: string[];
   failed: { id: string; reason: string }[];
@@ -1006,7 +1011,7 @@ async function writeBlockingEdges(graph: WorkGraph, blocked: NodeRef, blockedBy:
  * state is needed. Never throws — a hold that fails is reported, because the
  * caller has to say the node is takeable rather than imply it is safe.
  */
-async function holdNode(store: GraphStore, graph: WorkGraph, node: NodeRef): Promise<{ held: boolean; line: string }> {
+async function holdNode(store: GraphStore, graph: WorkGraph, node: NodeRef): Promise<NodeHold> {
   try {
     const identity = await store.actingIdentity();
     const claim = await graph.claim(node, identity);
@@ -1042,17 +1047,18 @@ async function runAdd(
   // The node exists from here on. An edge that still fails leaves it
   // under-blocked, and an under-blocked node is takeable on the next walker
   // tick — so the node is held before the error is raised.
+  const rehomed = created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id };
   const edges = await writeBlockingEdges(graph, created, blockedBy);
   if (edges.failed.length > 0) {
     const hold = await holdNode(store, graph, created);
     if (parsed.options.json === true) {
-      throw new SomaCliError(JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, ...edges, held: hold.held }, null, 2), 1);
+      throw new SomaCliError(JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, ...rehomed, ...edges, held: hold.held }, null, 2), 1);
     }
-    throw new SomaCliError(partialAddReport(parsed.target, repo, created, edges, hold), 1);
+    throw new SomaCliError(partialAddReport(created.rehomedTo?.id ?? parsed.target, repo, created, edges, hold), 1);
   }
 
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, blockedBy, ...(created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id }) }, null, 2);
+    return JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, blockedBy, ...rehomed }, null, 2);
   }
 
   return [
@@ -1063,7 +1069,7 @@ async function runAdd(
 }
 
 /** What a partly wired `add` says (#750): what failed, what landed, the hold, and the commands that finish the job. */
-function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges: EdgeWrites, hold: { held: boolean; line: string }): string {
+function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges: EdgeWrites, hold: NodeHold): string {
   const repoFlag = `--repo ${formatRepoRef(repo)}`;
   const { written, failed } = edges;
   return [
@@ -1084,8 +1090,7 @@ function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges
  */
 async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: RepoRef): Promise<string> {
   const blocked = { id: parsed.target };
-  const state = await graph.readNode(blocked);
-  await checkBlockers(graph, parsed.options.blockedBy, "link");
+  const [state] = await Promise.all([graph.readNode(blocked), checkBlockers(graph, parsed.options.blockedBy, "link")]);
   const existing = new Set(state.blockedBy.map((blocker) => blocker.id));
   const already = parsed.options.blockedBy.filter((id) => existing.has(id));
   const { written, failed } = await writeBlockingEdges(graph, blocked, parsed.options.blockedBy.filter((id) => !existing.has(id)));

@@ -285,11 +285,9 @@ function readLogin(value: unknown): string {
  * caller reads as the store's own repo — the only answer before #749.
  */
 function readIssueRepo(record: Record<string, unknown>): string | undefined {
-  const repository = record.repository;
-  if (typeof repository === "object" && repository !== null) {
-    const named = (repository as Record<string, unknown>).nameWithOwner ?? (repository as Record<string, unknown>).full_name;
-    if (typeof named === "string") return named;
-  }
+  const repository = typeof record.repository === "object" && record.repository !== null ? (record.repository as Record<string, unknown>) : undefined;
+  const named = repository?.nameWithOwner ?? repository?.full_name;
+  if (typeof named === "string") return named;
   const url = record.repository_url;
   if (typeof url !== "string") return undefined;
   return /\/repos\/([^/]+\/[^/]+)$/u.exec(url)?.[1];
@@ -309,11 +307,9 @@ function readIssue(value: unknown, context: string): GitHubIssue {
   const assignees = Array.isArray(record.assignees)
     ? record.assignees.map((entry) => readLogin(entry)).filter((login) => login.length > 0)
     : [];
-  const parentRecord = record.parent;
+  const parentRecord = typeof record.parent === "object" && record.parent !== null ? (record.parent as Record<string, unknown>) : undefined;
   const parent =
-    typeof parentRecord === "object" && parentRecord !== null && typeof (parentRecord as Record<string, unknown>).number === "number"
-      ? { number: (parentRecord as Record<string, unknown>).number as number, repo: readIssueRepo(parentRecord as Record<string, unknown>) }
-      : undefined;
+    typeof parentRecord?.number === "number" ? { number: parentRecord.number, repo: readIssueRepo(parentRecord) } : undefined;
   const repo = readIssueRepo(record);
   return {
     number: readNumber(record, "number", context),
@@ -637,6 +633,9 @@ function nodeFromIssue(issue: GitHubIssue): { node: WorkGraphNode; typed: boolea
   }
 }
 
+/** A store id naming an issue in the store's own repo: the bare number. */
+const BARE_ISSUE_ID = /^[1-9]\d*$/u;
+
 class GitHubGraphStore implements GraphStore {
   /** GitHub can attest comment and reaction authorship via its API (§2.5). Capability, not verdict. */
   readonly attestation: AttestationCapability = "verifiable";
@@ -677,11 +676,16 @@ class GitHubGraphStore implements GraphStore {
    * refuses rather than landing in a URL, where `#707` became a fragment.
    */
   private readPath(ref: NodeRef): string {
-    if (/^[1-9]\d*$/u.test(ref.id)) return `repos/${this.repo}/issues/${ref.id}`;
+    const { repo, number } = this.locate(ref);
+    return `repos/${repo}/issues/${number}`;
+  }
+
+  /** Where a readable id lives: this repo for a bare number, its own repo for `owner/name#N`. */
+  private locate(ref: NodeRef): { repo: string; number: number } {
+    if (BARE_ISSUE_ID.test(ref.id)) return { repo: this.repo, number: Number(ref.id) };
     const located = parseLocatedNodeId(ref.id);
     if (located !== undefined && located.sigil === "#") {
-      const repo = validateRepoRef({ forge: "github", host: this.host, path: located.path });
-      return `repos/${repo.path}/issues/${located.iid}`;
+      return { repo: validateRepoRef({ forge: "github", host: this.host, path: located.path }).path, number: located.iid };
     }
     throw new WorkGraphError("invalid-node", `"${ref.id}" is not a GitHub node id: expected an issue number or owner/name#<number>.`);
   }
@@ -694,7 +698,7 @@ class GitHubGraphStore implements GraphStore {
    * library caller could feed one straight into `claim` or `close`.
    */
   private writePath(ref: NodeRef): string {
-    if (/^[1-9]\d*$/u.test(ref.id)) return `repos/${this.repo}/issues/${ref.id}`;
+    if (BARE_ISSUE_ID.test(ref.id)) return `repos/${this.repo}/issues/${ref.id}`;
     throw new WorkGraphError(
       "invalid-node",
       `"${ref.id}" is not a node in ${this.repo}: this store writes only to its own repository. A node in another repo can only be a blocker.`,
@@ -717,6 +721,9 @@ class GitHubGraphStore implements GraphStore {
   }
 
   async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
+    // Resolved before the issue exists: a parent outside this repo must refuse
+    // the create, not strand an orphan issue after it.
+    const parentPath = spec.parent === undefined ? undefined : this.writePath(spec.parent);
     const body = [spec.body ?? "", encodeNodeBlock(spec)].filter((part) => part.length > 0).join("\n\n");
     const created = readIssue(
       await this.transport({
@@ -734,10 +741,10 @@ class GitHubGraphStore implements GraphStore {
       }),
       "createNode",
     );
-    if (spec.parent !== undefined) {
+    if (parentPath !== undefined) {
       await this.transport({
         method: "POST",
-        path: `${this.writePath(spec.parent)}/sub_issues`,
+        path: `${parentPath}/sub_issues`,
         body: { sub_issue_id: created.id },
       });
     }
@@ -760,7 +767,8 @@ class GitHubGraphStore implements GraphStore {
 
   async readNode(ref: NodeRef): Promise<NodeState> {
     const issue = await this.fetchIssue(ref);
-    const parentId = issue.parent === undefined ? await this.fetchParentId(ref) : localIssueId(this.repo, issue.parent);
+    // A parent the payload does not place lives with its child, never in the store's repo by default.
+    const parentId = issue.parent === undefined ? await this.fetchParentId(ref, issue.repo) : localIssueId(this.repo, { ...issue.parent, repo: issue.parent.repo ?? issue.repo });
     const state = toNodeState(this.repo, issue, await this.fetchBlockers(ref), parentId === undefined ? undefined : { id: parentId });
     if (issue.status !== "closed") return state;
     if (state.node.completion === undefined) return { ...state, currentCloseReceipt: false };
@@ -1197,24 +1205,23 @@ class GitHubGraphStore implements GraphStore {
    * A missing or unreadable parent returns undefined, which the caller reads as
    * "root unreachable" and downgrades on. Never an assumed root.
    */
-  private async fetchParentId(ref: NodeRef): Promise<string | undefined> {
+  private async fetchParentId(ref: NodeRef, childRepo: string | undefined): Promise<string | undefined> {
     try {
       const parent = readIssue(
         await this.transport({ method: "GET", path: `${this.readPath(ref)}/parent` }),
         `parent of issue ${ref.id}`,
       );
-      return localIssueId(this.repo, parent);
+      return localIssueId(this.repo, { ...parent, repo: parent.repo ?? childRepo });
     } catch (error) {
       if (isMissingRestResource(error)) return undefined;
       throw error;
     }
   }
 
+  /** An issue lives where its id routed when the payload does not say, so a located read never comes back bare. */
   private async fetchIssue(ref: NodeRef): Promise<GitHubIssue> {
-    return readIssue(
-      await this.transport({ method: "GET", path: this.readPath(ref) }),
-      `issue ${ref.id}`,
-    );
+    const issue = readIssue(await this.transport({ method: "GET", path: this.readPath(ref) }), `issue ${ref.id}`);
+    return issue.repo === undefined ? { ...issue, repo: this.locate(ref).repo } : issue;
   }
 
   private async fetchBlockers(ref: NodeRef): Promise<BlockingRef[]> {

@@ -648,7 +648,7 @@ same forge and host, named `owner/name#N` or in full (#749): a map can wait on
 another repo's decision. It reads back with its repo, so `node` shows
 `owner/name#N` and the frontier judges it by its own status. Targets and
 membership stay in the store's own repo, and the GitHub store refuses any
-write (claim, comment, body, close, child, edge) to a node outside it.
+write (claim, release, comment, body, close, child, edge) to a node outside it.
 
 ```bash
 soma graph frontier <root>         # open, unassigned, unblocked, over the whole

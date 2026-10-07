@@ -358,6 +358,18 @@ test("a located id is read in its own repo, and its blockers are named relative 
   ]);
 });
 
+test("a located read keeps its repo when the payload names none, and so does its parent", async () => {
+  const { transport } = fakeTransport({
+    [`GET repos/${RANGER}/issues/116`]: issuePayload({ number: 116, parent: { number: 98 } }),
+    [`GET repos/${RANGER}/issues/116/dependencies/blocked_by`]: [],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: `${RANGER}#116` });
+
+  expect(state.ref.id).toBe(`${RANGER}#116`);
+  expect(state.parent).toEqual({ id: `${RANGER}#98` });
+});
+
 test("addBlockingEdge reads a sibling-repo blocker's database id where it lives", async () => {
   const { transport, calls } = fakeTransport({
     [`GET repos/${RANGER}/issues/97`]: issuePayload({ number: 97, id: 7_000_097 }),
@@ -384,8 +396,9 @@ test("the store never writes to a sibling repo's node, whatever id it is handed"
   await expect(store.postComment(sibling, "hi")).rejects.toThrow(/writes only to its own repository/u);
   await expect(store.writeRawBody(sibling, "body")).rejects.toThrow(/writes only to its own repository/u);
   await expect(store.addBlockingEdge({ id: "497" }, sibling)).rejects.toThrow(/writes only to its own repository/u);
-  await expect(store.createNode({ title: "t", autonomy: "approve", checkpointId: "cp", parent: sibling } as never)).rejects.toThrow();
-  expect(calls.filter((call) => call.method !== "GET" && call.path !== `repos/${REPO}/issues`)).toEqual([]);
+  await expect(store.createNode({ title: "t", autonomy: "approve", checkpointId: "cp", parent: sibling } as never)).rejects.toThrow(/writes only to its own repository/u);
+  // Nothing written — not even the child issue a sibling parent would have orphaned.
+  expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
 });
 
 test("a sibling repo's path reads back lower-cased, the same id a typed ref resolves to", async () => {

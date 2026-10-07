@@ -103,7 +103,8 @@ requires a separate ratifier and credential isolation, as described in
 `soma graph add` reads every `--blocked-by` before it creates the child, so a
 bad ref creates nothing. If a link write still fails after the child exists,
 the child remains in GitLab, claimed by the acting identity so it stays off the
-frontier, and the CLI prints the `soma graph link` and `soma graph release`
-commands that finish the wiring. `audit` does not check links, so confirm with
+frontier, and the CLI prints the `soma graph link` command that finishes the
+wiring, plus `soma graph release` when the hold landed (if it did not, the CLI
+says the child is on the frontier). `audit` does not check links, so confirm with
 `soma graph node` that the blockers are listed. Do not assume an error rolled
 back a tracker write.
