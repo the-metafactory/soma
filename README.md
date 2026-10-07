@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.24.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.25.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,22 @@
 
 ---
 
-## Current release: 0.24.0
+## Current release: 0.25.0
+
+[0.25.0](https://github.com/the-metafactory/soma/releases/tag/v0.25.0) stops
+`soma graph add --blocked-by` from exposing a new node on the frontier before
+its blockers land. A walker claimed one in that window. `add` now writes every
+blocking edge first and attaches the node to its parent last, on GitHub and
+GitLab. If an edge or the attach fails, the node is left unattached, so it is on
+no frontier, and the error prints the repair: the new
+`soma graph link <id> --parent <id>`. `soma graph claim` refuses a node with an
+open blocker. A partly wired `add --json` now reports `attached: false` in
+place of `held`. Library users take note: `GraphStore` requires
+`attachToParent`, so a store implemented outside soma must add it (#740). See
+the [changelog](CHANGELOG.md#0250---2026-10-07). This version is published on
+GitHub only; the Arc registry is not updated by this release.
+
+### 0.24.0
 
 [0.24.0](https://github.com/the-metafactory/soma/releases/tag/v0.24.0) lets a
 work-graph node wait on another repo's node and stops `soma graph add` from
