@@ -596,7 +596,11 @@ interface GraphStore {
                                              // be independently attested here?
   actingIdentity(): Promise<string>;         // who this session is on this forge (#537)
   checkConfinement(): Promise<ConfinementResult>; // §3.2 conjunct 2, this forge's probes
-  createNode(spec: Omit<WorkGraphNode, "id">): Promise<NodeRef>; // store assigns id
+  createNode(spec: Omit<WorkGraphNode, "id">, rehome?, options?: { detached?: boolean }): Promise<NodeRef>;
+                                             // store assigns id; detached = no
+                                             // membership edge yet (#740)
+  attachToParent(child: NodeRef, parent: NodeRef): Promise<void>; // the edge a
+                                             // detached create left out
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   readSubtree(root: NodeRef): Promise<NodeState[]>;         // whole subtree, pre-order,

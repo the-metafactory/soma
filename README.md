@@ -409,7 +409,7 @@ soma graph node <id>         # its state and body
 soma graph claim <id>        # take it
 soma graph chart --title "…" --autonomy approve --checkpoint <id>  # create a typed graph root
 soma graph add <root> --title "…" --autonomy approve --checkpoint <id>
-soma graph link <id> --blocked-by <ref>  # wire a blocker later; may name owner/name#N
+soma graph link <id> --blocked-by <ref> [--parent <id>]  # wire a blocker later (may name owner/name#N); --parent attaches an orphan
 soma graph close <id> --resolution-file <path>
 soma graph audit <root>      # what the gates cannot see
 soma graph decisions <root>  # the map's resolutions, collected
