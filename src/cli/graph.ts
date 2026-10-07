@@ -32,6 +32,7 @@ import { resolve } from "node:path";
 
 import packageJson from "../../package.json";
 import { assertActiveCliRuntime } from "../runtime-artifact";
+import { buildBriefMissing } from "../build-brief";
 
 const SOMA_VERSION: string = packageJson.version;
 
@@ -1538,6 +1539,8 @@ async function scanClosedNodes(
  * - **Open with no checkpoint** — a node that can never close. `add` now refuses
  *   to create one, but hand-authored tickets and pre-rule nodes still exist.
  * - **Open and claimed** — informational: in flight somewhere, or stale.
+ * - **Open build brief not ready** — required sections absent or clarification
+ *   outstanding. Reporting on kind does not enforce it at creation.
  *
  * Read-only, deliberately: an auditor that reopened nodes would be a second
  * writer with its own race. It names; the human acts.
@@ -1550,6 +1553,11 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
     (state) => state.status === "open" && (state.node.checkpointId === undefined || state.node.checkpointId.length === 0),
   );
   const claimed = subtree.filter((state) => state.status === "open" && state.assignees.length > 0);
+  const buildBriefNotReady = subtree.flatMap((state) => {
+    if (state.status !== "open" || state.node.kind !== "build") return [];
+    const missing = buildBriefMissing(state.body);
+    return missing.length === 0 ? [] : [{ state, missing }];
+  });
 
   if (parsed.options.json === true) {
     return JSON.stringify(
@@ -1560,13 +1568,14 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
         closedWithoutReceipt: unreceipted.map((state) => state.ref.id),
         openWithoutCheckpoint: uncloseable.map((state) => state.ref.id),
         openClaimed: claimed.map((state) => ({ id: state.ref.id, assignees: state.assignees })),
+        buildBriefNotReady: buildBriefNotReady.map(({ state, missing }) => ({ id: state.ref.id, missing })),
       },
       null,
       2,
     );
   }
 
-  const clean = unreceipted.length === 0 && uncloseable.length === 0;
+  const clean = unreceipted.length === 0 && uncloseable.length === 0 && buildBriefNotReady.length === 0;
   return [
     `Work graph audit — root ${parsed.target} (${repo}), ${subtree.length} node(s)`,
     "",
@@ -1581,6 +1590,13 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
       ? [
           `Open with no checkpoint — cannot close until the node block is repaired:`,
           ...uncloseable.map((state) => nodeSummary(state)),
+          "",
+        ]
+      : []),
+    ...(buildBriefNotReady.length > 0
+      ? [
+          `Open build brief not ready (build-brief-not-ready):`,
+          ...buildBriefNotReady.map(({ state, missing }) => `${nodeSummary(state)} — ${missing.join(", ")}`),
           "",
         ]
       : []),

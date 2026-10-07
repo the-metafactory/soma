@@ -186,8 +186,12 @@ runtime validates the literal value and nothing more. Until it lands, declaring
 enforced one.
 
 **`kind`** — `research` / `prototype` / `grilling` / `task` / `build`. **Orienteer's own
-vocabulary.** The runtime normalises its form (trimmed, lowercased, non-empty)
-and never interprets its meaning. It exists for the human reading the map.
+vocabulary.** The runtime normalises its form (trimmed, lowercased, non-empty).
+The runtime never *enforces* on `kind`'s meaning; `graph audit` may *report*
+on it, and a consumer may refuse to execute on it (amends #485). In particular,
+audit reports an open build's not-ready brief as `build-brief-not-ready`
+(`references/build-brief.md`); `graph add` and the store refuse nothing on that
+basis.
 
 Also on a node: `checkpointId` (required before close — see
 `references/closing.md`), `probes`, and an optional `budget`

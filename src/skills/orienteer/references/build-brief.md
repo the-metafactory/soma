@@ -29,6 +29,14 @@ walker, and rounds three to five each found a new hole in it (unicode paths,
 walker deleted. A `[NEEDS CLARIFICATION]` marker anywhere in the body means
 the same thing: not ready to file as build.
 
+`soma graph audit <root>` reports every open `kind: build` node missing the exact
+`## Deliverable` or `## Acceptance criteria` heading, or carrying the literal
+`[NEEDS CLARIFICATION]` marker, as `build-brief-not-ready`. JSON lists these under
+`buildBriefNotReady` with the node `id` and a `missing` array naming absent
+headings and any marker found. It checks structure only; empty or vague criteria
+remain a review concern. `graph add` and the store accept these bodies; a consumer
+such as ranger may refuse to execute them at walk time (`references/map.md`).
+
 **Name the mechanism at a security or matching boundary.** Where the change
 decides what is allowed, matched, or trusted, the brief states the approach:
 an allowlist, fail-closed on the unknown case, an exact comparison over a
