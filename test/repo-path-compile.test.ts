@@ -26,6 +26,9 @@ const SKILLS_ROOT = join(REPO_ROOT, "src", "skills");
 
 interface ProbeReport {
   names: string[];
+  explicitNames: string[];
+  customNames: string[];
+  missingNames: string[];
   vsaAction: string;
   algorithm: string;
 }
@@ -65,6 +68,11 @@ function runProbe(command: string, args: string[], label: string): { report: Pro
   mkdirSync(join(work, "pai"), { recursive: true });
   // The Algorithm importer needs a PAI source; its bundled half is what's under test.
   writeFileSync(join(work, "pai", "v6.3.0.md"), "# Algorithm probe source\n");
+  // An explicit override must still read disk, even when the caller is compiled.
+  const customSkill = join(work, "custom-repo", "src", "skills", "fixture-skill");
+  mkdirSync(join(customSkill, "references"), { recursive: true });
+  writeFileSync(join(customSkill, "SKILL.md"), "# Custom skill\n");
+  writeFileSync(join(customSkill, "references", "fixture.md"), "Custom reference\n");
   const result = spawnSync(command, [...args, work], { encoding: "utf8", timeout: 60_000 });
   if (result.status !== 0) {
     throw new Error(`${label} probe exited ${String(result.status)}:\n${result.stdout}\n${result.stderr}`);
@@ -85,14 +93,23 @@ beforeAll(() => {
       `import { importAlgorithm } from ${src("algorithm-importer")};`,
       `import { installBundledSkillsIntoHome, listBundledSkills } from ${src("bundled-skills")};`,
       `import { installVsaSkill } from ${src("vsa-skill-installer")};`,
+      `import { defaultSomaRepoPath } from ${src("repo-path")};`,
       `const work = process.argv[2] ?? "";`,
       `const names = await listBundledSkills();`,
+      `const somaRepoPath = defaultSomaRepoPath();`,
+      `const explicitNames = await listBundledSkills(somaRepoPath);`,
+      `const customRepo = join(work, "custom-repo");`,
+      `const customNames = await listBundledSkills(customRepo);`,
+      `const missingNames = await listBundledSkills(join(work, "missing-repo"));`,
       `await installBundledSkillsIntoHome({ somaHome: join(work, "home") });`,
+      `await installBundledSkillsIntoHome({ somaHome: join(work, "explicit-home"), somaRepoPath });`,
+      `await installBundledSkillsIntoHome({ somaHome: join(work, "custom-home"), somaRepoPath: customRepo });`,
       `const vsa = await installVsaSkill({ somaHome: join(work, "home") });`,
+      `await installVsaSkill({ somaHome: join(work, "explicit-home"), somaRepoPath });`,
       `let algorithm = "ok";`,
       `try { await importAlgorithm({ paiAlgorithmDir: join(work, "pai"), somaHome: join(work, "algorithm-home") }); }`,
       `catch (error) { algorithm = String(error); }`,
-      `console.log(JSON.stringify({ names, vsaAction: vsa.action, algorithm }));`,
+      `console.log(JSON.stringify({ names, explicitNames, customNames, missingNames, vsaAction: vsa.action, algorithm }));`,
       "",
     ].join("\n"),
   );
@@ -116,6 +133,8 @@ test("a compiled binary lists the same bundled skills as the source checkout", (
   expect(sourceSkillNames().length).toBeGreaterThan(0);
   expect(source.names).toEqual(sourceSkillNames());
   expect(compiled.names).toEqual(source.names);
+  expect(source.explicitNames).toEqual(source.names);
+  expect(compiled.explicitNames).toEqual(source.names);
 }, 120_000);
 
 test("a compiled binary installs every bundled skill file byte-identical to src/skills", () => {
@@ -126,16 +145,32 @@ test("a compiled binary installs every bundled skill file byte-identical to src/
   expect(report.algorithm).toBe("ok");
 
   const installed = tree(join(work, "home", "skills"));
+  const explicit = tree(join(work, "explicit-home", "skills"));
   const expected = tree(SKILLS_ROOT);
   expect([...installed.keys()]).toEqual([...expected.keys()]);
+  expect([...explicit.keys()]).toEqual([...expected.keys()]);
   for (const [path, bytes] of expected) {
     expect({ path, same: installed.get(path)?.equals(bytes) }).toEqual({ path, same: true });
+    expect({ path, same: explicit.get(path)?.equals(bytes) }).toEqual({ path, same: true });
   }
 
   // The importer's bundled half (SKILL.md + RunAlgorithm.md) came from the binary too.
   const algorithmSkill = join(work, "algorithm-home", "skills", "the-algorithm", "SKILL.md");
   const sourceSkill = readFileSync(join(SKILLS_ROOT, "the-algorithm", "SKILL.md"), "utf8");
   expect(readFileSync(algorithmSkill, "utf8")).toBe(`${sourceSkill.trimEnd()}\n`);
+}, 120_000);
+
+test("a compiled binary honors custom repository paths instead of falling back to its embedded skills", () => {
+  const { report, work } = runProbe(binary, [], "compiled-custom");
+
+  expect(report.customNames).toEqual(["fixture-skill"]);
+  expect(report.missingNames).toEqual([]);
+  const installed = tree(join(work, "custom-home", "skills"));
+  const expected = tree(join(work, "custom-repo", "src", "skills"));
+  expect([...installed.keys()]).toEqual([...expected.keys()]);
+  for (const [path, bytes] of expected) {
+    expect({ path, same: installed.get(path)?.equals(bytes) }).toEqual({ path, same: true });
+  }
 }, 120_000);
 
 test("the embedded skill module is current: same files, same bytes as src/skills", async () => {

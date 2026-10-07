@@ -560,7 +560,9 @@ test("audit §3: per-tool writeback events are 1-in-10 hash-sampled (most calls 
     expect(emitted).toBeGreaterThan(0); // capture not silenced
     expect(emitted).toBeLessThan(TOTAL / 3); // sampled well below the raw call count
   });
-});
+  // Thirty foreground hook processes plus runtime staging can exceed Bun's
+  // default five-second budget; this test verifies sampling, not latency.
+}, 30_000);
 
 test("AC-5: CLAUDE.md left untouched (pivot dropped @-import composition)", async () => {
   await withTempHome(async (homeDir) => {

@@ -79,7 +79,9 @@ test("soma#370: reprojecting every doctor-supported substrate twice is byte-iden
       expect(findings).toEqual([]);
     });
   }
-});
+  // This sweeps every substrate's install, reproject, and doctor paths. Its
+  // filesystem work is not a five-second latency assertion.
+}, 30_000);
 
 test("soma#370: cursor content-compare is clean right after install", async () => {
   await withTempHome(async (homeDir) => {
