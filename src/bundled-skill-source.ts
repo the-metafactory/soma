@@ -13,9 +13,8 @@ import { defaultSomaRepoPath } from "./repo-path";
  * `bun build --compile`: `import.meta.dirname` resolves into the virtual
  * `/$bunfs` root, which holds no files, and every caller treats a missing tree
  * as "no skills", letting the skill APIs succeed without writing content.
- * Source and compiled runs take the same path here. The CLI's separate
- * source-runtime staging requirement is covered in repo-path-compile.test.ts;
- * embedded skills alone do not make compiled CLI installation work.
+ * Source and compiled runs take the same path here. For runtime staging,
+ * see docs/design-skill-packaging.md §Skills bundled with Soma.
  *
  * Any OTHER repo path (test fixtures, a staged runtime copy) is read from disk.
  */

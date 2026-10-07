@@ -560,11 +560,8 @@ test("audit §3: per-tool writeback events are 1-in-10 hash-sampled (most calls 
     expect(emitted).toBeGreaterThan(0); // capture not silenced
     expect(emitted).toBeLessThan(TOTAL / 3); // sampled well below the raw call count
   });
-  // This integration test stages a runtime and launches 30 hook processes.
-  // Paired foreground probe on 2026-10-07: base 9c17a60 took 5.76s;
-  // node #612 took 5.43s. Both exceed Bun's 5s default; this timeout bounds
-  // the sampling integration, rather than asserting hook latency.
-}, 30_000);
+  // This checks sampling across 30 process launches; hook latency is measured separately.
+}, 10_000);
 
 test("AC-5: CLAUDE.md left untouched (pivot dropped @-import composition)", async () => {
   await withTempHome(async (homeDir) => {

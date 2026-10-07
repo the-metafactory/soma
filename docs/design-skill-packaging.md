@@ -33,17 +33,22 @@ imports without regeneration. Adding, removing, or renaming files requires
 regenerating the module; a compiled binary requires rebuilding for any edit.
 Custom repository paths read their live tree directly from disk.
 
-Installation rejects invalid explicit skill roots. Doctor preserves its
-read-only diagnostic behavior when a checkout or its skill root is missing:
+Bundled-skill listing and installation reject invalid explicit skill roots;
+the VSA installer still no-ops when the explicit repo lacks the VSA skill.
+Doctor remains read-only when a checkout or its skill root is missing:
 only that optional inventory's `ENOENT` becomes `[]`, so it can still return
-projection findings for an installed home. Other filesystem faults propagate.
+projection findings for an installed home. Unlike the previous catch-all,
+other filesystem faults now propagate.
 
 Embedded skill content does not make the entire CLI installation portable as
 a standalone binary. Installation also stages an immutable source runtime;
 that step still reads the default repository path, which is virtual under
 `bun build --compile`, and fails loudly before copying skills. The compile
 regression exercises that real CLI failure as well as a successful real CLI
-Algorithm import and helper-level skill listing and byte-identical copying.
+Algorithm import, install's skill-preparation phase independent of runtime
+staging, home projection, doctor drift detection, and byte-identical copying.
+Codex uses the repo path only for hook configuration; Grok's separate runtime
+hook-asset reads still fail loudly under compilation.
 
 ## Terminology
 

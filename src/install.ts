@@ -138,44 +138,19 @@ export function planSomaForDshInstall(options: SomaInstallOptions = {}): SomaIns
   return planSomaInstall("dsh", options);
 }
 
-async function installSomaForSubstrate(
-  substrate: InstallSubstrate,
+/** @internal Prepare the bundled skill inventory and refresh the install context. */
+export async function prepareSomaInstallSkillContext(
+  execution: SomaInstallExecution,
+  somaHome: Awaited<ReturnType<typeof bootstrapSomaHome>>,
   options: SomaInstallOptions = {},
-): Promise<SomaInstallResult> {
-  const execution = new SomaInstallExecution(substrate);
-  const spec = installSpecFor(substrate);
-  // soma#73 pre-flight: every soma substrate hook now runs under Bun
-  // (#!/usr/bin/env bun shebang). The adopter rejects loud + early
-  // when bun is missing rather than producing a half-broken install
-  // that fails at hook fire time. Always probes `which bun` — sage
-  // r1 caught a bypass that trusted `process.versions.bun`, which
-  // doesn't prove anything about the hook's later spawn environment.
-  await execution.run("require-bun", () => {
-    requireBunInPath();
-  });
-  const codeOnly = options.codeOnly === true;
-  const somaHome = await execution.run("bootstrap-soma-home", () => bootstrapSomaHome({
-    homeDir: options.homeDir,
-    somaHome: options.somaHome,
-    includeSkills: !codeOnly,
-  }));
-  execution.record({ somaHome });
-  const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
-  // Arc's PATH shim uses this separately activated snapshot for graph writes.
-  // Stage it for every substrate so a Pi.dev-only install has the same gate.
-  const cliRuntime = await execution.run("stage-cli-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: "cli", sourceRoot: somaRepoPath }));
-  // Guarded substrates execute only the immutable artifact, never this editable checkout.
-  const guardedRuntime = isGuardedRuntimeSubstrate(substrate)
-    ? await execution.run("stage-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: substrate, sourceRoot: somaRepoPath }))
-    : undefined;
-  execution.record({ runtimeArtifact: guardedRuntime ?? cliRuntime });
-  const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;
+  somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath(),
+): Promise<{ projectionContext: ProjectionInput; bundledSkillNames: string[] | undefined }> {
   let projectionContext = somaHome.context;
   // Repo-bundled skill dir names — set from installBundledSkillsIntoHome below
   // (non-codeOnly only) and reused to scope the portable-skill loop, avoiding a
   // second `src/skills` scan. Stays undefined under codeOnly (no home copy).
   let bundledSkillNames: string[] | undefined;
-  if (!codeOnly) {
+  if (options.codeOnly !== true) {
     // soma#329 MIGRATION SHIM (removable once all homes are reprojected past the
     // ISA→VSA rename): prune the renamed-away "ISA" skill from the SOURCE home
     // BEFORE the VSA baseline is (re)written and BEFORE loadSomaHome enumerates
@@ -212,6 +187,42 @@ async function installSomaForSubstrate(
     // correct and byte-identical to every re-run.
     projectionContext = await execution.run("reload-soma-home-context", () => loadSomaHome(somaHome.somaHome));
   }
+  return { projectionContext, bundledSkillNames };
+}
+
+async function installSomaForSubstrate(
+  substrate: InstallSubstrate,
+  options: SomaInstallOptions = {},
+): Promise<SomaInstallResult> {
+  const execution = new SomaInstallExecution(substrate);
+  const spec = installSpecFor(substrate);
+  // soma#73 pre-flight: every soma substrate hook now runs under Bun
+  // (#!/usr/bin/env bun shebang). The adopter rejects loud + early
+  // when bun is missing rather than producing a half-broken install
+  // that fails at hook fire time. Always probes `which bun` — sage
+  // r1 caught a bypass that trusted `process.versions.bun`, which
+  // doesn't prove anything about the hook's later spawn environment.
+  await execution.run("require-bun", () => {
+    requireBunInPath();
+  });
+  const codeOnly = options.codeOnly === true;
+  const somaHome = await execution.run("bootstrap-soma-home", () => bootstrapSomaHome({
+    homeDir: options.homeDir,
+    somaHome: options.somaHome,
+    includeSkills: !codeOnly,
+  }));
+  execution.record({ somaHome });
+  const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
+  // Arc's PATH shim uses this separately activated snapshot for graph writes.
+  // Stage it for every substrate so a Pi.dev-only install has the same gate.
+  const cliRuntime = await execution.run("stage-cli-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: "cli", sourceRoot: somaRepoPath }));
+  // Guarded substrates execute only the immutable artifact, never this editable checkout.
+  const guardedRuntime = isGuardedRuntimeSubstrate(substrate)
+    ? await execution.run("stage-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: substrate, sourceRoot: somaRepoPath }))
+    : undefined;
+  execution.record({ runtimeArtifact: guardedRuntime ?? cliRuntime });
+  const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;
+  const { projectionContext, bundledSkillNames } = await prepareSomaInstallSkillContext(execution, somaHome, options, somaRepoPath);
   const projectionOptions = {
     homeDir: options.homeDir,
     somaHome: options.somaHome,

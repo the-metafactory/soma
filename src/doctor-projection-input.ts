@@ -64,9 +64,9 @@ export async function loadProjectionInputForDoctor(
     throw error;
   }
 
-  // Preserve doctor's read-only diagnostic contract when the source checkout
-  // is absent: its optional skill inventory degrades to []. The installation
-  // APIs stay strict so missing sources cannot report a successful install.
+  // When the source checkout is absent, doctor's optional skill inventory
+  // degrades to []. Unlike the previous catch-all, other errors propagate.
+  // Bundled-skill installation stays strict so missing sources cannot report success.
   // Catch only this inventory's ENOENT; other faults still propagate and an
   // installed home is never reclassified as "not installed".
   const [activeVsa, memoryIndexContent, bundledSkillNames] = await Promise.all([

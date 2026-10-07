@@ -5,25 +5,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { comparePaths, toPosixRelative, walkFiles as walk } from "../src/fs-walk";
 
-/**
- * Regression guard for orienteer node #612: bundled skill content must survive
- * `bun build --compile`.
- *
- * `defaultSomaRepoPath()` is `resolve(import.meta.dirname, "..")`. Inside a
- * compiled binary that is Bun's virtual `/$bunfs` root, which holds no real
- * files — so reading `src/skills` from it found nothing, and the readers were
- * built to swallow exactly that: `listBundledSkills()` returned `[]`, the
- * bundled-skill install copied nothing, and the VSA installer took its
- * `no-source` branch. These APIs could report success without writing content.
- * This proves a skill-reader defect, not successful compiled CLI installation:
- * the current CLI fails earlier while staging its source-based runtime.
- *
- * The helper binary below isolates bundled-skill APIs and compares their output
- * with the checkout byte for byte. It does not stand in for the shipped CLI.
- * We separately compile src/cli.ts, exercise Algorithm import, and run the
- * failing install command: immutable runtime staging still needs a real source
- * tree before it reaches the repaired skill readers. That separate limitation
- * must not be described as a successful compiled CLI install.
+/** Regression for node #612: compiled skill consumers use embedded content.
+ * For the independent runtime-staging limitation, see
+ * docs/design-skill-packaging.md §Skills bundled with Soma.
  */
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -37,6 +21,14 @@ interface ProbeReport {
   emptyNames: string[];
   vsaAction: string;
   algorithm: string;
+  defaultRepoPath: string;
+  codexTrustedRepo: string;
+  installNames: string[];
+  profileSkillNames: string[];
+  cleanFindings: { id: string; message: string }[];
+  driftFindings: { id: string; message: string }[];
+  grokError: { code?: string; path?: string } | null;
+  grokSkillPaths: string[];
 }
 
 let workRoot = "";
@@ -95,23 +87,32 @@ function runProbe(command: string, args: string[], label: string): { report: Pro
   return { report: JSON.parse(lastLine) as ProbeReport, work };
 }
 
-beforeAll(() => {
+async function compile(entry: string, outfile: string): Promise<void> {
+  const build = Bun.spawn([process.execPath, "build", "--compile", entry, "--outfile", outfile], {
+    stdout: "pipe", stderr: "pipe",
+  });
+  const timer = setTimeout(() => build.kill(), 120_000);
+  try {
+    const [status, stdout, stderr] = await Promise.all([
+      build.exited, new Response(build.stdout).text(), new Response(build.stderr).text(),
+    ]);
+    if (status !== 0) throw new Error(`bun build --compile failed (${entry}):\n${stdout}\n${stderr}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+beforeAll(async () => {
   // Outside the checkout (soma#696): the ~60MB binaries never land in the repo.
   workRoot = mkdtempSync(join(tmpdir(), "soma-repo-path-compile-"));
   const entry = join(REPO_ROOT, "test", "fixtures", "repo-path-probe.ts");
   binary = join(workRoot, "probe-bin");
   // process.execPath, not `bun` from PATH: the bun running this suite is the one under test.
-  const build = spawnSync(process.execPath, ["build", "--compile", entry, "--outfile", binary], {
-    encoding: "utf8",
-    timeout: 120_000,
-  });
-  if (build.status !== 0) throw new Error(`bun build --compile failed:\n${build.stdout}\n${build.stderr}`);
   cliBinary = join(workRoot, "soma");
-  const cliBuild = spawnSync(process.execPath, ["build", "--compile", join(REPO_ROOT, "src", "cli.ts"), "--outfile", cliBinary], {
-    encoding: "utf8",
-    timeout: 120_000,
-  });
-  if (cliBuild.status !== 0) throw new Error(`CLI bun build --compile failed:\n${cliBuild.stdout}\n${cliBuild.stderr}`);
+  await Promise.all([
+    compile(entry, binary),
+    compile(join(REPO_ROOT, "src", "cli.ts"), cliBinary),
+  ]);
   compiledProbe = runProbe(binary, [], "compiled");
   sourceProbe = runProbe(process.execPath, [entry], "source");
 }, 180_000);
@@ -235,24 +236,41 @@ test("the real compiled CLI install fails loudly at source-runtime staging, befo
   expect(result.stdout).not.toContain("Soma install applied");
 }, 120_000);
 
-test("default repo path consumers stay inventoried for review", () => {
-  const consumers = walk(join(REPO_ROOT, "src"))
-    .filter((path) => path.endsWith(".ts") && !path.endsWith("repo-path.ts"))
-    .filter((path) => readFileSync(path, "utf8").includes("defaultSomaRepoPath"))
-    .map((path) => toPosixRelative(REPO_ROOT, path))
-    .sort();
-  // This inventory flags new consumers for review; it does not prove their
-  // compiled behavior. Executable probes above cover bundled-skill APIs,
-  // VSA installation, Algorithm import, and the CLI runtime-staging failure.
-  expect(consumers).toEqual([
-    "src/adapters/codex/adapter.ts",
-    "src/adapters/content-compare-doctor.ts",
-    "src/adapters/grok/adapter.ts",
-    "src/bundled-skill-source.ts",
-    "src/home-projection.ts",
-    "src/install.ts",
-    "src/vsa-skill-installer.ts",
-  ]);
+test("compiled install skill preparation populates all five skills before home projection", () => {
+  for (const { report } of [sourceProbe, compiledProbe]) {
+    expect(report.installNames).toEqual(sourceSkillNames());
+    expect(report.profileSkillNames).toEqual(sourceSkillNames());
+  }
+  // Compare the production install phase's copies, not a second helper-only install.
+  for (const name of sourceSkillNames().filter((name) => name !== "VSA")) {
+    expectSameTree(tree(join(compiledProbe.work, "install-phase", ".soma", "skills", name)), tree(join(SKILLS_ROOT, name), true));
+  }
+  expect(readFileSync(join(compiledProbe.work, "install-phase", ".soma", "skills", "VSA", "SKILL.md"), "utf8")).toContain("name: VSA");
+});
+
+test("compiled Codex home projection and doctor use the embedded inventory", () => {
+  const projectedSkills = (work: string) => new Map(
+    [...tree(join(work, "install-phase", ".codex", "skills"))].filter(([path]) => !path.startsWith("soma/")).map(([path, bytes]) =>
+      [path, Buffer.from(bytes.toString("utf8").replaceAll(work, "<work>"))] as const),
+  );
+  expectSameTree(projectedSkills(compiledProbe.work), projectedSkills(sourceProbe.work));
+  // Missing inventory used to suppress portable skill files in both projection and doctor.
+  expect([...projectedSkills(compiledProbe.work).keys()]).toContain("orienteer/SKILL.md");
+  expect(compiledProbe.report.cleanFindings).toEqual(sourceProbe.report.cleanFindings);
+  expect(compiledProbe.report.cleanFindings).toEqual([]);
+  for (const { report } of [sourceProbe, compiledProbe]) {
+    expect(report.codexTrustedRepo).toBe(report.defaultRepoPath);
+  }
+  expect(compiledProbe.report.driftFindings.some((finding) => finding.message.includes("skills/Memory/SKILL.md"))).toBe(true);
+});
+
+test("compiled Grok home projection fails at its known hook asset boundary", () => {
+  expect(sourceProbe.report.grokError).toBeNull();
+  expect(sourceProbe.report.grokSkillPaths).toContain("skills/Memory/SKILL.md");
+  // This consumer does not read skills through the repo locator; its separate
+  // runtime hook-asset reads fail loudly. Do not mistake that for empty success.
+  expect(compiledProbe.report.grokError?.code).toBe("ENOENT");
+  expect(compiledProbe.report.grokError?.path).toContain("soma-lifecycle.mjs");
 });
 
 test("only bundled-skill-source.ts loads the embedded skill text, and only dynamically", () => {

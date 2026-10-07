@@ -8,7 +8,8 @@ import { VSA_SKILL_NAME } from "./vsa-skill-installer";
 /**
  * Directory names of the skills bundled in the repo under `src/skills`, sorted.
  * Soma's own skills are embedded, so this holds inside a compiled binary too
- * (see src/bundled-skill-source.ts).
+ * (see src/bundled-skill-source.ts). Empty trees return []; invalid explicit
+ * roots throw filesystem errors (ENOENT, ENOTDIR, etc.).
  */
 export { bundledSkillNames as listBundledSkills } from "./bundled-skill-source";
 
