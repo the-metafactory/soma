@@ -43,28 +43,14 @@ export function resolveSomaHome(options: SomaLifecycleOptions = {}): string {
 export const SCRATCH_SUBSTRATE_HOME_DIRNAME = ".substrate-home";
 
 /**
- * The home dir lifecycle resolves SUBSTRATE homes against (`~/.claude`, `~/.codex`,
- * …) — the projected memory file, the projection self-repair sweep and the
- * transcript handler all derive their paths from it (node #614).
- *
- * `--soma-home` alone used to redirect only Soma's state root: substrate writes
- * still defaulted to `os.homedir()`, so a benchmark pinning a scratch soma home
- * overwrote the operator's live projection. Now a soma home that is NOT the live
- * default (`<os home>/.soma`) and comes without an explicit `homeDir` resolves its
- * substrate homes under itself. An explicit `homeDir` always wins — the way to
- * point a non-default soma home at the real substrate home on purpose.
- *
- * The live default is carved out because every substrate hook passes
- * `--soma-home <~/.soma>` without `--home-dir` and must keep projecting into the
- * real substrate home. Returns `undefined` when nothing is derived, so callees
- * keep their own `os.homedir()` default.
+ * Explicit Soma homes keep substrate writes inside themselves unless a caller
+ * also pins homeDir. The CLI supplies that binding for installed legacy hooks;
+ * new hooks pass it explicitly. No path spelling implies a live installation.
  */
 export function resolveLifecycleHomeDir(options: SomaLifecycleOptions = {}): string | undefined {
   if (options.homeDir !== undefined) return options.homeDir;
   if (options.somaHome === undefined) return undefined;
-  const somaHome = resolve(options.somaHome);
-  if (somaHome === resolve(homedir(), ".soma")) return undefined;
-  return join(somaHome, SCRATCH_SUBSTRATE_HOME_DIRNAME);
+  return join(resolve(options.somaHome), SCRATCH_SUBSTRATE_HOME_DIRNAME);
 }
 
 function substrate(options: SomaLifecycleOptions): SubstrateId {

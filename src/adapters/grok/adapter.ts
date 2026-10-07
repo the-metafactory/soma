@@ -101,6 +101,7 @@ function grokLifecycleConfig(
   somaRepoPath = defaultSomaRepoPath(),
 ): {
   somaHome: string;
+  homeDir: string;
   trustedSomaRepo: string;
   bunPath: string;
   grokHome: string;
@@ -119,6 +120,7 @@ function grokLifecycleConfig(
   const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir, privateRoots);
   return {
     somaHome,
+    homeDir: resolve(homeDir ?? homedir()),
     trustedSomaRepo: somaRepoPath,
     bunPath: resolveBunExecutable(),
     grokHome,

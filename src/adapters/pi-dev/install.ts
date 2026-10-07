@@ -31,7 +31,7 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
   defaultHome: PI_DEV_DEFAULT_HOME,
   homeFiles: PI_DEV_HOME_FILES,
   homeProjection: {
-    build: (input, context) => projectPiDevHome(input, context.somaHome),
+    build: (input, context) => projectPiDevHome(input, context.somaHome, context.homeDir),
     isSkillProjectionPath: isPiDevSkillProjectionPath,
   },
   // Owned (Soma-exclusive) dir — see ownedSubtrees JSDoc. (agent/extensions + agent/skills shared.)

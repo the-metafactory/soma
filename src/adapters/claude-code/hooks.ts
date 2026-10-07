@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { resolveBunExecutable } from "../../bun-probe";
@@ -765,6 +766,7 @@ export async function installClaudeCodeSomaHooks(context: {
   somaHome: string;
   somaRepoPath: string;
   substrateHome: string;
+  homeDir?: string;
   options?: unknown;
 }): Promise<string[]> {
   const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_HOOK_RELATIVE_PATH);
@@ -772,6 +774,7 @@ export async function installClaudeCodeSomaHooks(context: {
   const bunPath = resolveBunExecutable();
   const config = {
     somaHome: context.somaHome,
+    homeDir: resolve(context.homeDir ?? homedir()),
     trustedSomaRepo: context.somaRepoPath,
     bunPath,
   };

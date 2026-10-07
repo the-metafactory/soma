@@ -379,6 +379,28 @@ The V0 lifecycle surface has four events:
 Substrates can call these events through the CLI or library. Cortex can later
 subscribe to the same lifecycle surface as bus-visible work state.
 
+### Lifecycle home isolation
+
+An explicit `soma lifecycle --soma-home <scratch>` keeps substrate projections
+and self-repair under `<scratch>/.substrate-home` when `--home-dir` is omitted.
+Relative paths resolve against the invocation's working directory. An explicit
+`--home-dir <dir>` selects the substrate destination instead. An invocation
+without `--soma-home` retains normal live-home behavior.
+
+Installed lifecycle hooks bind both homes explicitly, including custom Soma
+homes. Re-running `soma reproject <substrate>` regenerates older hooks with that
+binding. Until then, the lifecycle CLI reads the existing live substrate's
+Soma hook config (or pi-dev's generated extension): it retains the live home
+only when that installation's recorded Soma source matches the requested home
+by realpath. Symlink aliases keep working; a copied scratch tree does not match.
+No directory name or default-path comparison implies a live installation.
+This compatibility applies to CLI hooks; library callers targeting a live
+substrate must supply `homeDir` when they supply `somaHome`.
+
+The derived substrate tree stays inside the scratch root to contain every
+write in the caller's sandbox. It is disposable projection output, not an
+authoritative Soma source. Other commands retain their own home rules.
+
 ## Observability
 
 Observability V0 is a filesystem-native read model over the ordered logical

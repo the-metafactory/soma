@@ -99,6 +99,7 @@ for (const event of ["session-start", "session-end"] as const) {
       const args = (recorded ?? "").trim().split("\n");
       expect(args).toContain("lifecycle");
       expect(args).toContain(event);
+      expect(args[args.indexOf("--home-dir") + 1]).toBe(homeDir);
       const flag = args.indexOf("--work-registry-lock-timeout-ms");
       expect(flag).toBeGreaterThan(-1);
       const timeoutMs = Number(args[flag + 1]);

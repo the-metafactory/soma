@@ -26,6 +26,7 @@ export function isCodexSkillProjectionPath(path: string): boolean {
  */
 function codexLifecycleConfig(somaHome: string, homeDir?: string, somaRepoPath = defaultSomaRepoPath()): {
   somaHome: string;
+  homeDir: string;
   trustedSomaRepo: string;
   bunPath: string;
   privateRoots: string[];
@@ -50,6 +51,7 @@ function codexLifecycleConfig(somaHome: string, homeDir?: string, somaRepoPath =
   const policyMarkers = somaPolicyPrivateMarkers(somaHome, homeDir, privateRoots);
   return {
     somaHome,
+    homeDir: home,
     trustedSomaRepo: somaRepoPath,
     bunPath: resolveBunExecutable(),
     privateRoots,

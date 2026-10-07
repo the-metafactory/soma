@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 /* eslint-disable no-undef -- The handler table placeholder is replaced before installation. */
+import { homedir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
@@ -97,7 +98,7 @@ function isSdkEntrypoint(env = process.env) {
 function lifecycle(config, event, input) {
   if (isSdkEntrypoint()) return;
   const args = [
-    "src/cli.ts", "lifecycle", event, "--soma-home", config.somaHome, "--substrate", "claude-code",
+    "src/cli.ts", "lifecycle", event, "--soma-home", config.somaHome, "--home-dir", config.homeDir ?? homedir(), "--substrate", "claude-code",
     "--work-registry-lock-timeout-ms", String(CLAUDE_LIFECYCLE_WORK_REGISTRY_LOCK_TIMEOUT_MS),
   ];
   const id = sessionId(input);

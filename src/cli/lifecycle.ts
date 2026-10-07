@@ -4,6 +4,7 @@ import {
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
 } from "../index";
+import { resolveInstalledLifecycleHomeDir } from "../adapters/shared/lifecycle-home-binding";
 import type { SomaLifecycleOptions, SomaLifecycleResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
@@ -24,7 +25,7 @@ export interface ParsedLifecycleArgs {
 
 const LIFECYCLE_USAGE =
   "Usage: soma lifecycle <session-start|algorithm-updated|algorithm-observed|session-end> [--home-dir <dir>] [--soma-home <dir>] [--substrate <id>] [--session-id <id>] [--cwd <dir>] [--git-branch <branch>] [--work-registry-lock-timeout-ms <ms>]\n" +
-  "  --home-dir resolves substrate homes (~/.claude, ~/.codex, ...). With a --soma-home other than ~/.soma and no --home-dir, substrate writes land under <soma-home>/.substrate-home; pass --home-dir to target a real substrate home on purpose.";
+  "  --home-dir resolves substrate homes (~/.claude, ~/.codex, ...). With an explicit --soma-home and no --home-dir, substrate writes land under <soma-home>/.substrate-home unless the live substrate installation is bound to that same Soma source. Installed hooks pass --home-dir; pass it explicitly to select another destination.";
 
 export const LIFECYCLE_COMMAND_HELP: { usage: string; subcommands: Record<ParsedLifecycleArgs["event"], string> } = {
   usage: LIFECYCLE_USAGE,
@@ -107,6 +108,8 @@ export function parseLifecycleArgs(args: string[]): ParsedLifecycleArgs {
 }
 
 export async function runLifecycleCli(parsed: ParsedLifecycleArgs): Promise<string> {
+  const homeDir = await resolveInstalledLifecycleHomeDir(parsed.options);
+  parsed = { ...parsed, options: { ...parsed.options, ...(homeDir === undefined ? {} : { homeDir }) } };
   if (parsed.event === "session-start") {
     return formatLifecycleResult(await runSomaLifecycleSessionStart(parsed.options));
   }

@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
 import { renderAlgorithmClassifierSource } from "../shared/algorithm-classifier-source";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
@@ -108,7 +110,7 @@ function renderPaiImportIndex(somaHome: string): string {
   ].join("\n");
 }
 
-function renderHomeExtension(somaHome: string): string {
+function renderHomeExtension(somaHome: string, homeDir: string): string {
   return [
     'import { execFile, spawn } from "node:child_process";',
     'import { createHash } from "node:crypto";',
@@ -141,6 +143,7 @@ function renderHomeExtension(somaHome: string): string {
     "}",
     "",
     `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
+    `const SUBSTRATE_HOME_DIR = ${JSON.stringify(homeDir)};`,
     'const PI_SOMA_HOME = `${process.env.HOME}/.pi/agent/soma`;',
     'const PI_SKILLS_HOME = `${process.env.HOME}/.pi/agent/skills`;',
     "const execFileAsync = promisify(execFile);",
@@ -191,7 +194,7 @@ function renderHomeExtension(somaHome: string): string {
     "// field, and the exit code lives on the rejection. Reaching the return below",
     "// IS the success signal; testing `result.status === 0` would always be false.",
     "async function runSomaLifecycleAsync(event: \"session-start\" | \"algorithm-updated\" | \"session-end\", sessionId?: string): Promise<{ ok: boolean; output: string }> {",
-    '\tconst args = ["run", "soma", "lifecycle", event, "--soma-home", SOMA_HOME, "--substrate", "pi-dev"];',
+    '\tconst args = ["run", "soma", "lifecycle", event, "--soma-home", SOMA_HOME, "--home-dir", SUBSTRATE_HOME_DIR, "--substrate", "pi-dev"];',
     "\tif (sessionId) args.push(\"--session-id\", sessionId);",
     "\ttry {",
     '\t\tconst result = await execFileAsync("bun", args, { cwd: somaRepoPath(), encoding: "utf8", timeout: 25000, maxBuffer: 16 * 1024 * 1024 });',
@@ -641,7 +644,7 @@ export function projectPiDev(input: ProjectionInput): Projection {
   };
 }
 
-export function projectPiDevHome(input: ProjectionInput, somaHome: string): Projection {
+export function projectPiDevHome(input: ProjectionInput, somaHome: string, homeDir = homedir()): Projection {
   const instructions = renderInstructions(input);
   const portableSkillFiles = buildPiDevPortableSkillFiles(projectableSkills(input.profile.skills, input.bundledSkillNames));
 
@@ -655,7 +658,7 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
       // it would be a syntax error here (soma#370 investigation).
       {
         path: "agent/extensions/soma.ts",
-        content: renderHomeExtension(somaHome),
+        content: renderHomeExtension(somaHome, resolve(homeDir)),
       },
       // soma#370: plain markdown narrative files carry the byte-stable
       // provenance header so `soma doctor` can distinguish a managed
@@ -709,7 +712,7 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string): Proj
       // stays locked to the parser/widget unit tests.
       {
         path: "agent/extensions/soma-algorithm.ts",
-        content: renderSomaAlgorithmExtension({ somaHome }),
+        content: renderSomaAlgorithmExtension({ somaHome, homeDir: resolve(homeDir) }),
       },
       // YAML-frontmatter skill file — same exclusion reasoning as grok/codex's
       // skills/soma/SKILL.md.

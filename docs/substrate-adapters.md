@@ -467,19 +467,6 @@ converting it is not part of this rail.
 
 ## Adapter Contract
 
-### Lifecycle home isolation
-
-`soma lifecycle --soma-home <scratch>` keeps substrate projections and
-self-repair under `<scratch>/.substrate-home` when `--home-dir` is omitted.
-Relative scratch paths resolve against the invocation's working directory.
-An explicit `--home-dir <dir>` selects the substrate destination instead.
-
-The default `~/.soma`, whether implicit or passed as `--soma-home`, keeps using
-the real home for substrate projections so installed hooks retain their usual
-behavior. Hooks for a custom live Soma home must pass `--home-dir` explicitly
-to keep projecting into the intended substrate home. This isolation default
-applies to lifecycle; other commands retain their own home resolution rules.
-
 ### Adapter ownership
 
 Adapters should be thin. They do not own identity, memory, VSA, skill schemas, or
