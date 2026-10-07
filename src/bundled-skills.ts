@@ -1,32 +1,17 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { bundledSkillNames, readBundledSkill } from "./bundled-skill-source";
 import { defaultSomaHome } from "./paths";
-import { defaultSomaRepoPath } from "./repo-path";
 import { VSA_SKILL_NAME } from "./vsa-skill-installer";
 
-const SKILLS_SUBPATH = "src/skills";
-
-async function* walkFiles(root: string): AsyncGenerator<string> {
-  for (const entry of await readdir(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) {
-      yield* walkFiles(path);
-    } else if (entry.isFile()) {
-      yield path;
-    }
-  }
-}
-
-/** Directory names of the skills bundled in the repo under `src/skills`, sorted. */
-export async function listBundledSkills(somaRepoPath = defaultSomaRepoPath()): Promise<string[]> {
-  const root = join(resolve(somaRepoPath), SKILLS_SUBPATH);
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort();
-}
+/**
+ * Directory names of the skills bundled in the repo under `src/skills`, sorted.
+ * Soma's own skills are embedded, so this holds inside a compiled binary too
+ * (see src/bundled-skill-source.ts). Empty trees return []; invalid explicit
+ * roots throw filesystem errors (ENOENT, ENOTDIR, etc.).
+ */
+export { bundledSkillNames as listBundledSkills } from "./bundled-skill-source";
 
 export interface InstallBundledSkillsOptions {
   somaRepoPath?: string;
@@ -73,14 +58,11 @@ export interface InstallBundledSkillsOptions {
  * those later edits overwritten with nothing kept, which is the silent loss
  * this function exists to prevent.
  */
-async function backupCustomisedCapabilityTable(destDir: string, sourceFile: string): Promise<string | undefined> {
+async function backupCustomisedCapabilityTable(destDir: string, incoming: string | undefined): Promise<string | undefined> {
   const references = join(destDir, "references");
   const bundled = join(references, "capabilities.md");
 
-  const [existing, incoming] = await Promise.all([
-    readFile(bundled, "utf8").catch(() => undefined),
-    readFile(sourceFile, "utf8").catch(() => undefined),
-  ]);
+  const existing = await readFile(bundled, "utf8").catch(() => undefined);
   if (existing === undefined || incoming === undefined || existing === incoming) return undefined;
 
   // Build the payload FIRST, then compare stored backups against it exactly
@@ -165,25 +147,25 @@ async function backupCustomisedCapabilityTable(destDir: string, sourceFile: stri
 export async function installBundledSkillsIntoHome(
   options: InstallBundledSkillsOptions = {},
 ): Promise<{ names: string[]; written: string[] }> {
-  const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
+  const somaRepoPath = options.somaRepoPath;
   const somaHome = defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome });
-  const names = await listBundledSkills(somaRepoPath);
+  const names = await bundledSkillNames(somaRepoPath);
   const written: string[] = [];
   for (const name of names) {
     if (name === VSA_SKILL_NAME) continue;
-    const sourceDir = join(somaRepoPath, SKILLS_SUBPATH, name);
+    const files = (await readBundledSkill(name, somaRepoPath)) ?? [];
     const destDir = join(somaHome, "skills", name);
     if (name === "the-algorithm") {
       const backup = await backupCustomisedCapabilityTable(
         destDir,
-        join(sourceDir, "references", "capabilities.md"),
+        files.find((file) => file.path === "references/capabilities.md")?.content.toString(),
       );
       if (backup !== undefined) written.push(backup);
     }
-    for await (const absSource of walkFiles(sourceDir)) {
-      const dest = join(destDir, relative(sourceDir, absSource));
+    for (const file of files) {
+      const dest = join(destDir, file.path);
       await mkdir(dirname(dest), { recursive: true });
-      await writeFile(dest, await readFile(absSource));
+      await writeFile(dest, file.content);
       written.push(dest);
     }
   }

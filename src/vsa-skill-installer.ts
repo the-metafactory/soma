@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+import { readBundledSkill, type BundledSkillFile } from "./bundled-skill-source";
 import { defaultSomaRepoPath } from "./repo-path";
 import { SKILL_MD, rewriteSkillNameFrontmatter } from "./skill-frontmatter";
 import { rewriteSubstrateProjectionContent } from "./substrate-projection-rewrites";
@@ -224,23 +225,15 @@ function transformSkillFileContent(
  * — so install and export cannot drift. Add any content transform HERE, never
  * in a single caller, or the byte-identity invariant breaks silently.
  */
-async function computeSourceFileEntries(
-  sourceDir: string,
+function computeSourceFileEntries(
+  sourceFiles: readonly BundledSkillFile[],
   skillNameOverride?: string,
   projectionSubstrate?: ProjectionSubstrate,
-): Promise<{ rel: string; content: string }[]> {
-  const sourceFiles = await listSkillFiles(sourceDir);
-  const entries: { rel: string; content: string }[] = [];
-  for (const rel of sourceFiles) {
-    const content = transformSkillFileContent(
-      rel,
-      await readFile(join(sourceDir, rel), "utf8"),
-      skillNameOverride,
-      projectionSubstrate,
-    );
-    entries.push({ rel, content });
-  }
-  return entries;
+): { rel: string; content: string }[] {
+  return sourceFiles.map(({ path: rel, content }) => ({
+    rel,
+    content: transformSkillFileContent(rel, content.toString(), skillNameOverride, projectionSubstrate),
+  }));
 }
 
 interface DetectedDrift {
@@ -332,10 +325,10 @@ export interface VsaSkillBundleProjectionOptions {
 export async function projectVsaSkillBundleFiles(
   options: VsaSkillBundleProjectionOptions,
 ): Promise<{ path: string; content: string }[]> {
-  const sourceDir = vsaSkillSourceDir(resolveSomaRepoPath(options));
-  if (!(await exists(sourceDir))) return [];
+  const source = await readBundledSkill(SKILL_NAME, resolveSomaRepoPath(options));
+  if (source === undefined) return [];
   const prefix = options.destinationPrefix.replace(/\\/g, "/").replace(/\/+$/, "");
-  const entries = await computeSourceFileEntries(sourceDir, options.skillNameOverride, options.projectionSubstrate);
+  const entries = computeSourceFileEntries(source, options.skillNameOverride, options.projectionSubstrate);
   return entries.map(({ rel, content }) => {
     const relPosix = rel.replace(/\\/g, "/");
     return { path: prefix ? `${prefix}/${relPosix}` : relPosix, content };
@@ -344,8 +337,7 @@ export async function projectVsaSkillBundleFiles(
 
 async function installVsaSkillInternal(options: InternalVsaSkillInstallOptions = {}): Promise<VsaSkillInstallResult> {
   const somaHome = resolveSomaHome(options);
-  const somaRepoPath = resolveSomaRepoPath(options);
-  const sourceDir = vsaSkillSourceDir(somaRepoPath);
+  const source = await readBundledSkill(SKILL_NAME, resolveSomaRepoPath(options));
   // Substrate adapters (#37) install the skill under their own root
   // (e.g. ~/.codex/skills/VSA). The baseline file still lives under
   // ~/.soma so drift and version tracking remain centralized.
@@ -354,12 +346,11 @@ async function installVsaSkillInternal(options: InternalVsaSkillInstallOptions =
     : vsaSkillRuntimeDir(somaHome);
   const markerPath = join(runtimeDir, UPGRADE_MARKER_NAME);
 
-  if (!(await exists(sourceDir))) {
+  if (source === undefined) {
     // No bundled skill at the configured somaRepoPath — install runs as a
     // no-op so callers passing custom repo paths without the skill (tests,
-    // partial installs) don't break. Production callers always resolve via
-    // defaultSomaRepoPath() which points at the Soma repo root and DOES ship
-    // the skill.
+    // partial installs) don't break. For compiled runtime staging, see
+    // docs/design-skill-packaging.md §Skills bundled with Soma.
     return {
       somaHome,
       skillDir: runtimeDir,
@@ -370,11 +361,12 @@ async function installVsaSkillInternal(options: InternalVsaSkillInstallOptions =
       filesPreservedUserAdditions: [],
     };
   }
-  const sourceFrontmatter = await readSkillFrontmatter(join(sourceDir, SKILL_MD));
+  const sourceSkillMd = source.find((file) => file.path === SKILL_MD);
+  const sourceFrontmatter = sourceSkillMd === undefined ? null : parseSkillFrontmatter(sourceSkillMd.content.toString());
   if (sourceFrontmatter === null) {
     throw new Error(`VSA skill source ${SKILL_MD} missing version or pack-id frontmatter.`);
   }
-  const sourceEntries = await computeSourceFileEntries(sourceDir, options.skillNameOverride, options.projectionSubstrate);
+  const sourceEntries = computeSourceFileEntries(source, options.skillNameOverride, options.projectionSubstrate);
   const sourceFiles = sourceEntries.map((entry) => entry.rel);
   const contentByRel = new Map(sourceEntries.map((entry) => [entry.rel, entry.content] as const));
   const sourceHashes = hashEntries(sourceEntries);
