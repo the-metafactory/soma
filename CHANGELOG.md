@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `soma graph add --blocked-by` no longer exposes the new node on the
+  frontier before its blockers land. The node is created without a
+  membership edge, every blocking edge is written, and only then is it
+  attached to its parent, on GitHub and GitLab alike. A walker claimed
+  ranger#86 in that window. An edge or attach that still fails leaves the
+  node unattached instead of claimed, and the error prints
+  `soma graph link <id> [--blocked-by …] --parent <id>`, which writes the
+  edges first and attaches last. (#740)
+- `soma graph claim` refuses a node with an open blocker (error code
+  `blocked`, naming the blockers). It checks the blockers it reads right
+  before writing the assignee, so it refuses a claim based on a frontier
+  read that predates an edge, and a manual claim of a blocked node. It is a
+  check-then-write, not a lock: an edge that lands between that read and the
+  write is not seen. (#740)
+
+### Changed
+
+- A partly wired `soma graph add --json` reports `attached: false` (plus
+  `attachError` when the attach itself failed) in place of `held`; the #750
+  hold-by-claim is gone, since an unattached node is on no frontier.
+- **Library API:** `GraphStore` gains a required `attachToParent(child,
+  parent)`, and `createNode` takes a third `options?: CreateNodeOptions`
+  (`detached`), so a store implemented outside soma must add both.
+  `WorkGraph.createNode(spec, blockedBy?)` resolves to a `CreatedNode`
+  whose `attached` the caller must check, `WorkGraph.attach` and
+  `WorkGraph.addBlockingEdges` are new, and `WorkGraphErrorCode` gains
+  `blocked`.
+
 ## [0.24.0] - 2026-10-07
 
 ### Added

@@ -640,6 +640,41 @@ export interface RehomeSelection {
   readonly context?: unknown;
 }
 
+/** How a store creates a node. */
+export interface CreateNodeOptions {
+  /**
+   * Validate `spec.parent` and derive what it decides (type, project), but write
+   * no membership edge: the caller attaches later through
+   * {@link GraphStore.attachToParent}. A node is reachable from its root only
+   * through that edge, so a node created this way stays off every frontier
+   * until it is attached (#740).
+   */
+  readonly detached?: boolean;
+}
+
+/** What writing a set of blocking edges did: every edge is tried, so one failure never strands the rest. */
+export interface EdgeWrites {
+  written: string[];
+  failed: { id: string; reason: string }[];
+}
+
+/**
+ * What {@link WorkGraph.createNode} did. It resolves even when the wiring is
+ * incomplete, because the node exists either way and the caller needs its id
+ * to repair it. **A caller must check `attached`:** `false` means the node is
+ * unattached (no membership edge, so in no subtree, on no frontier, and
+ * invisible to `audit`), and only the caller can tell anyone it is there.
+ */
+export interface CreatedNode extends NodeRef {
+  rehomedFrom?: NodeRef;
+  rehomedTo?: NodeRef;
+  edges: EdgeWrites;
+  /** True when the node sits where it was asked to (always, for a create with no parent). */
+  attached: boolean;
+  /** Why the attach itself failed, after every edge landed. */
+  attachError?: string;
+}
+
 export interface GraphStore<TStoreData extends StoreCreationData = StoreCreationData> {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
@@ -666,7 +701,9 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
   /** Parse this store's optional creation capability from untrusted CLI/API input. */
   parseCreateData?(value: unknown): TStoreData;
   /** Store assigns the id. Callers reach this through {@link WorkGraph.createNode}, which validates first. */
-  createNode(spec: CreateNodeSpec<TStoreData>, rehome?: RehomeSelection): Promise<NodeRef>;
+  createNode(spec: CreateNodeSpec<TStoreData>, rehome?: RehomeSelection, options?: CreateNodeOptions): Promise<NodeRef>;
+  /** Write the membership edge a `detached` create left out. Callers reach this through {@link WorkGraph.attach} or {@link WorkGraph.createNode}. */
+  attachToParent(child: NodeRef, parent: NodeRef): Promise<void>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   /**
@@ -759,6 +796,8 @@ export type WorkGraphErrorCode =
   | "invalid-edge"
   | "cycle"
   | "node-closed"
+  /** A claim on a node that still has an open blocker (#740). */
+  | "blocked"
   | "close-refused"
   /** The backend failed or answered in a shape the store cannot read. */
   | "backend";
@@ -1448,6 +1487,10 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
 // Contract layer
 // ---------------------------------------------------------------------------
 
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * The rules, over any {@link GraphStore}. Verbs (`soma graph …`, #498) call
  * this; nothing here knows what a tracker is.
@@ -1464,15 +1507,72 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     return this.store.attestation;
   }
 
-  /** Validate at the boundary, then create. Additive mutation — free after structural validation (§1 clause 2). */
-  async createNode(spec: unknown): Promise<NodeRef & { rehomedFrom?: NodeRef; rehomedTo?: NodeRef }> {
+  /**
+   * Validate at the boundary, then create. Additive mutation — free after
+   * structural validation (§1 clause 2).
+   *
+   * With blockers, the node is created unattached (`detached`), every edge is written, and
+   * only then is it attached to its parent (#740). A frontier walk reaches a
+   * node only through its parent, so there is no window in which the node is
+   * reachable and unblocked. An edge or attach that fails leaves the node
+   * unattached (`attached: false`): on no frontier, waiting for a repair.
+   */
+  async createNode(spec: unknown, blockedBy: readonly NodeRef[] = []): Promise<CreatedNode> {
     const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
-    if (parsed.parent === undefined || this.store.selectRehomeParent === undefined) return await this.store.createNode(parsed);
-    const requested = await this.store.readNode(parsed.parent);
-    const rehome = await this.store.selectRehomeParent(requested);
-    if (rehome === undefined) return await this.store.createNode(parsed);
-    const created = await this.store.createNode({ ...parsed, parent: rehome.parent }, rehome);
-    return { ...created, rehomedFrom: requested.ref, rehomedTo: rehome.parent };
+    const requested = parsed.parent === undefined || this.store.selectRehomeParent === undefined ? undefined : await this.store.readNode(parsed.parent);
+    const rehome = requested === undefined ? undefined : await this.store.selectRehomeParent?.(requested);
+    const parent = rehome?.parent ?? parsed.parent;
+    const rehomed = requested === undefined || rehome === undefined ? {} : { rehomedFrom: requested.ref, rehomedTo: rehome.parent };
+    const target = { ...parsed, ...(parent === undefined ? {} : { parent }) };
+    // Without blockers there is no window to close, so the store attaches in its own create.
+    const detached = parent !== undefined && blockedBy.length > 0;
+
+    const created = await this.store.createNode(target, rehome, { detached });
+    const edges = await this.addBlockingEdges(created, blockedBy);
+    const result = { ...created, ...rehomed, edges };
+    if (!detached) return { ...result, attached: true };
+    if (edges.failed.length > 0) return { ...result, attached: false };
+    try {
+      await this.store.attachToParent(created, parent);
+    } catch (error) {
+      return { ...result, attached: false, attachError: errorText(error) };
+    }
+    return { ...result, attached: true };
+  }
+
+  /**
+   * Attach an existing unattached node below `parent` — the repair for a
+   * create whose edges failed (#740). A node already below `parent` is left
+   * alone, so a re-run is safe; one below another parent is refused, because
+   * moving a node is not a repair.
+   */
+  async attach(child: NodeRef, parent: NodeRef): Promise<{ status: "attached" | "already" }> {
+    const state = await this.store.readNode(child);
+    if (state.parent?.id === parent.id) return { status: "already" };
+    if (state.parent !== undefined) {
+      throw new WorkGraphError("invalid-edge", `node ${child.id} is already attached to ${state.parent.id}; refusing to move it to ${parent.id}`);
+    }
+    const seen = new Set<string>();
+    for (let ancestor: NodeRef | undefined = parent; ancestor !== undefined && !seen.has(ancestor.id); ancestor = (await this.store.readNode(ancestor)).parent) {
+      if (ancestor.id === child.id) throw new WorkGraphError("cycle", `attaching ${child.id} below ${parent.id} would make it its own ancestor`);
+      seen.add(ancestor.id);
+    }
+    await this.store.attachToParent(child, parent);
+    return { status: "attached" };
+  }
+
+  /** Write each edge, collecting failures rather than stopping at the first, so one bad edge never strands the good ones. */
+  async addBlockingEdges(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites> {
+    const edges: EdgeWrites = { written: [], failed: [] };
+    for (const blocker of blockedBy) {
+      try {
+        await this.addBlockingEdge(blocker, blocked);
+        edges.written.push(blocker.id);
+      } catch (error) {
+        edges.failed.push({ id: blocker.id, reason: errorText(error) });
+      }
+    }
+    return edges;
   }
 
   async readNode(ref: NodeRef): Promise<NodeState> {
@@ -1567,11 +1667,18 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
    * Claim = becoming the node's sole assignee, written before any work (§2.4).
    * Refuses on a closed node: claiming what is already done is never the
    * intent, and it would silently reopen the race on a settled receipt.
+   * Refuses on a node with an open blocker too (#740): the frontier would not
+   * offer it, so a claim that read the frontier a moment too early, or a
+   * manual one, must not take it either.
    */
   async claim(ref: NodeRef, identity: string): Promise<ClaimResult> {
     const state = await this.store.readNode(ref);
     if (state.status === "closed") {
       throw new WorkGraphError("node-closed", `node ${ref.id} is closed — nothing to claim`);
+    }
+    const open = state.blockedBy.filter((blocker) => blocker.status !== "closed").map((blocker) => blocker.id);
+    if (open.length > 0) {
+      throw new WorkGraphError("blocked", `node ${ref.id} is blocked by open node(s) ${open.join(", ")} — not claimable until they close`);
     }
     return await this.store.claim(ref, identity);
   }

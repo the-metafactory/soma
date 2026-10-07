@@ -29,6 +29,7 @@ import {
   type ClaimResult,
   type CloseReceipt,
   type CommentRef,
+  type CreateNodeOptions,
   type CreateNodeSpec,
   type GraphStore,
   type NodeComment,
@@ -36,6 +37,7 @@ import {
   type NodeState,
   type NodeStatus,
   type Reaction,
+  type RehomeSelection,
   type ReleaseResult,
   type WorkGraphNode,
   type ConfinementProbeRecord,
@@ -648,6 +650,8 @@ class GitHubGraphStore implements GraphStore {
   private readonly repo: string;
   private readonly host: string;
   private readonly transport: GitHubApiTransport;
+  /** Issue number → database id for nodes this store created detached, so their attach skips a re-read (#740). */
+  private readonly detachedIds = new Map<string, number>();
   private readonly confinement: ConfinementDeps;
 
   constructor(options: GitHubGraphStoreOptions) {
@@ -728,7 +732,7 @@ class GitHubGraphStore implements GraphStore {
     return await checkGitHubConfinement(this.confinement, this.host);
   }
 
-  async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
+  async createNode(spec: CreateNodeSpec, _rehome?: RehomeSelection, options: CreateNodeOptions = {}): Promise<NodeRef> {
     // Resolved before the issue exists: a parent outside this repo must refuse
     // the create, not strand an orphan issue after it.
     const parentPath = spec.parent === undefined ? undefined : this.writePath(spec.parent);
@@ -749,14 +753,26 @@ class GitHubGraphStore implements GraphStore {
       }),
       "createNode",
     );
-    if (parentPath !== undefined) {
-      await this.transport({
-        method: "POST",
-        path: `${parentPath}/sub_issues`,
-        body: { sub_issue_id: created.id },
-      });
-    }
+    if (parentPath !== undefined && options.detached !== true) await this.postSubIssue(parentPath, created.id);
+    if (options.detached === true) this.detachedIds.set(String(created.number), created.id);
     return { id: String(created.number) };
+  }
+
+  async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> {
+    const parentPath = this.writePath(parent);
+    // `sub_issues` keys on the database id, not the issue number. A detached
+    // create already holds it; the `link --parent` repair reads it.
+    const databaseId = this.detachedIds.get(child.id) ?? (await this.fetchIssue(child)).id;
+    await this.postSubIssue(parentPath, databaseId);
+    this.detachedIds.delete(child.id);
+  }
+
+  private async postSubIssue(parentPath: string, subIssueId: number): Promise<void> {
+    await this.transport({
+      method: "POST",
+      path: `${parentPath}/sub_issues`,
+      body: { sub_issue_id: subIssueId },
+    });
   }
 
   /**

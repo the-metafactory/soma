@@ -122,6 +122,60 @@ test("GitLab creates an Issue in an Epic root's declared home project", async ()
   expect(String(calls[1]?.body?.query)).toContain("workItemTypes(name:ISSUE)");
 });
 
+test("GitLab creates a detached Issue without a hierarchy widget and attaches it with a work item update (#740)", async () => {
+  const calls: GitLabApiRequest[] = [];
+  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const issue = { ...epic, id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, description: "" };
+  const transport = async (request: GitLabApiRequest): Promise<unknown> => {
+    calls.push(request);
+    const query = String(request.body?.query);
+    if (query.includes("workItemTypes")) return { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-issue", name: "Issue" }] } } } };
+    if (query.includes("workItemCreate")) return { data: { workItemCreate: { workItem: { iid: "2", workItemType: { name: "Issue" }, namespace: { fullPath: "saca/secacademy" } }, errors: [] } } };
+    if (query.includes("workItemUpdate")) return { data: { workItemUpdate: { errors: [] } } };
+    const variables = request.body?.variables as Record<string, string>;
+    const pick = (iid: string | undefined): unknown => (iid === "2" ? issue : epic);
+    if (variables.iid0 !== undefined) return { data: { item0: { workItem: pick(variables.iid0) }, item1: { workItem: pick(variables.iid1) } } };
+    return { data: { namespace: { workItem: pick(variables.iid) } } };
+  };
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport });
+
+  const ref = await store.createNode(parseNodeSpec({ title: "route", autonomy: "approve", checkpointId: "cp", parent: { id: "saca&1" } }), undefined, { detached: true });
+  const create = calls.find((call) => String(call.body?.query).includes("workItemCreate"));
+  expect((create?.body?.variables as { input: Record<string, unknown> }).input).not.toHaveProperty("hierarchyWidget");
+
+  await store.attachToParent(ref, { id: "saca&1" });
+  const update = calls.at(-1);
+  expect(String(update?.body?.query)).toContain("workItemUpdate");
+  expect((update?.body?.variables as { input: Record<string, unknown> }).input).toEqual({ id: "gid://gitlab/WorkItem/2", hierarchyWidget: { parentId: "gid://gitlab/WorkItem/1" } });
+});
+
+test("GitLab attachToParent refuses a parent outside the child's home project or of the wrong type (#740)", async () => {
+  const route = (home: string) => `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"${home}"}\n-->`;
+  const widgets = [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }];
+  const items: Record<string, unknown> = {
+    "saca|1": { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: route("saca/other"), state: "OPEN", author: { username: "jc" }, widgets },
+    "saca/secacademy|2": { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "i", description: "", state: "OPEN", author: { username: "jc" }, widgets },
+    "saca/secacademy|3": { id: "gid://gitlab/WorkItem/3", iid: "3", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "j", description: "", state: "OPEN", author: { username: "jc" }, widgets },
+  };
+  const calls: GitLabApiRequest[] = [];
+  const transport = async (request: GitLabApiRequest): Promise<unknown> => {
+    calls.push(request);
+    const variables = request.body?.variables as Record<string, string>;
+    const data: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(variables)) {
+      if (!key.startsWith("path")) continue;
+      const index = key.slice("path".length);
+      data[`item${index}`] = { workItem: items[`${value}|${variables[`iid${index}`]}`] };
+    }
+    return { data };
+  };
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport });
+
+  await expect(store.attachToParent({ id: "saca/secacademy#2" }, { id: "saca&1" })).rejects.toThrow(/not in saca&1's home project saca\/other/u);
+  await expect(store.attachToParent({ id: "saca/secacademy#2" }, { id: "saca/secacademy#3" })).rejects.toThrow("cannot attach Issue saca/secacademy#2 below Issue saca/secacademy#3: only Task goes there");
+  expect(calls.some((call) => String(call.body?.query).includes("workItemUpdate"))).toBe(false);
+});
+
 test("GitLab resolves the Epic type in the target group before creating a graph root", async () => {
   const calls: GitLabApiRequest[] = [];
   const transport = async (request: GitLabApiRequest): Promise<unknown> => { calls.push(request); return String(request.body?.query).includes("workItemTypes") ? { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-epic", name: "Epic" }] } } } } : { data: { workItemCreate: { workItem: { iid: "1", workItemType: { name: "Epic" }, namespace: { fullPath: "saca" } }, errors: [] } } }; };

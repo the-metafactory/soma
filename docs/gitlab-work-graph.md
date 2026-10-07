@@ -101,10 +101,12 @@ requires a separate ratifier and credential isolation, as described in
 [the work-graph contract](work-graph.md#deriving-attestation-502).
 
 `soma graph add` reads every `--blocked-by` before it creates the child, so a
-bad ref creates nothing. If a link write still fails after the child exists,
-the child remains in GitLab, claimed by the acting identity so it stays off the
-frontier, and the CLI prints the `soma graph link` command that finishes the
-wiring, plus `soma graph release` when the hold landed (if it did not, the CLI
-says the child is on the frontier). `audit` does not check links, so confirm with
-`soma graph node` that the blockers are listed. Do not assume an error rolled
-back a tracker write.
+bad ref creates nothing. With blockers, the child is created without a
+hierarchy parent, every link is written, and only then is the parent set
+(`workItemUpdate`), so the child is never reachable before it is blocked (#740).
+If a link write still fails, the child remains in GitLab with no parent, on no
+frontier, and the CLI prints the `soma graph link … --parent` command that
+finishes the wiring. `audit` cannot see an unattached child, so that printed
+command is the only pointer to it; confirm with `soma graph node` that the
+blockers and parent are listed. Do not assume an error rolled back a tracker
+write.

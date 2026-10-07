@@ -750,7 +750,7 @@ The typed primitive for cross-session effort topology: **nodes** of work joined 
 **Two relations, and conflating them is the classic error:**
 
 - A **blocking edge** says *this must close before that is takeable*. It gates. The frontier reads it.
-- A **membership edge** says *this node belongs to that one* — a child of a map, or scaffold thrown off the node whose work produced it. It is the parent/child relation, and a root's **membership subtree** is everything reachable through it. It records provenance and **never gates**.
+- A **membership edge** says *this node belongs to that one* — a child of a map, or scaffold thrown off the node whose work produced it. It is the parent/child relation, and a root's **membership subtree** is everything reachable through it. It records provenance and **never gates**. A non-root node with no membership edge is an **unattached node**: it is in no subtree, so it is on no frontier and invisible to `audit`. `soma graph add --blocked-by` keeps a node unattached until every blocking edge has landed (#740), and leaves it that way if one fails; `soma graph link --parent` attaches it. _Avoid_: orphan, parentless, detached (`detach` is a killed alias for `uninstall`; `CreateNodeOptions.detached` is only the store flag that produces an unattached node).
 
 The frontier is computed *over* a root's membership subtree and *gated by* blocking edges. Membership scopes the question, blocking answers it. Depth within the subtree carries no authority: a node three levels down is exactly as takeable as a direct child (#557), so the way to keep work off the frontier is to close it, block it, or claim it — never to bury it.
 
