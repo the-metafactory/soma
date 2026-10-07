@@ -65,7 +65,7 @@ import {
   type WorkGraphEvidenceKind,
 } from "../work-graph";
 import { deriveAttestation, findGraphRoot } from "../work-graph-attestation";
-import { displayRepo, parseLocatedNodeId, type RepoRef } from "../work-graph-ref";
+import { displayRepo, formatRepoRef, parseLocatedNodeId, type RepoRef } from "../work-graph-ref";
 import {
   isProbeRefusal,
   loadProbeRegistry as defaultLoadProbeRegistry,
@@ -83,25 +83,26 @@ import {
 // not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
 // to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
 // other importers point at core directly, so there is one path to each symbol.
-import { createGraphStore, localNodeId, probeRegistryKey, resolveGraphRepo, resolveNodeTarget } from "../work-graph-bridge";
+import { createGraphStore, localBlockerId, probeRegistryKey, resolveGraphRepo, resolveNodeTarget } from "../work-graph-bridge";
 import { invocationCwd } from "../path-utils";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-const GRAPH_ACTIONS = ["frontier", "node", "claim", "release", "add", "chart", "close", "audit", "decisions"] as const;
+const GRAPH_ACTIONS = ["frontier", "node", "claim", "release", "add", "link", "chart", "close", "audit", "decisions"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|claim|release|add|chart|close|audit|decisions> ...",
+  usage: "Usage: soma graph <frontier|node|claim|release|add|link|chart|close|audit|decisions> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--json]",
     node: "Usage: soma graph node <id> [--repo <forge>:<host>/<path>] [--json]",
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <id>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <forge>:<host>/<path>] [--json]",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <forge>:<host>/<path>] [--json]",
+    link: "Usage: soma graph link <id> --blocked-by <ref>... [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node; a <ref> may name another repo on the same forge (owner/name#N)",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <forge>:<host>/<path>]",
@@ -154,6 +155,13 @@ export interface ParsedGraphAddArgs {
   };
 }
 
+export interface ParsedGraphLinkArgs {
+  command: "graph";
+  action: "link";
+  target: string;
+  options: GraphSharedOptions & { blockedBy: string[] };
+}
+
 export interface ParsedGraphChartArgs {
   command: "graph";
   action: "chart";
@@ -204,6 +212,7 @@ export type ParsedGraphArgs =
   | ParsedGraphClaimArgs
   | ParsedGraphReleaseArgs
   | ParsedGraphAddArgs
+  | ParsedGraphLinkArgs
   | ParsedGraphChartArgs
   | ParsedGraphCloseArgs
   | ParsedGraphAuditArgs
@@ -373,6 +382,23 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
   return { command: "graph", action: "add", target, options };
 }
 
+function parseLinkArgs(target: string, rest: string[]): ParsedGraphLinkArgs {
+  const options: ParsedGraphLinkArgs["options"] = { blockedBy: [] };
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    const shared = readShared(options, rest, index, arg);
+    if (shared !== undefined) {
+      index = shared;
+      continue;
+    }
+    if (arg !== "--blocked-by") throw new Error(`Unknown option: ${arg}`);
+    options.blockedBy.push(readOption(rest, index, arg));
+    index += 1;
+  }
+  if (options.blockedBy.length === 0) throw new Error("soma graph link is missing required option: --blocked-by.");
+  return { command: "graph", action: "link", target, options };
+}
+
 function parseChartArgs(rest: string[]): ParsedGraphChartArgs {
   const parsed = parseAddArgs("__chart__", rest);
   if (parsed.options.blockedBy.length > 0) throw new Error("soma graph chart does not support --blocked-by");
@@ -485,6 +511,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   const resolvedTarget = requireTarget(action, target);
 
   if (action === "add") return parseAddArgs(resolvedTarget, rest);
+  if (action === "link") return parseLinkArgs(resolvedTarget, rest);
   if (action === "close") return parseCloseArgs(resolvedTarget, rest);
 
   const options: GraphSharedOptions & { identity?: string; write?: boolean } = {};
@@ -933,14 +960,93 @@ async function resolveBody(
   return body;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A node id as a shell word for a printed command: a GitLab epic id (`csoc&5`)
+ * would background the pasted command, and `#` is a glob operator under zsh's
+ * extendedglob, so anything beyond plain path characters is single-quoted.
+ */
+function shellWord(id: string): string {
+  return /^[A-Za-z0-9_./-]+$/u.test(id) ? id : `'${id.replaceAll("'", `'\\''`)}'`;
+}
+
+function edgeLabel(node: string, blocker: string): string {
+  return `${node} blocked by ${blocker}`;
+}
+
+/**
+ * Every blocker must be a node the store can read before anything is written
+ * (#750): a typo or an unreadable ref refuses the whole verb, so nothing is
+ * left half-wired. The reads are independent, so they run together, and every
+ * failure is reported at once, not just the first.
+ */
+async function checkBlockers(graph: WorkGraph, blockedBy: readonly string[], verb: string, json: boolean): Promise<void> {
+  const reads = await Promise.allSettled(blockedBy.map(async (id) => await graph.readNode({ id })));
+  const unreadable = reads.flatMap((read, index) => (read.status === "rejected" ? [{ id: blockedBy[index], reason: errorMessage(read.reason) }] : []));
+  if (unreadable.length === 0) return;
+  if (json) throw new SomaCliError(JSON.stringify({ refused: true, written: [], unreadable }, null, 2), 1);
+  throw new SomaCliError(
+    [`soma graph ${verb} refused: ${unreadable.length} blocker(s) cannot be read, so nothing was written.`, ...unreadable.map((entry) => `- ${entry.id}: ${entry.reason}`)].join("\n"),
+    1,
+  );
+}
+
+interface NodeHold {
+  held: boolean;
+  line: string;
+}
+
+interface EdgeWrites {
+  written: string[];
+  failed: { id: string; reason: string }[];
+}
+
+/** Write each edge, collecting failures rather than stopping at the first, so one bad edge never strands the good ones. */
+async function writeBlockingEdges(graph: WorkGraph, blocked: NodeRef, blockedBy: readonly string[]): Promise<EdgeWrites> {
+  const edges: EdgeWrites = { written: [], failed: [] };
+  for (const id of blockedBy) {
+    try {
+      await graph.addBlockingEdge({ id }, blocked);
+      edges.written.push(id);
+    } catch (error) {
+      edges.failed.push({ id, reason: errorMessage(error) });
+    }
+  }
+  return edges;
+}
+
+/**
+ * Hold a partly wired node off the frontier (#750) by claiming it as the
+ * acting identity: the frontier already skips an assigned node, so no new
+ * state is needed. Never throws — a hold that fails is reported, because the
+ * caller has to say the node is takeable rather than imply it is safe.
+ */
+async function holdNode(store: GraphStore, graph: WorkGraph, node: NodeRef): Promise<NodeHold> {
+  try {
+    const identity = await store.actingIdentity();
+    const claim = await graph.claim(node, identity);
+    return claim.held
+      ? { held: true, line: `Held node ${node.id} by claiming it as ${identity}, so it stays off the frontier.` }
+      : { held: false, line: `Could not hold node ${node.id}: it is claimed by ${claim.holder}.` };
+  } catch (error) {
+    return { held: false, line: `Could not hold node ${node.id} (${errorMessage(error)}): it IS on the frontier until its blockers are wired.` };
+  }
+}
+
 async function runAdd(
   parsed: ParsedGraphAddArgs,
   graph: WorkGraph,
+  store: GraphStore,
   repo: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
   const { bodyFile, ...rest } = parsed.options.spec;
   const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
+  const blockedBy = parsed.options.blockedBy;
+  await checkBlockers(graph, blockedBy, "add", parsed.options.json === true);
 
   const isGitLabEpic = repo.forge === "gitlab" && parseLocatedNodeId(parsed.target)?.sigil === "&";
   const storeData = repo.forge !== "gitlab" ? rest.storeData : { ...(rest.storeData !== undefined && typeof rest.storeData === "object" ? rest.storeData as Record<string, unknown> : {}), ...(isGitLabEpic ? {} : { scopeProject: repo.path }) };
@@ -951,37 +1057,72 @@ async function runAdd(
     parent: { id: parsed.target },
   });
 
-  // The node exists from here on. An edge that fails leaves it created but
-  // under-blocked, so the failure has to name what did land — silently
-  // surfacing a node on the frontier that should have been blocked is worse
-  // than an error that says so.
-  const edges: string[] = [];
-  for (const blockerId of parsed.options.blockedBy) {
-    try {
-      await graph.addBlockingEdge({ id: blockerId }, created);
-    } catch (error) {
-      throw new SomaCliError(
-        [
-          `Created node ${created.id} under ${parsed.target}, then failed to add "blocked by ${blockerId}":`,
-          error instanceof Error ? error.message : String(error),
-          edges.length > 0 ? `Edges already written: ${edges.join("; ")}` : "No blocking edges were written.",
-          `Node ${created.id} is on the frontier until its remaining blockers are wired.`,
-        ].join("\n"),
-        1,
-      );
+  // The node exists from here on. An edge that still fails leaves it
+  // under-blocked, and an under-blocked node is takeable on the next walker
+  // tick — so the node is held before the error is raised.
+  const rehomed = created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id };
+  const base = { repo: displayRepo(repo), node: created.id, parent: parsed.target, ...rehomed };
+  const parentShown = created.rehomedTo?.id ?? parsed.target;
+  const edges = await writeBlockingEdges(graph, created, blockedBy);
+  if (edges.failed.length > 0) {
+    const hold = await holdNode(store, graph, created);
+    if (parsed.options.json === true) {
+      throw new SomaCliError(JSON.stringify({ ...base, ...edges, held: hold.held }, null, 2), 1);
     }
-    edges.push(`${created.id} blocked by ${blockerId}`);
+    throw new SomaCliError(partialAddReport(parentShown, repo, created, edges, hold), 1);
   }
 
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, blockedBy: parsed.options.blockedBy, ...(created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id }) }, null, 2);
+    return JSON.stringify({ ...base, blockedBy }, null, 2);
   }
 
   return [
-    `Created node ${created.id} under ${created.rehomedTo?.id ?? parsed.target} (${displayRepo(repo)}).`,
+    `Created node ${created.id} under ${parentShown} (${displayRepo(repo)}).`,
     ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
-    ...(edges.length > 0 ? ["", "Blocking edges:", ...edges.map((edge) => `- ${edge}`)] : []),
+    ...(edges.written.length > 0 ? ["", "Blocking edges:", ...edges.written.map((id) => `- ${edgeLabel(created.id, id)}`)] : []),
   ].join("\n");
+}
+
+/** What a partly wired `add` says (#750): what failed, what landed, the hold, and the commands that finish the job. */
+function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges: EdgeWrites, hold: NodeHold): string {
+  const repoFlag = `--repo ${formatRepoRef(repo)}`;
+  const { written, failed } = edges;
+  return [
+    `Created node ${created.id} under ${parent} (${displayRepo(repo)}), but ${failed.length} of ${failed.length + written.length} blocking edge(s) failed:`,
+    ...failed.map((edge) => `- blocked by ${edge.id}: ${edge.reason}`),
+    written.length > 0 ? `Edges written: ${written.map((id) => edgeLabel(created.id, id)).join("; ")}` : "No blocking edges were written.",
+    hold.line,
+    `Finish wiring: soma graph link ${shellWord(created.id)} ${failed.map((edge) => `--blocked-by ${shellWord(edge.id)}`).join(" ")} ${repoFlag}`,
+    ...(hold.held ? [`Then drop the hold: soma graph release ${shellWord(created.id)} ${repoFlag}`] : []),
+  ].join("\n");
+}
+
+/**
+ * Add blocking edges to a node that already exists (#750, #703) — the repair
+ * for a partly wired `add`, and the way to wire a dependency discovered later.
+ * Goes through {@link WorkGraph.addBlockingEdge}, so the cycle check runs; an
+ * edge the node already has is skipped, so a re-run is safe.
+ */
+async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: RepoRef): Promise<string> {
+  const blocked = { id: parsed.target };
+  const [state] = await Promise.all([graph.readNode(blocked), checkBlockers(graph, parsed.options.blockedBy, "link", parsed.options.json === true)]);
+  const existing = new Set(state.blockedBy.map((blocker) => blocker.id));
+  const already = parsed.options.blockedBy.filter((id) => existing.has(id));
+  const { written, failed } = await writeBlockingEdges(graph, blocked, parsed.options.blockedBy.filter((id) => !existing.has(id)));
+
+  if (parsed.options.json === true) {
+    const result = JSON.stringify({ repo: displayRepo(repo), node: parsed.target, written, already, failed }, null, 2);
+    if (failed.length > 0) throw new SomaCliError(result, 1);
+    return result;
+  }
+  const lines = [
+    `Node ${parsed.target} (${displayRepo(repo)}):`,
+    ...written.map((id) => `- blocked by ${id}: written`),
+    ...already.map((id) => `- blocked by ${id}: already there`),
+    ...failed.map((edge) => `- blocked by ${edge.id}: FAILED — ${edge.reason}`),
+  ];
+  if (failed.length > 0) throw new SomaCliError(lines.join("\n"), 1);
+  return lines.join("\n");
 }
 
 async function runChart(parsed: ParsedGraphChartArgs, graph: WorkGraph, repo: RepoRef, deps: GraphCliDeps): Promise<string> {
@@ -1544,13 +1685,18 @@ async function resolveGraphTarget(
   try {
     if (parsed.action === "chart") return { repo: await deps.resolveRepo(parsed.options.repo), parsed };
     const { repo, id: target } = await resolveNodeTarget(parsed.target, parsed.options.repo, deps.resolveRepo);
-    if (parsed.action !== "add") return { repo, parsed: { ...parsed, target } };
-    const blockedBy = parsed.options.blockedBy.map((id) => localNodeId(id, repo));
-    return { repo, parsed: { ...parsed, target, options: { ...parsed.options, blockedBy } } };
+    if (parsed.action !== "add" && parsed.action !== "link") return { repo, parsed: { ...parsed, target } };
+    // Blockers may name a sibling repo on the same forge (#749); targets never leave the store.
+    const blockedBy = [...new Set(parsed.options.blockedBy.map((id) => localBlockerId(id, repo)))];
+    return { repo, parsed: withBlockers(parsed, target, blockedBy) };
   } catch (error) {
     if (error instanceof WorkGraphError && error.code === "invalid-node") throw new SomaCliError(error.message, 1);
     throw error;
   }
+}
+
+function withBlockers<T extends ParsedGraphAddArgs | ParsedGraphLinkArgs>(parsed: T, target: string, blockedBy: string[]): T {
+  return { ...parsed, target, options: { ...parsed.options, blockedBy } };
 }
 
 export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
@@ -1570,7 +1716,9 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "release":
       return await runRelease(parsed, graph, store, repo);
     case "add":
-      return await runAdd(parsed, graph, repoRef, deps);
+      return await runAdd(parsed, graph, store, repoRef, deps);
+    case "link":
+      return await runLink(parsed, graph, repoRef);
     case "chart":
       return await runChart(parsed, graph, repoRef, deps);
     case "close":
