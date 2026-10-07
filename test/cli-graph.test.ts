@@ -439,6 +439,19 @@ test("--blocked-by takes a ref in this repo or a sibling one, and refuses one on
   expect(store.created).toHaveLength(3);
 });
 
+test("a target named owner/name#N stays in the store: this repo resolves, a sibling refuses (#749)", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("498", { node: autoNode("498") });
+
+  expect(await run(["graph", "claim", "the-metafactory/soma#498", "--repo", REPO], store)).toContain("Claimed node 498");
+  expect(await failure(["graph", "claim", "the-metafactory/arc#498", "--repo", REPO], store)).toContain("never spans two stores");
+  expect(await failure(["graph", "add", "the-metafactory/arc#1", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-1", "--repo", REPO], store)).toContain(
+    "never spans two stores",
+  );
+  expect(await failure(["graph", "link", "the-metafactory/arc#1", "--blocked-by", "498", "--repo", REPO], store)).toContain("never spans two stores");
+  expect(store.claims).toEqual([["498", "ivy-agent"]]);
+  expect(store.created).toHaveLength(0);
+});
+
 test("the store names the acting identity (#537 D2)", async () => {
   const store = new FakeStore().seed("498", { node: autoNode("498") });
   store.actingIdentity = async () => "store-identity";

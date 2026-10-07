@@ -215,16 +215,27 @@ export function localNodeId(text: string, repo: RepoRef): string {
     // one id shape per store, whichever way the node was named, built in one place.
     // On GitHub the same `#12` is just `12`: the store's id is the bare number.
     const iid = parseBareNodeNumber(text);
-    return iid === undefined ? text : storeNodeId({ repo, sigil: "#", iid });
+    if (iid !== undefined) return storeNodeId({ repo, sigil: "#", iid });
+    // A located `owner/name#N` is read on the store's forge and host and held to
+    // the same one-store rule as a qualified ref. Passed through, it would reach
+    // the GitHub store's issue routes, which follow a located id to its own repo
+    // since #749: a claim, close or child on another repo's node, under this
+    // store's probe registry.
+    if (parseLocatedNodeId(text) === undefined) return text;
+    const located = locatedOnStore(text.trim(), repo);
+    if (!sameStore(located.repo, repo)) throw crossStoreError(text, located.repo, repo);
+    return storeNodeId(located);
   }
   const qualified = parseQualifiedNodeRef(text);
-  if (!sameStore(qualified.repo, repo)) {
-    throw new WorkGraphError(
-      "invalid-node",
-      `${text} lives in ${formatRepoRef(qualified.repo)}, not in this graph's store (${formatRepoRef(repo)}). A work graph never spans two stores.`,
-    );
-  }
+  if (!sameStore(qualified.repo, repo)) throw crossStoreError(text, qualified.repo, repo);
   return storeNodeId(qualified);
+}
+
+function crossStoreError(text: string, lives: RepoRef, repo: RepoRef): WorkGraphError {
+  return new WorkGraphError(
+    "invalid-node",
+    `${text} lives in ${formatRepoRef(lives)}, not in this graph's store (${formatRepoRef(repo)}). A work graph never spans two stores.`,
+  );
 }
 
 /**

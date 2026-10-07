@@ -313,3 +313,9 @@ test("a blocker on another forge or host, or one that is not a node ref, refuses
     expect(refuses(junk)).not.toBe("no-throw");
   }
 });
+
+test("a located target is held to one store, like a qualified one", async () => {
+  const resolve = async (): Promise<RepoRef> => SOMA;
+  expect((await resolveNodeTarget("the-metafactory/soma#498", undefined, resolve)).id).toBe("498");
+  await expect(resolveNodeTarget("the-metafactory/ranger#116", undefined, resolve)).rejects.toThrow(/never spans two stores/u);
+});
