@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `soma graph link <id> --blocked-by <ref>…` adds blocking edges to an
+  existing node, through the same cycle check as `add`. An edge the node
+  already has is skipped. (#750, #703)
+
+### Fixed
+
+- `--blocked-by` accepts a blocker in another repo on the same forge and
+  host, as `owner/name#N` or a full ref, and the blocker reads back with its
+  repo in `node`, `frontier` and the subtree walk. Before, a cross-repo ref was
+  sent to the API as an issue number, and a cross-repo edge written by hand read
+  back as the same number in the store's repo. A blocker on another forge or
+  host, or text that is not a node ref, now refuses. (#749)
+- `soma graph add` reads every `--blocked-by` before it creates the node and
+  refuses the whole add if any cannot be read. An edge that still fails after
+  creation no longer stops the others; the node is claimed by the acting
+  identity, so it stays off the frontier, and the error prints the `link` and
+  `release` commands that finish the wiring. (#750)
+
 ## [0.23.1] - 2026-10-05
 
 ### Changed

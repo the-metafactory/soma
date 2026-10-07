@@ -643,6 +643,12 @@ interface GraphStore {
 
 ### 2.6 CLI verbs
 
+A blocker (`--blocked-by` on `add` and `link`) may live in another repo on the
+same forge and host, named `owner/name#N` or in full (#749): a map can wait on
+another repo's decision. It reads back with its repo, so `node` shows
+`owner/name#N` and the frontier judges it by its own status. Targets and
+membership stay in the store's own repo.
+
 ```bash
 soma graph frontier <root>         # open, unassigned, unblocked, over the whole
                                    # membership subtree; GraphStore.readSubtree
@@ -657,7 +663,13 @@ soma graph release <node>          # identity-bound self-release: abandon your
 soma graph add <root> ...          # create node (+ edges) — additive, structurally
                                    # validated; --checkpoint is REQUIRED, since a
                                    # node without one can never close and no verb
-                                   # attaches one later
+                                   # attaches one later. Every --blocked-by is read
+                                   # before the node is created; an edge that still
+                                   # fails leaves the node claimed by the acting
+                                   # identity, off the frontier (#750)
+soma graph link <node> --blocked-by <ref>...
+                                   # add blocking edges to an existing node, cycle
+                                   # check included; an edge it has is skipped
 soma graph chart ...               # create a typed graph root; GitLab requires
                                    # --home-project <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;

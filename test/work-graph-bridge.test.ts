@@ -5,6 +5,7 @@ import { WorkGraphError } from "../src/work-graph";
 import {
   classifyHost,
   createGraphStore,
+  localBlockerId,
   originRemoteRequest,
   probeRegistryKey,
   readNodeForBridge,
@@ -274,4 +275,41 @@ test("GitLab ids come back as canonical refs — issue, bare, and epic alike", a
 test("on GitHub a #-prefixed id is the bare number the store reads", async () => {
   expect((await resolveNodeTarget("#498", undefined, async () => SOMA)).id).toBe("498");
   expect((await resolveNodeTarget("#498", undefined, async () => SOMA)).canonical).toBe("github:github.com/the-metafactory/soma#498");
+});
+
+// --- blockers may cross repos, never forges (#749) ---------------------------
+
+test("a blocker in the store's own repo collapses to the bare id, however it is named", () => {
+  for (const text of ["97", "#97", "the-metafactory/soma#97", "The-Metafactory/Soma#97", "github:github.com/the-metafactory/soma#97"]) {
+    expect(localBlockerId(text, SOMA)).toBe("97");
+  }
+});
+
+test("a blocker in a sibling repo on the same forge keeps its location", () => {
+  expect(localBlockerId("the-metafactory/ranger#116", SOMA)).toBe("the-metafactory/ranger#116");
+  expect(localBlockerId("github:github.com/the-metafactory/ranger#116", SOMA)).toBe("the-metafactory/ranger#116");
+});
+
+test("a GitLab blocker keeps the store's located id shape", () => {
+  const reporter: RepoRef = { forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" };
+  expect(localBlockerId("12", reporter)).toBe("csoc/soc-reporter#12");
+  expect(localBlockerId("csoc/other#3", reporter)).toBe("csoc/other#3");
+  expect(localBlockerId("csoc&5", reporter)).toBe("csoc&5");
+  expect(localBlockerId("gitlab:gitlab-int.switch.ch/csoc/other#3", reporter)).toBe("csoc/other#3");
+});
+
+test("a blocker on another forge or host, or one that is not a node ref, refuses", () => {
+  const refuses = (text: string): string => {
+    try {
+      localBlockerId(text, SOMA);
+    } catch (error) {
+      expect(error).toBeInstanceOf(WorkGraphError);
+      return (error as Error).message;
+    }
+    return "no-throw";
+  };
+  expect(refuses("gitlab:gitlab-int.switch.ch/csoc/x#3")).toContain("never on another forge or host");
+  for (const junk of ["foo/bar", "a#b", "../x#1", "the-metafactory/soma/extra#1", "the-metafactory&2", "root"]) {
+    expect(refuses(junk)).not.toBe("no-throw");
+  }
 });

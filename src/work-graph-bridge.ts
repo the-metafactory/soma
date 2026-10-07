@@ -21,6 +21,7 @@ import { runCommand, type CommandRequest } from "./work-graph-probes";
 import { invocationCwd } from "./path-utils";
 import {
   GITHUB_DOTCOM,
+  edgeNodeId,
   formatQualifiedNodeRef,
   formatRepoRef,
   isQualifiedRef,
@@ -33,6 +34,7 @@ import {
   storeNodeId,
   validateRepoRef,
   type Forge,
+  type QualifiedNodeRef,
   type RemoteLocation,
   type RepoRef,
 } from "./work-graph-ref";
@@ -223,6 +225,49 @@ export function localNodeId(text: string, repo: RepoRef): string {
     );
   }
   return storeNodeId(qualified);
+}
+
+/**
+ * A blocker named in any form, reduced to the id `repo`'s store reads (#749).
+ *
+ * The one place an edge's far end is resolved, so `add` and `link` cannot read
+ * a ref two ways. Accepts a bare `97` / `#97`, a located `owner/name#707` (read
+ * on the store's forge and host), or a qualified forge ref. A blocker may sit in
+ * a sibling repo — see {@link edgeNodeId} — but never on another forge or host:
+ * a store writes edges through its own forge's API, and a GitHub store opens
+ * github.com only.
+ *
+ * Anything else refuses. A string that is not a node ref used to pass through
+ * untouched and reach a REST path, where `#707` became a URL fragment.
+ */
+export function localBlockerId(text: string, repo: RepoRef): string {
+  const trimmed = text.trim();
+  const iid = parseBareNodeNumber(trimmed);
+  if (iid !== undefined) return storeNodeId({ repo, sigil: "#", iid });
+
+  const qualified = isQualifiedRef(trimmed) ? parseQualifiedNodeRef(trimmed) : locatedOnStore(trimmed, repo);
+  if (qualified.repo.forge !== repo.forge || qualified.repo.host !== repo.host) {
+    throw new WorkGraphError(
+      "invalid-node",
+      `${trimmed} lives on ${qualified.repo.forge}:${qualified.repo.host}, not on this graph's forge (${repo.forge}:${repo.host}). A blocker may sit in another repo, never on another forge or host.`,
+    );
+  }
+  return edgeNodeId(qualified, repo);
+}
+
+/** `owner/name#N` (or a GitLab `group&N`) with no forge word: read on the store's forge and host. */
+function locatedOnStore(text: string, repo: RepoRef): QualifiedNodeRef {
+  const located = parseLocatedNodeId(text);
+  if (located === undefined) {
+    throw new WorkGraphError(
+      "invalid-node",
+      `"${text}" is not a node ref. Expected a number (97), a located ref (owner/name#707) or a qualified ref (${formatRepoRef(repo)}#97).`,
+    );
+  }
+  if (located.sigil === "&" && repo.forge !== "gitlab") {
+    throw new WorkGraphError("invalid-node", `"${text}": only GitLab has epics (&N).`);
+  }
+  return { repo: validateRepoRef({ forge: repo.forge, host: repo.host, path: located.path }), sigil: located.sigil, iid: located.iid };
 }
 
 /**

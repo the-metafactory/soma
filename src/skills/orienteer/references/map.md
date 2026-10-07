@@ -119,7 +119,8 @@ DAG: an edge that would close a cycle is rejected, because a cycle silently
 removes both nodes from the frontier forever — no claim, no close, no error.
 
 When charting, ids don't exist until create returns, so wire what you can with
-`--blocked-by` and add the rest in a second pass.
+`--blocked-by` and add the rest with `soma graph link <id> --blocked-by <id>`.
+A blocker may sit in another repo on the same forge (`owner/name#N`).
 
 A session **claims** a node with `soma graph claim` — first, before any work.
 That assignment *is* the claim; the verb re-reads after writing and reports a

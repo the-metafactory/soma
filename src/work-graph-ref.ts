@@ -188,6 +188,24 @@ export function storeNodeId(ref: QualifiedNodeRef): string {
 }
 
 /**
+ * The id `store` reads for a node at the far end of a **blocking edge** (#749).
+ * Unlike a target, a blocker may live in a sibling repo on the same forge and
+ * host: GitHub's dependency API links issues across repositories, and a map
+ * waits on other repos' decisions. A GitHub store is one repository, so a
+ * blocker from another one keeps its location (`owner/name#707`), the shape a
+ * GitLab id always has; one from the store's own repo collapses to the bare
+ * number, so `97` and `owner/name#97` are one node to a dedupe or a cycle walk.
+ *
+ * The caller has already checked forge and host agree; this only names the id.
+ */
+export function edgeNodeId(ref: QualifiedNodeRef, store: RepoRef): string {
+  if (ref.repo.forge === "github" && ref.repo.path.toLowerCase() !== store.path.toLowerCase()) {
+    return `${ref.repo.path}#${ref.iid}`;
+  }
+  return storeNodeId(ref);
+}
+
+/**
  * How a repo is named in human-facing output. github.com repos print as
  * `owner/name`, exactly as before there was a second forge; every other host
  * prints qualified, since a bare path there would not say where it lives.

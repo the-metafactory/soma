@@ -113,7 +113,12 @@ class FakeStore implements GraphStore {
     return { id };
   }
 
+  /** Blocker ids whose edge write fails, as a forge error would. */
+  readonly failingEdges = new Set<string>();
+  readonly claims: [string, string][] = [];
+
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> {
+    if (this.failingEdges.has(blocker.id)) throw new WorkGraphError("backend", `edge write for ${blocker.id} failed`);
     this.edges.push([blocker.id, blocked.id]);
   }
 
@@ -136,7 +141,8 @@ class FakeStore implements GraphStore {
     return walkFakeSubtree(root, (id) => this.nodes.get(id)?.children ?? [], (ref) => this.readNode(ref));
   }
 
-  async claim(_ref: NodeRef, identity: string): Promise<ClaimResult> {
+  async claim(ref: NodeRef, identity: string): Promise<ClaimResult> {
+    this.claims.push([ref.id, identity]);
     return this.claimResult ?? { held: true, identity, holder: identity, assignees: [identity] };
   }
 
@@ -245,16 +251,18 @@ function autoNode(id: string, overrides: Partial<WorkGraphNode> = {}): WorkGraph
 // --- parsing ---------------------------------------------------------------
 
 test("the parser accepts exactly the verbs of §2.6, including chart", () => {
-  for (const action of ["frontier", "node", "claim", "release", "add", "chart", "close", "audit", "decisions"]) {
+  for (const action of ["frontier", "node", "claim", "release", "add", "link", "chart", "close", "audit", "decisions"]) {
     const parsed = parseGraphArgs(
       action === "add" || action === "chart"
         ? ["graph", action, ...(action === "add" ? ["495"] : []), "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
-        : ["graph", action, "495"],
+        : action === "link"
+          ? ["graph", action, "495", "--blocked-by", "498"]
+          : ["graph", action, "495"],
     );
     expect(parsed.action).toBe(action as never);
   }
   expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(
-    /frontier\|node\|claim\|release\|add\|chart\|close\|audit\|decisions/u,
+    /frontier\|node\|claim\|release\|add\|link\|chart\|close\|audit\|decisions/u,
   );
 });
 
@@ -396,8 +404,11 @@ test("a GitLab target never reaches a GitHub store", async () => {
   expect(opened).toEqual([{ forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" }]);
 });
 
-test("--blocked-by takes a qualified ref in the same store, and refuses one from another", async () => {
-  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("498", { node: autoNode("498") });
+test("--blocked-by takes a ref in this repo or a sibling one, and refuses one on another forge (#749)", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495") })
+    .seed("498", { node: autoNode("498") })
+    .seed("the-metafactory/arc#498", { node: autoNode("the-metafactory/arc#498") });
   const add = (blocker: string): string[] => [
     "graph",
     "add",
@@ -420,8 +431,12 @@ test("--blocked-by takes a qualified ref in the same store, and refuses one from
   await run(add("#498"), store);
   expect(store.edges).toEqual([["498", "900"], ["498", "901"]]);
 
-  expect(await failure(add("github:github.com/the-metafactory/arc#498"), store)).toContain("never spans two stores");
-  expect(store.created).toHaveLength(2);
+  await run(add("the-metafactory/arc#498"), store);
+  expect(store.edges.at(-1)).toEqual(["the-metafactory/arc#498", "902"]);
+
+  expect(await failure(add("gitlab:gitlab-int.switch.ch/csoc/x#3"), store)).toContain("never on another forge or host");
+  expect(await failure(add("foo/bar"), store)).toContain("is not a node ref");
+  expect(store.created).toHaveLength(3);
 });
 
 test("the store names the acting identity (#537 D2)", async () => {
@@ -526,6 +541,80 @@ test("add attaches the node under the root it was given and wires blocking edges
   expect(store.created[0].kind).toBe("task");
   expect(store.edges).toEqual([["498", "900"]]);
   expect(output).toContain("Created node 900 under 495");
+});
+
+function addArgs(...blockers: string[]): string[] {
+  return ["graph", "add", "495", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-1", ...blockers.flatMap((id) => ["--blocked-by", id]), "--repo", REPO];
+}
+
+test("add refuses before creating anything when any blocker cannot be read (#750)", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("97", { node: autoNode("97") });
+
+  const message = await failure(addArgs("the-metafactory/arc#707", "97", "404"), store);
+
+  expect(message).toContain("2 blocker(s) cannot be read, so nothing was written");
+  expect(message).toContain("the-metafactory/arc#707");
+  expect(message).toContain("404");
+  expect(store.created).toHaveLength(0);
+  expect(store.edges).toHaveLength(0);
+});
+
+test("an edge that fails after creation does not strand the others, and the node is held off the frontier (#750)", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") })
+    .seed("97", { node: autoNode("97") });
+  store.failingEdges.add("96");
+
+  const message = await failure(addArgs("96", "97"), store);
+
+  expect(store.edges).toEqual([["97", "900"]]);
+  expect(store.claims).toEqual([["900", "ivy-agent"]]);
+  expect(message).toContain("1 of 2 blocking edge(s) failed");
+  expect(message).toContain("- blocked by 96: edge write for 96 failed");
+  expect(message).toContain("Edges written: 900 blocked by 97");
+  expect(message).toContain("Held node 900 by claiming it as ivy-agent");
+  expect(message).toContain(`soma graph link 900 --blocked-by 96 --repo github:github.com/the-metafactory/soma`);
+  expect(message).toContain(`soma graph release 900 --repo github:github.com/the-metafactory/soma`);
+});
+
+test("when the hold also fails, add says the node is on the frontier", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("96", { node: autoNode("96") });
+  store.failingEdges.add("96");
+  store.actingIdentity = async () => {
+    throw new WorkGraphError("backend", "gh is not logged in");
+  };
+
+  const message = await failure(addArgs("96"), store);
+
+  expect(message).toContain("Could not hold node 900 (gh is not logged in): it IS on the frontier");
+  expect(store.claims).toEqual([]);
+});
+
+// --- link -------------------------------------------------------------------
+
+test("link wires blocking edges onto an existing node, cross-repo included, and skips ones it has", async () => {
+  const store = new FakeStore()
+    .seed("116", { node: autoNode("116"), blockedBy: [{ id: "97", status: "open" }] })
+    .seed("97", { node: autoNode("97") })
+    .seed("the-metafactory/arc#707", { node: autoNode("the-metafactory/arc#707") });
+
+  const output = await run(["graph", "link", "116", "--blocked-by", "the-metafactory/arc#707", "--blocked-by", "#97", "--repo", REPO], store);
+
+  expect(store.edges).toEqual([["the-metafactory/arc#707", "116"]]);
+  expect(output).toContain("- blocked by the-metafactory/arc#707: written");
+  expect(output).toContain("- blocked by 97: already there");
+});
+
+test("link runs the cycle check and refuses an unreadable blocker before writing", async () => {
+  const store = new FakeStore()
+    .seed("116", { node: autoNode("116") })
+    .seed("97", { node: autoNode("97"), blockedBy: [{ id: "116", status: "open" }] });
+
+  expect(await failure(["graph", "link", "116", "--blocked-by", "97", "--repo", REPO], store)).toContain("would close a cycle");
+  expect(await failure(["graph", "link", "116", "--blocked-by", "404", "--repo", REPO], store)).toContain("cannot be read");
+  expect(store.edges).toEqual([]);
+  expect(() => parseGraphArgs(["graph", "link", "116"])).toThrow(/missing required option: --blocked-by/u);
 });
 
 test("add refuses an auto node with no probes — zero machine-checkable evidence at close", async () => {

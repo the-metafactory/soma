@@ -318,6 +318,67 @@ test("addBlockingEdge resolves the blocker's database id and writes the native d
   expect(calls[1]?.body).toEqual({ issue_id: 5043603420 });
 });
 
+// --- cross-repo blockers (#749) ---------------------------------------------
+
+const RANGER = "the-metafactory/ranger";
+
+test("a blocker from a sibling repo reads back with its repo; one from this repo stays bare", async () => {
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload(),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [
+      issuePayload({ number: 116, id: 1, state: "open", repository_url: `https://api.github.com/repos/${RANGER}` }),
+      issuePayload({ number: 495, id: 2, state: "closed", repository_url: "https://api.github.com/repos/The-Metafactory/Soma" }),
+    ],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+
+  expect(state.blockedBy).toEqual([
+    { id: `${RANGER}#116`, status: "open" },
+    { id: "495", status: "closed" },
+  ]);
+});
+
+test("a located id is read in its own repo, and its blockers are named relative to this store", async () => {
+  const { transport, calls } = fakeTransport({
+    [`GET repos/${RANGER}/issues/116`]: issuePayload({ number: 116, repository_url: `https://api.github.com/repos/${RANGER}` }),
+    [`GET repos/${RANGER}/issues/116/dependencies/blocked_by`]: [
+      issuePayload({ number: 497, id: 3, repository_url: `https://api.github.com/repos/${REPO}` }),
+    ],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: `${RANGER}#116` });
+
+  expect(state.ref.id).toBe(`${RANGER}#116`);
+  expect(state.blockedBy).toEqual([{ id: "497", status: "open" }]);
+  expect(calls.map((call) => call.key)).toEqual([
+    `GET repos/${RANGER}/issues/116`,
+    `GET repos/${RANGER}/issues/116/parent`,
+    `GET repos/${RANGER}/issues/116/dependencies/blocked_by`,
+  ]);
+});
+
+test("addBlockingEdge reads a sibling-repo blocker's database id where it lives", async () => {
+  const { transport, calls } = fakeTransport({
+    [`GET repos/${RANGER}/issues/97`]: issuePayload({ number: 97, id: 7_000_097 }),
+    [`POST repos/${REPO}/issues/498/dependencies/blocked_by`]: {},
+  });
+
+  await createGitHubGraphStore({ repo: REPO, transport }).addBlockingEdge({ id: `${RANGER}#97` }, { id: "498" });
+
+  expect(calls.map((call) => call.key)).toEqual([`GET repos/${RANGER}/issues/97`, `POST repos/${REPO}/issues/498/dependencies/blocked_by`]);
+  expect(calls[1]?.body).toEqual({ issue_id: 7_000_097 });
+});
+
+test("an id that is neither a number nor owner/name#N never reaches a request path", async () => {
+  const { transport, calls } = fakeTransport({});
+  const store = createGitHubGraphStore({ repo: REPO, transport });
+  for (const id of [`${REPO}`, "a#b", "../x#1", `${REPO}/extra#1`, "csoc&5", "root"]) {
+    await expect(store.readNode({ id })).rejects.toThrow();
+  }
+  expect(calls).toEqual([]);
+});
+
 // --- readSubtree: the membership subtree, confirmed (#557, #576) ------------
 //
 // These pin behaviour a direct-children fixture cannot reach, so it is worth
@@ -496,6 +557,24 @@ test("a short assignees or blockedBy page is repaired by a direct read, never tr
     `GET repos/${REPO}/issues/497`,
     `GET repos/${REPO}/issues/497/parent`,
     `GET repos/${REPO}/issues/497/dependencies/blocked_by`,
+  ]);
+});
+
+test("the walk names a sibling-repo blocker with its repo (#749)", async () => {
+  const blockedBy = {
+    totalCount: 2,
+    nodes: [
+      { number: 116, state: "OPEN", repository: { nameWithOwner: "the-metafactory/ranger" } },
+      { number: 495, state: "CLOSED", repository: { nameWithOwner: REPO } },
+    ],
+  };
+  const { transport } = subtreeTransport({ "495": gql(495, "OPEN", conn([gql(497, "OPEN", counted(0), { blockedBy })])) });
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+
+  expect(subtree[0]?.blockedBy).toEqual([
+    { id: "the-metafactory/ranger#116", status: "open" },
+    { id: "495", status: "closed" },
   ]);
 });
 
