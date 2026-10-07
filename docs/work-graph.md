@@ -645,7 +645,9 @@ interface GraphStore {
 
 A blocker (`--blocked-by` on `add` and `link`) may live in another repo on the
 same forge and host, named `owner/name#N` or in full (#749): a map can wait on
-another repo's decision. It reads back with its repo, so `node` shows
+another repo's decision. On GitHub this is new and live-verified. On GitLab a
+store is already one host, so a blocker in another project of that host was
+accepted before #749; nothing about the GitLab store changed here. It reads back with its repo, so `node` shows
 `owner/name#N` and the frontier judges it by its own status. Targets stay in
 the store's own repo, and the membership edges soma writes do too: the GitHub
 store refuses any write (claim, release, comment, body, close, child, edge) to

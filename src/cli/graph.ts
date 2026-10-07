@@ -964,6 +964,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * A node id as a shell word for a printed command: a GitLab epic id (`csoc&5`)
+ * would background the pasted command, and `#` is a glob operator under zsh's
+ * extendedglob, so anything beyond plain path characters is single-quoted.
+ */
+function shellWord(id: string): string {
+  return /^[A-Za-z0-9_./-]+$/u.test(id) ? id : `'${id.replaceAll("'", `'\\''`)}'`;
+}
+
 function edgeLabel(node: string, blocker: string): string {
   return `${node} blocked by ${blocker}`;
 }
@@ -1052,18 +1061,19 @@ async function runAdd(
   // under-blocked, and an under-blocked node is takeable on the next walker
   // tick — so the node is held before the error is raised.
   const rehomed = created.rehomedFrom === undefined ? {} : { rehomedFrom: created.rehomedFrom.id, rehomedTo: created.rehomedTo?.id };
+  const base = { repo: displayRepo(repo), node: created.id, parent: parsed.target, ...rehomed };
   const parentShown = created.rehomedTo?.id ?? parsed.target;
   const edges = await writeBlockingEdges(graph, created, blockedBy);
   if (edges.failed.length > 0) {
     const hold = await holdNode(store, graph, created);
     if (parsed.options.json === true) {
-      throw new SomaCliError(JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, ...rehomed, ...edges, held: hold.held }, null, 2), 1);
+      throw new SomaCliError(JSON.stringify({ ...base, ...edges, held: hold.held }, null, 2), 1);
     }
     throw new SomaCliError(partialAddReport(parentShown, repo, created, edges, hold), 1);
   }
 
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo: displayRepo(repo), node: created.id, parent: parsed.target, blockedBy, ...rehomed }, null, 2);
+    return JSON.stringify({ ...base, blockedBy }, null, 2);
   }
 
   return [
@@ -1082,8 +1092,8 @@ function partialAddReport(parent: string, repo: RepoRef, created: NodeRef, edges
     ...failed.map((edge) => `- blocked by ${edge.id}: ${edge.reason}`),
     written.length > 0 ? `Edges written: ${written.map((id) => edgeLabel(created.id, id)).join("; ")}` : "No blocking edges were written.",
     hold.line,
-    `Finish wiring: soma graph link ${created.id} ${failed.map((edge) => `--blocked-by ${edge.id}`).join(" ")} ${repoFlag}`,
-    ...(hold.held ? [`Then drop the hold: soma graph release ${created.id} ${repoFlag}`] : []),
+    `Finish wiring: soma graph link ${shellWord(created.id)} ${failed.map((edge) => `--blocked-by ${shellWord(edge.id)}`).join(" ")} ${repoFlag}`,
+    ...(hold.held ? [`Then drop the hold: soma graph release ${shellWord(created.id)} ${repoFlag}`] : []),
   ].join("\n");
 }
 

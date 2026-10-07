@@ -703,11 +703,14 @@ class GitHubGraphStore implements GraphStore {
    * library caller could feed one straight into `claim` or `close`.
    */
   private writePath(ref: NodeRef): string {
-    if (BARE_ISSUE_ID.test(ref.id)) return `repos/${this.repo}/issues/${ref.id}`;
-    throw new WorkGraphError(
-      "invalid-node",
-      `"${ref.id}" is not a node in ${this.repo}: this store writes only to its own repository. A node in another repo can only be a blocker.`,
-    );
+    const { repo, number } = this.locate(ref);
+    if (repo.toLowerCase() !== this.repo.toLowerCase()) {
+      throw new WorkGraphError(
+        "invalid-node",
+        `"${ref.id}" is not a node in ${this.repo}: this store writes only to its own repository. A node in another repo can only be a blocker.`,
+      );
+    }
+    return `repos/${this.repo}/issues/${number}`;
   }
 
   /** `GET /user` — the login `gh` authenticates as, the same call `gh api user` made before the store owned it. */

@@ -601,6 +601,13 @@ test("an edge that fails after creation does not strand the others, and the node
   expect(message).toContain(`soma graph release 900 --repo github:github.com/the-metafactory/soma`);
 });
 
+test("the printed repair command quotes ids a shell would misread", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("the-metafactory/arc#707", { node: autoNode("the-metafactory/arc#707") });
+  store.failingEdges.add("the-metafactory/arc#707");
+
+  expect(await failure(addArgs("the-metafactory/arc#707"), store)).toContain("soma graph link 900 --blocked-by 'the-metafactory/arc#707' --repo");
+});
+
 test("when the hold also fails, add says the node is on the frontier", async () => {
   const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("96", { node: autoNode("96") });
   store.failingEdges.add("96");
