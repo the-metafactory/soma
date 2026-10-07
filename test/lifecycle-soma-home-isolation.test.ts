@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
 import { resolveLifecycleHomeDir, SCRATCH_SUBSTRATE_HOME_DIRNAME } from "../src/lifecycle";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
+import { renderClaudeCodeStatusLineScript } from "../src/adapters/claude-code/hooks";
 
 // node #614: `--soma-home <scratch>` reads as "this invocation is sandboxed", but
 // substrate homes used to resolve against `os.homedir()` regardless, so a
@@ -25,7 +26,7 @@ async function withTempRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
 }
 
 async function listFiles(dir: string): Promise<string[]> {
-  const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => []);
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
   return entries.filter((entry) => !entry.isDirectory()).map((entry) => join(entry.parentPath, entry.name));
 }
 
@@ -66,14 +67,14 @@ function runLifecycle(fakeHome: string, args: string[]): void {
   if (result.status !== 0) throw new Error(`soma lifecycle exited ${result.status}: ${result.stderr}`);
 }
 
-test("lifecycle session-start with a scratch --soma-home writes nothing outside it", async () => {
+test.each(["absolute", "relative"])("lifecycle session-start with %s scratch --soma-home writes nothing outside it", async (pathKind) => {
   await withTempRoot(async (root) => {
     const fakeHome = join(root, "home");
     const scratch = join(root, "scratch-soma");
     await mkdir(fakeHome, { recursive: true });
     await seedScratchSomaHome(scratch);
 
-    runLifecycle(fakeHome, ["--soma-home", scratch]);
+    runLifecycle(fakeHome, ["--soma-home", pathKind === "relative" ? relative(repoRoot, scratch) : scratch]);
 
     expect(await listFiles(fakeHome)).toEqual([]);
     for (const file of await listFiles(root)) {
@@ -85,14 +86,49 @@ test("lifecycle session-start with a scratch --soma-home writes nothing outside 
   });
 }, 120_000);
 
-test("lifecycle with the default soma home still projects into the real substrate home (live hook contract)", async () => {
+test("scratch lifecycle repairs only scratch statuslines and preserves existing live projection bytes and modes", async () => {
+  await withTempRoot(async (root) => {
+    const fakeHome = join(root, "home");
+    const scratch = join(root, "scratch-soma");
+    await seedScratchSomaHome(scratch);
+    const outsideMemory = join(fakeHome, ".claude", "rules", "soma", "MEMORY.md");
+    const outsideScript = join(fakeHome, ".claude", "hooks", "soma", "soma-statusline.sh");
+    const scratchScript = join(scratch, SCRATCH_SUBSTRATE_HOME_DIRNAME, ".claude", "hooks", "soma", "soma-statusline.sh");
+    for (const file of [outsideMemory, outsideScript, scratchScript]) {
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, file === scratchScript ? renderClaudeCodeStatusLineScript(scratch) : "preserve live projection\n");
+      await chmod(file, 0o644);
+    }
+    const outsideBefore = await Promise.all([outsideMemory, outsideScript].map(async (path) => ({
+      path,
+      content: await readFile(path, "utf8"),
+      mode: (await stat(path)).mode,
+    })));
+
+    runLifecycle(fakeHome, ["--soma-home", scratch]);
+
+    expect((await listFiles(fakeHome)).sort()).toEqual([outsideMemory, outsideScript].sort());
+    for (const before of outsideBefore) {
+      expect(await readFile(before.path, "utf8")).toBe(before.content);
+      expect((await stat(before.path)).mode).toBe(before.mode);
+    }
+    // A repair really ran, so routing the repair provider to the live home would
+    // fail both the scratch-mode assertion and the unchanged-live-mode assertion.
+    expect((await stat(scratchScript)).mode & 0o111).toBe(0o111);
+    const events = await readFile(join(scratch, "memory", "STATE", "events.jsonl"), "utf8");
+    expect(events).toContain("lifecycle.session_start.projection-repair");
+    expect(events).not.toContain("lifecycle.session_start.projection-repair-failed");
+  });
+}, 120_000);
+
+test.each(["implicit", "explicit"])("lifecycle with the %s default soma home still projects into the real substrate home (live hook contract)", async (pathKind) => {
   await withTempRoot(async (root) => {
     const fakeHome = join(root, "home");
     const somaHome = join(fakeHome, ".soma");
     await seedScratchSomaHome(somaHome);
 
     // Every substrate hook passes `--soma-home ~/.soma` without `--home-dir`.
-    runLifecycle(fakeHome, ["--soma-home", somaHome]);
+    runLifecycle(fakeHome, pathKind === "explicit" ? ["--soma-home", somaHome] : []);
 
     const projected = join(fakeHome, ".claude", "rules", "soma", "MEMORY.md");
     expect((await stat(projected)).isFile()).toBe(true);
