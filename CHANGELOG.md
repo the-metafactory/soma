@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-07
+
+### Added
+
+- `soma graph link <id> --parent <id>` attaches an unattached node to its
+  parent, after any `--blocked-by` edges and only once they all landed. It is
+  the repair a partly wired `add` now prints, and it refuses to move a node
+  that already has another parent or to create a parent loop. (#740)
+
 ### Fixed
 
 - `soma graph add --blocked-by` no longer exposes the new node on the
@@ -1544,7 +1553,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/the-metafactory/soma/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/the-metafactory/soma/compare/v0.23.1...v0.24.0
 [0.23.1]: https://github.com/the-metafactory/soma/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/the-metafactory/soma/compare/v0.22.0...v0.23.0
