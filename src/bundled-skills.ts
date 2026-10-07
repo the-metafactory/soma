@@ -10,9 +10,7 @@ import { VSA_SKILL_NAME } from "./vsa-skill-installer";
  * Soma's own skills are embedded, so this holds inside a compiled binary too
  * (see src/bundled-skill-source.ts).
  */
-export function listBundledSkills(somaRepoPath?: string): Promise<string[]> {
-  return bundledSkillNames(somaRepoPath);
-}
+export { bundledSkillNames as listBundledSkills } from "./bundled-skill-source";
 
 export interface InstallBundledSkillsOptions {
   somaRepoPath?: string;
@@ -150,7 +148,7 @@ export async function installBundledSkillsIntoHome(
 ): Promise<{ names: string[]; written: string[] }> {
   const somaRepoPath = options.somaRepoPath;
   const somaHome = defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome });
-  const names = await listBundledSkills(somaRepoPath);
+  const names = await bundledSkillNames(somaRepoPath);
   const written: string[] = [];
   for (const name of names) {
     if (name === VSA_SKILL_NAME) continue;
@@ -159,7 +157,7 @@ export async function installBundledSkillsIntoHome(
     if (name === "the-algorithm") {
       const backup = await backupCustomisedCapabilityTable(
         destDir,
-        files.find((file) => file.path === "references/capabilities.md")?.content,
+        files.find((file) => file.path === "references/capabilities.md")?.content.toString(),
       );
       if (backup !== undefined) written.push(backup);
     }

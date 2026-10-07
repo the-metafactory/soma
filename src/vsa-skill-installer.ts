@@ -232,7 +232,7 @@ function computeSourceFileEntries(
 ): { rel: string; content: string }[] {
   return sourceFiles.map(({ path: rel, content }) => ({
     rel,
-    content: transformSkillFileContent(rel, content, skillNameOverride, projectionSubstrate),
+    content: transformSkillFileContent(rel, content.toString(), skillNameOverride, projectionSubstrate),
   }));
 }
 
@@ -363,7 +363,7 @@ async function installVsaSkillInternal(options: InternalVsaSkillInstallOptions =
     };
   }
   const sourceSkillMd = source.find((file) => file.path === SKILL_MD);
-  const sourceFrontmatter = sourceSkillMd === undefined ? null : parseSkillFrontmatter(sourceSkillMd.content);
+  const sourceFrontmatter = sourceSkillMd === undefined ? null : parseSkillFrontmatter(sourceSkillMd.content.toString());
   if (sourceFrontmatter === null) {
     throw new Error(`VSA skill source ${SKILL_MD} missing version or pack-id frontmatter.`);
   }

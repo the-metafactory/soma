@@ -14,6 +14,24 @@ come from, how does it get into soma, how does it surface in a substrate.
 
 Tracker: [soma#135](https://github.com/the-metafactory/soma/issues/135).
 
+### Skills bundled with Soma
+
+The built-in skills under `src/skills/<name>/` are embedded through Bun text
+imports so their content is available in a compiled binary. These files must
+be UTF-8 text without a BOM; `test/repo-path-compile.test.ts` compares embedded
+bytes with source bytes and rejects lossy decoding. Binary assets need a
+different embedding mechanism before they can join this built-in tree.
+After adding, removing, or renaming files, run
+`bun run generate-bundled-skill-files`. Explicit custom repository paths still
+copy skill files from disk without decoding their bytes.
+
+Embedded skill content does not make the entire CLI installation portable as
+a standalone binary. Installation also stages an immutable source runtime;
+that step still reads the default repository path, which is virtual under
+`bun build --compile`, and fails loudly before copying skills. The compile
+regression exercises that real CLI failure as well as a successful real CLI
+Algorithm import and helper-level skill listing and byte-identical copying.
+
 ## Terminology
 
 This document uses the canonical glossary in

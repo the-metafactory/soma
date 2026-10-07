@@ -20,11 +20,16 @@ import { defaultSomaRepoPath } from "./repo-path";
 
 const SKILLS_SUBPATH = "src/skills";
 
-/** One file of a bundled skill. `path` is posix and relative to the skill dir. */
+/**
+ * One file of a bundled skill. `path` is posix and relative to the skill dir.
+ * Embedded text is a string; disk files retain their original bytes.
+ */
 export interface BundledSkillFile {
   path: string;
-  content: string;
+  content: string | Buffer;
 }
+
+const byPath = (a: BundledSkillFile, b: BundledSkillFile): number => a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 
 function readsEmbeddedTree(somaRepoPath: string | undefined): boolean {
   return somaRepoPath === undefined || resolve(somaRepoPath) === defaultSomaRepoPath();
@@ -72,25 +77,33 @@ export async function readBundledSkill(name: string, somaRepoPath?: string): Pro
     const files = Object.entries(await embeddedFiles())
       .filter(([path]) => path.startsWith(prefix))
       .map(([path, content]) => ({ path: path.slice(prefix.length), content }))
-      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+      .sort(byPath);
     return files.length > 0 ? files : undefined;
   }
   const skillDir = join(resolve(somaRepoPath ?? ""), SKILLS_SUBPATH, name);
   const files: BundledSkillFile[] = [];
   try {
     for await (const absPath of walkFiles(skillDir)) {
-      files.push({ path: relative(skillDir, absPath).split(sep).join("/"), content: await readFile(absPath, "utf8") });
+      files.push({ path: relative(skillDir, absPath).split(sep).join("/"), content: await readFile(absPath) });
     }
   } catch (error) {
     if (isEnoent(error) && files.length === 0) return undefined;
     throw error;
   }
-  return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return files.sort(byPath);
 }
 
-/** One file of a bundled skill; throws when the skill or the file is absent. */
+/** One text file of a bundled skill; throws when the skill or the file is absent. */
 export async function readBundledSkillFile(name: string, path: string, somaRepoPath?: string): Promise<string> {
-  const file = (await readBundledSkill(name, somaRepoPath))?.find((entry) => entry.path === path);
-  if (file === undefined) throw new Error(`Bundled skill file not found: ${SKILLS_SUBPATH}/${name}/${path}`);
-  return file.content;
+  if (readsEmbeddedTree(somaRepoPath)) {
+    const content = (await embeddedFiles())[`${name}/${path}`];
+    if (content !== undefined) return content;
+  } else {
+    try {
+      return await readFile(join(resolve(somaRepoPath ?? ""), SKILLS_SUBPATH, name, path), "utf8");
+    } catch (error) {
+      if (!isEnoent(error)) throw error;
+    }
+  }
+  throw new Error(`Bundled skill file not found: ${SKILLS_SUBPATH}/${name}/${path}`);
 }

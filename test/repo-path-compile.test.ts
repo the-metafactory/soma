@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
+import { walk } from "../scripts/generate-bundled-skill-files";
 
 /**
  * Regression guard for orienteer node #612: bundled skill content must survive
@@ -16,9 +17,12 @@ import { join, relative, resolve, sep } from "node:path";
  * `no-source` branch. `soma install … --apply` reported success with zero skill
  * content written. Unlike the version.ts break (d0fe14e), nothing failed loudly.
  *
- * So this test does the one thing a source-mode test cannot: it compiles a probe
- * the same way the real CLI is compiled, runs every bundled-skill reader inside
- * it, and holds the result to the source checkout byte for byte.
+ * The helper binary below isolates bundled-skill APIs and compares their output
+ * with the checkout byte for byte. It does not stand in for the shipped CLI.
+ * We separately compile src/cli.ts, exercise Algorithm import, and run the
+ * failing install command: immutable runtime staging still needs a real source
+ * tree before it reaches the repaired skill readers. That separate limitation
+ * must not be described as a successful compiled CLI install.
  */
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -35,16 +39,7 @@ interface ProbeReport {
 
 let workRoot = "";
 let binary = "";
-
-function walk(root: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) out.push(...walk(path));
-    else if (entry.isFile()) out.push(path);
-  }
-  return out;
-}
+let cliBinary = "";
 
 /** Every file under `root`, keyed by its posix path relative to `root`. */
 function tree(root: string): Map<string, Buffer> {
@@ -73,6 +68,8 @@ function runProbe(command: string, args: string[], label: string): { report: Pro
   mkdirSync(join(customSkill, "references"), { recursive: true });
   writeFileSync(join(customSkill, "SKILL.md"), "# Custom skill\n");
   writeFileSync(join(customSkill, "references", "fixture.md"), "Custom reference\n");
+  // Invalid UTF-8 and a BOM must survive a custom repository copy unchanged.
+  writeFileSync(join(customSkill, "references", "asset.bin"), Buffer.from([0xef, 0xbb, 0xbf, 0, 0xff, 0x80, 0xc0]));
   const result = spawnSync(command, [...args, work], { encoding: "utf8", timeout: 60_000 });
   if (result.status !== 0) {
     throw new Error(`${label} probe exited ${String(result.status)}:\n${result.stdout}\n${result.stderr}`);
@@ -120,6 +117,12 @@ beforeAll(() => {
     timeout: 120_000,
   });
   if (build.status !== 0) throw new Error(`bun build --compile failed:\n${build.stdout}\n${build.stderr}`);
+  cliBinary = join(workRoot, "soma");
+  const cliBuild = spawnSync(process.execPath, ["build", "--compile", join(REPO_ROOT, "src", "cli.ts"), "--outfile", cliBinary], {
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  if (cliBuild.status !== 0) throw new Error(`CLI bun build --compile failed:\n${cliBuild.stdout}\n${cliBuild.stderr}`);
 }, 180_000);
 
 afterAll(() => {
@@ -130,7 +133,7 @@ test("a compiled binary lists the same bundled skills as the source checkout", (
   const compiled = runProbe(binary, [], "compiled").report;
   const source = runProbe(process.execPath, [join(workRoot, "probe.ts")], "source").report;
 
-  expect(sourceSkillNames().length).toBeGreaterThan(0);
+  expect(sourceSkillNames()).toEqual(["Memory", "VSA", "migrate-pai-purpose", "orienteer", "the-algorithm"]);
   expect(source.names).toEqual(sourceSkillNames());
   expect(compiled.names).toEqual(source.names);
   expect(source.explicitNames).toEqual(source.names);
@@ -185,6 +188,61 @@ test("the embedded skill module is current: same files, same bytes as src/skills
   for (const [path, bytes] of disk) {
     expect({ path, same: Buffer.from(BUNDLED_SKILL_FILES[path] ?? "", "utf8").equals(bytes) }).toEqual({ path, same: true });
   }
+});
+
+test("the real compiled CLI imports embedded Algorithm skill content", () => {
+  const home = join(workRoot, "cli-import");
+  const pai = join(home, "pai");
+  mkdirSync(pai, { recursive: true });
+  writeFileSync(join(pai, "v6.3.0.md"), "# Algorithm CLI source\n");
+  const result = spawnSync(cliBinary, ["import", "algorithm", "--apply", "--home-dir", home, "--pai-algorithm-dir", pai], {
+    cwd: home,
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  expect({ status: result.status, error: result.error, stderr: result.stderr }).toEqual({ status: 0, error: undefined, stderr: "" });
+  for (const path of ["SKILL.md", "Workflows/RunAlgorithm.md"]) {
+    const expected = readFileSync(join(SKILLS_ROOT, "the-algorithm", path), "utf8");
+    expect(readFileSync(join(home, ".soma", "skills", "the-algorithm", path), "utf8")).toBe(`${expected.trimEnd()}\n`);
+  }
+}, 120_000);
+
+test("the real compiled CLI install fails loudly at source-runtime staging, before skill installation", () => {
+  const home = join(workRoot, "cli-install");
+  mkdirSync(home, { recursive: true });
+  const result = spawnSync(cliBinary, ["install", "claude-code", "--apply", "--skills", "the-algorithm", "--home-dir", home], {
+    cwd: home,
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  // This guards a known limitation, not successful end-to-end installation.
+  // Runtime deployment is a separate contract from embedded skill content.
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain("stage-cli-runtime-artifact");
+  expect(result.stdout).not.toContain("Soma install applied");
+}, 120_000);
+
+test("default repo path consumers stay inventoried for compiled coverage", () => {
+  const consumers = walk(join(REPO_ROOT, "src"))
+    .filter((path) => path.endsWith(".ts") && !path.endsWith("repo-path.ts"))
+    .filter((path) => readFileSync(path, "utf8").includes("defaultSomaRepoPath"))
+    .map((path) => relative(REPO_ROOT, path).split(sep).join("/"))
+    .sort();
+  // The helper exercises bundled-skill-source and VSA; the real CLI import
+  // exercises algorithm-importer (which no longer uses the default repo path).
+  // home-projection reaches embedded VSA; install's staging failure is above.
+  // Adapter/doctor consumers use the path as hook configuration metadata.
+  // A new consumer must be assessed instead of trusting the repo-path comment.
+  expect(consumers).toEqual([
+    "src/adapters/codex/adapter.ts",
+    "src/adapters/content-compare-doctor.ts",
+    "src/adapters/grok/adapter.ts",
+    "src/bundled-skill-source.ts",
+    "src/home-projection.ts",
+    "src/install.ts",
+    "src/vsa-skill-installer.ts",
+  ]);
 });
 
 test("only bundled-skill-source.ts loads the embedded skill text, and only dynamically", () => {

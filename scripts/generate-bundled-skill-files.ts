@@ -19,7 +19,7 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 export const BUNDLED_SKILL_FILES_MODULE = join(REPO_ROOT, "src", "bundled-skill-files.generated.ts");
 const SKILLS_ROOT = join(REPO_ROOT, "src", "skills");
 
-function walk(root: string): string[] {
+export function walk(root: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
