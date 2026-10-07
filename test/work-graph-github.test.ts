@@ -253,6 +253,48 @@ test("createNode writes the block into the body and attaches to the parent by da
   expect(calls[1]?.body).toEqual({ sub_issue_id: 999 });
 });
 
+test("a node created with blockers gets every blocked_by edge before its sub_issues link (#740)", async () => {
+  const { transport, calls } = fakeTransport({
+    [`POST repos/${REPO}/issues`]: issuePayload({ number: 513, id: 999 }),
+    [`GET repos/${REPO}/issues/498`]: issuePayload({ number: 498, id: 4980 }),
+    [`GET repos/${REPO}/issues/498/dependencies/blocked_by`]: [],
+    [`POST repos/${REPO}/issues/513/dependencies/blocked_by`]: {},
+    [`GET repos/${REPO}/issues/513`]: issuePayload({ number: 513, id: 999 }),
+    [`POST repos/${REPO}/issues/495/sub_issues`]: {},
+  });
+
+  const created = await new WorkGraph(createGitHubGraphStore({ repo: REPO, transport })).createNode(
+    { title: "blocked", autonomy: "approve", checkpointId: "cp", parent: { id: "495" } },
+    [{ id: "498" }],
+  );
+
+  expect(created.attached).toBe(true);
+  const writes = calls.filter((call) => call.method === "POST").map((call) => call.key);
+  expect(writes).toEqual([
+    `POST repos/${REPO}/issues`,
+    `POST repos/${REPO}/issues/513/dependencies/blocked_by`,
+    `POST repos/${REPO}/issues/495/sub_issues`,
+  ]);
+  expect(calls.at(-1)?.body).toEqual({ sub_issue_id: 999 });
+});
+
+test("a failed blocked_by write leaves the GitHub issue with no sub_issues link (#740)", async () => {
+  const { transport, calls } = fakeTransport({
+    [`POST repos/${REPO}/issues`]: issuePayload({ number: 513, id: 999 }),
+    [`GET repos/${REPO}/issues/498`]: issuePayload({ number: 498, id: 4980 }),
+    [`GET repos/${REPO}/issues/498/dependencies/blocked_by`]: [],
+  });
+
+  const created = await new WorkGraph(createGitHubGraphStore({ repo: REPO, transport })).createNode(
+    { title: "blocked", autonomy: "approve", checkpointId: "cp", parent: { id: "495" } },
+    [{ id: "498" }],
+  );
+
+  expect(created.attached).toBe(false);
+  expect(created.edges.failed.map((edge) => edge.id)).toEqual(["498"]);
+  expect(calls.some((call) => call.path.endsWith("/sub_issues"))).toBe(false);
+});
+
 test("createNode writes labels through, deduplicated and trimmed", async () => {
   const { transport, calls } = fakeTransport({
     [`POST repos/${REPO}/issues`]: issuePayload({ number: 514, id: 1000 }),
@@ -316,6 +358,111 @@ test("addBlockingEdge resolves the blocker's database id and writes the native d
 
   expect(calls[1]?.key).toBe(`POST repos/${REPO}/issues/498/dependencies/blocked_by`);
   expect(calls[1]?.body).toEqual({ issue_id: 5043603420 });
+});
+
+// --- cross-repo blockers (#749) ---------------------------------------------
+
+const RANGER = "the-metafactory/ranger";
+
+test("a blocker from a sibling repo reads back with its repo; one from this repo stays bare", async () => {
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload(),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [
+      issuePayload({ number: 116, id: 1, state: "open", repository_url: `https://api.github.com/repos/${RANGER}` }),
+      issuePayload({ number: 495, id: 2, state: "closed", repository_url: "https://api.github.com/repos/The-Metafactory/Soma" }),
+    ],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+
+  expect(state.blockedBy).toEqual([
+    { id: `${RANGER}#116`, status: "open" },
+    { id: "495", status: "closed" },
+  ]);
+});
+
+test("a located id is read in its own repo, and its blockers are named relative to this store", async () => {
+  const { transport, calls } = fakeTransport({
+    [`GET repos/${RANGER}/issues/116`]: issuePayload({ number: 116, repository_url: `https://api.github.com/repos/${RANGER}` }),
+    [`GET repos/${RANGER}/issues/116/dependencies/blocked_by`]: [
+      issuePayload({ number: 497, id: 3, repository_url: `https://api.github.com/repos/${REPO}` }),
+    ],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: `${RANGER}#116` });
+
+  expect(state.ref.id).toBe(`${RANGER}#116`);
+  expect(state.blockedBy).toEqual([{ id: "497", status: "open" }]);
+  expect(calls.map((call) => call.key)).toEqual([
+    `GET repos/${RANGER}/issues/116`,
+    `GET repos/${RANGER}/issues/116/parent`,
+    `GET repos/${RANGER}/issues/116/dependencies/blocked_by`,
+  ]);
+});
+
+test("a located read keeps its repo when the payload names none, and so does its parent", async () => {
+  const { transport } = fakeTransport({
+    [`GET repos/${RANGER}/issues/116`]: issuePayload({ number: 116, parent: { number: 98 } }),
+    [`GET repos/${RANGER}/issues/116/dependencies/blocked_by`]: [],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: `${RANGER}#116` });
+
+  expect(state.ref.id).toBe(`${RANGER}#116`);
+  expect(state.parent).toEqual({ id: `${RANGER}#98` });
+});
+
+test("addBlockingEdge reads a sibling-repo blocker's database id where it lives", async () => {
+  const { transport, calls } = fakeTransport({
+    [`GET repos/${RANGER}/issues/97`]: issuePayload({ number: 97, id: 7_000_097 }),
+    [`POST repos/${REPO}/issues/498/dependencies/blocked_by`]: {},
+  });
+
+  await createGitHubGraphStore({ repo: REPO, transport }).addBlockingEdge({ id: `${RANGER}#97` }, { id: "498" });
+
+  expect(calls.map((call) => call.key)).toEqual([`GET repos/${RANGER}/issues/97`, `POST repos/${REPO}/issues/498/dependencies/blocked_by`]);
+  expect(calls[1]?.body).toEqual({ issue_id: 7_000_097 });
+});
+
+test("the store never writes to a sibling repo's node, whatever id it is handed", async () => {
+  const { transport, calls } = fakeTransport({
+    // Assigned to the acting identity, so a release would have to write.
+    [`GET repos/${RANGER}/issues/116`]: issuePayload({ number: 116, assignees: [{ login: "ivy" }] }),
+    [`GET repos/${REPO}/issues/497`]: issuePayload(),
+  });
+  const store = createGitHubGraphStore({ repo: REPO, transport });
+  const sibling = { id: `${RANGER}#116` };
+
+  await expect(store.claim(sibling, "ivy")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.release(sibling, "ivy")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.postComment(sibling, "hi")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.writeRawBody(sibling, "body")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.addBlockingEdge({ id: "497" }, sibling)).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.createNode({ title: "t", autonomy: "approve", checkpointId: "cp", parent: sibling } as never)).rejects.toThrow(/writes only to its own repository/u);
+  // Nothing written — not even the child issue a sibling parent would have orphaned.
+  expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
+});
+
+test("a sibling repo's path reads back lower-cased, the same id a typed ref resolves to", async () => {
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload(),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [
+      issuePayload({ number: 116, id: 1, repository_url: "https://api.github.com/repos/The-Metafactory/Ranger" }),
+    ],
+  });
+
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+
+  expect(state.blockedBy).toEqual([{ id: `${RANGER}#116`, status: "open" }]);
+});
+
+test("an id that is neither a number nor owner/name#N never reaches a request path", async () => {
+  const { transport, calls } = fakeTransport({});
+  const store = createGitHubGraphStore({ repo: REPO, transport });
+  for (const id of [`${REPO}`, "a#b", "../x#1", `${REPO}/extra#1`, "csoc&5", "root"]) {
+    await expect(store.readNode({ id })).rejects.toThrow();
+  }
+  expect(calls).toEqual([]);
 });
 
 // --- readSubtree: the membership subtree, confirmed (#557, #576) ------------
@@ -499,6 +646,43 @@ test("a short assignees or blockedBy page is repaired by a direct read, never tr
   ]);
 });
 
+test("the walk names a sibling-repo child with its repo and re-roots it there (#749)", async () => {
+  const pages: Record<string, unknown> = {
+    "495": gql(495, "OPEN", conn([gql(116, "OPEN", counted(1), { repository: { nameWithOwner: "the-metafactory/ranger" } })])),
+  };
+  const seen: unknown[] = [];
+  const transport: GitHubApiTransport = async (request) => {
+    if (request.path !== "graphql") throw new Error(`unexpected rest ${request.path}`);
+    const variables = (request.body as { variables: { owner: string; name: string; number: number } }).variables;
+    seen.push(variables);
+    if (variables.name === "ranger") return { data: { repository: { issue: gql(116, "OPEN", conn([gql(5, "OPEN", counted(0), { repository: { nameWithOwner: "the-metafactory/ranger" } })]), { repository: { nameWithOwner: "the-metafactory/ranger" } }) } } };
+    return { data: { repository: { issue: pages[String(variables.number)] } } };
+  };
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+
+  expect(ids(subtree)).toEqual(["the-metafactory/ranger#116", "the-metafactory/ranger#5"]);
+  expect(seen).toContainEqual(expect.objectContaining({ owner: "the-metafactory", name: "ranger", number: 116 }));
+});
+
+test("the walk names a sibling-repo blocker with its repo (#749)", async () => {
+  const blockedBy = {
+    totalCount: 2,
+    nodes: [
+      { number: 116, state: "OPEN", repository: { nameWithOwner: "the-metafactory/ranger" } },
+      { number: 495, state: "CLOSED", repository: { nameWithOwner: REPO } },
+    ],
+  };
+  const { transport } = subtreeTransport({ "495": gql(495, "OPEN", conn([gql(497, "OPEN", counted(0), { blockedBy })])) });
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+
+  expect(subtree[0]?.blockedBy).toEqual([
+    { id: "the-metafactory/ranger#116", status: "open" },
+    { id: "495", status: "closed" },
+  ]);
+});
+
 test("the root itself is never in its own subtree, however it is stated", async () => {
   const { transport } = subtreeTransport({ "495": gql(495, "OPEN", conn([gql(497, "OPEN")])) });
 
@@ -546,6 +730,29 @@ test("a GraphQL rate limit falls back to a whole REST subtree in depth-first ord
     `GET repos/${REPO}/issues/556/dependencies/blocked_by`,
     `GET repos/${REPO}/issues/556/sub_issues?per_page=100`,
   ]);
+});
+
+test("the REST fallback reads a sibling-repo child's blockers in that repo (#749)", async () => {
+  const calls: string[] = [];
+  const transport: GitHubApiTransport = async (request) => {
+    const key = `${request.method} ${request.path}`;
+    calls.push(key);
+    if (key === "POST graphql") throw new WorkGraphError("backend", "GraphQL: API rate limit exceeded");
+    const responses: Record<string, unknown> = {
+      [`GET repos/${REPO}/issues/495/sub_issues?per_page=100`]: [
+        issuePayload({ number: 116, id: 5_000_116, repository_url: "https://api.github.com/repos/the-metafactory/ranger" }),
+      ],
+      [`GET repos/the-metafactory/ranger/issues/116/dependencies/blocked_by`]: [],
+      [`GET repos/the-metafactory/ranger/issues/116/sub_issues?per_page=100`]: [],
+    };
+    if (!(key in responses)) throw new Error(`unstubbed request: ${key}`);
+    return responses[key];
+  };
+
+  const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
+
+  expect(ids(subtree)).toEqual(["the-metafactory/ranger#116"]);
+  expect(calls).toContain(`GET repos/the-metafactory/ranger/issues/116/dependencies/blocked_by`);
 });
 
 test("REST subtree fallback deduplicates repeated and cyclic membership edges", async () => {

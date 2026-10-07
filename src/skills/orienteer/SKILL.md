@@ -58,11 +58,12 @@ reflect each forge's capabilities.
 | --- | --- |
 | `soma graph frontier <root>` | open ∧ unassigned ∧ unblocked, confirmed by direct fetch |
 | `soma graph node <id>` | read one node, body included — never `gh issue view` |
-| `soma graph claim <id>` | assign, re-read, tie-break on race |
+| `soma graph claim <id>` | assign, re-read, tie-break on race; refuses a closed node or one with an open blocker |
 | `soma graph release <id>` | identity-bound self-release: abandon your own claim (the claim-race loser's DELETE-self, promoted to a verb); only ever unassigns the acting identity |
-| `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges), structurally validated; refuses without a checkpoint |
+| `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges, which may name `owner/name#N` in another repo), structurally validated; refuses without a checkpoint or with an unreadable blocker |
+| `soma graph link <id> [--blocked-by <ref>]… [--parent <id>]` | add blocking edges to an existing node: a dependency found later; with `--parent`, the repair a failed `add` prints (edges first, then attach) |
 | `soma graph chart … --checkpoint <id>` | create a typed map root; GitLab requires `--home-project <group/project>` |
-| `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close |
+| `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close. A PR, MR or commit says `Refs #N`, never a closing keyword: the tracker would close the node on merge and skip the gate (`references/closing.md`) |
 | `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |
 | `soma graph decisions <root> [--write]` | the map's decision index, derived from receipts; `--write` splices it into the map body |
 
@@ -84,8 +85,7 @@ A bare `owner/name` takes the remote's host, and refuses outside a checkout.
 - **The map is an index, not a store.** A decision lives in exactly one place —
   its node. The map gists and links, never restates.
 - **HITL means a human speaks for themselves.** The agent never stands in for
-  their side of it; a grilling agent that answers its own questions has broken
-  this.
+  their side; a grilling agent that answers its own questions has broken this.
 - **Scaffold nodes attach below their spawning node, never to the map.** The
   map's children are the route; work thrown off by one step is an
   implementation detail of that step, and the edge records which one. This is

@@ -560,6 +560,7 @@ test("audit §3: per-tool writeback events are 1-in-10 hash-sampled (most calls 
     expect(emitted).toBeGreaterThan(0); // capture not silenced
     expect(emitted).toBeLessThan(TOTAL / 3); // sampled well below the raw call count
   });
+  // This checks sampling across 30 process launches; hook latency is measured separately.
 }, 30_000); // Thirty real hook subprocesses exceed Bun's default 5 s timeout.
 
 test("AC-5: CLAUDE.md left untouched (pivot dropped @-import composition)", async () => {

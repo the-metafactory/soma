@@ -1,6 +1,6 @@
 {
   "name": "soma",
-  "version": "0.23.0",
+  "version": "0.25.0",
   "private": true,
   "type": "module",
   "description": "Substrate-portable Personal AI Assistant core.",
@@ -14,7 +14,8 @@
     "test:portability": "bun test test/portability-ci.test.ts",
     "check-skill-version": "bun scripts/check-skill-version.ts",
     "check-release-privacy": "bun scripts/check-release-privacy.ts",
-    "measure-graph-read-path": "bun scripts/measure-graph-read-path.ts"
+    "measure-graph-read-path": "bun scripts/measure-graph-read-path.ts",
+    "generate-bundled-skill-files": "bun scripts/generate-bundled-skill-files.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

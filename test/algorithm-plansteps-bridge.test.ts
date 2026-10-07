@@ -88,6 +88,7 @@ function stubStore(readNode: (ref: NodeRef) => NodeState): GraphStore {
     actingIdentity: async () => "jcfischer",
     checkConfinement: async () => ({ checked: false, reachableIdentities: [], at: "", probes: [] }),
     createNode: async () => ({ id: "unused" }),
+    attachToParent: async () => {},
     addBlockingEdge: async () => {},
     readNode: async (ref) => readNode(ref),
     readSubtree: async () => [],

@@ -14,6 +14,42 @@ come from, how does it get into soma, how does it surface in a substrate.
 
 Tracker: [soma#135](https://github.com/the-metafactory/soma/issues/135).
 
+### Skills bundled with Soma
+
+The built-in skills under `src/skills/<name>/` are embedded through Bun text
+imports so their content is available in a compiled binary. These files must
+be UTF-8 text without a BOM; `test/repo-path-compile.test.ts` compares embedded
+bytes with source bytes and rejects lossy decoding. Binary assets need a
+different embedding mechanism before they can join this built-in tree.
+After adding, removing, or renaming files, run
+`bun run generate-bundled-skill-files`. Explicit custom repository paths still
+copy non-VSA skill files from disk without decoding their bytes; the VSA
+installer decodes text for its projection transforms.
+
+Both source runs and compiled binaries use the generated import module for
+the default repository. It records file names, not a snapshot of their text:
+a fresh source process reads edits to existing files through Bun's text
+imports without regeneration. Adding, removing, or renaming files requires
+regenerating the module; a compiled binary requires rebuilding for any edit.
+Custom repository paths read their live tree directly from disk.
+
+Bundled-skill listing and installation reject invalid explicit skill roots;
+the VSA installer still no-ops when the explicit repo lacks the VSA skill.
+Doctor remains read-only when a checkout or its skill root is missing:
+only that optional inventory's `ENOENT` becomes `[]`, so it can still return
+projection findings for an installed home. Unlike the previous catch-all,
+other filesystem faults now propagate.
+
+Embedded skill content does not make the entire CLI installation portable as
+a standalone binary. Installation also stages an immutable source runtime;
+that step still reads the default repository path, which is virtual under
+`bun build --compile`, and fails loudly before copying skills. The compile
+regression exercises that real CLI failure as well as a successful real CLI
+Algorithm import, install's skill-preparation phase independent of runtime
+staging, home projection, doctor drift detection, and byte-identical copying.
+Codex uses the repo path only for hook configuration; Grok's separate runtime
+hook-asset reads still fail loudly under compilation.
+
 ## Terminology
 
 This document uses the canonical glossary in

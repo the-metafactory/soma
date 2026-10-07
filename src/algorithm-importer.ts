@@ -2,20 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { defaultSomaRepoPath } from "./repo-path";
+import { readBundledSkillFile } from "./bundled-skill-source";
 import type { AlgorithmImportOptions, AlgorithmImportPlan, AlgorithmImportResult, ImportSourceCheck } from "./types";
 
 const FALLBACK_ALGORITHM_SOURCE = "v6.3.0.md";
 
 // soma#354: the-algorithm SKILL.md + RunAlgorithm.md ship as plain `.md` in the
 // repo (no longer code-generated). Read them from the bundled source on import,
-// the same way the VSA skill is sourced from `src/skills/VSA`.
-const BUNDLED_SKILL_SUBPATH = "src/skills/the-algorithm";
-
-function readBundledSkillFile(rel: string): Promise<string> {
-  return readFile(join(defaultSomaRepoPath(), BUNDLED_SKILL_SUBPATH, rel), "utf8");
-}
-
+// the same way the VSA skill is sourced from `src/skills/VSA` — embedded, so a
+// compiled binary has them too (orienteer node #612).
 const OPTIONAL_SOURCE_FILES = [
   { path: "capabilities.md", target: "references/capabilities.md", required: false },
   { path: "mode-detection.md", target: "references/mode-detection.md", required: false },
@@ -131,8 +126,8 @@ export async function importAlgorithm(options: AlgorithmImportOptions = {}): Pro
   }
   const files = new Map<string, string>();
 
-  files.set("skills/the-algorithm/SKILL.md", await readBundledSkillFile("SKILL.md"));
-  files.set("skills/the-algorithm/Workflows/RunAlgorithm.md", await readBundledSkillFile("Workflows/RunAlgorithm.md"));
+  files.set("skills/the-algorithm/SKILL.md", await readBundledSkillFile("the-algorithm", "SKILL.md"));
+  files.set("skills/the-algorithm/Workflows/RunAlgorithm.md", await readBundledSkillFile("the-algorithm", "Workflows/RunAlgorithm.md"));
 
   for (const [path, content] of sources) {
     files.set(`skills/the-algorithm/${path}`, content);

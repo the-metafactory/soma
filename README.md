@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.23.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.25.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,50 @@
 
 ---
 
-## Current release: 0.23.0
+## Current release: 0.25.0
+
+[0.25.0](https://github.com/the-metafactory/soma/releases/tag/v0.25.0) stops
+`soma graph add --blocked-by` from exposing a new node on the frontier before
+its blockers land. A walker claimed one in that window. `add` now writes every
+blocking edge first and attaches the node to its parent last, on GitHub and
+GitLab. If an edge or the attach fails, the node is left unattached, so it is on
+no frontier, and the error prints the repair: the new
+`soma graph link <id> --parent <id>`. `soma graph claim` refuses a node with an
+open blocker. A partly wired `add --json` now reports `attached: false` in
+place of `held`. Library users take note: `GraphStore` requires
+`attachToParent`, so a store implemented outside soma must add it (#740). See
+the [changelog](CHANGELOG.md#0250---2026-10-07). This version is published on
+GitHub only; the Arc registry is not updated by this release.
+
+### 0.24.0
+
+[0.24.0](https://github.com/the-metafactory/soma/releases/tag/v0.24.0) lets a
+work-graph node wait on another repo's node and stops `soma graph add` from
+leaving a node half-wired. `--blocked-by` accepts `owner/name#N` on the same
+forge and host, and the blocker reads back with its repo; the GitHub store still
+writes only to its own repo (#749). `add` reads every blocker before it creates
+the node; if an edge still fails, the node is claimed so it stays off the
+frontier, and the error prints the command that finishes the wiring (#750). The
+new `soma graph link` adds blocking edges to an existing node (#703). `close
+--dry-run` now refuses a closed node like the real close, `audit` includes the
+root node, and orienteer forbids closing keywords in a PR that delivers a node
+(#747). See the [changelog](CHANGELOG.md#0240---2026-10-07). This version is
+published on GitHub only; the Arc registry is not updated by this release.
+
+### 0.23.1
+
+[0.23.1](https://github.com/the-metafactory/soma/releases/tag/v0.23.1) adds a
+build-node brief to the orienteer skill and fixes receipt counting in the work
+graph. A new `references/build-brief.md` sets the template and rules for a build
+node's body: nothing left to decide, Given/When/Then acceptance criteria with a
+failure case and a test seam, an out-of-scope list that binds review, and one
+vertical slice per node. `soma graph audit` and `decisions --write` again count
+close receipts written before receipts carried an autonomy line, so those closes
+are no longer reported as receipt-less (#744). See the
+[changelog](CHANGELOG.md#0231---2026-10-05). This version is published on
+GitHub only; the Arc registry is not updated by this release.
+
+### 0.23.0
 
 [0.23.0](https://github.com/the-metafactory/soma/releases/tag/v0.23.0) stops the
 prompt guard from denying prose that describes a guard instead of asking to
@@ -381,6 +424,7 @@ soma graph node <id>         # its state and body
 soma graph claim <id>        # take it
 soma graph chart --title "…" --autonomy approve --checkpoint <id>  # create a typed graph root
 soma graph add <root> --title "…" --autonomy approve --checkpoint <id>
+soma graph link <id> [--blocked-by <ref>]... [--parent <id>]  # wire a blocker later (may name owner/name#N); --parent attaches an unattached node
 soma graph close <id> --resolution-file <path>
 soma graph audit <root>      # what the gates cannot see
 soma graph decisions <root>  # the map's resolutions, collected

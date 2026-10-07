@@ -100,9 +100,13 @@ close without a ratifying reaction; the receipt then reports
 requires a separate ratifier and credential isolation, as described in
 [the work-graph contract](work-graph.md#deriving-attestation-502).
 
-If a write fails after creating a child but before linking its blocker, the
-child remains in GitLab and the CLI names it for repair. No `soma graph` verb
-adds a blocking link afterwards, and `audit` does not check links: add each
-missing "blocked by" link on the named item in GitLab, then confirm with
-`soma graph node` that its blockers are listed. Do not assume an error rolled back a
-tracker write.
+`soma graph add` reads every `--blocked-by` before it creates the child, so a
+bad ref creates nothing. With blockers, the child is created without a
+hierarchy parent, every link is written, and only then is the parent set
+(`workItemUpdate`), so the child is never reachable before it is blocked (#740).
+If a link write still fails, the child remains in GitLab with no parent, on no
+frontier, and the CLI prints the `soma graph link … --parent` command that
+finishes the wiring. `audit` cannot see an unattached child, so that printed
+command is the only pointer to it; confirm with `soma graph node` that the
+blockers and parent are listed. Do not assume an error rolled back a tracker
+write.

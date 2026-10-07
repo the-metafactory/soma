@@ -28,7 +28,9 @@ import {
   type ReleaseResult,
   type CloseReceipt,
   type CommentRef,
+  type CreateNodeOptions,
   type CreateNodeSpec,
+  type RehomeSelection,
   type GraphStore,
   type NodeComment,
   type NodeRef,
@@ -106,14 +108,34 @@ class FakeStore implements GraphStore {
     return this;
   }
 
-  async createNode(spec: CreateNodeSpec): Promise<NodeRef> {
+  /** Every topology write, in order, so a test can assert what landed before what (#740). */
+  readonly calls: string[] = [];
+
+  async createNode(spec: CreateNodeSpec, _rehome?: RehomeSelection, options: CreateNodeOptions = {}): Promise<NodeRef> {
     this.created.push(spec);
     const id = String(this.nextId++);
     this.nodes.set(id, { node: { ...spec, id } });
+    this.calls.push(`create ${id}`);
+    if (spec.parent !== undefined && options.detached !== true) await this.attachToParent({ id }, spec.parent);
     return { id };
   }
 
+  failAttach = false;
+
+  async attachToParent(child: NodeRef, parent: NodeRef): Promise<void> {
+    if (this.failAttach) throw new Error("sub_issues write failed");
+    this.calls.push(`attach ${child.id} ${parent.id}`);
+    const seed = this.nodes.get(child.id);
+    if (seed !== undefined) seed.parent = parent.id;
+  }
+
+  /** Blocker ids whose edge write fails, as a forge error would. */
+  readonly failingEdges = new Set<string>();
+  readonly claims: [string, string][] = [];
+
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> {
+    if (this.failingEdges.has(blocker.id)) throw new WorkGraphError("backend", `edge write for ${blocker.id} failed`);
+    this.calls.push(`edge ${blocker.id} ${blocked.id}`);
     this.edges.push([blocker.id, blocked.id]);
   }
 
@@ -136,7 +158,8 @@ class FakeStore implements GraphStore {
     return walkFakeSubtree(root, (id) => this.nodes.get(id)?.children ?? [], (ref) => this.readNode(ref));
   }
 
-  async claim(_ref: NodeRef, identity: string): Promise<ClaimResult> {
+  async claim(ref: NodeRef, identity: string): Promise<ClaimResult> {
+    this.claims.push([ref.id, identity]);
     return this.claimResult ?? { held: true, identity, holder: identity, assignees: [identity] };
   }
 
@@ -245,16 +268,18 @@ function autoNode(id: string, overrides: Partial<WorkGraphNode> = {}): WorkGraph
 // --- parsing ---------------------------------------------------------------
 
 test("the parser accepts exactly the verbs of §2.6, including chart", () => {
-  for (const action of ["frontier", "node", "claim", "release", "add", "chart", "close", "audit", "decisions"]) {
+  for (const action of ["frontier", "node", "claim", "release", "add", "link", "chart", "close", "audit", "decisions"]) {
     const parsed = parseGraphArgs(
       action === "add" || action === "chart"
         ? ["graph", action, ...(action === "add" ? ["495"] : []), "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
-        : ["graph", action, "495"],
+        : action === "link"
+          ? ["graph", action, "495", "--blocked-by", "498"]
+          : ["graph", action, "495"],
     );
     expect(parsed.action).toBe(action as never);
   }
   expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(
-    /frontier\|node\|claim\|release\|add\|chart\|close\|audit\|decisions/u,
+    /frontier\|node\|claim\|release\|add\|link\|chart\|close\|audit\|decisions/u,
   );
 });
 
@@ -396,8 +421,11 @@ test("a GitLab target never reaches a GitHub store", async () => {
   expect(opened).toEqual([{ forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" }]);
 });
 
-test("--blocked-by takes a qualified ref in the same store, and refuses one from another", async () => {
-  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("498", { node: autoNode("498") });
+test("--blocked-by takes a ref in this repo or a sibling one, and refuses one on another forge (#749)", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495") })
+    .seed("498", { node: autoNode("498") })
+    .seed("the-metafactory/arc#498", { node: autoNode("the-metafactory/arc#498") });
   const add = (blocker: string): string[] => [
     "graph",
     "add",
@@ -420,8 +448,25 @@ test("--blocked-by takes a qualified ref in the same store, and refuses one from
   await run(add("#498"), store);
   expect(store.edges).toEqual([["498", "900"], ["498", "901"]]);
 
-  expect(await failure(add("github:github.com/the-metafactory/arc#498"), store)).toContain("never spans two stores");
-  expect(store.created).toHaveLength(2);
+  await run(add("the-metafactory/arc#498"), store);
+  expect(store.edges.at(-1)).toEqual(["the-metafactory/arc#498", "902"]);
+
+  expect(await failure(add("gitlab:gitlab-int.switch.ch/csoc/x#3"), store)).toContain("never on another forge or host");
+  expect(await failure(add("foo/bar"), store)).toContain("is not a node ref");
+  expect(store.created).toHaveLength(3);
+});
+
+test("a target named owner/name#N stays in the store: this repo resolves, a sibling refuses (#749)", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("498", { node: autoNode("498") });
+
+  expect(await run(["graph", "claim", "the-metafactory/soma#498", "--repo", REPO], store)).toContain("Claimed node 498");
+  expect(await failure(["graph", "claim", "the-metafactory/arc#498", "--repo", REPO], store)).toContain("never spans two stores");
+  expect(await failure(["graph", "add", "the-metafactory/arc#1", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-1", "--repo", REPO], store)).toContain(
+    "never spans two stores",
+  );
+  expect(await failure(["graph", "link", "the-metafactory/arc#1", "--blocked-by", "498", "--repo", REPO], store)).toContain("never spans two stores");
+  expect(store.claims).toEqual([["498", "ivy-agent"]]);
+  expect(store.created).toHaveLength(0);
 });
 
 test("the store names the acting identity (#537 D2)", async () => {
@@ -528,6 +573,190 @@ test("add attaches the node under the root it was given and wires blocking edges
   expect(output).toContain("Created node 900 under 495");
 });
 
+function addArgs(...blockers: string[]): string[] {
+  return ["graph", "add", "495", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-1", ...blockers.flatMap((id) => ["--blocked-by", id]), "--repo", REPO];
+}
+
+test("add refuses before creating anything when any blocker cannot be read (#750)", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("97", { node: autoNode("97") });
+
+  const message = await failure(addArgs("the-metafactory/arc#707", "97", "404"), store);
+
+  expect(message).toContain("2 blocker(s) cannot be read, so nothing was written");
+  expect(message).toContain("the-metafactory/arc#707");
+  expect(message).toContain("404");
+  expect(store.created).toHaveLength(0);
+  expect(store.edges).toHaveLength(0);
+});
+
+test("an add refused for an unreadable blocker is JSON under --json", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") });
+
+  const parsed = JSON.parse(await failure([...addArgs("404"), "--json"], store));
+
+  expect(parsed.refused).toBe(true);
+  expect(parsed.unreadable.map((entry: { id: string }) => entry.id)).toEqual(["404"]);
+  expect(store.created).toHaveLength(0);
+});
+
+test("add writes every blocking edge before it attaches the node to its parent (#740)", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") })
+    .seed("97", { node: autoNode("97") });
+
+  await run(addArgs("96", "97"), store);
+
+  expect(store.calls).toEqual(["create 900", "edge 96 900", "edge 97 900", "attach 900 495"]);
+});
+
+test("an edge that fails after creation does not strand the others, and the node is left unattached (#740)", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") })
+    .seed("97", { node: autoNode("97") });
+  store.failingEdges.add("96");
+
+  const message = await failure(addArgs("96", "97"), store);
+
+  expect(store.calls).toEqual(["create 900", "edge 97 900"]);
+  expect(store.claims).toEqual([]);
+  expect(message).toContain("1 of 2 blocking edge(s) failed");
+  expect(message).toContain("- blocked by 96: edge write for 96 failed");
+  expect(message).toContain("Edges written: 900 blocked by 97");
+  expect(message).toContain("Node 900 was not attached to 495, so it is unattached: on no frontier, and invisible to audit.");
+  expect(message).toContain(`soma graph link 900 --blocked-by 96 --parent 495 --repo github:github.com/the-metafactory/soma`);
+  expect(message).not.toContain("soma graph release");
+});
+
+test("an attach that fails after the edges landed prints the reason and the --parent repair (#740)", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("96", { node: autoNode("96") });
+  store.failAttach = true;
+
+  const message = await failure(addArgs("96"), store);
+
+  expect(message).toContain("Created node 900 and wrote its blocking edges, but attaching it to 495 failed: sub_issues write failed");
+  expect(message).toContain("Edges written: 900 blocked by 96");
+  expect(message).toContain("soma graph link 900 --parent 495 --repo github:github.com/the-metafactory/soma");
+  expect(JSON.parse(await failure([...addArgs("96"), "--json"], store))).toMatchObject({ attached: false, attachError: "sub_issues write failed", failed: [] });
+});
+
+test("the printed repair command quotes ids a shell would misread", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("the-metafactory/arc#707", { node: autoNode("the-metafactory/arc#707") });
+  store.failingEdges.add("the-metafactory/arc#707");
+
+  expect(await failure(addArgs("the-metafactory/arc#707"), store)).toContain("soma graph link 900 --blocked-by 'the-metafactory/arc#707' --parent 495 --repo");
+});
+
+test("a partly wired add under --json fails with JSON, naming what landed and that it is unattached", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") })
+    .seed("97", { node: autoNode("97") });
+  store.failingEdges.add("96");
+
+  const message = await failure([...addArgs("96", "97"), "--json"], store);
+
+  expect(JSON.parse(message)).toEqual({
+    repo: "the-metafactory/soma",
+    node: "900",
+    parent: "495",
+    written: ["97"],
+    failed: [{ id: "96", reason: "edge write for 96 failed" }],
+    attached: false,
+  });
+});
+
+// --- link -------------------------------------------------------------------
+
+test("link wires blocking edges onto an existing node, cross-repo included, and skips ones it has", async () => {
+  const store = new FakeStore()
+    .seed("116", { node: autoNode("116"), blockedBy: [{ id: "97", status: "open" }] })
+    .seed("97", { node: autoNode("97") })
+    .seed("the-metafactory/arc#707", { node: autoNode("the-metafactory/arc#707") });
+
+  const output = await run(["graph", "link", "116", "--blocked-by", "the-metafactory/arc#707", "--blocked-by", "#97", "--repo", REPO], store);
+
+  expect(store.edges).toEqual([["the-metafactory/arc#707", "116"]]);
+  expect(output).toContain("- blocked by the-metafactory/arc#707: written");
+  expect(output).toContain("- blocked by 97: already there");
+});
+
+test("link runs the cycle check and refuses an unreadable blocker before writing", async () => {
+  const store = new FakeStore()
+    .seed("116", { node: autoNode("116") })
+    .seed("97", { node: autoNode("97"), blockedBy: [{ id: "116", status: "open" }] });
+
+  expect(await failure(["graph", "link", "116", "--blocked-by", "97", "--repo", REPO], store)).toContain("would close a cycle");
+  expect(await failure(["graph", "link", "116", "--blocked-by", "404", "--repo", REPO], store)).toContain("cannot be read");
+  expect(store.edges).toEqual([]);
+  expect(() => parseGraphArgs(["graph", "link", "116"])).toThrow(/missing required option: --blocked-by or --parent/u);
+});
+
+test("link --parent finishes a partly wired add: the edge first, then the attach (#740)", async () => {
+  const store = new FakeStore()
+    .seed("900", { node: autoNode("900") })
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") });
+
+  const output = await run(["graph", "link", "900", "--blocked-by", "96", "--parent", "#495", "--repo", REPO], store);
+
+  expect(store.calls).toEqual(["edge 96 900", "attach 900 495"]);
+  expect(output).toContain("- blocked by 96: written");
+  expect(output).toContain("- under 495: attached");
+  expect(await run(["graph", "link", "900", "--parent", "495", "--repo", REPO], store)).toContain("- under 495: already there");
+  expect(store.calls).toHaveLength(2);
+});
+
+test("link --parent does not attach while an edge still fails", async () => {
+  const store = new FakeStore()
+    .seed("900", { node: autoNode("900") })
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") });
+  store.failingEdges.add("96");
+
+  const message = await failure(["graph", "link", "900", "--blocked-by", "96", "--parent", "495", "--repo", REPO], store);
+
+  expect(message).toContain("- under 495: NOT attached — an edge failed");
+  expect(store.calls).toEqual([]);
+  expect(() => parseGraphArgs(["graph", "link", "900"])).toThrow(/--blocked-by or --parent/u);
+});
+
+test("link --parent reports a failed attach with the edges that landed, as JSON under --json", async () => {
+  const store = new FakeStore()
+    .seed("900", { node: autoNode("900") })
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") });
+  store.failAttach = true;
+
+  const message = await failure(["graph", "link", "900", "--blocked-by", "96", "--parent", "495", "--repo", REPO], store);
+  expect(message).toContain("- blocked by 96: written");
+  expect(message).toContain("- under 495: attach FAILED — sub_issues write failed");
+
+  const parsed = JSON.parse(await failure(["graph", "link", "900", "--parent", "495", "--repo", REPO, "--json"], store));
+  expect(parsed).toMatchObject({ parent: "495", parentStatus: "failed", attachError: "sub_issues write failed" });
+});
+
+test("link --parent with a failed edge reports a node already under that parent as already there", async () => {
+  const store = new FakeStore()
+    .seed("900", { node: autoNode("900"), parent: "495" })
+    .seed("495", { node: autoNode("495") })
+    .seed("96", { node: autoNode("96") });
+  store.failingEdges.add("96");
+
+  const message = await failure(["graph", "link", "900", "--blocked-by", "96", "--parent", "495", "--repo", REPO], store);
+
+  expect(message).toContain("- under 495: already there");
+  expect(store.calls).toEqual([]);
+});
+
+test("claim refuses a node with an open blocker (#740)", async () => {
+  const store = new FakeStore().seed("86", { node: autoNode("86"), blockedBy: [{ id: "81", status: "open" }] });
+
+  expect(await failure(["graph", "claim", "86", "--repo", REPO], store)).toContain("blocked by open node(s) 81");
+  expect(store.claims).toEqual([]);
+});
+
 test("add refuses an auto node with no probes — zero machine-checkable evidence at close", async () => {
   const store = new FakeStore().seed("495", { node: autoNode("495") });
   const message = await failure(
@@ -556,6 +785,11 @@ function autoGraph(): FakeStore {
   return new FakeStore()
     .seed("495", { node: autoNode("495"), author: "jcfischer" })
     .seed("520", { node: autoNode("520"), parent: "495", author: "ivy-agent" });
+}
+
+/** The auto graph with 520 already closed — by the verb or by the tracker, the store cannot tell. */
+function closedNodeStore(): FakeStore {
+  return autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
 }
 
 test("an auto close runs the probes, derives probed evidence, and writes the receipt", async () => {
@@ -1479,8 +1713,37 @@ test("closing refuses before reading the node when the installed runtime is inva
 });
 
 test("a closed node is not closed twice", async () => {
-  const store = autoGraph().seed("520", { node: autoNode("520"), parent: "495", status: "closed" });
-  expect(await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store)).toContain("already closed");
+  const store = closedNodeStore();
+  const message = await failure(["graph", "close", "520", "--repo", REPO, ...RESOLUTION], store);
+  expect(message).toContain("node 520 is already closed");
+  // Conditional: a node closed properly through the verb hits this refusal too.
+  expect(message).toContain("If the tracker closed it itself");
+});
+
+test("--dry-run refuses a closed node the way the write does, before a probe runs (#600)", async () => {
+  // The live instance: the tracker closed the node on a merge, the dry run said
+  // "close would be ACCEPTED", and the real close then refused.
+  const store = closedNodeStore();
+  const probed: string[] = [];
+  const message = await failure(["graph", "close", "520", "--dry-run", "--repo", REPO, ...RESOLUTION], store, {
+    runProbes: async (probes) => {
+      probed.push("ran");
+      return probes.map<ProbeResult>((probe) => ({ probe, state: "probed", outcome: "pass", observed: "exit 0", at: AT.toISOString() }));
+    },
+  });
+
+  expect(message).toContain("already closed");
+  expect(message).not.toContain("would be ACCEPTED");
+  expect(probed).toEqual([]);
+  expect(store.closed).toHaveLength(0);
+  expect(store.comments.size).toBe(0);
+});
+
+test("--propose on a closed node refuses rather than publish a proposal nobody can act on (#600)", async () => {
+  const store = closedNodeStore();
+
+  expect(await failure(["graph", "close", "520", "--propose", "--body", "x", "--repo", REPO], store)).toContain("already closed");
+  expect(store.comments.size).toBe(0);
 });
 
 // --- every close carries prose (#556) --------------------------------------
@@ -1689,6 +1952,39 @@ test("a clean subtree audits clean", async () => {
 
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
 
+  expect(output).toContain("Clean");
+});
+
+test("audit checks the root itself — a standalone node is not 'Clean, 0 nodes' (#600)", async () => {
+  // claw/crisis-simulator#61: no parent, no children, closed by a merge with no
+  // receipt. The subtree walk returns descendants only, so it was never checked.
+  const store = new FakeStore().seed("61", { node: autoNode("61"), status: "closed" });
+
+  const output = await run(["graph", "audit", "61", "--repo", REPO], store);
+  expect(output).toContain("1 node(s)");
+  expect(output).toContain("Closed without a close receipt");
+  expect(output).toMatch(/^- 61 /mu);
+  expect(output).not.toContain("Clean");
+
+  const json = JSON.parse(await run(["graph", "audit", "61", "--repo", REPO, "--json"], store)) as {
+    nodes: number;
+    closedWithoutReceipt: string[];
+  };
+  expect(json.nodes).toBe(1);
+  expect(json.closedWithoutReceipt).toEqual(["61"]);
+});
+
+test("a charted map root is counted by audit and still audits clean (#600)", async () => {
+  // `chart` refuses a root without --checkpoint, so counting the root adds one
+  // node and no finding to an ordinary map.
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["520"] })
+    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+  await store.postComment({ id: "520" }, validReceipt("cp-520"));
+
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store);
+
+  expect(output).toContain("2 node(s)");
   expect(output).toContain("Clean");
 });
 

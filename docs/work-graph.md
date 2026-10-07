@@ -541,11 +541,22 @@ frontier forever — no claim, no close, no error).
   **Known fail-open path (phase 1):** frontier derives "blockers closed"
   purely from tracker status, so a blocker hand-closed via raw tracker writes
   (bypassing `soma graph close`) releases its dependents without any
-  checkpoint gate having run. This is the §2.6 bypass propagated one hop —
-  accepted in phase 1 and, until the phase-2 auditor is built, undetected as
-  well as unprevented. That auditor is the design's answer — it reopens the
-  hollow-closed blocker and thereby re-blocks the dependents — and it does not
-  exist yet.
+  checkpoint gate having run. This is the §2.6 bypass propagated one hop.
+  It is still accepted, but it is no longer undetected: `soma graph audit`
+  (#597) names every closed node with no receipt. It does not repair them,
+  since an auditor that reopened nodes would be a second writer with its own
+  race. **Decided in #600:** the common source, a PR whose closing keyword
+  makes the tracker close the node on merge, is addressed **at the source, by
+  doctrine**. Orienteer forbids closing keywords in PRs, MRs and commits that
+  deliver a node (`references/closing.md`), and ranger enforces it for the PRs
+  it opens. That rule binds whoever writes the PR, not the tracker. Nothing in
+  soma checks PR or commit text, so a person or another tool can still close a
+  node this way, and `audit` stays the detector for that. The frontier does not filter
+  receipt-less nodes, and there is **no retro-receipt**. A receipt counts only
+  when it was posted before the close by the same account that closed the
+  node (`hasCurrentCloseReceipt` in the GitHub store, which is what the §2.7
+  bridge reads as done), and that check is not relaxed: a receipt posted after
+  someone else's close would let anyone who can close an issue mint one.
 - **Claim** = the executing identity becoming the node's **sole** assignee,
   written **before any work**. GitHub offers no compare-and-swap, so the
   claim verb re-reads assignees after writing; if the re-read shows more than
@@ -554,6 +565,26 @@ frontier forever — no claim, no close, no error).
   removes itself (#492 correction 2). All racers compute the same rule over
   the same eventual assignee set, so the race converges to one holder without
   coordination.
+  **Claim refuses a closed or blocked node** (#740): a closed node,
+  and a node with an open blocker (`blocked`, naming the blockers). The claim
+  reads the node right before writing, so a walker whose frontier read
+  predates an edge, or a person claiming by hand, is refused rather than
+  taking blocked work. It is a check-then-write, not a lock: an edge that
+  lands between the read and the assignee write is not seen, which is why
+  `add` closes the larger window by construction (below). It does not refuse
+  an unattached node claimed by id: such a node may carry no blocker at all
+  (its edge write failed), and the frontier never offers it.
+  **A node becomes reachable only once it is fully blocked** (#740). A frontier
+  walk reaches a node only through its membership edge, so `add` creates the
+  node unattached, writes every `--blocked-by` edge, and attaches it to its
+  parent last. Attaching first left a window of seconds in which the node was
+  reachable with no blockers, and a walker claimed it (ranger#86). An edge or
+  attach that fails leaves the node unattached, on no frontier, and the error
+  prints the `soma graph link … --parent` that finishes the wiring. The cost
+  is a quieter failure: a process killed between the create and the attach
+  leaves an unattached node that no message names and `audit` cannot see. The
+  #750 order had the same create-then-wire window but failed loud, as a node
+  on the frontier; this order trades that for never exposing blocked work.
   **Self-release is a verb, not a raw write.** The claim-race loser's
   self-removal — DELETE self from the assignee set — is promoted to
   `soma graph release <node>`, the **identity-bound self-release**: a walker
@@ -573,7 +604,11 @@ interface GraphStore {
                                              // be independently attested here?
   actingIdentity(): Promise<string>;         // who this session is on this forge (#537)
   checkConfinement(): Promise<ConfinementResult>; // §3.2 conjunct 2, this forge's probes
-  createNode(spec: Omit<WorkGraphNode, "id">): Promise<NodeRef>; // store assigns id
+  createNode(spec, rehome?: RehomeSelection, options?: CreateNodeOptions): Promise<NodeRef>;
+                                             // store assigns id; detached = no
+                                             // membership edge yet (#740)
+  attachToParent(child: NodeRef, parent: NodeRef): Promise<void>; // the edge a
+                                             // create with `detached` left out
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef): Promise<NodeState>;
   readSubtree(root: NodeRef): Promise<NodeState[]>;         // whole subtree, pre-order,
@@ -632,6 +667,18 @@ interface GraphStore {
 
 ### 2.6 CLI verbs
 
+A blocker (`--blocked-by` on `add` and `link`) may live in another repo on the
+same forge and host, named `owner/name#N` or in full (#749): a map can wait on
+another repo's decision. On GitHub this is new and live-verified. On GitLab a
+store is already one host, so a blocker in another project of that host was
+accepted before #749; nothing about the GitLab store changed here. It reads back with its repo, so `node` shows
+`owner/name#N` and the frontier judges it by its own status. Targets stay in
+the store's own repo, and the membership edges soma writes do too: the GitHub
+store refuses any write (claim, release, comment, body, close, child, edge) to
+a node outside it. A sub-issue added by hand in another repo is still reported
+by the walk, under its `owner/name#N` id rather than hidden or misnamed; a claim
+on it refuses, so it reads as present but not takeable from this store.
+
 ```bash
 soma graph frontier <root>         # open, unassigned, unblocked, over the whole
                                    # membership subtree; GraphStore.readSubtree
@@ -646,16 +693,27 @@ soma graph release <node>          # identity-bound self-release: abandon your
 soma graph add <root> ...          # create node (+ edges) — additive, structurally
                                    # validated; --checkpoint is REQUIRED, since a
                                    # node without one can never close and no verb
-                                   # attaches one later
+                                   # attaches one later. Every --blocked-by is read
+                                   # before the node is created; every edge is
+                                   # written before the node is attached to its
+                                   # parent, and an edge that still fails leaves
+                                   # it unattached, on no frontier (#740)
+soma graph link <node> [--blocked-by <ref>]... [--parent <id>]
+                                   # add blocking edges to an existing node, cycle
+                                   # check included; an edge it has is skipped;
+                                   # --parent then attaches an unattached node,
+                                   # only once every edge landed (#740)
 soma graph chart ...               # create a typed graph root; GitLab requires
                                    # --home-project <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;
+                                   # refuses an already-closed node, --dry-run too;
                                    # --gist records the map index's one-line entry
 soma graph audit <root>            # what the gates cannot see: closed nodes with
                                    # no receipt (a tracker-side close — the gate
                                    # never ran), open nodes that can never close,
-                                   # claimed nodes in flight. Read-only: it names,
-                                   # the human acts.
+                                   # claimed nodes in flight — the root included, so
+                                   # a standalone node is audited too. Read-only: it
+                                   # names, the human acts.
 soma graph decisions <root>        # the map's decision index, DERIVED from close
                                    # receipts (gist + link per closed node);
                                    # --write splices it into the map body between
@@ -667,9 +725,11 @@ soma graph decisions <root>        # the map's decision index, DERIVED from clos
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
 phase 1 — but no longer *undetected*: `audit` reports every closed node whose
 comments carry no close receipt, which is exactly the signature a tracker-side
-close leaves (including GitHub auto-closing a node when a PR that says
-`Implements #N` merges — observed live on #588, two seconds after the merge,
-`commit_id: null`). A close run from a dev
+close leaves (including GitHub auto-closing a node when a PR whose body holds
+a closing keyword before the node's number merges — observed live on #588, two
+seconds after #590 merged, `commit_id: null`. The keyword was past-tense prose,
+"my first attempt closed #588", which GitHub parses like any `Closes #N`; #600).
+A close run from a dev
 tree warns on stderr rather than refusing — refusing would make the primitive
 undevelopable, and the warning keeps the gap visible state rather than silent.
 Every receipt also stamps `closedWith` — tool version, source tree, best-effort

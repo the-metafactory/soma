@@ -118,8 +118,13 @@ the open, unblocked, unclaimed children — the edge of the known. The graph is 
 DAG: an edge that would close a cycle is rejected, because a cycle silently
 removes both nodes from the frontier forever — no claim, no close, no error.
 
-When charting, ids don't exist until create returns, so wire what you can with
-`--blocked-by` and add the rest in a second pass.
+When charting, ids don't exist until create returns, so create nodes in
+dependency order and let every edge ride `add --blocked-by`: `add` writes the
+edges before it attaches the node, so the node is never takeable unblocked
+(#740). An edge added later with `soma graph link <id> --blocked-by <id>`
+lands after the node is already on the frontier, and a walker can claim it in
+between; keep `link` for dependencies discovered later.
+A blocker may sit in another repo on the same forge (`owner/name#N`).
 
 A session **claims** a node with `soma graph claim` — first, before any work.
 That assignment *is* the claim; the verb re-reads after writing and reports a

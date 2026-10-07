@@ -7,6 +7,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-07
+
+### Added
+
+- `soma graph link <id> --parent <id>` attaches an unattached node to its
+  parent, after any `--blocked-by` edges and only once they all landed. It is
+  the repair a partly wired `add` now prints, and it refuses to move a node
+  that already has another parent or to create a parent loop. (#740)
+
+### Fixed
+
+- `soma graph add --blocked-by` no longer exposes the new node on the
+  frontier before its blockers land. The node is created without a
+  membership edge, every blocking edge is written, and only then is it
+  attached to its parent, on GitHub and GitLab alike. A walker claimed
+  ranger#86 in that window. An edge or attach that still fails leaves the
+  node unattached instead of claimed, and the error prints
+  `soma graph link <id> [--blocked-by …] --parent <id>`, which writes the
+  edges first and attaches last. (#740)
+- `soma graph claim` refuses a node with an open blocker (error code
+  `blocked`, naming the blockers). It checks the blockers it reads right
+  before writing the assignee, so it refuses a claim based on a frontier
+  read that predates an edge, and a manual claim of a blocked node. It is a
+  check-then-write, not a lock: an edge that lands between that read and the
+  write is not seen. (#740)
+
+### Changed
+
+- A partly wired `soma graph add --json` reports `attached: false` (plus
+  `attachError` when the attach itself failed) in place of `held`; the #750
+  hold-by-claim is gone, since an unattached node is on no frontier.
+- **Library API:** `GraphStore` gains a required `attachToParent(child,
+  parent)`, and `createNode` takes a third `options?: CreateNodeOptions`
+  (`detached`), so a store implemented outside soma must add both.
+  `WorkGraph.createNode(spec, blockedBy?)` resolves to a `CreatedNode`
+  whose `attached` the caller must check, `WorkGraph.attach` and
+  `WorkGraph.addBlockingEdges` are new, and `WorkGraphErrorCode` gains
+  `blocked`.
+
+## [0.24.0] - 2026-10-07
+
+### Added
+
+- `soma graph link <id> --blocked-by <ref>…` adds blocking edges to an
+  existing node, through the same cycle check as `add`. An edge the node
+  already has is skipped. (#750, #703)
+
+### Fixed
+
+- `--blocked-by` accepts a blocker in another repo on the same forge and
+  host, as `owner/name#N` or a full ref, and the blocker reads back with its
+  repo in `node`, `frontier` and the subtree walk. Before, a cross-repo ref was
+  sent to the API as an issue number, and a cross-repo edge written by hand read
+  back as the same number in the store's repo. A blocker on another forge or
+  host, or text that is not a node ref, now refuses, and the GitHub store
+  refuses any write to a node outside its own repo. (#749)
+- `soma graph add` reads every `--blocked-by` before it creates the node and
+  refuses the whole add if any cannot be read. An edge that still fails after
+  creation no longer stops the others; the node is claimed by the acting
+  identity, so it stays off the frontier, and the error prints the `link`
+  command that finishes the wiring (and `release`, when the hold landed);
+  under `--json` the failure is JSON. (#750)
+- `soma graph close --dry-run` refuses a closed node, as the real close does:
+  the dry run and the write share one gate, which runs before any probe.
+  `soma graph audit` includes the root node, so a standalone node is no longer
+  reported as clean with 0 nodes. (#747)
+
+### Changed
+
+- Orienteer forbids closing keywords in a PR, MR or commit that delivers a
+  node: the tracker would close it on merge and skip the checkpoint gate. The
+  node is closed with `soma graph close` after the merge. (#747, #600)
+
+## [0.23.1] - 2026-10-05
+
+### Changed
+
+- The orienteer skill gains `references/build-brief.md`, the template and
+  rules for a build node's body. A build node has nothing left to decide: a
+  choice the deciding node did not settle becomes a blocking grilling node, and
+  at a security or matching boundary the brief names a lossless mechanism or
+  prescribes fail-closed. The brief carries Given/When/Then acceptance criteria
+  with at least one failure case and a named test seam, assumptions as stop
+  triggers, and an out-of-scope list that binds review: a request for more
+  than the criteria becomes a follow-up node, while a defect the PR introduces
+  is fixed on the PR. One node is one vertical slice, a rule checked when the
+  node is filed rather than by line count. PRs that needed four or more review
+  rounds get a `/retro`. `walker.md`, the WalkTheMap workflow and the Build kind
+  in `map.md` point at it. (#741)
+
+### Fixed
+
+- `soma graph audit` and `soma graph decisions --write` count close receipts
+  rendered before receipts carried an autonomy line. #661 made the receipt scan
+  require a `- **autonomy:**` line, so older receipts were reported as
+  receipt-less and their gists were replaced. The scan now also accepts a
+  receipt with the full frame and no autonomy line, dated by the Soma release
+  that wrote it; the close binding keeps the strict check. (#685, #744)
+
 ## [0.23.0] - 2026-10-05
 
 ### Fixed
@@ -1454,7 +1553,10 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/the-metafactory/soma/compare/v0.24.0...v0.25.0
+[0.24.0]: https://github.com/the-metafactory/soma/compare/v0.23.1...v0.24.0
+[0.23.1]: https://github.com/the-metafactory/soma/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/the-metafactory/soma/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/the-metafactory/soma/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/the-metafactory/soma/compare/v0.20.4...v0.21.0

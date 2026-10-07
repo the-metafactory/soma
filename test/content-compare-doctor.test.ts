@@ -11,7 +11,7 @@
 // cross-substrate byte-idempotency sweep and an explicit 0/1/2 exit-code
 // mapping.
 
-import { readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
@@ -110,7 +110,7 @@ test("soma#370: content-compare does NOT fail open on an unbootstrapped home —
   });
 });
 
-test("soma#370: loadProjectionInputForDoctor distinguishes a missing home (typed error) from a bad repo path (no error)", async () => {
+test("soma#370: loadProjectionInputForDoctor distinguishes a missing home from a bad repo path", async () => {
   await withTempHome(async (homeDir) => {
     const somaHome = join(homeDir, ".soma");
 
@@ -122,22 +122,24 @@ test("soma#370: loadProjectionInputForDoctor distinguishes a missing home (typed
     ).rejects.toBeInstanceOf(SomaHomeNotLoadableError);
 
     // (b) Installed home + a BOGUS repo path → the loader must NOT throw
-    // SomaHomeNotLoadableError (the home IS loadable). The repo miss is
-    // isolated to listBundledSkills, which degrades to [] — a repo-path
-    // problem is never conflated with the user's home being uninstalled.
+    // SomaHomeNotLoadableError (the home IS loadable). Doctor's optional
+    // inventory degrades to [], even though installation rejects the bad path.
     await installSomaForCursor({ homeDir });
     const input = await loadProjectionInputForDoctor({ somaHome, somaRepoPath: join(homeDir, "no-such-repo") });
     expect(input.bundledSkillNames).toEqual([]);
+
+    const incompleteRepo = join(homeDir, "repo-without-skills");
+    await mkdir(incompleteRepo);
+    const incompleteInput = await loadProjectionInputForDoctor({ somaHome, somaRepoPath: incompleteRepo });
+    expect(incompleteInput.bundledSkillNames).toEqual([]);
   });
 });
 
-test("soma#370: a bad soma repo path on an installed home does NOT masquerade as not-diagnosable", async () => {
+test("soma#370: doctor returns findings for a missing repo without reporting not-diagnosable", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForCursor({ homeDir });
 
-    // A repo-path (source-checkout) problem is an internal/setup fault, not a
-    // "Soma not installed" state — the doctor must NOT emit the
-    // not-diagnosable finding nor the "soma install" remediation for it.
+    // An absent checkout does not make the installed home undiagnosable.
     const findings = await diagnoseContentCompareDrift({
       substrate: "cursor",
       homeDir,
@@ -146,6 +148,26 @@ test("soma#370: a bad soma repo path on an installed home does NOT masquerade as
     });
     expect(findings.find((f) => f.id === "cursor-not-diagnosable")).toBeUndefined();
     expect(findings.some((f) => f.action === "soma install cursor")).toBe(false);
+    // Still diagnose actual drift rather than silently returning no findings.
+    await writeFile(join(homeDir, ".cursorrules"), "# Hand-replaced rules\n");
+    const drift = await diagnoseContentCompareDrift({
+      substrate: "cursor", homeDir, somaHome: join(homeDir, ".soma"),
+      somaRepoPath: join(homeDir, "no-such-repo"),
+    });
+    expect(drift.some((f) => f.id === "cursor-projection-unmanaged-edit")).toBe(true);
+  });
+});
+
+test("doctor does not swallow non-ENOENT repository faults", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCursor({ homeDir });
+    const somaRepoPath = join(homeDir, "broken-repo");
+    await mkdir(join(somaRepoPath, "src"), { recursive: true });
+    await writeFile(join(somaRepoPath, "src", "skills"), "not a directory\n");
+    await expect(loadProjectionInputForDoctor({ somaHome: join(homeDir, ".soma"), somaRepoPath }))
+      .rejects.toMatchObject({ code: "ENOTDIR" });
+    await expect(diagnoseContentCompareDrift({ substrate: "cursor", homeDir, somaHome: join(homeDir, ".soma"), somaRepoPath }))
+      .rejects.toMatchObject({ code: "ENOTDIR" });
   });
 });
 
