@@ -46,7 +46,7 @@ interface WorkGraphNodeBase {
                          // assigned by the store — never caller-supplied
   title: string;
   kind?: string;         // free-form doctrine tag (e.g. research, grilling);
-                         // the runtime never interprets its MEANING but
+                         // the runtime never enforces its MEANING but
                          // normalizes its FORM in createNode validation:
                          // absent kind is accepted; a present kind is stored
                          // trimmed + lowercased, and rejected if it trims
@@ -74,6 +74,9 @@ type WorkGraphNode =
   | (WorkGraphNodeBase & { autonomy: "propose" | "approve"; probes?: Probe[] });
 ```
 
+The runtime never *enforces* on `kind`'s meaning; `graph audit` may *report*
+on it, and a consumer may refuse to execute on it (amends #485).
+
 The GitLab store extends the persisted node block with `home` for Epic roots;
 the shared node type does not interpret it. `NodeState.storeFields` carries that
 store-owned binding through reads and the close hash. The GitLab codec writes
@@ -81,7 +84,9 @@ the same value to the route comment for older clients.
 
 - `autonomy` is the only classification the runtime enforces (#485). The
   work-kind vocabulary (research / prototype / grilling / task / build) is doctrine
-  owned by consumers such as the orienteer skill.
+  owned by consumers such as the orienteer skill. The runtime never *enforces*
+  on `kind`'s meaning; `graph audit` may *report* on it, and a consumer may refuse
+  to execute on it (amends #485).
 - `autonomy` is declared over a projected **policy floor** (§4) and clamped
   never-below-floor at creation.
 - A node **closes only through its attached checkpoint's completion gate**
@@ -711,7 +716,8 @@ soma graph close <node>            # runs declared probes; refuses a hollow clos
 soma graph audit <root>            # what the gates cannot see: closed nodes with
                                    # no receipt (a tracker-side close — the gate
                                    # never ran), open nodes that can never close,
-                                   # claimed nodes in flight — the root included, so
+                                   # build briefs not ready, claimed nodes in flight
+                                   # — the root included, so
                                    # a standalone node is audited too. Read-only: it
                                    # names, the human acts.
 soma graph decisions <root>        # the map's decision index, DERIVED from close
@@ -720,6 +726,17 @@ soma graph decisions <root>        # the map's decision index, DERIVED from clos
                                    # <!-- soma:decisions:begin/end --> markers and
                                    # refuses when they are absent
 ```
+
+Audit's `build-brief-not-ready` finding reports every open `kind: build` node
+missing the exact `## Deliverable` or `## Acceptance criteria` heading, or
+containing the literal `[NEEDS CLARIFICATION]` marker anywhere in its body.
+Headings are matched as whole lines (trailing spaces/tabs and CRLF are accepted).
+JSON returns `buildBriefNotReady: [{ id, missing: ["## Deliverable", …] }]`;
+`missing` names each absent heading and any clarification marker found. Other
+kinds and closed builds are excluded. This judges structure, not criteria
+quality. The existing subtree bodies supply the check without extra node reads.
+`graph add` and the store still accept not-ready build bodies; a consumer such
+as ranger may refuse to execute them at walk time.
 
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `soma graph audit` reports `build-brief-not-ready` for open build nodes missing
+  `## Deliverable` or `## Acceptance criteria`, or containing the literal
+  `[NEEDS CLARIFICATION]` marker. JSON includes `buildBriefNotReady` entries with
+  node ids and missing items. Creation stays permissive: runtime reporting on
+  `kind` does not enforce its meaning; consumers may refuse execution. (node #753)
+
 ## [0.25.0] - 2026-10-07
 
 ### Added
