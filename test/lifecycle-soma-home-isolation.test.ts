@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile 
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
+import { bootstrapSomaHome, serializeMemoryNote, type SomaHomeProjection, type SomaMemoryNote } from "../src/index";
 import { registerSessionEndTranscriptHandler, runSomaLifecycleSessionEnd, resolveLifecycleHomeDir, SCRATCH_SUBSTRATE_HOME_DIRNAME } from "../src/lifecycle";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
 import { resolveInstalledLifecycleHomeDir } from "../src/adapters/shared/lifecycle-home-binding";
@@ -290,29 +290,103 @@ test.each([
   });
 });
 
-test.each([
-  ["codex", buildCodexHomeProjection, CODEX_LIFECYCLE_CONFIG_PATH],
-  ["grok", buildGrokHomeProjection, GROK_LIFECYCLE_CONFIG_PATH],
-] as const)("%s projection binds the substrate home independently of its custom Soma source", (substrate, build, configPath) => {
-  const homeDir = resolve("/target-substrate-home");
-  const somaHome = resolve("/custom-soma-home");
-  const projection = build(portableProjectionInput, { homeDir, somaHome });
-  const configFile = projection.bundle.files.find((file) => file.path === configPath);
-  expect(JSON.parse(configFile?.content ?? "{}")).toMatchObject({ somaHome, homeDir });
-  const entry = projection.bundle.files.find((file) => file.path === `hooks/${substrate}-hook-entry.mjs`);
-  expect(entry?.content).toContain('"--home-dir", config.homeDir ?? homedir()');
-});
-
-test("pi-dev binds both generated lifecycle extensions to the installation home", () => {
-  const homeDir = resolve("/target-pi-home");
-  const projection = buildPiDevHomeProjection(portableProjectionInput, { homeDir, somaHome: resolve("/custom-soma-home") });
-  for (const path of [PI_DEV_HOME_EXTENSION_PATH, PI_DEV_ALGORITHM_EXTENSION_PATH]) {
-    const content = projection.bundle.files.find((file) => file.path === path)?.content ?? "";
-    expect(content).toContain(JSON.stringify(homeDir));
-    expect(content).toContain('"--home-dir"');
-    expect(() => new Bun.Transpiler({ loader: "ts" }).transformSync(content)).not.toThrow();
+async function materializeProjection(projection: SomaHomeProjection, substrateHome: string): Promise<void> {
+  for (const file of projection.bundle.files) {
+    const path = join(substrateHome, file.path);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, file.content);
   }
-});
+}
+
+function hookRuntimeEnv(runtimeHome: string) {
+  return { ...process.env, HOME: runtimeHome, USERPROFILE: runtimeHome, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" };
+}
+
+async function lifecycleRecorder(root: string): Promise<{ bunPath: string; recordPath: string }> {
+  const recordPath = join(root, "lifecycle-argv.jsonl");
+  const script = join(root, "recorder.ts");
+  await writeFile(script, `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(recordPath)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n`);
+  const bunPath = join(root, "bun");
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  await writeFile(bunPath, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`);
+  await chmod(bunPath, 0o755);
+  return { bunPath, recordPath };
+}
+
+async function assertRecordedLifecycle(recordPath: string, event: string, substrate: string, somaHome: string, homeDir: string) {
+  const records = (await readFile(recordPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as string[]);
+  expect(records).toHaveLength(1);
+  const args = records[0];
+  expect(args[args.indexOf("lifecycle") + 1]).toBe(event);
+  for (const [flag, value] of [["--soma-home", somaHome], ["--home-dir", homeDir], ["--substrate", substrate]] as const) {
+    expect(args.filter((arg) => arg === flag)).toHaveLength(1);
+    expect(args[args.indexOf(flag) + 1]).toBe(value);
+  }
+}
+
+for (const event of ["session-start", "session-end"] as const) {
+  test.each([
+    ["codex", buildCodexHomeProjection, CODEX_LIFECYCLE_CONFIG_PATH],
+    ["grok", buildGrokHomeProjection, GROK_LIFECYCLE_CONFIG_PATH],
+  ] as const)(`%s installed ${event} hook emits both bound homes despite a different runtime HOME`, async (substrate, build, configPath) => {
+    await withTempRoot(async (root) => {
+      const homeDir = join(root, "installation-home");
+      const runtimeHome = join(root, "runtime-home");
+      const somaHome = join(root, "custom-soma-source");
+      await mkdir(runtimeHome);
+      const projection = build(portableProjectionInput, { homeDir, somaHome, somaRepoPath: repoRoot });
+      const substrateHome = join(homeDir, defaultSubstrateHome(substrate));
+      await materializeProjection(projection, substrateHome);
+      const configFile = join(substrateHome, configPath);
+      const config = JSON.parse(await readFile(configFile, "utf8"));
+      expect(config).toMatchObject({ somaHome, homeDir });
+      const { bunPath, recordPath } = await lifecycleRecorder(root);
+      await writeFile(configFile, JSON.stringify({ ...config, bunPath }));
+
+      const result = spawnSync(process.execPath, [join(substrateHome, "hooks/soma-lifecycle.mjs"), event], {
+        cwd: repoRoot,
+        input: JSON.stringify({ session_id: "home-binding-test", cwd: root }),
+        encoding: "utf8",
+        env: hookRuntimeEnv(runtimeHome),
+        timeout: 30_000,
+      });
+      expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+      const output = JSON.parse(result.stdout);
+      expect(output.continue).toBe(true);
+      expect(output.systemMessage ?? "").not.toContain("fell back");
+      expect(output.systemMessage ?? "").not.toContain("failed");
+      await assertRecordedLifecycle(recordPath, event, substrate, somaHome, homeDir);
+      expect(await listFiles(runtimeHome)).toEqual([]);
+    });
+  }, 30_000);
+}
+
+test.each([
+  [PI_DEV_HOME_EXTENSION_PATH, "session_shutdown", "session-end"],
+  [PI_DEV_ALGORITHM_EXTENSION_PATH, "message_end", "algorithm-observed"],
+] as const)("pi-dev %s executes its lifecycle handler with both installation homes", async (extensionPath, event, lifecycleEvent) => {
+  await withTempRoot(async (root) => {
+    const homeDir = join(root, "installation-home");
+    const runtimeHome = join(root, "runtime-home");
+    const somaHome = join(root, "custom-soma-source");
+    await mkdir(runtimeHome);
+    const projection = buildPiDevHomeProjection(portableProjectionInput, { homeDir, somaHome });
+    const substrateHome = join(homeDir, defaultSubstrateHome("pi-dev"));
+    await materializeProjection(projection, substrateHome);
+    const { bunPath, recordPath } = await lifecycleRecorder(root);
+    const result = spawnSync(process.execPath, [
+      join(import.meta.dir, "fixtures/pi-lifecycle-binding-runner.ts"), join(substrateHome, extensionPath), event,
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: { ...hookRuntimeEnv(runtimeHome), SOMA_REPO: repoRoot, PATH: `${dirname(bunPath)}:${process.env.PATH ?? ""}` },
+      timeout: 30_000,
+    });
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+    await assertRecordedLifecycle(recordPath, lifecycleEvent, "pi-dev", somaHome, homeDir);
+    expect(await listFiles(runtimeHome)).toEqual([]);
+  });
+}, 30_000);
 
 test("the default Soma path without an installed binding is isolated too", async () => {
   await withTempRoot(async (root) => {
