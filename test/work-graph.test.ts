@@ -705,6 +705,28 @@ test("linkBlockers refuses an unreadable blocker before writing any edge", async
   expect(store.calls).toEqual([]);
 });
 
+test("addBlockingEdges refuses an unreadable blocker before writing any edge", async () => {
+  const store = new FakeStore();
+  store.add("node");
+  store.add("ok");
+  const error = await new WorkGraph(store).addBlockingEdges({ id: "node" }, [{ id: "ok" }, { id: "missing" }]).catch((caught: unknown) => caught);
+
+  expect(error).toBeInstanceOf(UnreadableBlockersError);
+  expect(error).toMatchObject({ code: "invalid-edge", unreadable: [{ id: "missing", reason: "no such node missing" }] });
+  expect(store.edges).toEqual([]);
+  expect(store.calls).toEqual([]);
+});
+
+test("addBlockingEdges writes every readable blocker and collects per-edge failures", async () => {
+  const store = new FakeStore();
+  store.add("a");
+  store.add("b");
+  store.add("node");
+
+  expect(await new WorkGraph(store).addBlockingEdges({ id: "node" }, [{ id: "a" }, { id: "b" }])).toEqual({ written: ["a", "b"], failed: [] });
+  expect(store.edges).toEqual([["a", "node"], ["b", "node"]]);
+});
+
 test("linkBlockers reports existing blockers and only writes new edges", async () => {
   const store = new FakeStore();
   store.add("existing");

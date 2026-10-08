@@ -1544,7 +1544,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     const detached = parent !== undefined && blockedBy.length > 0;
 
     const created = await this.store.createNode(target, rehome, { detached });
-    const edges = await this.addBlockingEdges(created, blockedBy);
+    const edges = await this.writeBlockingEdges(created, blockedBy);
     const result = { ...created, ...rehomed, edges };
     if (!detached) return { ...result, attached: true };
     if (edges.failed.length > 0) return { ...result, attached: false };
@@ -1578,12 +1578,24 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
   }
 
   /**
-   * Write each edge, collecting failures rather than stopping at the first, so
-   * one bad edge never strands the good ones. Private: every public path to it
-   * ({@link createNode}, {@link linkBlockers}) pre-reads the blockers first, so
-   * no caller can write an edge to a blocker it could not read.
+   * Pre-read every blocker, then write each edge. Throws
+   * {@link UnreadableBlockersError} before any edge is written when a blocker
+   * cannot be read, so a direct caller gets the same "nothing is written"
+   * guarantee as {@link createNode} and {@link linkBlockers}.
    */
-  private async addBlockingEdges(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites> {
+  async addBlockingEdges(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites> {
+    await this.readBlockers(blockedBy);
+    return await this.writeBlockingEdges(blocked, blockedBy);
+  }
+
+  /**
+   * Write each edge, collecting failures rather than stopping at the first, so
+   * one bad edge never strands the good ones. Private and unchecked: every
+   * public path to it ({@link createNode}, {@link linkBlockers},
+   * {@link addBlockingEdges}) pre-reads the blockers first, so no caller can
+   * write an edge to a blocker it could not read.
+   */
+  private async writeBlockingEdges(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites> {
     const edges: EdgeWrites = { written: [], failed: [] };
     for (const blocker of blockedBy) {
       try {
@@ -1606,7 +1618,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     const [state] = await Promise.all([this.readNode(blocked), this.readBlockers(blockedBy)]);
     const existing = new Set(state.blockedBy.map((blocker) => blocker.id));
     const already = blockedBy.filter((blocker) => existing.has(blocker.id)).map((blocker) => blocker.id);
-    const edges = await this.addBlockingEdges(blocked, blockedBy.filter((blocker) => !existing.has(blocker.id)));
+    const edges = await this.writeBlockingEdges(blocked, blockedBy.filter((blocker) => !existing.has(blocker.id)));
     return { ...edges, already, state };
   }
 
