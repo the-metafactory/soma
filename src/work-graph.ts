@@ -1519,10 +1519,13 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
   }
 
   /**
-   * Validate at the boundary, then create. Additive mutation — free after
-   * structural validation (§1 clause 2).
+   * Read every blocker, validate the spec at the boundary, then create.
+   * Additive mutation — free after structural validation (§1 clause 2).
    *
-   * Every blocker is read before any write; unreadable blockers refuse the whole create.
+   * The blocker reads come first, before the spec is parsed: that is the order
+   * `soma graph add` has always refused in (an unreadable blocker is reported
+   * ahead of invalid node data), and the verbs' observable behaviour is held
+   * fixed. An unreadable blocker refuses the whole create; nothing is written.
    * With blockers, the node is created unattached (`detached`), every edge is written, and
    * only then is it attached to its parent (#740). A frontier walk reaches a
    * node only through its parent, so there is no window in which the node is
@@ -1574,8 +1577,13 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     return { status: "attached" };
   }
 
-  /** Write each edge, collecting failures rather than stopping at the first, so one bad edge never strands the good ones. */
-  async addBlockingEdges(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites> {
+  /**
+   * Write each edge, collecting failures rather than stopping at the first, so
+   * one bad edge never strands the good ones. Private: every public path to it
+   * ({@link createNode}, {@link linkBlockers}) pre-reads the blockers first, so
+   * no caller can write an edge to a blocker it could not read.
+   */
+  private async addBlockingEdges(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites> {
     const edges: EdgeWrites = { written: [], failed: [] };
     for (const blocker of blockedBy) {
       try {
@@ -1588,13 +1596,18 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     return edges;
   }
 
-  /** Pre-read every blocker, skip existing dependencies, then try every remaining edge. */
-  async linkBlockers(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites & { already: string[] }> {
+  /**
+   * Pre-read every blocker, skip the dependencies the node already has, then
+   * try every remaining edge. `state` is the blocked node as read before any
+   * edge was written, so a caller that needs more of it (its parent, say) does
+   * not read it a second time.
+   */
+  async linkBlockers(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites & { already: string[]; state: NodeState }> {
     const [state] = await Promise.all([this.readNode(blocked), this.readBlockers(blockedBy)]);
     const existing = new Set(state.blockedBy.map((blocker) => blocker.id));
     const already = blockedBy.filter((blocker) => existing.has(blocker.id)).map((blocker) => blocker.id);
     const edges = await this.addBlockingEdges(blocked, blockedBy.filter((blocker) => !existing.has(blocker.id)));
-    return { ...edges, already };
+    return { ...edges, already, state };
   }
 
   /** Read all blockers in parallel and refuse the whole operation if any cannot be read. */

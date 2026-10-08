@@ -711,7 +711,11 @@ test("linkBlockers reports existing blockers and only writes new edges", async (
   store.add("new");
   store.add("node", {}, ["existing"]);
 
-  expect(await new WorkGraph(store).linkBlockers({ id: "node" }, [{ id: "existing" }, { id: "new" }])).toEqual({ written: ["new"], already: ["existing"], failed: [] });
+  const result = await new WorkGraph(store).linkBlockers({ id: "node" }, [{ id: "existing" }, { id: "new" }]);
+
+  expect(result).toMatchObject({ written: ["new"], already: ["existing"], failed: [] });
+  // `state` is the node as read before the edge landed, so a caller never reads it twice.
+  expect(result.state.blockedBy.map((blocker) => blocker.id)).toEqual(["existing"]);
   expect(store.edges).toEqual([["new", "node"]]);
 });
 

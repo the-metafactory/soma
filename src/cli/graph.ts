@@ -989,10 +989,7 @@ function edgeLabel(node: string, blocker: string): string {
 function unreadableBlockersRefusal(error: UnreadableBlockersError, verb: string, json: boolean): SomaCliError {
   const { unreadable } = error;
   if (json) return new SomaCliError(JSON.stringify({ refused: true, written: [], unreadable }, null, 2), 1);
-  return new SomaCliError(
-    [`soma graph ${verb} refused: ${unreadable.length} blocker(s) cannot be read, so nothing was written.`, ...unreadable.map((entry) => `- ${entry.id}: ${entry.reason}`)].join("\n"),
-    1,
-  );
+  return new SomaCliError([`soma graph ${verb} refused: ${error.message}`, ...unreadable.map((entry) => `- ${entry.id}: ${entry.reason}`)].join("\n"), 1);
 }
 
 /**
@@ -1081,10 +1078,7 @@ const PARENT_STATUS_TEXT: Record<ParentStatus, string> = { attached: "attached",
  */
 async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: RepoRef): Promise<string> {
   const blocked = { id: parsed.target };
-  const [state, { written, already, failed }] = await Promise.all([
-    graph.readNode(blocked),
-    graph.linkBlockers(blocked, parsed.options.blockedBy.map((id) => ({ id }))),
-  ]);
+  const { written, already, failed, state } = await graph.linkBlockers(blocked, parsed.options.blockedBy.map((id) => ({ id })));
   const parent = parsed.options.parent;
   // With an edge failed the attach does not run, but a node already under `parent` is not "not attached".
   let parentStatus: ParentStatus = parent !== undefined && state.parent?.id === parent ? "already" : "not attached";
