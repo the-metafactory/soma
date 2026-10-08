@@ -189,6 +189,8 @@ export interface NodeState {
   /** Store-owned fields that affect close or routing, kept outside the shared node schema. */
   storeFields?: Readonly<Record<string, unknown>>;
   status: NodeStatus;
+  /** False when this node is outside the store's write scope; absent means writable. Not a permission guarantee. */
+  writable?: boolean;
   assignees: readonly string[];
   blockedBy: readonly BlockingRef[];
   /** Read from the backend's API author field, never from body text (§3.2 conjunct 3). */
@@ -208,6 +210,12 @@ export interface NodeState {
   parseError?: string;
   /** True only when the production store proved a receipt belongs to this current closure. */
   currentCloseReceipt?: boolean;
+}
+
+/** Otherwise-ready subtree members partitioned by the store's write scope. */
+export interface FrontierReport {
+  frontier: NodeState[];
+  notWritable: NodeState[];
 }
 
 /**
@@ -1684,14 +1692,18 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
   }
 
   /**
-   * Frontier = open ∧ unassigned ∧ all blockers closed (§2.4), over the root's
-   * whole membership subtree.
+   * Frontier = open ∧ unassigned ∧ all blockers closed ∧ store-writable (§2.4),
+   * over the root's whole membership subtree.
    *
    * **A pure filter over one read** (#576) — no re-fetch, because
    * {@link GraphStore.readSubtree} is required to report live state and
    * therefore confirms. That contract, and why the second read cost coherence
    * rather than buying it, is stated once on the seam method; spec §2.4 is
    * normative.
+   *
+   * Returns only writable candidates, without skipped members or their count.
+   * Consumers accounting for all ready members must use
+   * {@link WorkGraph.frontierReport} to inspect both lists.
    *
    * False *negatives* remain unrecoverable — the frontier is advisory and may
    * return short, self-healing on a later tick. Correctness rests on the claim
@@ -1703,8 +1715,14 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
    * and, until the phase-2 auditor is built, undetected as well as unprevented.
    */
   async frontier(root: NodeRef): Promise<NodeState[]> {
+    return (await this.frontierReport(root)).frontier;
+  }
+
+  /** Ready members partitioned by store writability, over a single subtree read. */
+  async frontierReport(root: NodeRef): Promise<FrontierReport> {
     const subtree = await this.store.readSubtree(root);
-    const confirmed: NodeState[] = [];
+    const frontier: NodeState[] = [];
+    const notWritable: NodeState[] = [];
     const seen = new Set<string>();
     for (const state of subtree) {
       if (seen.has(state.ref.id)) continue;
@@ -1712,9 +1730,9 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
       if (state.status !== "open") continue;
       if (state.assignees.length > 0) continue;
       if (state.blockedBy.some((blocker) => blocker.status !== "closed")) continue;
-      confirmed.push(state);
+      (state.writable === false ? notWritable : frontier).push(state);
     }
-    return confirmed;
+    return { frontier, notWritable };
   }
 
   /**

@@ -614,6 +614,7 @@ test("the frontier is open, unassigned and unblocked — each candidate confirme
 
   const frontier = await new WorkGraph(store).frontier({ id: "map" });
   expect(frontier.map((state) => state.ref.id)).toEqual(["open-unassigned", "released"]);
+  expect(await new WorkGraph(store).frontierReport({ id: "map" })).toEqual({ frontier, notWritable: [] });
 });
 
 test("a stale candidate list cannot put a closed or claimed node on the frontier", async () => {
@@ -621,6 +622,49 @@ test("a stale candidate list cannot put a closed or claimed node on the frontier
   store.add("stale", { status: "closed" });
   store.children.set("map", ["stale", "stale"]);
   expect(await new WorkGraph(store).frontier({ id: "map" })).toHaveLength(0);
+});
+
+test("frontierReport separates ready unwritable members from writable members", async () => {
+  const store = new FakeStore();
+  store.add("local");
+  store.add("explicit-writable", { writable: true });
+  store.add("sibling/repo#1", { writable: false });
+  store.add("closed-blocker", { status: "closed" });
+  store.add("sibling/repo#2", { writable: false }, ["closed-blocker"]);
+  store.add("sibling/repo#3", { writable: false, status: "closed" });
+  store.add("sibling/repo#4", { writable: false, assignees: ["ivy-agent"] });
+  store.add("open-blocker");
+  store.add("sibling/repo#5", { writable: false }, ["open-blocker"]);
+  store.children.set("map", [
+    "local", "sibling/repo#1", "explicit-writable", "sibling/repo#2",
+    "sibling/repo#3", "sibling/repo#4", "sibling/repo#5", "sibling/repo#1",
+  ]);
+
+  const graph = new WorkGraph(store);
+  const report = await graph.frontierReport({ id: "map" });
+  expect(report.frontier.map((state) => state.ref.id)).toEqual(["local", "explicit-writable"]);
+  expect(report.notWritable.map((state) => state.ref.id)).toEqual(["sibling/repo#1", "sibling/repo#2"]);
+  expect(await graph.frontier({ id: "map" })).toEqual(report.frontier);
+});
+
+test("frontierReport partitions one subtree observation and deduplicates both lists", async () => {
+  class SnapshotStore extends FakeStore {
+    reads = 0;
+    override async readSubtree(_root: NodeRef): Promise<NodeState[]> {
+      this.reads++;
+      const local = await this.readNode({ id: "local" });
+      const sibling = await this.readNode({ id: "sibling/repo#1" });
+      return [local, sibling, local, sibling];
+    }
+  }
+  const store = new SnapshotStore();
+  store.add("local");
+  store.add("sibling/repo#1", { writable: false });
+
+  const report = await new WorkGraph(store).frontierReport({ id: "map" });
+  expect(report.frontier.map((state) => state.ref.id)).toEqual(["local"]);
+  expect(report.notWritable.map((state) => state.ref.id)).toEqual(["sibling/repo#1"]);
+  expect(store.reads).toBe(1);
 });
 
 test("claiming a closed node is refused", async () => {

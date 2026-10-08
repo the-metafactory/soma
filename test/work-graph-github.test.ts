@@ -140,6 +140,7 @@ test("readNode types the node from the block and reports blockers with their sta
   expect(state.node.kind).toBe("task");
   expect(state.node.probes).toEqual([PROBE]);
   expect(state.node.id).toBe("497");
+  expect(state.writable).not.toBe(false);
   expect(state.author).toBe("jcfischer");
   expect(state.assignees).toEqual(["jcfischer"]);
   expect(state.body).toBe("## Task\n\nimplement the seam");
@@ -392,6 +393,7 @@ test("a located id is read in its own repo, and its blockers are named relative 
   const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: `${RANGER}#116` });
 
   expect(state.ref.id).toBe(`${RANGER}#116`);
+  expect(state.writable).toBe(false);
   expect(state.blockedBy).toEqual([{ id: "497", status: "open" }]);
   expect(calls.map((call) => call.key)).toEqual([
     `GET repos/${RANGER}/issues/116`,
@@ -409,7 +411,18 @@ test("a located read keeps its repo when the payload names none, and so does its
   const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: `${RANGER}#116` });
 
   expect(state.ref.id).toBe(`${RANGER}#116`);
+  expect(state.writable).toBe(false);
   expect(state.parent).toEqual({ id: `${RANGER}#98` });
+});
+
+test("readNode treats a differently cased own-repo path as writable", async () => {
+  const { transport } = fakeTransport({
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ repository_url: `https://api.github.com/repos/${REPO.toUpperCase()}` }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+  });
+  const state = await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" });
+  expect(state.ref.id).toBe("497");
+  expect(state.writable).not.toBe(false);
 });
 
 test("addBlockingEdge reads a sibling-repo blocker's database id where it lives", async () => {
@@ -553,6 +566,28 @@ function subtreeTransport(
   };
   return { transport, keys };
 }
+
+test("the GitHub frontier reports sibling-repo members as unwritable in one subtree read, matching claim confinement", async () => {
+  const { transport, keys } = subtreeTransport({
+    "495": gql(495, "OPEN", conn([
+      gql(497, "OPEN", counted(0), { repository: { nameWithOwner: REPO.toUpperCase() } }),
+      gql(497, "OPEN", counted(0), { repository: { nameWithOwner: RANGER } }),
+    ])),
+  }, {
+    [`GET repos/${RANGER}/issues/497`]: issuePayload({ repository_url: `https://api.github.com/repos/${RANGER}` }),
+  });
+  const store = createGitHubGraphStore({ repo: REPO, transport });
+  const graph = new WorkGraph(store);
+  const report = await graph.frontierReport({ id: "495" });
+
+  expect(ids(report.frontier)).toEqual(["497"]);
+  expect(report.frontier[0]?.writable).not.toBe(false);
+  expect(ids(report.notWritable)).toEqual([`${RANGER}#497`]);
+  expect(report.notWritable[0]?.writable).toBe(false);
+  expect(keys).toEqual(["495"]);
+  await expect(store.claim(report.notWritable[0]!.ref, "ivy-agent")).rejects.toThrow(/writes only to its own repository/u);
+  expect(keys).toEqual(["495", `GET repos/${RANGER}/issues/497`]);
+});
 
 test("the walk descends into closed nodes and reports the whole subtree depth-first", async () => {
   // #501 and #510 are closed and each carries open scaffold — the case a
@@ -752,6 +787,7 @@ test("the REST fallback reads a sibling-repo child's blockers in that repo (#749
   const subtree = await createGitHubGraphStore({ repo: REPO, transport }).readSubtree({ id: "495" });
 
   expect(ids(subtree)).toEqual(["the-metafactory/ranger#116"]);
+  expect(subtree[0]?.writable).toBe(false);
   expect(calls).toContain(`GET repos/the-metafactory/ranger/issues/116/dependencies/blocked_by`);
 });
 

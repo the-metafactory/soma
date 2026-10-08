@@ -764,6 +764,7 @@ export {
   type CreateNodeSpec,
   type CreatedNode,
   type EdgeWrites,
+  type FrontierReport,
   type GraphStore,
   type NodeBudget,
   type NodeComment,
