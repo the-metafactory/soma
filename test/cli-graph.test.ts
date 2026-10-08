@@ -73,6 +73,7 @@ const DECLARED: ProbeRegistry = {
 interface SeedNode {
   node: WorkGraphNode;
   status?: "open" | "closed";
+  writable?: boolean;
   assignees?: string[];
   blockedBy?: { id: string; status: "open" | "closed" }[];
   author?: string;
@@ -146,6 +147,7 @@ class FakeStore implements GraphStore {
       ref: { id: ref.id },
       node: seed.node,
       status: seed.status ?? "open",
+      ...(seed.writable === undefined ? {} : { writable: seed.writable }),
       assignees: seed.assignees ?? [],
       blockedBy: seed.blockedBy ?? [],
       author: seed.author ?? "jcfischer",
@@ -347,6 +349,15 @@ test("frontier reports open, unassigned, unblocked children and says it is advis
   expect(output).not.toContain("- 501");
   expect(output).toContain("1 node(s) open, unassigned, and unblocked.");
   expect(output).toContain("Advisory (§2.4)");
+  expect(output).not.toContain("Skipped:");
+  expect(output).toBe([
+    `Work graph frontier — root 495 (${REPO})`,
+    "",
+    "- 498 node 498 [auto, no kind, typed]",
+    "",
+    "1 node(s) open, unassigned, and unblocked.",
+    "Advisory (§2.4): the frontier can read short when membership edges are missing or the tracker index lags.",
+  ].join("\n"));
 });
 
 test("frontier --json emits the confirmed node states", async () => {
@@ -357,10 +368,61 @@ test("frontier --json emits the confirmed node states", async () => {
   const parsed = JSON.parse(await run(["graph", "frontier", "495", "--repo", REPO, "--json"], store)) as {
     root: string;
     frontier: { ref: { id: string } }[];
+    notWritable: NodeState[];
   };
 
   expect(parsed.root).toBe("495");
   expect(parsed.frontier.map((state) => state.ref.id)).toEqual(["498"]);
+  expect(parsed.notWritable).toEqual([]);
+});
+
+test("frontier text lists ready unwritable members only under Skipped", async () => {
+  const sibling = "the-metafactory/ranger#498";
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["498", sibling, "closed", "claimed", "blocked"] })
+    .seed("498", { node: autoNode("498") })
+    .seed(sibling, { node: autoNode(sibling), writable: false })
+    .seed("closed", { node: autoNode("closed"), writable: false, status: "closed" })
+    .seed("claimed", { node: autoNode("claimed"), writable: false, assignees: ["ivy-agent"] })
+    .seed("blocked", { node: autoNode("blocked"), writable: false, blockedBy: [{ id: "498", status: "open" }] });
+
+  const output = await run(["graph", "frontier", "495", "--repo", REPO], store);
+  const [frontier, skipped] = output.split("Skipped: this store cannot write these (another repo):");
+  expect(frontier).toContain("- 498");
+  expect(frontier).not.toContain(`- ${sibling}`);
+  expect(skipped).toContain(`- ${sibling}`);
+  expect(output).toContain("1 node(s) open, unassigned, and unblocked.");
+  for (const id of ["closed", "claimed", "blocked"]) expect(output).not.toContain(`- ${id}`);
+});
+
+test("frontier --json carries ready unwritable states in the additive notWritable array", async () => {
+  const sibling = "the-metafactory/ranger#498";
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["498", sibling, "closed", "claimed", "blocked"] })
+    .seed("498", { node: autoNode("498") })
+    .seed(sibling, { node: autoNode(sibling), writable: false })
+    .seed("closed", { node: autoNode("closed"), writable: false, status: "closed" })
+    .seed("claimed", { node: autoNode("claimed"), writable: false, assignees: ["ivy-agent"] })
+    .seed("blocked", { node: autoNode("blocked"), writable: false, blockedBy: [{ id: "498", status: "open" }] });
+
+  const parsed = JSON.parse(await run(["graph", "frontier", "495", "--repo", REPO, "--json"], store)) as {
+    frontier: NodeState[];
+    notWritable: NodeState[];
+  };
+  expect(parsed.frontier.map((state) => state.ref.id)).toEqual(["498"]);
+  expect(parsed.notWritable.map((state) => state.ref.id)).toEqual([sibling]);
+  expect(parsed.notWritable[0]).toMatchObject({ writable: false, node: { title: `node ${sibling}` } });
+});
+
+test("frontier with only unwritable ready members still renders an empty frontier", async () => {
+  const sibling = "the-metafactory/ranger#498";
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: [sibling] })
+    .seed(sibling, { node: autoNode(sibling), writable: false });
+  const output = await run(["graph", "frontier", "495", "--repo", REPO], store);
+  expect(output).toContain("\n- none\n");
+  expect(output).toContain(`Skipped: this store cannot write these (another repo):\n- ${sibling}`);
+  expect(output).toContain("0 node(s) open, unassigned, and unblocked.");
 });
 
 // --- node -------------------------------------------------------------------

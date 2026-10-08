@@ -485,7 +485,7 @@ frontier forever — no claim, no close, no error).
 
 ### 2.4 Frontier and claim
 
-- **Frontier** = open ∧ unassigned ∧ all blockers closed, over the root's
+- **Frontier** = open ∧ unassigned ∧ all blockers closed ∧ store-writable, over the root's
   entire **membership subtree** — every descendant, at any depth, reported in
   depth-first pre-order (#557). Depth records where a node came from and never
   decides whether it is reported: gating is what a blocking edge means, and
@@ -497,6 +497,9 @@ frontier forever — no claim, no close, no error).
   that pre-filters is deciding §2.4 instead of serving it. An implementation
   that cannot carry a whole subtree in one request must detect the shortfall
   and complete it; truncating in silence is forbidden.
+  Otherwise-ready nodes with `NodeState.writable === false` are returned separately
+  by `WorkGraph.frontierReport` in `notWritable` (also in `--json`) and listed under
+  `Skipped: this store cannot write these (another repo):`; an absent flag means writable.
   **Discovery must be a live read of the authoritative store, and when it is,
   it confirms** (#576, superseding #492 correction 3). The original rule
   required the verb to re-fetch every candidate, and it was written for a

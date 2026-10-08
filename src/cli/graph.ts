@@ -878,16 +878,19 @@ function nodeSummary(state: NodeState): string {
 // ---------------------------------------------------------------------------
 
 async function runFrontier(parsed: ParsedGraphFrontierArgs, graph: WorkGraph, repo: string): Promise<string> {
-  const confirmed = await graph.frontier({ id: parsed.target });
+  const { frontier: confirmed, notWritable } = await graph.frontierReport({ id: parsed.target });
 
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo, root: parsed.target, frontier: confirmed }, null, 2);
+    return JSON.stringify({ repo, root: parsed.target, frontier: confirmed, notWritable }, null, 2);
   }
 
   return [
     `Work graph frontier — root ${parsed.target} (${repo})`,
     "",
     ...(confirmed.length > 0 ? confirmed.map((state) => nodeSummary(state)) : ["- none"]),
+    ...(notWritable.length > 0
+      ? ["", "Skipped: this store cannot write these (another repo):", ...notWritable.map((state) => nodeSummary(state))]
+      : []),
     "",
     `${confirmed.length} node(s) open, unassigned, and unblocked.`,
     "Advisory (§2.4): the frontier can read short when membership edges are missing or the tracker index lags.",

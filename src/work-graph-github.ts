@@ -509,6 +509,7 @@ function toNodeState(
     ref: { id: localIssueId(storeRepo, issue) },
     node,
     status: issue.status,
+    ...(issue.repo !== undefined && issue.repo.toLowerCase() !== storeRepo.toLowerCase() ? { writable: false } : {}),
     assignees: issue.assignees,
     blockedBy,
     author: issue.author,
