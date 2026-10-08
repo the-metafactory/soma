@@ -731,6 +731,7 @@ export { type CompletenessGap, type CompletenessReport } from "./vsa-schema";
 export {
   WorkGraph,
   WorkGraphError,
+  UnreadableBlockersError,
   agentExternalEvidenceKinds,
   assertClosable,
   hashGatedNodeFields,

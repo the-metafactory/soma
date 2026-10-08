@@ -4,6 +4,7 @@ import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 import {
   WorkGraph,
   WorkGraphError,
+  UnreadableBlockersError,
   assertClosable,
   hashGatedNodeFields,
   estimateReceiptChars,
@@ -668,6 +669,19 @@ test("close gates on the node as the store reports it, not on a caller-supplied 
 
 // --- #740: no window in which a blocked node is reachable and unblocked -----
 
+test("createNode refuses an unreadable blocker before creating or wiring anything", async () => {
+  const store = new FakeStore();
+  store.add("ok");
+  const error = await new WorkGraph(store).createNode({ title: "t", autonomy: "approve" }, [{ id: "ok" }, { id: "missing" }]).catch((caught: unknown) => caught);
+
+  expect(error).toBeInstanceOf(WorkGraphError);
+  expect(error).toBeInstanceOf(UnreadableBlockersError);
+  expect(error).toMatchObject({ name: "UnreadableBlockersError", code: "invalid-edge", unreadable: [{ id: "missing", reason: "no such node missing" }] });
+  expect(store.created).toEqual([]);
+  expect(store.edges).toEqual([]);
+  expect(store.calls).toEqual([]);
+});
+
 test("createNode with blockers writes every edge before the parent link", async () => {
   const store = new FakeStore();
   store.add("root");
@@ -677,6 +691,90 @@ test("createNode with blockers writes every edge before the parent link", async 
 
   expect(store.calls).toEqual(["create 1000", "edge 81 1000", "edge 82 1000", "attach 1000 root"]);
   expect(created).toMatchObject({ id: "1000", attached: true, edges: { written: ["81", "82"], failed: [] } });
+});
+
+test("linkBlockers refuses an unreadable blocker before writing any edge", async () => {
+  const store = new FakeStore();
+  store.add("node");
+  store.add("ok");
+  const error = await new WorkGraph(store).linkBlockers({ id: "node" }, [{ id: "ok" }, { id: "missing" }]).catch((caught: unknown) => caught);
+
+  expect(error).toBeInstanceOf(UnreadableBlockersError);
+  expect(error).toMatchObject({ code: "invalid-edge", unreadable: [{ id: "missing", reason: "no such node missing" }] });
+  expect(store.edges).toEqual([]);
+  expect(store.calls).toEqual([]);
+});
+
+test("addBlockingEdges refuses an unreadable blocker before writing any edge", async () => {
+  const store = new FakeStore();
+  store.add("node");
+  store.add("ok");
+  const error = await new WorkGraph(store).addBlockingEdges({ id: "node" }, [{ id: "ok" }, { id: "missing" }]).catch((caught: unknown) => caught);
+
+  expect(error).toBeInstanceOf(UnreadableBlockersError);
+  expect(error).toMatchObject({ code: "invalid-edge", unreadable: [{ id: "missing", reason: "no such node missing" }] });
+  expect(store.edges).toEqual([]);
+  expect(store.calls).toEqual([]);
+});
+
+test("addBlockingEdges writes every readable blocker and collects per-edge failures", async () => {
+  const store = new FakeStore();
+  store.add("a");
+  store.add("b");
+  store.add("node");
+
+  expect(await new WorkGraph(store).addBlockingEdges({ id: "node" }, [{ id: "a" }, { id: "b" }])).toEqual({ written: ["a", "b"], failed: [] });
+  expect(store.edges).toEqual([["a", "node"], ["b", "node"]]);
+});
+
+test("linkBlockers reports existing blockers and only writes new edges", async () => {
+  const store = new FakeStore();
+  store.add("existing");
+  store.add("new");
+  store.add("node", {}, ["existing"]);
+
+  const result = await new WorkGraph(store).linkBlockers({ id: "node" }, [{ id: "existing" }, { id: "new" }]);
+
+  expect(result).toMatchObject({ written: ["new"], already: ["existing"], failed: [] });
+  // `state` is the node as read before the edge landed, so a caller never reads it twice.
+  expect(result.state.blockedBy.map((blocker) => blocker.id)).toEqual(["existing"]);
+  expect(store.edges).toEqual([["new", "node"]]);
+});
+
+test.each(["create", "link"])("%s reads every blocker in parallel and reports all failures before writing", async (operation) => {
+  const reads: string[] = [];
+  const release = new Map<string, () => void>();
+  class DelayedStore extends FakeStore {
+    override async readNode(ref: NodeRef): Promise<NodeState> {
+      if (ref.id !== "node") {
+        reads.push(ref.id);
+        await new Promise<void>((resolve) => release.set(ref.id, resolve));
+      }
+      return await super.readNode(ref);
+    }
+  }
+  const store = new DelayedStore();
+  store.add("ok");
+  // Even an existing edge's blocker must be readable before linking another one.
+  store.add("node", {}, ["missing-first"]);
+  const graph = new WorkGraph(store);
+  const blockers = [{ id: "missing-first" }, { id: "ok" }, { id: "missing-last" }];
+  const attempt = (operation === "create" ? graph.createNode({ title: "t", autonomy: "approve" }, blockers) : graph.linkBlockers({ id: "node" }, blockers)).catch((caught: unknown) => caught);
+
+  expect(reads).toEqual(["missing-first", "ok", "missing-last"]);
+  expect(store.calls).toEqual([]);
+  // Reads finish out of order, but the refusal names failures in input order.
+  release.get("missing-last")!();
+  release.get("ok")!();
+  release.get("missing-first")!();
+  const error = await attempt;
+  expect(error).toBeInstanceOf(UnreadableBlockersError);
+  expect(error).toMatchObject({ unreadable: [
+    { id: "missing-first", reason: "no such node missing-first" },
+    { id: "missing-last", reason: "no such node missing-last" },
+  ] });
+  expect(store.created).toEqual([]);
+  expect(store.edges).toEqual([]);
 });
 
 test("a failed edge leaves the node unattached, and the other edges still land", async () => {
