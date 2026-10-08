@@ -39,6 +39,7 @@ const SOMA_VERSION: string = packageJson.version;
 import {
   WorkGraph,
   WorkGraphError,
+  UnreadableBlockersError,
   agentExternalEvidenceKinds,
   assertCloseTarget,
   assertNodeOpen,
@@ -984,18 +985,11 @@ function edgeLabel(node: string, blocker: string): string {
   return `${node} blocked by ${blocker}`;
 }
 
-/**
- * Every blocker must be a node the store can read before anything is written
- * (#750): a typo or an unreadable ref refuses the whole verb, so nothing is
- * left half-wired. The reads are independent, so they run together, and every
- * failure is reported at once, not just the first.
- */
-async function checkBlockers(graph: WorkGraph, blockedBy: readonly string[], verb: string, json: boolean): Promise<void> {
-  const reads = await Promise.allSettled(blockedBy.map(async (id) => await graph.readNode({ id })));
-  const unreadable = reads.flatMap((read, index) => (read.status === "rejected" ? [{ id: blockedBy[index], reason: errorMessage(read.reason) }] : []));
-  if (unreadable.length === 0) return;
-  if (json) throw new SomaCliError(JSON.stringify({ refused: true, written: [], unreadable }, null, 2), 1);
-  throw new SomaCliError(
+/** Render WorkGraph's pre-write refusal with the verbs' existing text and JSON shape. */
+function unreadableBlockersRefusal(error: UnreadableBlockersError, verb: string, json: boolean): SomaCliError {
+  const { unreadable } = error;
+  if (json) return new SomaCliError(JSON.stringify({ refused: true, written: [], unreadable }, null, 2), 1);
+  return new SomaCliError(
     [`soma graph ${verb} refused: ${unreadable.length} blocker(s) cannot be read, so nothing was written.`, ...unreadable.map((entry) => `- ${entry.id}: ${entry.reason}`)].join("\n"),
     1,
   );
@@ -1016,7 +1010,6 @@ async function runAdd(
   const { bodyFile, ...rest } = parsed.options.spec;
   const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
   const blockedBy = parsed.options.blockedBy;
-  await checkBlockers(graph, blockedBy, "add", parsed.options.json === true);
 
   const isGitLabEpic = repo.forge === "gitlab" && parseLocatedNodeId(parsed.target)?.sigil === "&";
   const storeData = repo.forge !== "gitlab" ? rest.storeData : { ...(rest.storeData !== undefined && typeof rest.storeData === "object" ? rest.storeData as Record<string, unknown> : {}), ...(isGitLabEpic ? {} : { scopeProject: repo.path }) };
@@ -1081,17 +1074,17 @@ const PARENT_STATUS_TEXT: Record<ParentStatus, string> = { attached: "attached",
  * Add blocking edges to a node that already exists (#750, #703) — the way to
  * wire a dependency discovered later — and, with `--parent`, attach it: the
  * repair for a partly wired `add` (#740). Edges go through
- * {@link WorkGraph.addBlockingEdge}, so the cycle check runs; an edge the node
+ * {@link WorkGraph.linkBlockers}, so the cycle check runs; an edge the node
  * already has is skipped, so a re-run is safe. The parent is attached last,
  * and only when every edge landed, for the same reason `add` orders it so. A
  * failed attach is reported with the edges that landed, never thrown past them.
  */
 async function runLink(parsed: ParsedGraphLinkArgs, graph: WorkGraph, repo: RepoRef): Promise<string> {
   const blocked = { id: parsed.target };
-  const [state] = await Promise.all([graph.readNode(blocked), checkBlockers(graph, parsed.options.blockedBy, "link", parsed.options.json === true)]);
-  const existing = new Set(state.blockedBy.map((blocker) => blocker.id));
-  const already = parsed.options.blockedBy.filter((id) => existing.has(id));
-  const { written, failed } = await graph.addBlockingEdges(blocked, parsed.options.blockedBy.filter((id) => !existing.has(id)).map((id) => ({ id })));
+  const [state, { written, already, failed }] = await Promise.all([
+    graph.readNode(blocked),
+    graph.linkBlockers(blocked, parsed.options.blockedBy.map((id) => ({ id }))),
+  ]);
   const parent = parsed.options.parent;
   // With an edge failed the attach does not run, but a node already under `parent` is not "not attached".
   let parentStatus: ParentStatus = parent !== undefined && state.parent?.id === parent ? "already" : "not attached";
@@ -1731,9 +1724,13 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "release":
       return await runRelease(parsed, graph, store, repo);
     case "add":
-      return await runAdd(parsed, graph, repoRef, deps);
     case "link":
-      return await runLink(parsed, graph, repoRef);
+      try {
+        return parsed.action === "add" ? await runAdd(parsed, graph, repoRef, deps) : await runLink(parsed, graph, repoRef);
+      } catch (error) {
+        if (error instanceof UnreadableBlockersError) throw unreadableBlockersRefusal(error, parsed.action, parsed.options.json === true);
+        throw error;
+      }
     case "chart":
       return await runChart(parsed, graph, repoRef, deps);
     case "close":

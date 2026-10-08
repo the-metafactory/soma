@@ -599,6 +599,35 @@ test("an add refused for an unreadable blocker is JSON under --json", async () =
   expect(store.created).toHaveLength(0);
 });
 
+test("add still reports unreadable blockers before invalid node data", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") });
+  const args = addArgs("404").map((arg) => arg === "approve" ? "auto" : arg);
+
+  expect(await failure(args, store)).toBe("soma graph add refused: 1 blocker(s) cannot be read, so nothing was written.\n- 404: no such node 404");
+  expect(store.calls).toEqual([]);
+});
+
+test.each([
+  ["add", false],
+  ["add", true],
+  ["link", false],
+  ["link", true],
+] as const)("%s preserves unreadable-blocker refusal and exit code (json=%s)", async (verb, json) => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("97", { node: autoNode("97") });
+  const args = verb === "add" ? addArgs("97", "404") : ["graph", "link", "495", "--blocked-by", "97", "--blocked-by", "404", "--repo", REPO];
+  const error = await run([...args, ...(json ? ["--json"] : [])], store).catch((caught: unknown) => caught);
+
+  expect(error).toBeInstanceOf(SomaCliError);
+  expect(error).toMatchObject({ exitCode: 1 });
+  const message = (error as SomaCliError).message;
+  if (json) {
+    expect(message).toBe(JSON.stringify({ refused: true, written: [], unreadable: [{ id: "404", reason: "no such node 404" }] }, null, 2));
+  } else {
+    expect(message).toBe(`soma graph ${verb} refused: 1 blocker(s) cannot be read, so nothing was written.\n- 404: no such node 404`);
+  }
+  expect(store.calls).toEqual([]);
+});
+
 test("add writes every blocking edge before it attaches the node to its parent (#740)", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495") })

@@ -812,6 +812,17 @@ export class WorkGraphError extends Error {
   }
 }
 
+/** Every failed blocker read, collected before any topology write is attempted. */
+export class UnreadableBlockersError extends WorkGraphError {
+  readonly unreadable: { id: string; reason: string }[];
+
+  constructor(unreadable: { id: string; reason: string }[]) {
+    super("invalid-edge", `${unreadable.length} blocker(s) cannot be read, so nothing was written.`);
+    this.name = "UnreadableBlockersError";
+    this.unreadable = unreadable;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Parsing — the authoritative barrier at the store boundary (§2.1)
 // ---------------------------------------------------------------------------
@@ -1511,6 +1522,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
    * Validate at the boundary, then create. Additive mutation — free after
    * structural validation (§1 clause 2).
    *
+   * Every blocker is read before any write; unreadable blockers refuse the whole create.
    * With blockers, the node is created unattached (`detached`), every edge is written, and
    * only then is it attached to its parent (#740). A frontier walk reaches a
    * node only through its parent, so there is no window in which the node is
@@ -1518,6 +1530,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
    * unattached (`attached: false`): on no frontier, waiting for a repair.
    */
   async createNode(spec: unknown, blockedBy: readonly NodeRef[] = []): Promise<CreatedNode> {
+    await this.readBlockers(blockedBy);
     const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
     const requested = parsed.parent === undefined || this.store.selectRehomeParent === undefined ? undefined : await this.store.readNode(parsed.parent);
     const rehome = requested === undefined ? undefined : await this.store.selectRehomeParent?.(requested);
@@ -1573,6 +1586,22 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
       }
     }
     return edges;
+  }
+
+  /** Pre-read every blocker, skip existing dependencies, then try every remaining edge. */
+  async linkBlockers(blocked: NodeRef, blockedBy: readonly NodeRef[]): Promise<EdgeWrites & { already: string[] }> {
+    const [state] = await Promise.all([this.readNode(blocked), this.readBlockers(blockedBy)]);
+    const existing = new Set(state.blockedBy.map((blocker) => blocker.id));
+    const already = blockedBy.filter((blocker) => existing.has(blocker.id)).map((blocker) => blocker.id);
+    const edges = await this.addBlockingEdges(blocked, blockedBy.filter((blocker) => !existing.has(blocker.id)));
+    return { ...edges, already };
+  }
+
+  /** Read all blockers in parallel and refuse the whole operation if any cannot be read. */
+  private async readBlockers(blockedBy: readonly NodeRef[]): Promise<void> {
+    const reads = await Promise.allSettled(blockedBy.map(async (ref) => await this.readNode(ref)));
+    const unreadable = reads.flatMap((read, index) => read.status === "rejected" ? [{ id: blockedBy[index]!.id, reason: errorText(read.reason) }] : []);
+    if (unreadable.length > 0) throw new UnreadableBlockersError(unreadable);
   }
 
   async readNode(ref: NodeRef): Promise<NodeState> {
