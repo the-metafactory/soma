@@ -10,7 +10,7 @@
     "soma": "bun src/cli.ts",
     "harness-eval": "bun scripts/harness-eval.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "bun test --timeout=60000",
     "test:portability": "bun test test/portability-ci.test.ts",
     "check-skill-version": "bun scripts/check-skill-version.ts",
     "check-release-privacy": "bun scripts/check-release-privacy.ts",

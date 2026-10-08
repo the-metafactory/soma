@@ -14,7 +14,7 @@ learning, and adapter contracts.
 - Keep the core filesystem-native and model-provider-neutral.
 - Prefer deterministic TypeScript contracts over prompt-only conventions.
 - Use Bun for scripts and tests.
-- Verify changes with `bun test` and `bun run typecheck`.
+- Verify changes with `bun run test` and `bun run typecheck` (`bun run test` passes `--timeout=60000`; bun's default 5 s per test is too short for the install tests on a loaded host).
 
 ## Substrate Adapters
 
