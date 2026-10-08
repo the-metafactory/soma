@@ -892,7 +892,9 @@ async function runFrontier(parsed: ParsedGraphFrontierArgs, graph: WorkGraph, re
       ? ["", "Skipped: this store cannot write these (another repo):", ...notWritable.map((state) => nodeSummary(state))]
       : []),
     "",
-    `${confirmed.length} node(s) open, unassigned, and unblocked.`,
+    notWritable.length > 0
+      ? `${confirmed.length} writable node(s) open, unassigned, and unblocked (${notWritable.length} skipped).`
+      : `${confirmed.length} node(s) open, unassigned, and unblocked.`,
     "Advisory (§2.4): the frontier can read short when membership edges are missing or the tracker index lags.",
   ].join("\n");
 }

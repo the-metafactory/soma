@@ -189,7 +189,7 @@ export interface NodeState {
   /** Store-owned fields that affect close or routing, kept outside the shared node schema. */
   storeFields?: Readonly<Record<string, unknown>>;
   status: NodeStatus;
-  /** False when this store cannot write the node; absent means writable. */
+  /** False when this node is outside the store's write scope; absent means writable. Not a permission guarantee. */
   writable?: boolean;
   assignees: readonly string[];
   blockedBy: readonly BlockingRef[];
@@ -1694,6 +1694,9 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
    * therefore confirms. That contract, and why the second read cost coherence
    * rather than buying it, is stated once on the seam method; spec §2.4 is
    * normative.
+   *
+   * Returns only writable candidates. Use {@link WorkGraph.frontierReport} to
+   * also inspect otherwise-ready members outside the store's write scope.
    *
    * False *negatives* remain unrecoverable — the frontier is advisory and may
    * return short, self-healing on a later tick. Correctness rests on the claim

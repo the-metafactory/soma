@@ -567,14 +567,17 @@ function subtreeTransport(
   return { transport, keys };
 }
 
-test("the GitHub frontier reports sibling-repo members as unwritable in one subtree read", async () => {
+test("the GitHub frontier reports sibling-repo members as unwritable in one subtree read, matching claim confinement", async () => {
   const { transport, keys } = subtreeTransport({
     "495": gql(495, "OPEN", conn([
       gql(497, "OPEN", counted(0), { repository: { nameWithOwner: REPO.toUpperCase() } }),
       gql(497, "OPEN", counted(0), { repository: { nameWithOwner: RANGER } }),
     ])),
+  }, {
+    [`GET repos/${RANGER}/issues/497`]: issuePayload({ repository_url: `https://api.github.com/repos/${RANGER}` }),
   });
-  const graph = new WorkGraph(createGitHubGraphStore({ repo: REPO, transport }));
+  const store = createGitHubGraphStore({ repo: REPO, transport });
+  const graph = new WorkGraph(store);
   const report = await graph.frontierReport({ id: "495" });
 
   expect(ids(report.frontier)).toEqual(["497"]);
@@ -582,6 +585,8 @@ test("the GitHub frontier reports sibling-repo members as unwritable in one subt
   expect(ids(report.notWritable)).toEqual([`${RANGER}#497`]);
   expect(report.notWritable[0]?.writable).toBe(false);
   expect(keys).toEqual(["495"]);
+  await expect(store.claim(report.notWritable[0]!.ref, "ivy-agent")).rejects.toThrow(/writes only to its own repository/u);
+  expect(keys).toEqual(["495", `GET repos/${RANGER}/issues/497`]);
 });
 
 test("the walk descends into closed nodes and reports the whole subtree depth-first", async () => {

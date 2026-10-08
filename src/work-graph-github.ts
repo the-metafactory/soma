@@ -304,6 +304,11 @@ function localIssueId(storeRepo: string, issue: { number: number; repo?: string 
   return gitHubNodeId(storeRepo, issue.repo ?? storeRepo, issue.number);
 }
 
+/** Repository confinement shared by state reporting and writePath, not a permission probe. */
+function isForeignRepo(repo: string | undefined, storeRepo: string): boolean {
+  return repo !== undefined && repo.toLowerCase() !== storeRepo.toLowerCase();
+}
+
 function withRepo(repo: string | undefined): { repo?: string } {
   return repo === undefined ? {} : { repo };
 }
@@ -505,11 +510,12 @@ function toNodeState(
   parent?: NodeRef,
 ): NodeState {
   const { node, typed, parseError, text } = nodeFromIssue(issue);
+  const foreign = isForeignRepo(issue.repo, storeRepo);
   return {
     ref: { id: localIssueId(storeRepo, issue) },
     node,
     status: issue.status,
-    ...(issue.repo !== undefined && issue.repo.toLowerCase() !== storeRepo.toLowerCase() ? { writable: false } : {}),
+    ...(foreign ? { writable: false } : {}),
     assignees: issue.assignees,
     blockedBy,
     author: issue.author,
@@ -709,7 +715,7 @@ class GitHubGraphStore implements GraphStore {
    */
   private writePath(ref: NodeRef): string {
     const { repo, number } = this.locate(ref);
-    if (repo.toLowerCase() !== this.repo.toLowerCase()) {
+    if (isForeignRepo(repo, this.repo)) {
       throw new WorkGraphError(
         "invalid-node",
         `"${ref.id}" is not a node in ${this.repo}: this store writes only to its own repository. A node in another repo can only be a blocker.`,

@@ -496,10 +496,16 @@ frontier forever — no claim, no close, no error).
   applied above it, because filtering is the contract layer's job and a store
   that pre-filters is deciding §2.4 instead of serving it. An implementation
   that cannot carry a whole subtree in one request must detect the shortfall
-  and complete it; truncating in silence is forbidden.
+  and complete it; truncating the store's subtree read in silence is forbidden.
   Otherwise-ready nodes with `NodeState.writable === false` are returned separately
   by `WorkGraph.frontierReport` in `notWritable` (also in `--json`) and listed under
   `Skipped: this store cannot write these (another repo):`; an absent flag means writable.
+  `WorkGraph.frontier` returns only the writable candidates; callers needing the
+  skipped members use `frontierReport`. This explicit predicate is not subtree
+  truncation. For GitHub, the flag reports the same repository confinement that
+  `writePath` enforces, not token permissions: a sibling blocker is read in its
+  own repo, but its blocking edge is written on the blocked node in this store's
+  repo. An own-repo node can still fail a write for permission or transport reasons.
   **Discovery must be a live read of the authoritative store, and when it is,
   it confirms** (#576, superseding #492 correction 3). The original rule
   required the verb to re-fetch every candidate, and it was written for a

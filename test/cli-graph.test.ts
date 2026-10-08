@@ -376,53 +376,50 @@ test("frontier --json emits the confirmed node states", async () => {
   expect(parsed.notWritable).toEqual([]);
 });
 
-test("frontier text lists ready unwritable members only under Skipped", async () => {
-  const sibling = "the-metafactory/ranger#498";
-  const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), children: ["498", sibling, "closed", "claimed", "blocked"] })
+const SIBLING = "the-metafactory/ranger#498";
+
+function mixedWritabilityStore(): FakeStore {
+  return new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["498", SIBLING, "closed", "claimed", "blocked"] })
     .seed("498", { node: autoNode("498") })
-    .seed(sibling, { node: autoNode(sibling), writable: false })
+    .seed(SIBLING, { node: autoNode(SIBLING), writable: false })
     .seed("closed", { node: autoNode("closed"), writable: false, status: "closed" })
     .seed("claimed", { node: autoNode("claimed"), writable: false, assignees: ["ivy-agent"] })
     .seed("blocked", { node: autoNode("blocked"), writable: false, blockedBy: [{ id: "498", status: "open" }] });
+}
+
+test("frontier text lists ready unwritable members only under Skipped", async () => {
+  const store = mixedWritabilityStore();
 
   const output = await run(["graph", "frontier", "495", "--repo", REPO], store);
   const [frontier, skipped] = output.split("Skipped: this store cannot write these (another repo):");
   expect(frontier).toContain("- 498");
-  expect(frontier).not.toContain(`- ${sibling}`);
-  expect(skipped).toContain(`- ${sibling}`);
-  expect(output).toContain("1 node(s) open, unassigned, and unblocked.");
+  expect(frontier).not.toContain(`- ${SIBLING}`);
+  expect(skipped).toContain(`- ${SIBLING}`);
+  expect(output).toContain("1 writable node(s) open, unassigned, and unblocked (1 skipped).");
   for (const id of ["closed", "claimed", "blocked"]) expect(output).not.toContain(`- ${id}`);
 });
 
 test("frontier --json carries ready unwritable states in the additive notWritable array", async () => {
-  const sibling = "the-metafactory/ranger#498";
-  const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), children: ["498", sibling, "closed", "claimed", "blocked"] })
-    .seed("498", { node: autoNode("498") })
-    .seed(sibling, { node: autoNode(sibling), writable: false })
-    .seed("closed", { node: autoNode("closed"), writable: false, status: "closed" })
-    .seed("claimed", { node: autoNode("claimed"), writable: false, assignees: ["ivy-agent"] })
-    .seed("blocked", { node: autoNode("blocked"), writable: false, blockedBy: [{ id: "498", status: "open" }] });
+  const store = mixedWritabilityStore();
 
   const parsed = JSON.parse(await run(["graph", "frontier", "495", "--repo", REPO, "--json"], store)) as {
     frontier: NodeState[];
     notWritable: NodeState[];
   };
   expect(parsed.frontier.map((state) => state.ref.id)).toEqual(["498"]);
-  expect(parsed.notWritable.map((state) => state.ref.id)).toEqual([sibling]);
-  expect(parsed.notWritable[0]).toMatchObject({ writable: false, node: { title: `node ${sibling}` } });
+  expect(parsed.notWritable.map((state) => state.ref.id)).toEqual([SIBLING]);
+  expect(parsed.notWritable[0]).toMatchObject({ writable: false, node: { title: `node ${SIBLING}` } });
 });
 
 test("frontier with only unwritable ready members still renders an empty frontier", async () => {
-  const sibling = "the-metafactory/ranger#498";
   const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), children: [sibling] })
-    .seed(sibling, { node: autoNode(sibling), writable: false });
+    .seed("495", { node: autoNode("495"), children: [SIBLING] })
+    .seed(SIBLING, { node: autoNode(SIBLING), writable: false });
   const output = await run(["graph", "frontier", "495", "--repo", REPO], store);
   expect(output).toContain("\n- none\n");
-  expect(output).toContain(`Skipped: this store cannot write these (another repo):\n- ${sibling}`);
-  expect(output).toContain("0 node(s) open, unassigned, and unblocked.");
+  expect(output).toContain(`Skipped: this store cannot write these (another repo):\n- ${SIBLING}`);
+  expect(output).toContain("0 writable node(s) open, unassigned, and unblocked (1 skipped).");
 });
 
 // --- node -------------------------------------------------------------------
