@@ -212,6 +212,12 @@ export interface NodeState {
   currentCloseReceipt?: boolean;
 }
 
+/** Otherwise-ready subtree members partitioned by the store's write scope. */
+export interface FrontierReport {
+  frontier: NodeState[];
+  notWritable: NodeState[];
+}
+
 /**
  * The narrow slice of {@link NodeState} a **status derivation** needs — what the
  * graph publishes to the planSteps bridge (§2.7).
@@ -1695,8 +1701,9 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
    * rather than buying it, is stated once on the seam method; spec §2.4 is
    * normative.
    *
-   * Returns only writable candidates. Use {@link WorkGraph.frontierReport} to
-   * also inspect otherwise-ready members outside the store's write scope.
+   * Returns only writable candidates, without skipped members or their count.
+   * Consumers accounting for all ready members must use
+   * {@link WorkGraph.frontierReport} to inspect both lists.
    *
    * False *negatives* remain unrecoverable — the frontier is advisory and may
    * return short, self-healing on a later tick. Correctness rests on the claim
@@ -1712,7 +1719,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
   }
 
   /** Ready members partitioned by store writability, over a single subtree read. */
-  async frontierReport(root: NodeRef): Promise<{ frontier: NodeState[]; notWritable: NodeState[] }> {
+  async frontierReport(root: NodeRef): Promise<FrontierReport> {
     const subtree = await this.store.readSubtree(root);
     const frontier: NodeState[] = [];
     const notWritable: NodeState[] = [];

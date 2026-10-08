@@ -877,6 +877,16 @@ function nodeSummary(state: NodeState): string {
 // Verbs
 // ---------------------------------------------------------------------------
 
+function skippedSection(notWritable: NodeState[]): string[] {
+  if (notWritable.length === 0) return [];
+  return ["", "Skipped: this store cannot write these (another repo):", ...notWritable.map(nodeSummary)];
+}
+
+function frontierFooter(confirmed: NodeState[], notWritable: NodeState[]): string {
+  if (notWritable.length === 0) return `${confirmed.length} node(s) open, unassigned, and unblocked.`;
+  return `${confirmed.length} writable node(s) open, unassigned, and unblocked (${notWritable.length} skipped).`;
+}
+
 async function runFrontier(parsed: ParsedGraphFrontierArgs, graph: WorkGraph, repo: string): Promise<string> {
   const { frontier: confirmed, notWritable } = await graph.frontierReport({ id: parsed.target });
 
@@ -888,13 +898,9 @@ async function runFrontier(parsed: ParsedGraphFrontierArgs, graph: WorkGraph, re
     `Work graph frontier — root ${parsed.target} (${repo})`,
     "",
     ...(confirmed.length > 0 ? confirmed.map((state) => nodeSummary(state)) : ["- none"]),
-    ...(notWritable.length > 0
-      ? ["", "Skipped: this store cannot write these (another repo):", ...notWritable.map((state) => nodeSummary(state))]
-      : []),
+    ...skippedSection(notWritable),
     "",
-    notWritable.length > 0
-      ? `${confirmed.length} writable node(s) open, unassigned, and unblocked (${notWritable.length} skipped).`
-      : `${confirmed.length} node(s) open, unassigned, and unblocked.`,
+    frontierFooter(confirmed, notWritable),
     "Advisory (§2.4): the frontier can read short when membership edges are missing or the tracker index lags.",
   ].join("\n");
 }
