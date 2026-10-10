@@ -32,6 +32,7 @@ import {
   type CreateNodeOptions,
   type CreateNodeSpec,
   type GraphStore,
+  type GraphReadOptions,
   type NodeComment,
   type NodeRef,
   type NodeState,
@@ -796,11 +797,11 @@ class GitHubGraphStore implements GraphStore {
     });
   }
 
-  async readNode(ref: NodeRef): Promise<NodeState> {
+  async readNode(ref: NodeRef, options: GraphReadOptions = {}): Promise<NodeState> {
     const issue = await this.fetchIssue(ref);
     const parentId = issue.parent === undefined ? await this.fetchParentId(ref, issue.repo) : this.parentId(issue.parent, issue.repo);
     const state = toNodeState(this.repo, issue, await this.fetchBlockers(ref), parentId === undefined ? undefined : { id: parentId });
-    if (issue.status !== "closed") return state;
+    if (issue.status !== "closed" || options.includeCurrentCloseReceipt === false) return state;
     if (state.node.completion === undefined) return { ...state, currentCloseReceipt: false };
     return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref, issue, state.node.completion) };
   }
@@ -831,7 +832,7 @@ class GitHubGraphStore implements GraphStore {
    * or `blockedBy` page came back short: its state is repaired by a direct
    * `readNode`, whose REST paths paginate.
    */
-  async readSubtree(root: NodeRef): Promise<NodeState[]> {
+  async readSubtree(root: NodeRef, options: GraphReadOptions = {}): Promise<NodeState[]> {
     if (!BARE_ISSUE_ID.test(root.id)) {
       throw new WorkGraphError("backend", `readSubtree: ${root.id} is not an issue number`);
     }
@@ -855,7 +856,7 @@ class GitHubGraphStore implements GraphStore {
       // able to disagree about the edge we are standing on — the seam promises
       // the edge it arrived by, not whatever a second lookup reports.
       states.push(
-        node.stateTruncated ? { ...(await this.readNode(node.state.ref)), parent } : { ...node.state, parent },
+        node.stateTruncated ? { ...(await this.readNode(node.state.ref, options)), parent } : { ...node.state, parent },
       );
       for (const child of await this.completeChildren(node)) await visit(child, node.state.ref);
     };
@@ -1176,6 +1177,90 @@ class GitHubGraphStore implements GraphStore {
         ...(typeof record.html_url === "string" ? { url: record.html_url } : {}),
       };
     });
+  }
+
+  /** Twenty independent comment connections per request, with complete pagination. */
+  async listCommentsBatch(refs: readonly NodeRef[]): Promise<NodeComment[][]> {
+    const results: NodeComment[][] = [];
+    for (let offset = 0; offset < refs.length; offset += 20) {
+      const batch = refs.slice(offset, offset + 20);
+      try {
+        results.push(...await this.fetchCommentBatch(batch));
+      } catch (error) {
+        if (!isGraphQLRateLimitError(error)) throw error;
+        // Match the subtree walk's quota fallback. Serial here preserves the
+        // caller's bound on in-flight batches without multiplying REST fan-out.
+        for (const ref of batch) results.push(await this.listComments(ref));
+      }
+    }
+    return results;
+  }
+
+  private async fetchCommentBatch(refs: readonly NodeRef[]): Promise<NodeComment[][]> {
+    const context = "comment batch";
+    const entries = refs.map((ref, index) => ({
+      ...this.locate(ref), alias: `n${index}`, after: null as string | null,
+      cursors: new Set<string>(), comments: [] as NodeComment[],
+    }));
+    let pending = entries;
+    while (pending.length > 0) {
+      const fields = pending.map(({ repo, number, alias, after }) => {
+        const [owner, name] = repo.split("/");
+        return `${alias}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) {
+          issue(number: ${number}) {
+            comments(first: 100, after: ${JSON.stringify(after)}) {
+              totalCount nodes { fullDatabaseId body author { login } createdAt url }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }`;
+      });
+      const response = asRecord(await this.transport({
+        method: "POST", path: "graphql", body: { query: `query { ${fields.join("\n")} }` },
+      }), context);
+      if (response.errors !== undefined && asArray(response.errors, context).length > 0) {
+        throw new WorkGraphError("backend", `${context}: GraphQL returned errors`);
+      }
+      const data = asRecord(response.data, context);
+      const more: typeof entries = [];
+      for (const entry of pending) {
+        const repository = asRecord(data[entry.alias], context);
+        const issue = asRecord(repository.issue, context);
+        const connection = asRecord(issue.comments, context);
+        const nodes = asArray(connection.nodes, context);
+        for (const node of nodes) {
+          const record = asRecord(node, context);
+          const id = record.fullDatabaseId;
+          if ((typeof id !== "string" && typeof id !== "number") || !/^\d+$/u.test(String(id))) {
+            throw new WorkGraphError("backend", `${context}: comment has no database id`);
+          }
+          entry.comments.push({
+            id: String(id), author: readLogin(record.author),
+            body: typeof record.body === "string" ? record.body : "",
+            ...(typeof record.createdAt === "string" ? { createdAt: record.createdAt } : {}),
+            ...(typeof record.url === "string" ? { url: record.url } : {}),
+          });
+        }
+        const totalCount = readNumber(connection, "totalCount", context);
+        const pageInfo = asRecord(connection.pageInfo, context);
+        if (pageInfo.hasNextPage === false) {
+          if (entry.comments.length !== totalCount) {
+            throw new WorkGraphError("backend", `${context}: ${entry.repo}#${entry.number} comments truncated`);
+          }
+          continue;
+        }
+        const cursor = pageInfo.endCursor;
+        if (pageInfo.hasNextPage !== true || typeof cursor !== "string" || cursor.length === 0
+          || entry.cursors.has(cursor) || nodes.length === 0) {
+          throw new WorkGraphError("backend", `${context}: unusable pagination for ${entry.repo}#${entry.number}`);
+        }
+        entry.cursors.add(cursor);
+        entry.after = cursor;
+        more.push(entry);
+      }
+      pending = more;
+    }
+    return entries.map((entry) => entry.comments);
   }
 
   async readRawBody(ref: NodeRef): Promise<string> {

@@ -766,6 +766,7 @@ export {
   type EdgeWrites,
   type FrontierReport,
   type GraphStore,
+  type GraphReadOptions,
   type NodeBudget,
   type NodeComment,
   type NodeRef,

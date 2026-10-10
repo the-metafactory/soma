@@ -749,6 +749,14 @@ quality. The existing subtree bodies supply the check without extra node reads.
 `graph add` and the store still accept not-ready build bodies; a consumer such
 as ranger may refuse to execute them at walk time.
 
+`soma graph audit <root> --scope build-brief-not-ready --json` checks only that
+finding and reads no comments. It returns `repo`, `root`, `nodes`, and
+`buildBriefNotReady`; unchecked finding fields are absent rather than empty.
+Without a scope, all existing findings remain. GitHub receipt scans read up to
+20 nodes' comments per request, with at most four batches in flight, following
+each node's pagination to completion. Stores without batch reads retain bounded
+individual reads; GitHub also falls back to these when GraphQL quota is exhausted.
+
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
 phase 1 — but no longer *undetected*: `audit` reports every closed node whose

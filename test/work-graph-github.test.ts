@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { parseGraphArgs, runGraphCli } from "../src/cli/graph";
 import {
   WorkGraph,
   WorkGraphError,
@@ -20,6 +21,121 @@ import {
 
 const REPO = "the-metafactory/soma";
 const PROBE: Probe = { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 };
+
+test("comment batches retain each node's full posting order across independent cursors", async () => {
+  const comment = (id: string, body: string) => ({ fullDatabaseId: id, body, author: { login: "ivy-agent" }, createdAt: "2026-10-10T10:00:00Z", url: `https://github.test/c/${id}` });
+  const page = (nodes: unknown[], totalCount: number, hasNextPage = false, endCursor: string | null = null) => ({ issue: { comments: { nodes, totalCount, pageInfo: { hasNextPage, endCursor } } } });
+  const queries: string[] = [];
+  const transport: GitHubApiTransport = async (request) => {
+    expect(request.path).toBe("graphql");
+    const query = String(request.body?.query);
+    queries.push(query);
+    if (queries.length === 1) return { data: {
+      n0: page([comment("3000000001", "first")], 2, true, "cursor-a"),
+      n1: page([comment("3000000002", "other node")], 1),
+    } };
+    expect(query).toContain('after: "cursor-a"');
+    expect(query).not.toContain("n1:");
+    return { data: { n0: page([comment("3000000003", "receipt on last page")], 2) } };
+  };
+  const graph = new WorkGraph(createGitHubGraphStore({ repo: REPO, transport }));
+  expect(await graph.listCommentsBatch([{ id: "497" }, { id: "jcfischer/seelite#10" }])).toEqual([
+    [
+      { id: "3000000001", body: "first", author: "ivy-agent", createdAt: "2026-10-10T10:00:00Z", url: "https://github.test/c/3000000001" },
+      { id: "3000000003", body: "receipt on last page", author: "ivy-agent", createdAt: "2026-10-10T10:00:00Z", url: "https://github.test/c/3000000003" },
+    ],
+    [{ id: "3000000002", body: "other node", author: "ivy-agent", createdAt: "2026-10-10T10:00:00Z", url: "https://github.test/c/3000000002" }],
+  ]);
+  expect(queries).toHaveLength(2);
+  expect(queries[0]).toContain('repository(owner: "jcfischer", name: "seelite")');
+  expect(queries[0]).toContain("comments(first: 100");
+});
+
+test("a 340-node GitHub comment scan takes 17 bounded requests on every read", async () => {
+  const sizes: number[] = [];
+  const store = new WorkGraph(createGitHubGraphStore({ repo: REPO, transport: async (request) => {
+    expect(request.path).toBe("graphql");
+    const aliases = [...String(request.body?.query).matchAll(/(n\d+): repository/gu)].map((match) => match[1]);
+    sizes.push(aliases.length);
+    return { data: Object.fromEntries(aliases.map((alias) => [alias, { issue: { comments: {
+      nodes: [], totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null },
+    } } }])) };
+  } }));
+  const refs = Array.from({ length: 340 }, (_, index) => ({ id: String(index + 1) }));
+  expect(await store.listCommentsBatch(refs)).toEqual(Array.from({ length: 340 }, () => []));
+  expect(await store.listCommentsBatch(refs)).toHaveLength(340);
+  expect(sizes).toEqual(Array(34).fill(20));
+  expect(await store.listCommentsBatch([])).toEqual([]);
+  expect(sizes).toHaveLength(34);
+});
+
+test.each([
+  ["missing issue", { data: { n0: { issue: null } } }],
+  ["partial errors", { errors: [{ message: "unreadable" }], data: { n0: { issue: { comments: { nodes: [], totalCount: 0, pageInfo: { hasNextPage: false } } } } } }],
+  ["short final page", { data: { n0: { issue: { comments: { nodes: [], totalCount: 1, pageInfo: { hasNextPage: false } } } } } }],
+  ["missing cursor", { data: { n0: { issue: { comments: { nodes: [], totalCount: 1, pageInfo: { hasNextPage: true } } } } } }],
+  ["unknown page status", { data: { n0: { issue: { comments: { nodes: [], totalCount: 0, pageInfo: {} } } } } }],
+])("comment batches refuse %s instead of reporting clean", async (_name, response) => {
+  const store = new WorkGraph(createGitHubGraphStore({ repo: REPO, transport: async () => response }));
+  await expect(store.listCommentsBatch([{ id: "497" }])).rejects.toBeInstanceOf(WorkGraphError);
+});
+
+test("comment batches refuse a repeating cursor", async () => {
+  let reads = 0;
+  const store = new WorkGraph(createGitHubGraphStore({ repo: REPO, transport: async () => {
+    reads += 1;
+    return { data: { n0: { issue: { comments: {
+      nodes: [{ fullDatabaseId: "1", body: "not a receipt" }], totalCount: 3,
+      pageInfo: { hasNextPage: true, endCursor: "same" },
+    } } } } };
+  } }));
+  await expect(store.listCommentsBatch([{ id: "497" }])).rejects.toThrow(/unusable pagination/u);
+  expect(reads).toBe(2);
+});
+
+test("comment batches fall back to complete REST reads only on GraphQL quota exhaustion", async () => {
+  const calls: string[] = [];
+  const store = new WorkGraph(createGitHubGraphStore({ repo: REPO, transport: async (request) => {
+    calls.push(request.path);
+    if (request.path === "graphql") throw new WorkGraphError("backend", "GraphQL: API rate limit exceeded");
+    expect(request.paginate).toBe(true);
+    return [{ id: 1, body: "receipt", user: { login: "ivy-agent" } }];
+  } }));
+  expect(await store.listCommentsBatch([{ id: "497" }])).toEqual([[{ id: "1", body: "receipt", author: "ivy-agent" }]]);
+  expect(calls).toEqual(["graphql", `repos/${REPO}/issues/497/comments`]);
+});
+
+test("scoped audit skips receipt enrichment even for a closed root with a completion binding", async () => {
+  const { transport, calls } = fakeTransport({
+    "POST graphql": { data: { repository: { issue: gql(497, "CLOSED", conn([])) } } },
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497", completion: validCompletion }) }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+  });
+  const output = await runGraphCli(parseGraphArgs(["graph", "audit", "497", "--scope", "build-brief-not-ready", "--json"]), {
+    createStore: () => createGitHubGraphStore({ repo: REPO, transport }),
+    resolveRepo: async () => ({ forge: "github", host: "github.com", path: REPO }),
+  });
+  expect(JSON.parse(output)).toEqual({ repo: REPO, root: "497", nodes: 1, buildBriefNotReady: [] });
+  expect(calls.some((call) => call.path.includes("comments"))).toBe(false);
+});
+
+test("scoped audit skips receipt enrichment when a closed descendant needs a state repair", async () => {
+  const { transport, calls } = fakeTransport({
+    "POST graphql": { data: { repository: { issue: gql(495, "OPEN", conn([
+      gql(497, "CLOSED", counted(0), { assignees: { totalCount: 2, nodes: [] } }),
+    ])) } } },
+    [`GET repos/${REPO}/issues/495`]: issuePayload({ number: 495 }),
+    [`GET repos/${REPO}/issues/495/dependencies/blocked_by`]: [],
+    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497", completion: validCompletion }) }),
+    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
+  });
+  const output = await runGraphCli(parseGraphArgs(["graph", "audit", "495", "--scope", "build-brief-not-ready", "--json"]), {
+    createStore: () => createGitHubGraphStore({ repo: REPO, transport }),
+    resolveRepo: async () => ({ forge: "github", host: "github.com", path: REPO }),
+  });
+  expect(JSON.parse(output)).toEqual({ repo: REPO, root: "495", nodes: 2, buildBriefNotReady: [] });
+  expect(calls.some((call) => call.path.includes("comments"))).toBe(false);
+});
 
 interface Recorded extends GitHubApiRequest {
   key: string;

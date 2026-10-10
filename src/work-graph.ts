@@ -683,6 +683,11 @@ export interface CreatedNode extends NodeRef {
   attachError?: string;
 }
 
+export interface GraphReadOptions {
+  /** False omits currentCloseReceipt enrichment (and its comment reads). Defaults to the store's usual read behaviour. */
+  includeCurrentCloseReceipt?: boolean;
+}
+
 export interface GraphStore<TStoreData extends StoreCreationData = StoreCreationData> {
   /** Backend capability, not a per-receipt verdict — see {@link AttestationCapability}. */
   readonly attestation: AttestationCapability;
@@ -713,7 +718,7 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
   /** Write the membership edge a `detached` create left out. Callers reach this through {@link WorkGraph.attach} or {@link WorkGraph.createNode}. */
   attachToParent(child: NodeRef, parent: NodeRef): Promise<void>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
-  readNode(ref: NodeRef): Promise<NodeState>;
+  readNode(ref: NodeRef, options?: GraphReadOptions): Promise<NodeState>;
   /**
    * Every node in the root's membership **subtree**, at any depth, in
    * depth-first pre-order, each reported at its **current** state.
@@ -758,7 +763,7 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
    * so a store that cannot express membership at all cannot implement this
    * seam, and a flat dump is a wrong answer rather than a degenerate one.
    */
-  readSubtree(root: NodeRef): Promise<NodeState[]>;
+  readSubtree(root: NodeRef, options?: GraphReadOptions): Promise<NodeState[]>;
   /** Assigns, then re-reads (no compare-and-swap exists on GitHub) and applies {@link resolveClaimRace}. */
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>;
   /**
@@ -786,6 +791,8 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
    * out of the receipt it finds.
    */
   listComments(ref: NodeRef): Promise<NodeComment[]>;
+  /** Optional bulk read: one complete, posting-ordered comment list per ref, in input order. Never truncate or omit an unreadable node. */
+  listCommentsBatch?(refs: readonly NodeRef[]): Promise<NodeComment[][]>;
   /**
    * The node's raw body, exactly as stored — node block included, nothing
    * stripped. The write path's counterpart below splices a marked section, and a
@@ -1637,8 +1644,8 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     if (unreadable.length > 0) throw new UnreadableBlockersError(unreadable);
   }
 
-  async readNode(ref: NodeRef): Promise<NodeState> {
-    return await this.store.readNode(ref);
+  async readNode(ref: NodeRef, options?: GraphReadOptions): Promise<NodeState> {
+    return await this.store.readNode(ref, options);
   }
 
   /**
@@ -1784,9 +1791,22 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     return await this.store.listComments(ref);
   }
 
+  async listCommentsBatch(refs: readonly NodeRef[]): Promise<NodeComment[][]> {
+    if (this.store.listCommentsBatch !== undefined) {
+      const comments = await this.store.listCommentsBatch(refs);
+      if (comments.length !== refs.length) throw new WorkGraphError("backend", "comment batch omitted nodes");
+      return comments;
+    }
+    // Serial within a batch: the caller bounds parallel batches, so stores
+    // without bulk reads retain the same bounded individual-read fan-out.
+    const comments: NodeComment[][] = [];
+    for (const ref of refs) comments.push(await this.store.listComments(ref));
+    return comments;
+  }
+
   /** The raw subtree read `frontier` filters — exposed for the walks that need every node (audit, decisions). */
-  async readSubtree(root: NodeRef): Promise<NodeState[]> {
-    return await this.store.readSubtree(root);
+  async readSubtree(root: NodeRef, options?: GraphReadOptions): Promise<NodeState[]> {
+    return await this.store.readSubtree(root, options);
   }
 
   async readRawBody(ref: NodeRef): Promise<string> {
