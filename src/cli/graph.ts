@@ -109,7 +109,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <forge>:<host>/<path>]",
-    audit: "Usage: soma graph audit <root> [--repo <forge>:<host>/<path>] [--json]",
+    audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--json] — scoped audits omit unchecked findings",
     decisions: "Usage: soma graph decisions <root> [--write] [--repo <forge>:<host>/<path>] [--json]",
   },
 };
@@ -196,7 +196,7 @@ export interface ParsedGraphAuditArgs {
   command: "graph";
   action: "audit";
   target: string;
-  options: GraphSharedOptions;
+  options: GraphSharedOptions & { scope?: "build-brief-not-ready" };
 }
 
 export interface ParsedGraphDecisionsArgs {
@@ -522,7 +522,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   if (action === "link") return parseLinkArgs(resolvedTarget, rest);
   if (action === "close") return parseCloseArgs(resolvedTarget, rest);
 
-  const options: GraphSharedOptions & { identity?: string; write?: boolean } = {};
+  const options: GraphSharedOptions & { identity?: string; write?: boolean; scope?: "build-brief-not-ready" } = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     const shared = readShared(options, rest, index, arg);
@@ -537,6 +537,13 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     }
     if (arg === "--write" && action === "decisions") {
       options.write = true;
+      continue;
+    }
+    if (arg === "--scope" && action === "audit") {
+      const scope = readOption(rest, index, arg);
+      if (scope !== "build-brief-not-ready") throw new Error(`Unknown audit scope: ${scope}. Expected build-brief-not-ready.`);
+      options.scope = scope;
+      index += 1;
       continue;
     }
     throw new Error(`Unknown option: ${arg}`);
@@ -1495,8 +1502,9 @@ async function runClose(
   ].join("\n");
 }
 
-/** How many comment reads may be in flight during an audit or decisions walk. Same reasoning as the pre-flight tree reads. */
-const COMMENT_READ_CONCURRENCY = 4;
+/** Bound process fan-out while bulk-capable stores amortise tracker round trips. */
+const COMMENT_BATCH_CONCURRENCY = 4;
+const COMMENT_BATCH_SIZE = 20;
 
 interface ScannedNode {
   state: NodeState;
@@ -1514,15 +1522,21 @@ interface ScannedNode {
 async function scanClosedNodes(
   graph: WorkGraph,
   root: NodeRef,
-  options: { includeRoot?: boolean } = {},
+  options: { includeRoot?: boolean; readReceipts?: boolean } = {},
 ): Promise<{ subtree: NodeState[]; closed: ScannedNode[] }> {
-  const descendants = await graph.readSubtree(root);
-  const subtree = options.includeRoot === true ? [await graph.readNode(root), ...descendants] : descendants;
+  const readOptions = options.readReceipts === false ? { includeCurrentCloseReceipt: false } : undefined;
+  const descendants = await graph.readSubtree(root, readOptions);
+  const subtree = options.includeRoot === true ? [await graph.readNode(root, readOptions), ...descendants] : descendants;
+  if (options.readReceipts === false) return { subtree, closed: [] };
   const closedStates = subtree.filter((state) => state.status === "closed");
-  const closed = await mapBounded(closedStates, COMMENT_READ_CONCURRENCY, async (state) => {
-    const comments = await graph.listComments(state.ref);
-    return { state, scan: scanCommentsForReceipt(comments.map((comment) => comment.body)) };
-  });
+  const batches: NodeState[][] = [];
+  for (let index = 0; index < closedStates.length; index += COMMENT_BATCH_SIZE) {
+    batches.push(closedStates.slice(index, index + COMMENT_BATCH_SIZE));
+  }
+  const closed = (await mapBounded(batches, COMMENT_BATCH_CONCURRENCY, async (states) => {
+    const comments = await graph.listCommentsBatch(states.map((state) => state.ref));
+    return states.map((state, index) => ({ state, scan: scanCommentsForReceipt(comments[index].map((comment) => comment.body)) }));
+  })).flat();
   return { subtree, closed };
 }
 
@@ -1544,13 +1558,14 @@ async function scanClosedNodes(
  * writer with its own race. It names; the human acts.
  */
 async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: string): Promise<string> {
-  const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target }, { includeRoot: true });
+  const full = parsed.options.scope === undefined;
+  const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target }, { includeRoot: true, readReceipts: full });
 
   const unreceipted = closed.filter((entry) => !entry.scan.hasReceipt).map((entry) => entry.state);
-  const uncloseable = subtree.filter(
+  const uncloseable = full ? subtree.filter(
     (state) => state.status === "open" && (state.node.checkpointId === undefined || state.node.checkpointId.length === 0),
-  );
-  const claimed = subtree.filter((state) => state.status === "open" && state.assignees.length > 0);
+  ) : [];
+  const claimed = full ? subtree.filter((state) => state.status === "open" && state.assignees.length > 0) : [];
   const buildBriefNotReady = subtree.flatMap((state) => {
     if (state.status !== "open" || state.node.kind !== "build") return [];
     const missing = buildBriefMissing(state.body);
@@ -1563,9 +1578,11 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
         repo,
         root: parsed.target,
         nodes: subtree.length,
-        closedWithoutReceipt: unreceipted.map((state) => state.ref.id),
-        openWithoutCheckpoint: uncloseable.map((state) => state.ref.id),
-        openClaimed: claimed.map((state) => ({ id: state.ref.id, assignees: state.assignees })),
+        ...(full ? {
+          closedWithoutReceipt: unreceipted.map((state) => state.ref.id),
+          openWithoutCheckpoint: uncloseable.map((state) => state.ref.id),
+          openClaimed: claimed.map((state) => ({ id: state.ref.id, assignees: state.assignees })),
+        } : {}),
         buildBriefNotReady: buildBriefNotReady.map(({ state, missing }) => ({ id: state.ref.id, missing })),
       },
       null,
@@ -1576,6 +1593,7 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
   const clean = unreceipted.length === 0 && uncloseable.length === 0 && buildBriefNotReady.length === 0;
   return [
     `Work graph audit — root ${parsed.target} (${repo}), ${subtree.length} node(s)`,
+    ...(full ? [] : [`Scope: build-brief-not-ready; other findings were not checked.`]),
     "",
     ...(unreceipted.length > 0
       ? [
@@ -1605,7 +1623,9 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
           "",
         ]
       : []),
-    clean
+    !full
+      ? (clean ? `No build-brief-not-ready findings.` : `The audit names; it does not repair.`)
+      : clean
       ? `Clean: every closed node carries a receipt and every open node can close.`
       : `The audit names; it does not repair. A receipt-less close is re-opened and re-closed through the verb, or ratified by hand with a comment saying why.`,
   ].join("\n");

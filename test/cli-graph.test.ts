@@ -81,9 +81,11 @@ interface SeedNode {
   typed?: boolean;
   children?: string[];
   rawBody?: string;
+  body?: string;
 }
 
 class FakeStore implements GraphStore {
+  listCommentsBatch?: (refs: readonly NodeRef[]) => Promise<NodeComment[][]>;
   readonly attestation = "verifiable" as const;
   // The verbs ask the store (#537 D2). The default is an isolated session acting
   // as ivy-agent; a test about either answer reassigns it.
@@ -152,6 +154,7 @@ class FakeStore implements GraphStore {
       blockedBy: seed.blockedBy ?? [],
       author: seed.author ?? "jcfischer",
       typed: seed.typed ?? true,
+      ...(seed.body === undefined ? {} : { body: seed.body }),
       ...(seed.parent === undefined ? {} : { parent: { id: seed.parent } }),
     };
   }
@@ -2041,6 +2044,88 @@ test("a clean subtree audits clean", async () => {
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
 
   expect(output).toContain("Clean");
+});
+
+test("audit build-brief scope reads no comments and omits findings it did not check", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495", { kind: "build" }), body: "## Deliverable", children: ["520", "521", "522"] })
+    .seed("520", { node: autoNode("520", { kind: "build" }), status: "closed", parent: "495" })
+    .seed("521", { node: autoNode("521", { kind: "build" }), body: "[NEEDS CLARIFICATION]", parent: "495" })
+    .seed("522", { node: { id: "522", title: "no gate", autonomy: "approve", kind: "task" }, parent: "495", assignees: ["ivy-agent"] });
+  const args = ["graph", "audit", "495", "--repo", REPO];
+  const full = JSON.parse(await run([...args, "--json"], store));
+  let commentReads = 0;
+  store.listComments = async () => { commentReads += 1; throw new Error("scope must not read comments"); };
+
+  const scoped = JSON.parse(await run([...args, "--scope", "build-brief-not-ready", "--json"], store));
+  expect(scoped).toEqual({
+    repo: REPO, root: "495", nodes: 4,
+    buildBriefNotReady: [
+      { id: "495", missing: ["## Acceptance criteria"] },
+      { id: "521", missing: ["## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]"] },
+    ],
+  });
+  expect(scoped.buildBriefNotReady).toEqual(full.buildBriefNotReady);
+  const text = await run([...args, "--scope", "build-brief-not-ready"], store);
+  expect(text).toContain("build-brief-not-ready");
+  expect(text).not.toContain("Closed without");
+  expect(text).not.toContain("Open with no checkpoint");
+  expect(text).not.toContain("Open and claimed");
+  expect(commentReads).toBe(0);
+});
+
+test("full audits batch a 400-node map with bounded fan-out and read fresh receipts on repeat", async () => {
+  const store = new FakeStore();
+  const ids = Array.from({ length: 399 }, (_, index) => String(index + 2));
+  store.seed("1", { node: autoNode("1"), children: ids });
+  for (const [index, id] of ids.entries()) {
+    store.seed(id, { node: autoNode(id), parent: "1", status: index < 340 ? "closed" : "open" });
+    if (index < 340 && id !== "2") await store.postComment({ id }, validReceipt(`cp-${id}`));
+  }
+  const readComments = store.listComments.bind(store);
+  const batches: number[] = [];
+  let active = 0;
+  let peak = 0;
+  store.listComments = async () => { throw new Error("batch-capable audit must not read individual nodes"); };
+  store.listCommentsBatch = async (refs) => {
+    batches.push(refs.length);
+    peak = Math.max(peak, ++active);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    active -= 1;
+    return Promise.all(refs.map(readComments));
+  };
+  const args = ["graph", "audit", "1", "--repo", REPO, "--json"];
+  const first = JSON.parse(await run(args, store));
+  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openClaimed: [], buildBriefNotReady: [] });
+  expect(batches).toEqual(Array(17).fill(20));
+  expect(peak).toBeGreaterThan(1);
+  expect(peak).toBeLessThanOrEqual(4);
+
+  await store.postComment({ id: "2" }, validReceipt("cp-2"));
+  expect(JSON.parse(await run(args, store)).closedWithoutReceipt).toEqual([]);
+  expect(batches).toEqual(Array(34).fill(20));
+});
+
+test("audit rejects unknown scopes and scope is an audit-only option", () => {
+  expect(() => parseGraphArgs(["graph", "audit", "1", "--scope", "typo"])).toThrow(/Unknown audit scope/u);
+  expect(() => parseGraphArgs(["graph", "audit", "1", "--scope"])).toThrow();
+  expect(() => parseGraphArgs(["graph", "node", "1", "--scope", "build-brief-not-ready"])).toThrow(/Unknown option/u);
+});
+
+test("a clean scoped audit does not claim receipt or checkpoint checks passed", async () => {
+  const store = new FakeStore().seed("1", { node: { id: "1", title: "No gate", autonomy: "approve" }, status: "closed" });
+  const args = ["graph", "audit", "1", "--repo", REPO, "--scope", "build-brief-not-ready"];
+  expect(JSON.parse(await run([...args, "--json"], store))).toEqual({ repo: REPO, root: "1", nodes: 1, buildBriefNotReady: [] });
+  const text = await run(args, store);
+  expect(text).toContain("other findings were not checked");
+  expect(text).toContain("No build-brief-not-ready findings");
+  expect(text).not.toContain("Clean:");
+});
+
+test("a full audit refuses a batch that omitted a node", async () => {
+  const store = new FakeStore().seed("1", { node: autoNode("1"), status: "closed" });
+  store.listCommentsBatch = async () => [];
+  expect(await failure(["graph", "audit", "1", "--repo", REPO, "--json"], store)).toContain("comment batch omitted nodes");
 });
 
 test("audit checks the root itself — a standalone node is not 'Clean, 0 nodes' (#600)", async () => {
