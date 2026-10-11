@@ -1,3 +1,4 @@
+import { replaceNodeProse } from "./work-graph-node-block";
 /**
  * Work graph — typed contracts (`docs/work-graph.md` §2, DD-16, map #495 / #497).
  *
@@ -802,6 +803,8 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
   readRawBody(ref: NodeRef): Promise<string>;
   /** Replace the node's raw body wholesale. Callers splice; the store writes. */
   writeRawBody(ref: NodeRef, body: string): Promise<void>;
+  /** Atomic title/body content update; graph core preserves metadata first. */
+  editContent?(ref: NodeRef, changes: { title?: string; body?: string }): Promise<void>;
   close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void>;
 }
 
@@ -1458,7 +1461,9 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
     // The human half first — a later reader reads prose, not a probe table, and
     // burying it under the receipt would make the comment's first screen the half
     // written for machines.
-    ...(resolution.length === 0 ? [] : [`## Resolution`, ``, resolution, ``]),
+    ...(resolution.length === 0 ? [] : /^## Resolution(?:\s|$|[—:–-])/i.test(resolution)
+      ? [resolution, ``]
+      : [`## Resolution`, ``, resolution, ``]),
     `## Close receipt`,
     ``,
     `- **checkpoint:** \`${receipt.checkpointId}\``,
@@ -1526,6 +1531,18 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
 
   constructor(store: GraphStore<TStoreData>) {
     this.store = store;
+  }
+
+  async editNode(ref: NodeRef, changes: { title?: string; body?: string }): Promise<NodeState> {
+    if (changes.title === undefined && changes.body === undefined) throw new WorkGraphError("invalid-node", "edit needs a title or body");
+    if (changes.title !== undefined && !changes.title.trim()) throw new WorkGraphError("invalid-node", "title must not be empty");
+    const state = await this.store.readNode(ref);
+    if (state.writable === false) throw new WorkGraphError("invalid-node", "node is not writable by this store");
+    if (!this.store.editContent) throw new WorkGraphError("backend", "store does not support content edits");
+    const updated = { ...changes };
+    if (changes.body !== undefined) updated.body = replaceNodeProse(await this.store.readRawBody(ref), changes.body);
+    await this.store.editContent(ref, updated);
+    return this.store.readNode(ref);
   }
 
   /** Backend capability, not a receipt verdict (§2.5). */

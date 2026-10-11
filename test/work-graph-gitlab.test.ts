@@ -465,3 +465,13 @@ test("GitLab refuses an issue note whose global id carries no REST note id", asy
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: { widgets: [{ type: "NOTES", notes: { nodes: [{ id: "gid://gitlab/WorkItem/2", system: false, body: "human", author: { username: "jc" } }], pageInfo: { hasNextPage: false } } }] } } } }) });
   await expect(store.listComments(REF)).rejects.toThrow(/is not a note global id/u);
 });
+
+
+test("GitLab edit writes issue title and description together", async () => {
+  const requests: GitLabApiRequest[] = [];
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => { requests.push(request); return {}; } });
+  await store.editContent!(REF, { title: "new", body: "prose" });
+  expect(requests).toHaveLength(1);
+  expect(requests[0].method).toBe("PUT");
+  expect(requests[0].body).toEqual({ title: "new", description: "prose" });
+});

@@ -92,16 +92,17 @@ import { invocationCwd } from "../path-utils";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-const GRAPH_ACTIONS = ["frontier", "node", "claim", "release", "add", "link", "chart", "close", "audit", "decisions"] as const;
+const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "add", "link", "chart", "close", "audit", "decisions"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|claim|release|add|link|chart|close|audit|decisions> ...",
+  usage: "Usage: soma graph <frontier|node|edit|claim|release|add|link|chart|close|audit|decisions> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--json]",
     node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--json]",
+    edit: "Usage: soma graph edit <id> [--title <text>] [--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
@@ -132,6 +133,13 @@ export interface ParsedGraphNodeArgs {
   action: "node";
   target: string;
   options: GraphSharedOptions & { sections?: string[] };
+}
+
+export interface ParsedGraphEditArgs {
+  command: "graph";
+  action: "edit";
+  target: string;
+  options: GraphSharedOptions & { title?: string; bodyFile?: string };
 }
 
 export interface ParsedGraphClaimArgs {
@@ -213,6 +221,7 @@ export interface ParsedGraphDecisionsArgs {
 export type ParsedGraphArgs =
   | ParsedGraphFrontierArgs
   | ParsedGraphNodeArgs
+  | ParsedGraphEditArgs
   | ParsedGraphClaimArgs
   | ParsedGraphReleaseArgs
   | ParsedGraphAddArgs
@@ -523,12 +532,20 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   if (action === "link") return parseLinkArgs(resolvedTarget, rest);
   if (action === "close") return parseCloseArgs(resolvedTarget, rest);
 
-  const options: GraphSharedOptions & { identity?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready" } = {};
+  const options: GraphSharedOptions & { identity?: string; title?: string; bodyFile?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready" } = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     const shared = readShared(options, rest, index, arg);
     if (shared !== undefined) {
       index = shared;
+      continue;
+    }
+    if (action === "edit" && (arg === "--title" || arg === "--body-file")) {
+      const value = readOption(rest, index, arg);
+      if (!value.trim()) throw new Error(`${arg} must not be empty.`);
+      if (arg === "--title") options.title = value;
+      else options.bodyFile = value;
+      index += 1;
       continue;
     }
     if (arg === "--section" && action === "node") {
@@ -557,6 +574,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     throw new Error(`Unknown option: ${arg}`);
   }
 
+  if (action === "edit" && options.title === undefined && options.bodyFile === undefined) throw new Error(GRAPH_COMMAND_HELP.subcommands.edit);
   if (action === "claim") return { command, action, target: resolvedTarget, options };
   if (action === "release") return { command, action, target: resolvedTarget, options };
   if (action === "decisions") return { command, action, target: resolvedTarget, options };
@@ -1758,6 +1776,13 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
       return await runFrontier(parsed, graph, repo);
     case "node":
       return await runNode(parsed, graph, repo);
+    case "edit": {
+      const state = await graph.editNode({ id: parsed.target }, {
+        ...(parsed.options.title === undefined ? {} : { title: parsed.options.title }),
+        ...(parsed.options.bodyFile === undefined ? {} : { body: await deps.readTextFile(resolve(parsed.options.bodyFile)) }),
+      });
+      return parsed.options.json ? JSON.stringify({ repo, ...state }, null, 2) : `Updated node ${parsed.target} (${repo})\n${renderNodeState(state)}`;
+    }
     case "claim":
       return await runClaim(parsed, graph, store, repo);
     case "release":

@@ -198,6 +198,12 @@ class FakeStore implements GraphStore {
     return this.nodes.get(ref.id)?.rawBody ?? "";
   }
 
+  async editContent(ref: NodeRef, changes: { title?: string; body?: string }): Promise<void> {
+    const seed = this.nodes.get(ref.id)!;
+    if (changes.title !== undefined) seed.node.title = changes.title;
+    if (changes.body !== undefined) seed.rawBody = changes.body;
+  }
+
   async writeRawBody(ref: NodeRef, body: string): Promise<void> {
     const seed = this.nodes.get(ref.id);
     if (seed === undefined) throw new WorkGraphError("backend", `no such node ${ref.id}`);
@@ -284,7 +290,7 @@ test("the parser accepts exactly the verbs of §2.6, including chart", () => {
     expect(parsed.action).toBe(action as never);
   }
   expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(
-    /frontier\|node\|claim\|release\|add\|link\|chart\|close\|audit\|decisions/u,
+    /frontier\|node\|edit\|claim\|release\|add\|link\|chart\|close\|audit\|decisions/u,
   );
 });
 
@@ -2545,4 +2551,27 @@ test("node --section repeats and comma lists return only selected content", asyn
   expect(json.body).toBeUndefined();
   expect(await failure(["graph", "node", "495", "--section", "Missing"], store)).toContain("Missing section(s): Missing");
   expect(() => parseGraphArgs(["graph", "node", "495", "--section", "Notes,"])).toThrow("non-empty");
+});
+
+
+test("edit updates title and prose, retaining metadata and rejecting tampering", async () => {
+  const block = '<!-- soma:work-graph-node\n{"autonomy":"auto","checkpointId":"cp-495","unknown":"preserve"}\n-->';
+  const store = new FakeStore().seed("495", { node: autoNode("495"), rawBody: `Old prose\n\n${block}` });
+  await run(["graph", "edit", "495", "--title", "New title", "--body-file", "body.md"], store, { readTextFile: async () => "New prose" });
+  expect(store.nodes.get("495")?.node.title).toBe("New title");
+  expect(store.nodes.get("495")?.rawBody).toBe(`New prose\n\n${block}`);
+  const before = store.nodes.get("495")?.rawBody;
+  expect(await failure(["graph", "edit", "495", "--body-file", "body.md"], store, { readTextFile: async () => block.replace('"auto"', '"approve"') })).toContain("cannot change graph metadata");
+  expect(store.nodes.get("495")?.rawBody).toBe(before);
+  expect(() => parseGraphArgs(["graph", "edit", "495"])).toThrow(/Usage/);
+  expect(() => parseGraphArgs(["graph", "edit", "495", "--title", " "])).toThrow(/empty/);
+});
+
+test("close preserves a supplied Resolution heading without doubling it", () => {
+  for (const resolution of ["Answer", "## Resolution\n\nAnswer", "  ## Resolution — fire groups\n\nAnswer  "]) {
+    const output = renderCloseReceipt({ checkpointId: "cp", closedBy: "ivy", at: AT.toISOString(), evidence: [], probeResults: [], attestation: "unverified", resolution });
+    expect(output.match(/^## Resolution/gm)).toHaveLength(1);
+    expect(output).toContain("Answer");
+    if (resolution.includes("fire groups")) expect(output).toContain("## Resolution — fire groups");
+  }
 });

@@ -27,3 +27,24 @@ export function decodeNodeBlock(body: string): DecodedBody {
   if (close === -1) return { text: body.trim() };
   return { text: `${body.slice(0, open)}${body.slice(close + NODE_BLOCK_CLOSE.length)}`.trim(), raw: body.slice(open + NODE_BLOCK_OPEN.length, close).trim() };
 }
+
+/** Replace prose while keeping graph metadata byte-for-byte, including store routing. */
+export function replaceNodeProse(original: string, replacement: string): string {
+  const marker = /<!-- soma:(?:work-graph-node|gitlab-work-graph-route)\b/g;
+  const blocks = (body: string): string[] => [...body.matchAll(marker)].map((match) => {
+    const end = body.indexOf("-->", match.index! + match[0].length);
+    if (end < 0) throw new Error("Cannot edit a body with an unterminated graph metadata block.");
+    return body.slice(match.index, end + 3);
+  });
+  const saved = blocks(original);
+  const supplied = blocks(replacement);
+  if (new Set(saved).size !== saved.length || saved.filter((block) => block.startsWith(NODE_BLOCK_OPEN)).length > 1) {
+    throw new Error("Cannot edit a body with duplicate graph metadata blocks.");
+  }
+  if (supplied.some((block) => !saved.includes(block)) || new Set(supplied).size !== supplied.length) {
+    throw new Error("graph edit cannot change graph metadata; supply prose only or unchanged metadata blocks.");
+  }
+  let prose = replacement;
+  for (const block of supplied) prose = prose.replace(block, "");
+  return [prose.trim(), ...saved].filter(Boolean).join("\n\n");
+}
