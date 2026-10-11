@@ -352,6 +352,24 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
     });
   }
   async readRawBody(ref: NodeRef): Promise<string> { const p = parts(ref); if (p.sigil === "&") return (await this.item(ref)).rawDescription; const issue = rec(await this.transport({ method: "GET", path: restIssue(p) }), "GitLab issue"); return typeof issue.description === "string" ? issue.description : ""; }
+  async editContent(ref: NodeRef, changes: { title?: string; body?: string }): Promise<void> {
+    const p = parts(ref);
+    if (p.sigil === "&") {
+      const target = await this.item(ref);
+      mutation(await this.transport({ method: "POST", path: "graphql", body: {
+        query: `mutation($input:WorkItemUpdateInput!){workItemUpdate(input:$input){errors}}`,
+        variables: { input: { id: target.id,
+          ...(changes.title === undefined ? {} : { title: changes.title }),
+          ...(changes.body === undefined ? {} : { descriptionWidget: { description: changes.body } }),
+        } },
+      } }), "workItemUpdate");
+      return;
+    }
+    await this.transport({ method: "PUT", path: restIssue(p), body: {
+      ...(changes.title === undefined ? {} : { title: changes.title }),
+      ...(changes.body === undefined ? {} : { description: changes.body }),
+    } });
+  }
   async writeRawBody(ref: NodeRef, body: string): Promise<void> { const p = parts(ref); if (p.sigil === "&") { await this.updateEpic(ref, body); return; } await this.transport({ method: "PUT", path: restIssue(p), body: { description: body } }); }
   async close(ref: NodeRef, receipt: CloseReceipt, expectedGatedNodeHash?: string): Promise<void> { const item = await this.item(ref); const state = stateFrom(item); const hash = hashGatedNodeFields(state.node, state.storeFields); if (expectedGatedNodeHash !== undefined && hash !== expectedGatedNodeHash) throw new WorkGraphError("invalid-node", `node ${ref.id} changed after close validation`); const boundReceipt = { ...receipt, autonomy: state.node.autonomy, gatedNodeHash: hash }; const posted = await this.postComment(ref, renderCloseReceipt(boundReceipt), item); if (posted.author === undefined || posted.author.length === 0) throw new WorkGraphError("backend", "posted close receipt has no authenticated author"); const completion = { receiptCommentId: posted.id, checkpointId: receipt.checkpointId, autonomy: state.node.autonomy, closer: posted.author, closedAt: boundReceipt.at, gatedNodeHash: hash, ...(state.node.autonomy === "auto" ? { autoProbeKeys: (state.node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}), ...(receipt.ci === undefined ? {} : { ciCheckRunId: receipt.ci.checkRunId, ciHeadSha: receipt.ci.headSha }) }; const body = [state.body, encodeNodeBlock({ ...state.node, title: state.node.title, completion }, state.storeFields), ...(item.type === "Epic" && item.homeProject !== undefined ? [encodeGitLabRoute(item.homeProject)] : [])].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n\n"); const p = parts(ref); if (p.sigil === "&") { await this.updateEpic(ref, body, true, item); return; } await this.transport({ method: "PUT", path: restIssue(p), body: { description: body, state_event: "close" } }); }
 }

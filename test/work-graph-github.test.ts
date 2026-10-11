@@ -1393,3 +1393,13 @@ test("a dot-prefixed repo name is a real repo; a traversal segment is not", () =
   expect(() => createGitHubGraphStore({ repo: "the-metafactory/.github", transport })).not.toThrow();
   expect(() => createGitHubGraphStore({ repo: "../soma", transport })).toThrow(WorkGraphError);
 });
+
+
+test("GitHub edit writes title and body in one scoped request", async () => {
+  const requests: GitHubApiRequest[] = [];
+  const store = createGitHubGraphStore({ repo: REPO, transport: async (request) => { requests.push(request); return {}; } });
+  await store.editContent!({ id: "777" }, { title: "new", body: "prose" });
+  expect(requests).toEqual([{ method: "PATCH", path: `repos/${REPO}/issues/777`, body: { title: "new", body: "prose" } }]);
+  await expect(store.editContent!({ id: "other/repo#1" }, { title: "bad" })).rejects.toThrow();
+  expect(requests).toHaveLength(1);
+});

@@ -902,3 +902,16 @@ test("soma#638: a catalog substrate's library install links nothing and reports 
     await expect(stat(join(homeDir, ".cursor", "rules", "soma", "skills", "Lib"))).rejects.toThrow();
   });
 });
+
+
+test("mode classifier routes task notices and ranger escalations natively", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    for (const prompt of ["<task-notification><summary>Implement E1 adapter</summary></task-notification>", "Node #870 on jcfischer/seelite stopped and needs me (ranger's reason: E2 implement system)", ""]) {
+      const output = runClaudeModeClassifierHook(homeDir, { hook_event_name: "UserPromptSubmit", prompt });
+      expect(output.hookSpecificOutput?.additionalContext).toContain("Soma MODE: NATIVE");
+      expect(output.hookSpecificOutput?.additionalContext).not.toContain("(explicit)");
+    }
+    expect(runClaudeModeClassifierHook(homeDir, { hook_event_name: "Notification", message: "E1 implement adapter" })).toEqual({ continue: true });
+  });
+});

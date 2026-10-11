@@ -1424,3 +1424,13 @@ test("persists Algorithm runs under Soma WORK memory", async () => {
     await expect(readFile(written.path, "utf8")).resolves.toContain('"phase": "observe"');
   });
 });
+
+
+test("notifications and ranger escalations cannot manufacture explicit Algorithm effort", () => {
+  for (const prompt of ["", "  ", "<task-notification>build E1 adapter</task-notification>", "<task-notification>truncated E2", "<system-reminder>algorithm E5</system-reminder>", "Node #870 on jcfischer/seelite stopped and needs me (ranger's reason: E1 implement policy)"]) {
+    expect(classifyAlgorithmPrompt(prompt)).toMatchObject({ mode: "native", source: "auto" });
+    expect(classifyAlgorithmPrompt(prompt).effort).toBeUndefined();
+  }
+  expect(classifyAlgorithmPrompt("<task-notification>E5 done</task-notification> /e2 use the Algorithm")).toMatchObject({ mode: "algorithm", source: "explicit", effort: "E2" });
+  expect(classifyAlgorithmPrompt("/e4 redesign the policy")).toMatchObject({ mode: "algorithm", source: "explicit", effort: "E4" });
+});

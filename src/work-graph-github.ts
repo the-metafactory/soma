@@ -1267,6 +1267,10 @@ class GitHubGraphStore implements GraphStore {
     return (await this.fetchIssue(ref)).body;
   }
 
+  async editContent(ref: NodeRef, changes: { title?: string; body?: string }): Promise<void> {
+    await this.transport({ method: "PATCH", path: this.writePath(ref), body: changes });
+  }
+
   async writeRawBody(ref: NodeRef, body: string): Promise<void> {
     await this.transport({
       method: "PATCH",

@@ -146,17 +146,25 @@ function emitFailOpen(reason) {
 }
 
 function main() {
+  const input = readHookInput();
+  // Other lifecycle events contain tool output, not a principal prompt.
+  if (typeof input.hook_event_name === "string" && input.hook_event_name !== "UserPromptSubmit") {
+    emitAndExit({ continue: true });
+  }
   const config = readConfig();
   if (config.error || typeof config.bunPath !== "string" || typeof config.trustedSomaRepo !== "string") {
     emitFailOpen(config.error || "Invalid mode classifier config.");
   }
-  const input = readHookInput();
   const sessionId = typeof input.session_id === "string" ? input.session_id : undefined;
-  const result = runSomaClassification(config, promptFromInput(input), sessionId);
-  if (result.status !== 0) {
-    emitFailOpen(result.stderr || result.stdout || "");
+  const prompt = promptFromInput(input);
+  let classification;
+  if (!prompt.trim()) {
+    classification = { mode: "native", source: "auto", reason: "No user prompt; continue natively." };
+  } else {
+    const result = runSomaClassification(config, prompt, sessionId);
+    if (result.status !== 0) emitFailOpen(result.stderr || result.stdout || "");
+    classification = parseClassification(result.stdout);
   }
-  const classification = parseClassification(result.stdout);
   // Feed the per-session statusline state (best-effort; never blocks output).
   writeStatuslineModeState(config, sessionId, classification);
   emitAndExit({

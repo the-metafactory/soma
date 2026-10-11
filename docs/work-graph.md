@@ -1189,3 +1189,23 @@ cherry-pick. Doctrine lines the prototype walk added (#492): scaffold nodes
 attach below their spawning ticket, never to the map; work-kinds
 (research / prototype / grilling / task) are orienteer vocabulary, not runtime
 vocabulary.
+
+### Reading selected map sections
+
+`soma graph node <id> --section Constraints,Notes` selects H2 sections only.
+Repeat `--section` to add names. Matching is case-insensitive; source order and
+nested headings are preserved, and fenced examples do not split sections.
+Missing sections fail explicitly. With `--json`, the response contains `repo`,
+`ref`, and selected `sections`, without the full node body.
+
+### Editing node prose
+
+`soma graph edit <id> --title "New title" --body-file brief.md` updates either
+or both fields. Typed node metadata and GitLab routing metadata are preserved
+byte-for-byte. A body file may contain prose alone or the unchanged metadata;
+changed, duplicate, or unterminated metadata blocks are refused. This verb
+does not change topology, autonomy, probes, or checkpoint rules. Existing
+`graph link --parent` attaches unattached nodes; reparenting remains separate.
+
+Close receipts keep a leading `## Resolution` heading supplied by the author
+(including a subtitle), instead of prepending a duplicate heading.
