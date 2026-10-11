@@ -27,6 +27,7 @@
  * cannot substitute for either.
  */
 
+import { selectMarkdownSections } from "../markdown-sections";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -100,7 +101,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
   usage: "Usage: soma graph <frontier|node|claim|release|add|link|chart|close|audit|decisions> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--json]",
-    node: "Usage: soma graph node <id> [--repo <forge>:<host>/<path>] [--json]",
+    node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--json]",
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
@@ -130,7 +131,7 @@ export interface ParsedGraphNodeArgs {
   command: "graph";
   action: "node";
   target: string;
-  options: GraphSharedOptions;
+  options: GraphSharedOptions & { sections?: string[] };
 }
 
 export interface ParsedGraphClaimArgs {
@@ -522,12 +523,19 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   if (action === "link") return parseLinkArgs(resolvedTarget, rest);
   if (action === "close") return parseCloseArgs(resolvedTarget, rest);
 
-  const options: GraphSharedOptions & { identity?: string; write?: boolean; scope?: "build-brief-not-ready" } = {};
+  const options: GraphSharedOptions & { identity?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready" } = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     const shared = readShared(options, rest, index, arg);
     if (shared !== undefined) {
       index = shared;
+      continue;
+    }
+    if (arg === "--section" && action === "node") {
+      const names = readOption(rest, index, arg).split(",").map((name) => name.trim());
+      if (names.some((name) => !name)) throw new Error("--section needs non-empty section names.");
+      options.sections = [...new Set([...(options.sections ?? []), ...names])];
+      index += 1;
       continue;
     }
     if (arg === "--identity" && (action === "claim" || action === "release")) {
@@ -914,6 +922,12 @@ async function runFrontier(parsed: ParsedGraphFrontierArgs, graph: WorkGraph, re
 
 async function runNode(parsed: ParsedGraphNodeArgs, graph: WorkGraph, repo: string): Promise<string> {
   const state = await graph.readNode({ id: parsed.target });
+  if (parsed.options.sections) {
+    const selected = selectMarkdownSections(state.body ?? "", parsed.options.sections);
+    if (selected.missing.length) throw new SomaCliError(`Missing section(s): ${selected.missing.join(", ")}`, 1);
+    if (parsed.options.json) return JSON.stringify({ repo, ref: state.ref, sections: selected.sections }, null, 2);
+    return selected.sections.map((section) => section.markdown).join("\n\n");
+  }
   if (parsed.options.json === true) {
     return JSON.stringify({ repo, ...state }, null, 2);
   }

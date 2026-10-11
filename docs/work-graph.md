@@ -1189,3 +1189,11 @@ cherry-pick. Doctrine lines the prototype walk added (#492): scaffold nodes
 attach below their spawning ticket, never to the map; work-kinds
 (research / prototype / grilling / task) are orienteer vocabulary, not runtime
 vocabulary.
+
+### Reading selected map sections
+
+`soma graph node <id> --section Constraints,Notes` selects H2 sections only.
+Repeat `--section` to add names. Matching is case-insensitive; source order and
+nested headings are preserved, and fenced examples do not split sections.
+Missing sections fail explicitly. With `--json`, the response contains `repo`,
+`ref`, and selected `sections`, without the full node body.

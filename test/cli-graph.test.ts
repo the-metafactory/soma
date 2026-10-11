@@ -2529,3 +2529,20 @@ test("…and the same holds against real git, when this git names the path at al
     await rm(elsewhere, { recursive: true, force: true });
   }
 });
+
+
+test("node --section repeats and comma lists return only selected content", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495"), body: "## Destination\nprivate long text\n## Constraints\nKeep portable\n### Nested\nstill constraints\n```md\n## Example\n```\n## Notes\nRead ancestor #1\n## Other\nexcluded" });
+  const args = ["graph", "node", "495", "--section", "Constraints", "--section", "Notes,Constraints"];
+  const output = await run(args, store);
+  expect(output).toContain("Keep portable");
+  expect(output).toContain("## Example");
+  expect(output).toContain("Read ancestor #1");
+  expect(output).not.toContain("private long text");
+  expect(output).not.toContain("excluded");
+  const json = JSON.parse(await run([...args, "--json"], store));
+  expect(json.sections.map((s: { name: string }) => s.name)).toEqual(["Constraints", "Notes"]);
+  expect(json.body).toBeUndefined();
+  expect(await failure(["graph", "node", "495", "--section", "Missing"], store)).toContain("Missing section(s): Missing");
+  expect(() => parseGraphArgs(["graph", "node", "495", "--section", "Notes,"])).toThrow("non-empty");
+});

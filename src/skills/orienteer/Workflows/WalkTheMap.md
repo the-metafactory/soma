@@ -8,19 +8,30 @@ graph concurrently.
 
 ## 1. Load the map
 
+Even when the user names a child node, load it with `soma graph node <id>`,
+then follow each `parent:` to the root. For large ancestors, select sections:
+
 ```bash
-soma graph node <root>
+soma graph node <root> --section Destination,Constraints,Notes
+soma graph node <root> --section "Not yet specified,Out of scope"
+soma graph frontier <root>
 ```
 
-Read its body: Destination, Constraints, Notes, Decisions so far, Not yet
-specified, Out of scope. This is the low-resolution view — do **not** load every
-child. Orient to the destination before choosing anything, and honour whatever
-the Notes name.
+`--section` accepts repeated flags or comma lists and prints only matching H2
+sections. A missing section is reported explicitly; retry with the sections
+present on that map rather than silently skipping its Constraints. Use
+`--json` without `--section` when the parent reference is needed structurally.
 
-**Treat the Constraints as binding on the answer you are about to write**: an
-option that violates one is not on the table. Nothing checks this for you — no
-verb reads that section and the close gate does not test against it
-(`references/map.md`) — so it holds exactly as far as you read it.
+Read the Constraints on every ancestor map. Follow explicit constraint
+inheritance in Constraints or Notes (for example, “#1's Constraints bind every
+answer”), loading that map's Constraints and Notes too. Track visited IDs to
+stop cycles; surface an unreadable inherited map before proposing an answer.
+
+**Treat these Constraints as binding on the answer you are about to write**.
+Read Destination, Notes, Not yet specified and Out of scope to orient to the
+map. Do not load every child. Always scan frontier titles for overlapping work,
+even for a named node; open likely siblings before proposing scope or options.
+Report overlap so the principal can decide whether to combine or rescope it.
 
 ## 2. Choose and claim
 
