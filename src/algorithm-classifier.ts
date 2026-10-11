@@ -13,6 +13,11 @@ import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPromptClassification 
  * by test/pi-dev-classifier-projection.test.ts.
  */
 export const ALGORITHM_CLASSIFIER_CONTRACT = {
+  /** Harness payloads are not principal instructions, even when they quote effort tokens. */
+  notificationPattern: "<(task-notification|system-notification|system-reminder)(?:\\s[^>]*)?>[\\s\\S]*?<\\/\\1\\s*>",
+  notificationStartPattern: "^<(?:task-notification|system-notification|system-reminder)(?:\\s|>)",
+  rangerEscalationPattern: "^Node\\s+#[0-9]+\\s+on\\s+[\\s\\S]*?\\bstopped and needs me\\s*\\(ranger[’']s reason:",
+
   /** Applied to the raw prompt, case-insensitive. Capture group 1 is the tier digit. */
   explicitEffortPattern: "(?:^|\\s)(?:\\/e|e)([1-5])(?:\\s|$)",
 
@@ -136,14 +141,14 @@ function classifyMode(prompt: string): AlgorithmMode {
 }
 
 export function classifyAlgorithmPrompt(prompt: string): AlgorithmPromptClassification {
-  const text = prompt.trim();
-
-  if (text.length === 0) {
+  const text = prompt.replace(new RegExp(ALGORITHM_CLASSIFIER_CONTRACT.notificationPattern, "gi"), "").trim();
+  const event = new RegExp(ALGORITHM_CLASSIFIER_CONTRACT.notificationStartPattern, "i").test(text)
+    || new RegExp(ALGORITHM_CLASSIFIER_CONTRACT.rangerEscalationPattern, "i").test(text);
+  if (text.length === 0 || event) {
     return {
-      mode: "algorithm",
-      effort: "E3",
-      source: "fail-safe",
-      reason: "Empty prompt cannot be classified safely; defaulting to Algorithm E3.",
+      mode: "native",
+      source: "auto",
+      reason: "Harness notification, ranger escalation, or absent user text; continue natively.",
     };
   }
 

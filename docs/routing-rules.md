@@ -43,3 +43,11 @@ Agreed with the principal on 2026-09-28 (D8 in `Plans/2026-09-28-front-door-rout
 
 11. Inline by default; hand off only independent work that needs no conversation context.
 12. Light for search and volume, strong for deep independent work, second-opinion only to review decisions.
+
+## Harness events
+
+Task/system notification payloads are excluded before classifying principal text.
+An absent prompt and ranger's “Node #N on … stopped and needs me (ranger's
+reason: …)” escalation route NATIVE. Effort tokens quoted inside notifications
+do not count as explicit user overrides. Claude's mode hook skips non-prompt
+lifecycle events. These event guards precede the existing prompt rules.

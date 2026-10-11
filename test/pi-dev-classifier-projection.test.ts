@@ -14,6 +14,13 @@ import { renderAlgorithmClassifierSource } from "../src/adapters/shared/algorith
 
 /** Prompts chosen to hit every branch: fail-safe, explicit, minimal, native, and each tier. */
 const CORPUS = [
+  '<task-notification><summary>Implement adapter E1</summary></task-notification>',
+  '<system-notification>algorithm E4</system-notification>',
+  '<system-reminder>build E2</system-reminder>',
+  '<task-notification>truncated E1 algorithm',
+  "Node #870 on jcfischer/seelite stopped and needs me (ranger's reason: implement E1 policy)",
+  '<task-notification>E5 done</task-notification> /e2 use the Algorithm',
+
   "",
   "   ",
   "ok",
