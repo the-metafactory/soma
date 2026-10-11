@@ -13,18 +13,18 @@ export function selectMarkdownSections(body: string, names: readonly string[]): 
     current = undefined;
   };
   for (const line of body.split(/\r?\n/)) {
-    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
     if (fence) {
       current?.lines.push(line);
-      if (marker && marker[1][0] === fence.char && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
+      if (marker?.[1].startsWith(fence.char) && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
       continue;
     }
-    if (marker && !(marker[1][0] === "`" && marker[2].includes("`"))) {
+    if (marker && !(marker[1].startsWith("`") && marker[2].includes("`"))) {
       fence = { char: marker[1][0], length: marker[1].length };
       current?.lines.push(line);
       continue;
     }
-    const heading = line.match(/^ {0,3}(#{1,2})[ \t]+(.+?)\s*$/);
+    const heading = /^ {0,3}(#{1,2})[ \t]+(.+?)\s*$/.exec(line);
     if (heading) {
       flush();
       if (heading[1] === "##") current = { name: heading[2].replace(/\s+#+\s*$/, ""), lines: [line] };

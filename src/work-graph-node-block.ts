@@ -32,7 +32,7 @@ export function decodeNodeBlock(body: string): DecodedBody {
 export function replaceNodeProse(original: string, replacement: string): string {
   const marker = /<!-- soma:(?:work-graph-node|gitlab-work-graph-route)\b/g;
   const blocks = (body: string): string[] => [...body.matchAll(marker)].map((match) => {
-    const end = body.indexOf("-->", match.index! + match[0].length);
+    const end = body.indexOf("-->", match.index + match[0].length);
     if (end < 0) throw new Error("Cannot edit a body with an unterminated graph metadata block.");
     return body.slice(match.index, end + 3);
   });
