@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.25.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.26.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,17 @@
 
 ---
 
-## Current release: 0.25.0
+## Current release: 0.26.0
+
+[0.26.0](https://github.com/the-metafactory/soma/releases/tag/v0.26.0) adds
+selected-section graph reads and safe node editing, preserves Resolution
+headings on close, and routes task notices and ranger escalations to NATIVE.
+It also ships bounded graph audits, safer frontier and blocker handling,
+bundled skills in compiled binaries, and isolated scratch-home lifecycle writes.
+See the [changelog](CHANGELOG.md#0260---2026-10-11) for the complete changes.
+GitHub releases and Arc registry publication are verified separately.
+
+### 0.25.0
 
 [0.25.0](https://github.com/the-metafactory/soma/releases/tag/v0.25.0) stops
 `soma graph add --blocked-by` from exposing a new node on the frontier before

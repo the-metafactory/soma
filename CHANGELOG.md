@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-11
+
+### Added
+
+- `soma graph node --section` selects named Markdown sections without returning the full body. WalkTheMap reads ancestor constraints and checks the frontier before creating overlapping work. (#776, #779)
+- `soma graph edit --title/--body-file` updates node content while preserving typed metadata. Closing a node reuses an existing Resolution heading. (#777, #779)
+- Graph audits report incomplete build briefs; `--scope build-brief-not-ready` avoids receipt reads, and full GitHub audits batch receipt queries. (#769, #775)
+
+### Fixed
+
+- Task notices and ranger escalations route to NATIVE, including projected Pi and Claude hook behavior. (#778, #779)
+- Compiled Soma includes bundled skill content. (#763)
+- Lifecycle operations with a scratch Soma home isolate substrate writes while preserving installed home bindings. (#764)
+- Graph creation reads every blocker before writing, and frontier selection skips members the active store cannot write. (#771, #773)
+
+### Changed
+
+- Tests allow 60 seconds per test to accommodate installation checks under load. (#772)
+
+
 ### Added
 
 - `soma graph audit` reports `build-brief-not-ready` for open build nodes missing
