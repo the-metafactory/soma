@@ -8,8 +8,17 @@ graph concurrently.
 
 ## 1. Load the map
 
-Even when the user names a child node, load it with `soma graph node <id>`,
-then follow each `parent:` to the root. For large ancestors, select sections:
+Even when the user names a child node, follow `parent` references to the root.
+Keep ancestry reads small by filtering the structured response before loading
+it into context:
+
+```bash
+soma graph node <id> --json | jq '{ref, parent}'
+```
+
+Repeat for each parent; do not print a whole large map just to find its parent.
+Read the named decision's body with `soma graph node <id>`. For ancestor maps
+and the root, select sections:
 
 ```bash
 soma graph node <root> --section Destination,Constraints,Notes
@@ -19,8 +28,7 @@ soma graph frontier <root>
 
 `--section` accepts repeated flags or comma lists and prints only matching H2
 sections. A missing section is reported explicitly; retry with the sections
-present on that map rather than silently skipping its Constraints. Use
-`--json` without `--section` when the parent reference is needed structurally.
+present on that map rather than silently skipping its Constraints. Use the filtered JSON ancestry query above when the parent reference is needed.
 
 Read the Constraints on every ancestor map. Follow explicit constraint
 inheritance in Constraints or Notes (for example, “#1's Constraints bind every
