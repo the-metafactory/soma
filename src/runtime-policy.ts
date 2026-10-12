@@ -323,10 +323,11 @@ function looksPlural(word: string): boolean {
 /**
  * True when the plural word starting at `start` heads a noun phrase that runs
  * back to a clause start through content words and determiners only. A word
- * in `refused` disqualifies the noun phrase as a function word does.
+ * in `refused`, the head included, disqualifies the noun phrase as a function
+ * word does.
  */
 function isPluralSubject(text: string, word: string, start: number, refused?: ReadonlySet<string>): boolean {
-  if (!looksPlural(word) || ADDRESSEE_NOUNS.has(word.slice(0, -1))) return false;
+  if (!looksPlural(word) || ADDRESSEE_NOUNS.has(word.slice(0, -1)) || refused?.has(word)) return false;
   let at = start;
   for (let words = 0; words <= NOUN_PHRASE_WORDS; words++) {
     const token = precedingToken(text, at);
@@ -372,8 +373,10 @@ function inRequestPosition(text: string, verbIndex: number): boolean {
       index = token.start;
       continue;
     }
-    const refused = afterModal ? SECOND_PERSON : undefined;
-    return !(BARE_VERB_SUBJECTS.has(token.word) || isPluralSubject(text, token.word, token.start, refused));
+    // After a modal only a plural noun subject clears: a pronoun carries no
+    // noun phrase to walk, so "set it up so I can bypass" is still a request.
+    if (afterModal) return !isPluralSubject(text, token.word, token.start, SECOND_PERSON);
+    return !(BARE_VERB_SUBJECTS.has(token.word) || isPluralSubject(text, token.word, token.start));
   }
 }
 
