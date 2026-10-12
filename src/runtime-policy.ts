@@ -171,10 +171,16 @@ const INLINE_INTERPRETER_PATTERN = /\b(?:python|python3|node|ruby|perl|bun)\s+-(
  *
  *     Subject-based clearing is the whole narrowing on purpose. Signals that
  *     need a parse to tell from an imperative — causatives ("lets an attacker
- *     bypass"), capability modals ("symlinks can bypass"), purpose "to"
- *     ("allows an attacker to bypass") — kept failing open on imperatives that
- *     share their words, so those descriptions still fire. Re-add one only
- *     with a witnessed false positive behind it.
+ *     bypass"), purpose "to" ("allows an attacker to bypass") — kept failing
+ *     open on imperatives that share their words, so those descriptions still
+ *     fire. Re-add one only with a witnessed false positive behind it.
+ *
+ *     A possibility modal is re-added on that basis (ranger#186), and only
+ *     behind the same subject test: "Description edits can bypass the merge
+ *     guard" clears because "description edits" is a plural subject, while
+ *     "you can bypass", "can you bypass", "agents can bypass" and "your
+ *     commits can bypass" still fire. Deontic modals never clear: "all
+ *     agents must disable the hook" is an order whatever its subject.
  *
  * Each narrowing clears only text that positively reads as a refusal, a
  * description or an identifier; anything it does not recognise keeps
@@ -238,6 +244,15 @@ const RELATIVE_PRONOUNS = ["who", "which", "that"] as const;
 const BARE_VERB_SUBJECTS = new Set<string>(["i", "they", ...RELATIVE_PRONOUNS]);
 
 const MODALS = ["can", "could", "would", "will", "shall", "should", "must", "may", "might"] as const;
+
+/** Modals that state what a subject is able to do, not what the reader must do: "edits can bypass". */
+const POSSIBILITY_MODALS = new Set<string>(["can", "could", "may", "might"]);
+
+/**
+ * Second-person words. After a possibility modal they turn a description into
+ * a permission for the reader: "your commits can bypass the hook".
+ */
+const SECOND_PERSON = new Set<string>(["you", "your", "yours", "yourself", "yourselves"]);
 
 /**
  * Function words: a closed class, so this list can be complete where a list
@@ -307,15 +322,16 @@ function looksPlural(word: string): boolean {
 
 /**
  * True when the plural word starting at `start` heads a noun phrase that runs
- * back to a clause start through content words and determiners only.
+ * back to a clause start through content words and determiners only. A word
+ * in `refused` disqualifies the noun phrase as a function word does.
  */
-function isPluralSubject(text: string, word: string, start: number): boolean {
+function isPluralSubject(text: string, word: string, start: number, refused?: ReadonlySet<string>): boolean {
   if (!looksPlural(word) || ADDRESSEE_NOUNS.has(word.slice(0, -1))) return false;
   let at = start;
   for (let words = 0; words <= NOUN_PHRASE_WORDS; words++) {
     const token = precedingToken(text, at);
     if (token.kind === "clause-start") return true;
-    if (token.kind !== "word" || FUNCTION_WORDS.has(token.word)) return false;
+    if (token.kind !== "word" || FUNCTION_WORDS.has(token.word) || refused?.has(token.word)) return false;
     if ((RELATIVE_PRONOUNS as readonly string[]).includes(token.word)) return true;
     at = token.start;
   }
@@ -340,6 +356,7 @@ function alternationStart(text: string, index: number): number {
  */
 function inRequestPosition(text: string, verbIndex: number): boolean {
   let index = alternationStart(text, verbIndex);
+  let afterModal = false;
   for (let adverbs = 0; ; adverbs++) {
     const token = precedingToken(text, index);
     if (token.kind !== "word") return true;
@@ -349,7 +366,14 @@ function inRequestPosition(text: string, verbIndex: number): boolean {
       index = token.start;
       continue;
     }
-    return !(BARE_VERB_SUBJECTS.has(token.word) || isPluralSubject(text, token.word, token.start));
+    // A possibility modal defers to its own subject: "edits can bypass".
+    if (!afterModal && POSSIBILITY_MODALS.has(token.word)) {
+      afterModal = true;
+      index = token.start;
+      continue;
+    }
+    const refused = afterModal ? SECOND_PERSON : undefined;
+    return !(BARE_VERB_SUBJECTS.has(token.word) || isPluralSubject(text, token.word, token.start, refused));
   }
 }
 
