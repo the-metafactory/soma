@@ -281,6 +281,44 @@ test("captures standalone feedback without bootstrapping profile files", async (
   });
 });
 
+test("feedback capture records the v1 envelope fields, session and actor (node #846)", async () => {
+  await withTempHome(async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await captureSomaFeedback({
+      homeDir,
+      substrate: "claude-code",
+      sessionId: "sess-1",
+      transcriptPath: "/tmp/sess-1.jsonl",
+      actor: "automated",
+      text: "you missed the arc-manifest",
+    });
+    await captureSomaFeedback({ homeDir, substrate: "codex", sessionId: "", transcriptPath: "  ", text: "you missed the codex path" });
+
+    const [withSession, withoutSession] = parseEvents(await readFile(somaMemoryEventsPath(somaHome), "utf8"));
+    expect(withSession?.metadata).toMatchObject({
+      schemaVersion: 1,
+      substrate: "claude-code",
+      sessionId: "sess-1",
+      transcriptPath: "/tmp/sess-1.jsonl",
+      actor: "automated",
+    });
+    expect(withoutSession?.metadata).toMatchObject({ schemaVersion: 1, substrate: "codex", actor: "interactive" });
+    expect(withoutSession?.metadata).not.toHaveProperty("sessionId");
+    expect(withoutSession?.metadata).not.toHaveProperty("transcriptPath");
+  });
+});
+
+test("feedback capture drops machine-authored prompts (node #846)", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    for (const text of ["<task-notification>you missed the arc-manifest</task-notification>", "  <pasted_content id=\"x\">you missed it</pasted_content>"]) {
+      const result = await captureSomaFeedback({ homeDir, substrate: "claude-code", text });
+      expect(result.captured).toBe(false);
+      expect(result.classification.kind).toBe("none");
+    }
+  });
+});
+
 test("does not capture non-feedback prompts", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });

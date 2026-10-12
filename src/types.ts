@@ -1822,6 +1822,8 @@ export interface SomaFeedbackClassification {
   reason: string;
 }
 
+export type SomaFeedbackActor = "interactive" | "sdk" | "automated";
+
 export interface SomaFeedbackCaptureOptions {
   homeDir?: string;
   somaHome?: string;
@@ -1830,6 +1832,12 @@ export interface SomaFeedbackCaptureOptions {
   source?: string;
   storeExcerpt?: boolean;
   timestamp?: string;
+  /** Substrate session id; omitted from the event when absent. */
+  sessionId?: string;
+  /** Substrate transcript path, recorded for triage; capture never reads it. */
+  transcriptPath?: string;
+  /** Who authored the prompt; defaults to `interactive`. */
+  actor?: SomaFeedbackActor;
 }
 
 export interface SomaFeedbackCaptureResult {
