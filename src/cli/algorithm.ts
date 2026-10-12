@@ -1,34 +1,31 @@
+// Hot path (node #794): every import here names its defining module, never the
+// ../index barrel — `soma algorithm classify` runs on each prompt, and the
+// barrel drags in ~200 modules Bun cannot tree-shake.
 import {
   applyAlgorithmBatch,
   advanceAlgorithmRunUntil,
   advanceAlgorithmRun,
   algorithmPhaseOrder,
-  buildReflectionDigest,
-  classifyAlgorithmPrompt,
   createAlgorithmRun,
-  listAlgorithmRuns,
-  listAlgorithmRunSummaries,
-  parsePaiReflections,
-  readAlgorithmRunById,
-  recordAlgorithmCapabilityInvocation,
   recordAlgorithmChange,
   recordAlgorithmDecision,
   recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
   recordAlgorithmLearning,
-  removeAlgorithmCapabilitySelection,
-  renderReflectionDigest,
-  runSomaLifecycleAlgorithmUpdated,
   requirePlanStep,
   setAlgorithmPlan,
-  selectAlgorithmCapability,
   syncBridgedPlanStep,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
-  writeAlgorithmRun,
-  appendSomaMemoryEvent,
-} from "../index";
-import type { BridgedNodeReport, ReflectionForDigest } from "../index";
+} from "../algorithm";
+import { listAlgorithmRuns, listAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "../algorithm-store";
+import { classifyAlgorithmPrompt } from "../algorithm-classifier";
+import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../algorithm-reflection-digest";
+import { parsePaiReflections } from "../algorithm-reflection-import";
+import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm-capabilities";
+import { runSomaLifecycleAlgorithmUpdated } from "../lifecycle";
+import { appendSomaMemoryEvent } from "../memory";
+import type { BridgedNodeReport } from "../work-graph";
 // VerificationGateError is a CLI-only classification detail — imported straight
 // from its defining module, deliberately NOT re-exported through the public
 // barrel (Sage review, PR #455): keeping it off ../index leaves the internal

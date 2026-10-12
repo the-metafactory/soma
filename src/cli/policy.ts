@@ -1,5 +1,10 @@
-import { checkSomaPolicy, checkSomaPolicyBatch, evaluateToolCallPolicyGuard, inspectRuntimePolicy, promoteInboundContent, RUNTIME_POLICY_SURFACES, scanInboundContent } from "../index";
-import type { ToolCallPolicyGuardOptions } from "../tool-policy-guard";
+// Hot path (node #794): every import here names its defining module, never the
+// ../index barrel — `soma policy inspect|guard` runs on each hook event, and the
+// barrel drags in ~200 modules Bun cannot tree-shake.
+import { checkSomaPolicy, checkSomaPolicyBatch } from "../policy-audit";
+import { promoteInboundContent, scanInboundContent } from "../inbound-security";
+import { inspectRuntimePolicy, RUNTIME_POLICY_SURFACES } from "../runtime-policy";
+import { evaluateToolCallPolicyGuard, type ToolCallPolicyGuardOptions } from "../tool-policy-guard";
 import type {
   InboundContentScanOptions,
   RuntimePolicyConfigChange,
