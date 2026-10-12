@@ -261,38 +261,12 @@ either or both.
 ### 1. The ideas: algorithm, memory, learning
 
 Daniel Miessler's deep-context approach — the Algorithm harness, structured
-memory, the learning loop, identity, and Purpose — is the durable base. Sync it
-from a PAI git repository into your Soma home:
-
-```bash
-soma migrate pai --pai-repo <path-to-pai>
-soma migrate pai --pai-repo <path-to-pai> --apply
-```
-
-The sync plans or applies these phases in order:
-
-- principal and assistant identity
-- Purpose and profile material
-- Algorithm doctrine and harness material
-- translated memory
-- PAI documentation and templates
-- portable PAI packs as Soma skills
-- a readable manifest for audit and reruns
-
-The sync is idempotent. Dry-run first, inspect what would be written, then
-apply. Afterward the Soma home is the source of truth and each installed
-substrate gets a projection from it — a companion layer over PAI, not a replacement.
-Apply-mode migrations create a Git-backed Soma snapshot first, so you can
-inspect or roll back the Soma home:
-
-```bash
-soma history
-soma snapshot --name before-big-change
-soma rollback <snapshot-id>
-```
-
-See [docs/integration-with-pai.md](docs/integration-with-pai.md) for the complete
-walkthrough, flags, verification steps, and troubleshooting.
+memory, the learning loop, identity, and Purpose — is the durable base. Soma
+ships its own Algorithm, memory and Purpose; it no longer syncs them from a PAI
+install: `soma migrate pai` and `soma import` were removed. To
+run a one-time PAI migration, pin soma 0.25 or earlier, migrate, then
+upgrade. [docs/integration-with-pai.md](docs/integration-with-pai.md) describes
+that older walkthrough.
 
 ### 2. The skills on top: Daniel's published library (and your own)
 
@@ -320,8 +294,14 @@ Oversize descriptions can be rewritten for substrate limits:
 soma migrate claude-skills --from <claude-home>/skills --rewrite-descriptions auto --apply
 ```
 
-For lower-level pack imports, see
-[docs/pai-pack-importer.md](docs/pai-pack-importer.md).
+Apply-mode migrations create a Git-backed Soma snapshot first, so you can
+inspect or roll back the Soma home:
+
+```bash
+soma history
+soma snapshot --name before-big-change
+soma rollback <snapshot-id>
+```
 
 ---
 
@@ -745,8 +725,7 @@ writeback boundaries as substrate sessions. See
 - [docs/architecture.md](docs/architecture.md), the core/adapters/runtime model
 - [docs/boundaries.md](docs/boundaries.md), exactly what Soma owns and does not own
 - [docs/substrate-adapters.md](docs/substrate-adapters.md), adapter behavior by host
-- [docs/integration-with-pai.md](docs/integration-with-pai.md), PAI integration walkthrough
-- [docs/pai-pack-importer.md](docs/pai-pack-importer.md), PAI pack import rules
+- [docs/integration-with-pai.md](docs/integration-with-pai.md), PAI integration walkthrough (PAI migration needs soma ≤ 0.25)
 - [docs/progressive-skill-loading.md](docs/progressive-skill-loading.md), skill registry and just-in-time loading
 - [docs/mcp-server.md](docs/mcp-server.md), optional read-mostly MCP tool surface
 - [docs/home-replication.md](docs/home-replication.md), cross-machine Soma home replication

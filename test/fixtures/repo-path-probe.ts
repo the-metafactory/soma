@@ -5,7 +5,6 @@ import { installCodexHomeProjection, buildGrokHomeProjection } from "../../src/h
 import { diagnoseContentCompareDrift } from "../../src/adapters/content-compare-doctor";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { importAlgorithm } from "../../src/algorithm-importer";
 import { installBundledSkillsIntoHome, listBundledSkills } from "../../src/bundled-skills";
 import { installVsaSkill } from "../../src/vsa-skill-installer";
 import { defaultSomaRepoPath } from "../../src/repo-path";
@@ -37,12 +36,6 @@ await installBundledSkillsIntoHome({ somaHome: join(work, "explicit-home"), soma
 await installBundledSkillsIntoHome({ somaHome: join(work, "custom-home"), somaRepoPath: customRepo });
 const vsa = await installVsaSkill({ somaHome: join(work, "home") });
 await installVsaSkill({ somaHome: join(work, "explicit-home"), somaRepoPath });
-let algorithm = "ok";
-try {
-  await importAlgorithm({ paiAlgorithmDir: join(work, "pai"), somaHome: join(work, "algorithm-home") });
-} catch (error) {
-  algorithm = String(error);
-}
 // Execute the production install skill phase independently of source-runtime staging.
 const installHomeDir = join(work, "install-phase");
 const installedHome = await bootstrapSomaHome({ homeDir: installHomeDir });
@@ -68,5 +61,5 @@ try {
   const fault = error as NodeJS.ErrnoException;
   grokError = { code: fault.code, path: fault.path };
 }
-console.log(JSON.stringify({ names, explicitNames, customNames, rootErrors, emptyNames, vsaAction: vsa.action, algorithm,
+console.log(JSON.stringify({ names, explicitNames, customNames, rootErrors, emptyNames, vsaAction: vsa.action,
   installNames, profileSkillNames, cleanFindings, driftFindings, grokError, grokSkillPaths, defaultRepoPath: somaRepoPath, codexTrustedRepo }));

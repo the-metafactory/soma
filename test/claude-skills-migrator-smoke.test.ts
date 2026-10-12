@@ -25,7 +25,7 @@ import {
 import type {
   ClaudeSkillsMigrationManifest,
 } from "../src/types";
-import { withTempHome } from "./fixtures/pai-migration-fixtures";
+import { withTempHome } from "./fixtures/temp-home";
 
 interface FixtureSkill {
   name: string;

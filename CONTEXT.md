@@ -543,22 +543,22 @@ The lifecycle reads:
 
 ## migrate (system-to-system orchestration)
 
-Distinct from [[upgrade]] (same system, new version). **`migrate`** is the orchestration verb for moving ownership of an existing personal-AI installation from one system-of-record into Soma. The canonical case today is `soma migrate pai` — wrapping `importPaiIdentity` + `importAlgorithm` + per-pack `importPaiPack` + (forthcoming) memory import + doc import into one principal-facing command.
+Distinct from [[upgrade]] (same system, new version). **`migrate`** is the orchestration verb for moving ownership of an existing personal-AI installation from one system-of-record into Soma. The canonical case today is `soma migrate claude-skills`, which moves an installed `.claude/skills/` tree into Soma. `soma migrate pai` (identity + Algorithm + memory + docs + packs in one command) and the `soma import` unit commands it wrapped were removed; they live on in soma ≤ 0.25.
 
 | Term | Direction | Scope |
 | --- | --- | --- |
-| **[[import]]** (verb, existing) | external source → Soma | one artifact (one pack, one identity file, one algorithm) |
+| **[[import]]** (verb; no CLI command since `soma import` was removed) | external source → Soma | one artifact (one pack, one identity file, one algorithm) |
 | **migrate** | external system → Soma | full orchestration: multiple imports + structural alignment + manifest |
 | **[[upgrade]]** | Soma → Soma (or adapter → adapter) | new version of same thing |
 
-**Why both `import` and `migrate`:** import is the unit; migrate is the orchestration. A user running `soma import pai-pack ...` brings one skill in. A user running `soma migrate pai` brings their whole PAI installation in. Conflating them loses the principal-facing simplicity of "I want to move from PAI to Soma" as one verb.
+**Why both `import` and `migrate`:** import is the unit; migrate is the orchestration. In soma ≤ 0.25, `soma import pai-pack ...` brought one skill in and `soma migrate pai` brought a whole PAI installation in. Conflating them loses the principal-facing simplicity of "I want to move from PAI to Soma" as one verb.
 
 **Why `migrate` is no longer killed:** an earlier glossary lock killed `migrate` as a synonym for `upgrade`, on the principle that "one canonical term per concept". After Soma adopted the [[Soma|new-canonical-home]] stance — Soma is the canonical home of personal AI state, PAI is the source system being moved out of — the verb describes a real, distinct operation that `upgrade` cannot. Reinstated with the sharper meaning above.
 
 **Not synonyms — still killed:**
 - `transfer`, `move`, `port`, `convert` → `migrate`
 
-**Naming for future migrations:** `soma migrate <source-system>` where the source-system is the system being moved out of (e.g., `migrate pai`, future: `migrate cortex`, `migrate <other-personal-ai>`).
+**Naming for future migrations:** `soma migrate <source-system>` where the source-system is the system being moved out of (e.g., `migrate claude-skills`; `migrate pai` until soma 0.25; future: `migrate cortex`, `migrate <other-personal-ai>`).
 
 ---
 

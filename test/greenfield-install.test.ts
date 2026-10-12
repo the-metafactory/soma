@@ -278,7 +278,7 @@ function isTextProjectionPath(path: string): boolean {
  *   test installs exactly one substrate per run, so any other substrate's
  *   home is guaranteed absent regardless of correctness.
  * - `<somaHome>/profile/imports/**`: legacy PAI migration import
- *   destination, populated by the separate `soma migrate pai` command, not
+ *   destination, populated by `soma migrate pai` in soma ≤ 0.25, never
  *   by `soma install` (documented in the generated pai-imports.md's
  *   "Read For Detail" section).
  * - `<somaHome>/imports/**`: the same migration staging root, declared

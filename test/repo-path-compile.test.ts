@@ -20,7 +20,6 @@ interface ProbeReport {
   rootErrors: Record<string, string | null>;
   emptyNames: string[];
   vsaAction: string;
-  algorithm: string;
   defaultRepoPath: string;
   codexTrustedRepo: string;
   installNames: string[];
@@ -63,9 +62,6 @@ function sourceSkillNames(): string[] {
 /** Run the probe (compiled binary or `bun <entry>`) against a fresh work dir. */
 function runProbe(command: string, args: string[], label: string): { report: ProbeReport; work: string } {
   const work = join(workRoot, label);
-  mkdirSync(join(work, "pai"), { recursive: true });
-  // The Algorithm importer needs a PAI source; its bundled half is what's under test.
-  writeFileSync(join(work, "pai", "v6.3.0.md"), "# Algorithm probe source\n");
   // An explicit override must still read disk, even when the caller is compiled.
   const customSkill = join(work, "custom-repo", "src", "skills", "fixture-skill");
   mkdirSync(join(customSkill, "references"), { recursive: true });
@@ -137,18 +133,12 @@ test("a compiled binary installs every bundled skill file byte-identical to src/
 
   // The silent branch this node exists to close: no source found, success reported.
   expect(report.vsaAction).not.toBe("no-source");
-  expect(report.algorithm).toBe("ok");
 
   const installed = tree(join(work, "home", "skills"));
   const explicit = tree(join(work, "explicit-home", "skills"));
   const expected = tree(SKILLS_ROOT, true);
   expectSameTree(installed, expected);
   expectSameTree(explicit, expected);
-
-  // The importer's bundled half (SKILL.md + RunAlgorithm.md) came from the binary too.
-  const algorithmSkill = join(work, "algorithm-home", "skills", "the-algorithm", "SKILL.md");
-  const sourceSkill = readFileSync(join(SKILLS_ROOT, "the-algorithm", "SKILL.md"), "utf8");
-  expect(readFileSync(algorithmSkill, "utf8")).toBe(`${sourceSkill.trimEnd()}\n`);
 }, 120_000);
 
 test("a compiled binary honors custom repository paths instead of falling back to its embedded skills", () => {
@@ -202,23 +192,6 @@ test("the skill generator excludes hidden checkout files, hidden directories and
   expect(renderBundledSkillFilesModule(root)).toContain('import file0 from "./skills/fixture/SKILL.md" with { type: "text" };');
   expect(renderBundledSkillFilesModule(root)).not.toContain("file1");
 });
-
-test("the real compiled CLI imports embedded Algorithm skill content", () => {
-  const home = join(workRoot, "cli-import");
-  const pai = join(home, "pai");
-  mkdirSync(pai, { recursive: true });
-  writeFileSync(join(pai, "v6.3.0.md"), "# Algorithm CLI source\n");
-  const result = spawnSync(cliBinary, ["import", "algorithm", "--apply", "--home-dir", home, "--pai-algorithm-dir", pai], {
-    cwd: home,
-    encoding: "utf8",
-    timeout: 60_000,
-  });
-  expect({ status: result.status, error: result.error, stderr: result.stderr }).toEqual({ status: 0, error: undefined, stderr: "" });
-  for (const path of ["SKILL.md", "Workflows/RunAlgorithm.md"]) {
-    const expected = readFileSync(join(SKILLS_ROOT, "the-algorithm", path), "utf8");
-    expect(readFileSync(join(home, ".soma", "skills", "the-algorithm", path), "utf8")).toBe(`${expected.trimEnd()}\n`);
-  }
-}, 120_000);
 
 test("the real compiled CLI install fails loudly at source-runtime staging, before skill installation", () => {
   const home = join(workRoot, "cli-install");

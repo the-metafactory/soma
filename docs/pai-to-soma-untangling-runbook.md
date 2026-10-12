@@ -99,6 +99,9 @@ cover it. Back it up separately before anything edits hooks.
 
 ## 3 — Migrate portable state
 
+> Path A (`soma migrate pai`) needs **soma 0.25 or earlier**; current soma removed
+> it. Pin 0.25 for that step, then upgrade before path B.
+
 Two import paths, both additive, both idempotent. Always dry-run first — the
 importer refuses loudly rather than falling back silently:
 

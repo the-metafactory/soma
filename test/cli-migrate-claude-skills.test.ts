@@ -12,7 +12,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
-import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
+import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-cli-115-");

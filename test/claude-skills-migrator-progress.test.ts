@@ -24,7 +24,7 @@ import {
   migrateClaudeSkills,
   planClaudeSkillsMigration,
 } from "../src/claude-skills-migrator";
-import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
+import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 import type { ProgressEmitter, PhaseTimings } from "../src/claude-skills-progress";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>

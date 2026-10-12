@@ -21,7 +21,7 @@ import { diagnoseContentCompareDrift } from "../src/adapters/content-compare-doc
 import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../src/doctor-projection-input";
 import { defaultSomaRepoPath } from "../src/repo-path";
 import { expectSomaCliError } from "./fixtures/cli-error";
-import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
+import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-content-compare-doctor-");

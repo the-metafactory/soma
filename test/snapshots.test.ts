@@ -9,7 +9,6 @@ import {
   listSomaSnapshots,
   rollbackSomaSnapshot,
 } from "../src/index";
-import { writePaiIdentityFixture } from "./fixtures/pai-migration-fixtures";
 
 // The snapshot home lives under the OS temp dir, never inside the checkout
 // (#696): a snapshot is a real `git commit`, so a host-wide pre-commit hook runs
@@ -142,17 +141,5 @@ test("snapshot, history, and rollback are available through the CLI", async () =
     expect(rollbackOutput).toContain("soma rollback");
     expect(rollbackOutput).toContain("cli-baseline");
     await expect(readFile(principalPath, "utf8")).resolves.toBe("cli baseline\n");
-  });
-});
-
-test("migrate pai --apply records a pre-apply snapshot", async () => {
-  await withSnapshotHome(async (homeDir) => {
-    await writePaiIdentityFixture(homeDir, { withAlgorithm: true });
-
-    const output = await runSomaCli(["migrate", "pai", "--apply", "--home-dir", homeDir]);
-    const snapshots = await listSomaSnapshots({ homeDir });
-
-    expect(output).toContain("soma migrate pai");
-    expect(snapshots[0]?.name).toBe("before-migrate-pai");
   });
 });

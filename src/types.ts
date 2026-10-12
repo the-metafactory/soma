@@ -906,142 +906,6 @@ export interface VsaSkillInstallResult {
   upgradeMarker?: string;
 }
 
-export interface PaiImportOptions {
-  homeDir?: string;
-  claudeHome?: string;
-  somaHome?: string;
-  /**
-   * soma#441 — permit overwriting reserved identity targets (currently
-   * just `profile/purpose.md`) that already exist on disk. Without
-   * this flag, an existing reserved target is left untouched on
-   * rerun so hand-curation survives repeated `migrate pai` / `import
-   * pai` runs. See `PaiImportResult.skippedReserved`.
-   */
-  overwriteReserved?: boolean;
-}
-
-export interface PaiImportPlan {
-  apply: boolean;
-  claudeHome: string;
-  somaHome: string;
-  sourceFiles: string[];
-  sourceChecks?: ImportSourceCheck[];
-  targetFiles: string[];
-}
-
-export interface PaiImportResult {
-  claudeHome: string;
-  somaHome: string;
-  files: string[];
-  /**
-   * soma#441 — reserved identity targets (absolute paths) that already
-   * existed on disk and were left untouched because `overwriteReserved`
-   * was not set. Empty when nothing was reserved-skipped.
-   */
-  skippedReserved?: string[];
-}
-
-export interface AlgorithmImportOptions {
-  homeDir?: string;
-  paiAlgorithmDir?: string;
-  somaHome?: string;
-}
-
-export interface ImportSourceCheck {
-  path: string;
-  required: boolean;
-  present: boolean;
-}
-
-export interface AlgorithmImportPlan {
-  apply: boolean;
-  paiAlgorithmDir: string;
-  somaHome: string;
-  sourceFiles: string[];
-  sourceChecks?: ImportSourceCheck[];
-  targetFiles: string[];
-}
-
-export interface AlgorithmImportResult {
-  paiAlgorithmDir: string;
-  somaHome: string;
-  files: string[];
-}
-
-export interface PaiPackImportOptions {
-  homeDir?: string;
-  paiPackDir?: string;
-  somaHome?: string;
-  skillName?: string;
-  overwrite?: boolean;
-  /**
-   * #106 — opt-in flag carrying the historical name. The CLI and SDK
-   * both still accept it; the canonical name is now
-   * `includeUnrecognized` and the CLI surface is `--include-unrecognized`.
-   * The legacy CLI flag `--include-substrate-specific` is a deprecated
-   * alias for one release that emits a stderr warning. The option key
-   * here keeps its old name to avoid churning every SDK consumer in
-   * one go; an `includeUnrecognized` getter can be added later if a
-   * second-pass rename is desired.
-   */
-  includeSubstrateSpecific?: boolean;
-}
-
-export interface PaiPackImportFileBase {
-  target: string;
-  /**
-   * File classification. The router emits these tags; the importer
-   * uses them to decide refusal vs. silent-skip vs. archive-only
-   * routing.
-   *
-   *   - `portable`              — flows into a derived Soma skill.
-   *   - `template`              — flows into a skill's template surface.
-   *   - `source-doc`            — README/INSTALL/VERIFY etc.
-   *   - `unrecognized-layout`   — file under `src/` the router didn't
-   *                              recognize; refused unless
-   *                              `--include-unrecognized` is set
-   *                              (in which case it lands in archive).
-   *                              Pre-#106 this was `substrate-specific`.
-   *   - `noise`                 — editor/IDE/language infrastructure
-   *                              (denylist). Silently skipped at routing
-   *                              time, counted in audit, NEVER refused.
-   *                              Pre-#106 these were mis-classified as
-   *                              `substrate-specific` and polluted
-   *                              refusal lists. (#106 AC-2)
-   */
-  classification: "portable" | "template" | "source-doc" | "unrecognized-layout" | "noise";
-}
-
-export interface PaiPackSourceImportFile extends PaiPackImportFileBase {
-  origin: "source";
-  source: string;
-}
-
-export interface PaiPackGeneratedImportFile extends PaiPackImportFileBase {
-  origin: "generated";
-  generator: "pai-pack-importer";
-}
-
-export type PaiPackImportFile = PaiPackSourceImportFile | PaiPackGeneratedImportFile;
-
-export interface PaiPackManifestFileBase {
-  target: string;
-  classification: PaiPackImportFileBase["classification"];
-  origin: PaiPackImportFile["origin"];
-}
-
-export interface PaiPackManifestSourceFile extends PaiPackManifestFileBase {
-  origin: "source";
-  source: string;
-}
-
-export interface PaiPackManifestGeneratedFile extends PaiPackManifestFileBase {
-  origin: "generated";
-  generator: "pai-pack-importer";
-}
-
-export type PaiPackManifestFile = PaiPackManifestSourceFile | PaiPackManifestGeneratedFile;
-
 export interface PaiPackNormalizationAction {
   file: string;
   kind:
@@ -1053,46 +917,7 @@ export interface PaiPackNormalizationAction {
     | "rewrote-pai-memory-path"
     | "rewrote-unmapped-claude-path"
     | "stripped-mandatory-runtime-block"
-    | "stripped-pai-customization-block"
-    | "compacted-skill-description"
-    /**
-     * #104 — emitted during pack file enumeration (not normalization)
-     * when a symlink falls inside a well-known IDE/editor config
-     * directory denylist (`.cursor/`, `.vscode/`, `.idea/`, `.fleet/`,
-     * `.zed/`). The file is dropped from the import set instead of
-     * aborting the pack as `refused-other`. Every other symlink still
-     * refuses the pack. The audit entry surfaces in the per-pack
-     * `soma-pack.json` so reviewers can see which editor-config files
-     * the pack carried. `file` is the POSIX-style path relative to the
-     * pack root. `detail` names the matched denylist directory segment.
-     */
-    | "skipped-editor-config-symlink"
-    /**
-     * #106 — emitted at routing time when a regular file matches the
-     * noise denylist (`.gitignore`, `bun.lock`, `.vscode/`, etc.).
-     * The file is dropped from the import set BEFORE refusal accounting
-     * so it never pollutes a `refused-unrecognized-layout` outcome's
-     * file list. Counted in the audit so reviewers can see which
-     * editor/language infrastructure the pack carried. `detail` names
-     * the matched denylist pattern category.
-     */
-    | "skipped-noise-file"
-    /**
-     * #109 — emitted at routing time when a file routes as
-     * `unrecognized-layout` and `--include-unrecognized` is NOT set.
-     * Previously these files refused the whole pack
-     * (`PaiPackUnrecognizedLayoutRefusal`); now they are silently
-     * dropped from the routed set so partial imports succeed (one
-     * unrecognized sibling no longer poisons a pack with otherwise-
-     * valid nested skills, which is the universal real-PAI-pack shape
-     * — Art, Thinking, Utilities all ship unrecognized siblings). The
-     * audit entry surfaces what we dropped in the per-skill
-     * `soma-pack.json` so the principal can see which pack files lived
-     * outside the recognized layout. With `--include-unrecognized` the
-     * files land in the pack-level archive instead and no audit entry
-     * is emitted (the archive listing IS the audit).
-     */
-    | "skipped-unrecognized-file";
+    | "stripped-pai-customization-block";
   detail: string;
 }
 
@@ -1106,31 +931,6 @@ export interface PaiPackNormalizationWarning {
     | "release-safety-path"
     | "unmapped-claude-home-path";
   detail: string;
-}
-
-export interface PaiPackNormalizationReport {
-  mode: "deterministic";
-  actions: PaiPackNormalizationAction[];
-  warnings: PaiPackNormalizationWarning[];
-}
-
-export interface PaiPackManifest {
-  schema: "soma.pai-pack-import.v1";
-  skillName: string;
-  packName: string;
-  description: string;
-  files: PaiPackManifestFile[];
-  normalization?: PaiPackNormalizationReport;
-  /**
-   * #105 — when the pack archive manifest is rendered (the
-   * `<somaHome>/imports/pai-packs/<pack-slug>/soma-pack-archive.json`
-   * surface), every Soma skill derived from the pack is listed here in
-   * sorted order. For per-skill manifests (`<somaHome>/skills/<slug>/
-   * soma-pack.json`) the field is omitted. Single-skill packs still
-   * emit the field on the archive manifest (one-element array) so the
-   * archive shape is stable across FLAT and nested layouts.
-   */
-  derivedSkills?: string[];
 }
 
 export interface SomaSkillManifest {
@@ -1148,271 +948,9 @@ export interface SomaSkillManifest {
   algorithmCapability?: SomaSkillAlgorithmCapabilityManifest;
 }
 
-export interface PaiPackImportPlan {
-  apply: boolean;
-  paiPackDir: string;
-  somaHome: string;
-  skillName: string;
-  packName: string;
-  description: string;
-  files: PaiPackImportFile[];
-  normalization: PaiPackNormalizationReport;
-}
-
-export interface PaiPackImportResult {
-  paiPackDir: string;
-  somaHome: string;
-  skillName: string;
-  files: string[];
-  normalization: PaiPackNormalizationReport;
-}
-
-/**
- * Per-pack migration outcome (#97 / #106). The bulk-pack phase of
- * `migratePai` no longer aborts on a per-pack failure — it classifies
- * each pack into one of these buckets and continues. The CLI's
- * exit-code policy is: `imported` / `refused-unrecognized-layout` /
- * `refused-reserved` / `refused-name-collision` are zero-exit
- * (policy-respected); `refused-other` forces a non-zero exit (genuine
- * error).
- *
- *   - `imported`                       — pack landed cleanly.
- *   - `refused-unrecognized-layout`    — pack contains files under
- *                                        `src/` the router didn't
- *                                        recognize and `--include-unrecognized`
- *                                        was not passed. #106 renamed
- *                                        this from `refused-substrate-specific`
- *                                        because the old name suggested
- *                                        Codex/Claude/Pi-specific intent;
- *                                        the real meaning is "layout
- *                                        the router didn't recognize".
- *   - `refused-reserved`               — pack's normalized skill name is
- *                                        in the migration reserved-name set
- *                                        (`isa`, `the-algorithm`, `knowledge`,
- *                                        `telos`) and `--overwrite-reserved`
- *                                        was not passed.
- *   - `refused-other`                  — genuine error (filesystem failure,
- *                                        malformed pack, missing required
- *                                        files, secret-file refusal, etc.).
- */
-export type PaiPackOutcomeKind =
-  | "imported"
-  | "refused-unrecognized-layout"
-  | "refused-reserved"
-  /**
-   * #105 — emitted when a derived skill's kebab-cased name collides
-   * with an already-landed Soma skill. Two flavors:
-   *
-   *   1. **Within one pack** — two `src/<Name>/SKILL.md` files kebab to
-   *      the same slug. The pack importer throws
-   *      `PaiPackNameCollisionRefusal`; the migration orchestrator
-   *      classifies it `refused-name-collision`.
-   *   2. **Across packs** — Pack A landed `browser`, Pack B's nested
-   *      `Browser` would also kebab to `browser`. The second pack's
-   *      derived skill records `refused-name-collision` unless
-   *      `--overwrite-reserved` is set.
-   *
-   * `outcome.skillName` is the colliding slug; `outcome.reason`
-   * names which pack already owned the surface.
-   */
-  | "refused-name-collision"
-  | "refused-other";
-
-export interface PaiPackOutcome {
-  /** Absolute path of the source pack directory. Always present. */
-  paiPackDir: string;
-  outcome: PaiPackOutcomeKind;
-  /**
-   * Pack's normalized skill name when known (always for `imported` and
-   * `refused-reserved`; usually for `refused-unrecognized-layout`; may
-   * be omitted for `refused-other` if metadata read itself failed).
-   */
-  skillName?: string;
-  /**
-   * Human-readable reason. For `refused-unrecognized-layout` this lists
-   * the offending files; for `refused-reserved` it names the slug;
-   * for `refused-other` it surfaces the underlying error message.
-   * Empty/absent for `imported`.
-   */
-  reason?: string;
-  /**
-   * #106 — file counts for collapsed plan output. When the outcome is
-   * `refused-unrecognized-layout`, `unrecognizedFileCount` carries the
-   * exact number of files that triggered the refusal so the CLI plan
-   * formatter can render `(N files — run --verbose ...)` without
-   * re-parsing `reason`. For `imported` outcomes, `importedSkillCount`
-   * and `importedWorkflowCount` carry the per-skill / per-workflow
-   * counts used by the same formatter. All fields are optional;
-   * formatters fall back to `0`.
-   */
-  unrecognizedFileCount?: number;
-  /** #106 — files in the refused-unrecognized-layout file list, for verbose render + MIGRATION.md body. */
-  unrecognizedFiles?: readonly string[];
-  /** #106 — count of derived skills written by this pack (always 1 today; future-proofed for nested). */
-  importedSkillCount?: number;
-  /** #106 — count of workflow files written under this pack's skill(s). */
-  importedWorkflowCount?: number;
-}
-
-// soma import pai-docs — see src/pai-docs-importer.ts. Imports a
-// subset of a PAI release tree (DOCUMENTATION/, TEMPLATES/, ALGORITHM/)
-// into ~/.soma/PAI/, with per-file SHA tracking for idempotent
-// re-import.
-export interface PaiDocsImportOptions {
-  homeDir?: string;
-  paiSourceDir?: string;
-  somaHome?: string;
-}
-
-// Single source of truth for the in-scope subtree list. The runtime
-// constant lives in `src/pai-docs-importer.ts`
-// (`PAI_DOCS_IMPORT_SUBDIRS`); this type mirrors its members so
-// adding/renaming a subtree touches one place.
-export type PaiDocsImportSubdir = "DOCUMENTATION" | "TEMPLATES" | "ALGORITHM";
-
-export interface PaiDocsImportFile {
-  // Absolute path of the file on disk in the PAI source tree.
-  source: string;
-  // Absolute path where the file will land under ~/.soma/PAI/.
-  target: string;
-  // POSIX-style path relative to ~/.soma/PAI/, e.g.
-  // "DOCUMENTATION/Skills/SkillSystem.md". This is the manifest key.
-  relativePath: string;
-  // Which in-scope subdir the file came from.
-  subdir: PaiDocsImportSubdir;
-  // SHA-256 of the file's bytes, hex-encoded. Optional in dry-run
-  // plans so listing the file set does not require reading every
-  // file's bytes. Always populated on the apply path, where the SHA
-  // is needed for both the manifest and the idempotency check.
-  sha256?: string;
-}
-
-export interface PaiDocsImportPlan {
-  apply: boolean;
-  paiSourceDir: string;
-  somaHome: string;
-  // PAI release version, inferred from a `VERSION` file at the source
-  // root or from a `Releases/<version>/` path hint. Null when neither
-  // is present — the manifest stays explicit about not guessing.
-  releaseVersion: string | null;
-  files: PaiDocsImportFile[];
-}
-
-export interface PaiDocsImportManifestFile {
-  // POSIX-style path under ~/.soma/PAI/ — see
-  // PaiDocsImportFile.relativePath.
-  target: string;
-  // POSIX-style path under the source dir.
-  source: string;
-  // SHA-256 of the source bytes at import time.
-  sha256: string;
-}
-
-export interface PaiDocsImportManifest {
-  schema: "soma.pai-docs-import.v1";
-  paiSourceDir: string;
-  releaseVersion: string | null;
-  // ISO-8601 timestamp.
-  importedAt: string;
-  files: PaiDocsImportManifestFile[];
-}
-
-export interface PaiDocsImportResult {
-  applied: true;
-  paiSourceDir: string;
-  somaHome: string;
-  releaseVersion: string | null;
-  importedAt: string;
-  // How many files were actually copied this run (0 = nothing to do).
-  writtenCount: number;
-  // True iff writtenCount === 0 — a re-import with no source drift.
-  unchanged: boolean;
-  // Absolute paths of every in-scope file (the projection target).
-  files: string[];
-}
-
-// soma migrate pai memory phase (#90) — translates
-// <claudeHome>/PAI/MEMORY/* → <somaHome>/memory/* per DD-2's 1:1
-// canonical mapping. Content-preserving; preserves mtimes; per-file
-// SHA recorded in <somaHome>/imports/pai-migration/.manifest.json.
-export interface PaiMemoryMigrationOptions {
-  homeDir?: string;
-  claudeHome?: string;
-  somaHome?: string;
-}
-
-export interface PaiMemoryMigrationFile {
-  // Absolute path of the file inside the PAI MEMORY tree.
-  source: string;
-  // Absolute path the file will land at under <somaHome>/memory/.
-  target: string;
-  // POSIX-style path relative to <claudeHome>/PAI/MEMORY/ — i.e.
-  // "<CATEGORY>/<rest>". Manifest key.
-  relativePath: string;
-  // Source mtime preserved on the target file. Recorded in the
-  // manifest so idempotency checks need only one stat per file.
-  mtimeMs: number;
-  // SHA-256 of the source bytes, hex-encoded. Always populated on the
-  // apply path; optional in dry-run plans so plan-only callers do not
-  // pay the read cost for every file.
-  sha256?: string;
-}
-
-export interface PaiMemoryMigrationPlan {
-  apply: boolean;
-  claudeHome: string;
-  somaHome: string;
-  // Absolute path of the source directory under inspection
-  // (<claudeHome>/PAI/MEMORY/). Null when the PAI install has no
-  // MEMORY tree to migrate (nothing to do).
-  memoryDir: string | null;
-  files: PaiMemoryMigrationFile[];
-}
-
-export interface PaiMemoryMigrationResult {
-  claudeHome: string;
-  somaHome: string;
-  memoryDir: string | null;
-  importedAt: string;
-  // Files actually copied this run (skipped-by-SHA files do not count).
-  writtenCount: number;
-  // Files inspected and confirmed already in sync (target SHA matched).
-  skippedCount: number;
-  unchanged: boolean;
-  manifestPath: string;
-  // Absolute target paths for every in-scope file (whether written or
-  // skipped). Always matches `plan.files.length` on the apply path.
-  files: string[];
-  // Subset of `files` that were actually copied this run. Sage r2 #95
-  // important: callers that want a per-run "files I touched" list
-  // (e.g., the orchestrator's `filesWritten` log) must use this
-  // instead of `files`, which over-reports on idempotent reruns.
-  writtenTargets: string[];
-}
-
-export interface PaiMemoryMigrationManifestFile {
-  // Manifest key. POSIX-style path relative to <claudeHome>/PAI/MEMORY/.
-  relativePath: string;
-  // POSIX-style path relative to <somaHome>/memory/ (the target home).
-  target: string;
-  sha256: string;
-  mtimeMs: number;
-}
-
-export interface PaiMemoryMigrationManifest {
-  schema: "soma.pai-memory-migration.v1";
-  claudeHome: string;
-  somaHome: string;
-  // ISO-8601 timestamp of the last successful migration. Stable across
-  // reruns when nothing changed.
-  importedAt: string;
-  files: PaiMemoryMigrationManifestFile[];
-}
-
 // #115 — `soma migrate claude-skills` types.
 //
-// Second migration path (alongside `soma migrate pai`) that imports
-// directly from an installed flat `.claude/skills/` tree — one
+// Imports directly from an installed flat `.claude/skills/` tree — one
 // `<Name>/SKILL.md` per skill, no pack-level metadata, no collection
 // bundles. Per-skill portability is classified heuristically (regex
 // based, Phase 1) and recorded in a sibling report file. Phase 2
@@ -1563,7 +1101,7 @@ export type RewriteDispatchOverride = (request: {
 //   - `portable`        — no `~/.claude/` path refs, no hook bindings,
 //                          no `/<slash-command>` refs in prose.
 //   - `needs-adapt`     — has `~/.claude/...` refs that the existing
-//                          `pai-pack-normalizer.ts` rewrite table can
+//                          `skill-content-normalizer.ts` rewrite table can
 //                          deterministically resolve.
 //   - `claude-specific` — has Claude-Code-only primitives that have
 //                          no portable equivalent: hook bindings
@@ -1879,7 +1417,6 @@ export interface ClaudeSkillsMigrationManifest {
 export type SomaInitStepId =
   | "bootstrap-soma-home"
   | "migrate-claude-skills"
-  | "migrate-pai"
   | "install-codex"
   | "install-pi-dev"
   | "install-claude-code"
@@ -1925,7 +1462,6 @@ export type SomaDoctorProjectionFindingId =
 export type SomaDoctorFindingId =
   | "starter-profile"
   | "claude-skills-not-migrated"
-  | "pai-not-migrated"
   | SomaDoctorProjectionFindingId
   // soma#542: eager-loader stub integrity. Not a projection-drift id — the
   // stub's own bytes are correct; what rots is the body it points at.
@@ -2014,7 +1550,7 @@ export interface SomaDoctorFinding {
    * Command-first: use an executable CLI command (e.g. `soma reproject grok`,
    * `soma install claude-code --apply`) wherever a single command remediates
    * the finding, so an agent or user can run it directly. Only when no single
-   * command applies — e.g. `starter-profile` with no PAI source, where the
+   * command applies — e.g. `starter-profile`, where the
    * user must hand-author profile files — use a concise imperative
    * instruction instead. Either way the narrative explanation belongs in
    * `message`, not here. (The grok doctor's
@@ -2902,7 +2438,7 @@ export interface SomaMemoryResurfaceResult {
 // supersede — verify alone does not elevate a quarantined note). The top-level
 // category dir is mapped to a note type by {@link SOMA_MEMORY_BACKFILL_TYPE_MAP}; `--type`
 // forces a single type for all files. Idempotent via a SHA manifest at
-// `memory/STATE/imports/backfill/.manifest.json` (mirrors pai-memory-migrator).
+// `memory/STATE/imports/backfill/.manifest.json`.
 
 /** The durable, backfillable note types (episodic is written via digest/action, not backfill). */
 export type WritableNoteType = Exclude<SomaMemoryNoteType, "episodic">;

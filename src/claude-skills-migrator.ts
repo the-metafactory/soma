@@ -31,7 +31,7 @@
  * Phase 2 (deferred — separate PR): `--smoke <substrate>` per-skill
  * projection verify against Codex / Pi.dev substrate projectors.
  *
- * Boundaries (same as `pai-pack-normalizer.ts`):
+ * Boundaries (same as `skill-content-normalizer.ts`):
  *   - No LLM rewrites.
  *   - No personal/private inference.
  *   - No execution of embedded commands.
@@ -51,9 +51,9 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { kebabSlug } from "./pai-pack-slug";
-import { normalizeSkillContent } from "./pai-pack-normalizer";
-import { EDITOR_CONFIG_DIRS } from "./pai-pack-noise";
+import { kebabSlug } from "./skill-content-slug";
+import { normalizeSkillContent } from "./skill-content-normalizer";
+import { EDITOR_CONFIG_DIRS } from "./skill-content-noise";
 import { runBoundedConcurrent } from "./internal-concurrency";
 import { verifySubstrateProjection } from "./claude-skills-substrate-verify";
 import type {
@@ -184,7 +184,7 @@ function matchEditorConfigSymlinkDir(relativePosixPath: string): string | null {
 //
 // 1) `~/.claude/...` path refs trigger the `needs-adapt`/`portable`
 //    split. The pai-pack normalizer's deterministic rewrite table
-//    (`pai-pack-normalizer.ts` CLAUDE_HOME_DETERMINISTIC) is the
+//    (`skill-content-normalizer.ts` CLAUDE_HOME_DETERMINISTIC) is the
 //    authority on what "needs-adapt" actually means — a skill whose
 //    only Claude refs map cleanly via that table is `needs-adapt`.
 //    Anything beyond it falls back through the normalizer's
@@ -280,9 +280,8 @@ interface SkillFilePayload {
 // targets. Even when a symlink chain resolves inside `$HOME`, paths
 // that almost certainly carry credentials (`.ssh/`, cloud-CLI creds,
 // the active user's keyring directories) must NEVER be slurped into
-// a Soma skill import. The list mirrors the existing secret-file
-// patterns in `pai-pack-importer.ts` (SECRET_FILE_PATTERNS) but
-// operates on the resolved target directory.
+// a Soma skill import. The list operates on the resolved target
+// directory.
 //
 // Keep this list narrow — every entry widens the refusal envelope.
 // All entries are POSIX-style path segments anchored to `$HOME`.
@@ -382,8 +381,7 @@ async function resolveSymlinkSafely(
  *         throws so the caller can classify the containing skill as
  *         `refused-other` (log-and-continue at the per-skill layer).
  *   - Out-of-root absolute file paths still refuse — a regular file's
- *     `realpath` must stay within the source-side tree the same way
- *     pai-pack-importer enforces it.
+ *     `realpath` must stay within the source-side tree.
  *
  * Per-file audit (`followed-user-owned-symlink`) is collected on the
  * returned `audit` array so the surrounding skill outcome can record
@@ -977,7 +975,7 @@ async function buildPlanCore(options: BuildPlanCoreOptions): Promise<PlanResult>
   // longer aborts the whole migrate. We surface a `Result`-style
   // tagged union per skill so the outcome builder can classify
   // failures as `refused-other` while keeping the rest of the pipeline
-  // pure. Mirrors the pattern in `pai-migration.ts:728-737`.
+  // pure.
   type ReadResult =
     | { ok: true; read: SourceSkillReadResult }
     | { ok: false; sourceName: string; reason: string };
@@ -1423,8 +1421,7 @@ async function writeSkillPayload(
 }
 
 function renderManifest(manifest: ClaudeSkillsMigrationManifest): string {
-  // JSON.stringify with 2-space indent + trailing newline matches the
-  // pai-memory-migrator and pai-docs-importer manifest format. Entries
+  // JSON.stringify with 2-space indent + trailing newline. Entries
   // sorted by kebabName so byte-stable reruns produce byte-stable
   // manifests.
   const sorted: ClaudeSkillsMigrationManifest = {
@@ -1569,7 +1566,7 @@ function renderPortabilityReport(
   lines.push("## Classifier rules (Phase 1, heuristic)");
   lines.push("");
   lines.push("- **claude-specific** — hook binding (`Stop:`, `UserPromptSubmit:`, `PreToolUse:`, `PostToolUse:`, `SessionStart:`, `SubagentStop:`, `Notification:`, `PreCompact:`) OR `/<slash-command>` reference in prose (outside fenced code blocks).");
-  lines.push("- **needs-adapt** — `~/.claude/...` path reference(s); rewritten via `pai-pack-normalizer.ts` deterministic rewrite table.");
+  lines.push("- **needs-adapt** — `~/.claude/...` path reference(s); rewritten via `skill-content-normalizer.ts` deterministic rewrite table.");
   lines.push("- **portable** — no Claude-specific signal detected.");
   lines.push("");
   lines.push(
@@ -2278,7 +2275,7 @@ export async function migrateClaudeSkills(
     smokeVerifyMs = Date.now() - smokeT0;
   }
 
-  // Manifest timestamp policy mirrors pai-memory-migrator:
+  // Manifest timestamp policy:
   //   - any actual write → bump timestamp.
   //   - pure idempotent rerun → preserve prior timestamp so the
   //     manifest is byte-stable.

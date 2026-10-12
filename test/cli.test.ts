@@ -6,7 +6,6 @@ import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { ALGORITHM_ACTIONS } from "../src/cli/algorithm";
 import { FEEDBACK_COMMAND_HELP } from "../src/cli/feedback";
-import { IMPORT_COMMAND_HELP } from "../src/cli/import";
 import { LIFECYCLE_COMMAND_HELP } from "../src/cli/lifecycle";
 import { MEMORY_COMMAND_HELP } from "../src/cli/memory";
 import { MIGRATE_COMMAND_HELP } from "../src/cli/migrate";
@@ -191,7 +190,6 @@ test("cli supports command-group help as normal help", async () => {
   await expect(runSomaCli(["policy", "--help"])).resolves.toContain("Usage: soma policy check");
   await expect(runSomaCli(["lifecycle", "--help"])).resolves.toContain("Usage: soma lifecycle");
   await expect(runSomaCli(["install", "--help"])).resolves.toContain("Usage: soma install");
-  await expect(runSomaCli(["import", "--help"])).resolves.toContain("Usage: soma import");
 });
 
 test("cli supports concrete subcommand help as read-only normal help", async () => {
@@ -208,8 +206,7 @@ test("cli supports concrete subcommand help as read-only normal help", async () 
   await expect(runSomaCli(["memory", "search", "--help"])).resolves.toContain("Usage: soma memory search");
   await expect(runSomaCli(["policy", "check", "--help"])).resolves.toContain("Usage: soma policy check");
   await expect(runSomaCli(["install", "codex", "--help"])).resolves.toContain("Usage: soma install");
-  await expect(runSomaCli(["import", "pai", "--help"])).resolves.toContain("Usage: soma import pai");
-  await expect(runSomaCli(["migrate", "pai", "--help"])).resolves.toContain("Usage: soma migrate pai");
+  await expect(runSomaCli(["migrate", "claude-skills", "--help"])).resolves.toContain("Usage: soma migrate claude-skills");
 });
 
 test("algorithm command module keeps actions and help in sync", async () => {
@@ -255,14 +252,6 @@ test("migrate command module keeps migration sources and help in sync", async ()
 
   for (const [source, usage] of Object.entries(MIGRATE_COMMAND_HELP.subcommands)) {
     await expect(runSomaCli(["migrate", source, "--help"])).resolves.toBe(usage);
-  }
-});
-
-test("import command module keeps import sources and help in sync", async () => {
-  await expect(runSomaCli(["import", "--help"])).resolves.toBe(IMPORT_COMMAND_HELP.usage);
-
-  for (const [source, usage] of Object.entries(IMPORT_COMMAND_HELP.subcommands)) {
-    await expect(runSomaCli(["import", source, "--help"])).resolves.toBe(usage);
   }
 });
 

@@ -1,9 +1,10 @@
 /**
- * PAI pack import-time normalizer.
+ * Skill-content normalizer.
  *
- * Deterministic, auditable transformations applied to staged PAI pack content
- * before it is promoted into `~/.soma/skills/`. The normalizer never makes
- * semantic rewrites — it strips known substrate-specific runtime blocks,
+ * Deterministic, auditable transformations applied to staged skill content
+ * before it is promoted into `~/.soma/skills/` (`soma migrate claude-skills`)
+ * or projected into a substrate. The normalizer never makes semantic
+ * rewrites — it strips known substrate-specific runtime blocks,
  * deterministically rewrites a small set of Claude→Soma paths, and emits
  * warnings for everything else.
  *
@@ -11,16 +12,10 @@
  * - No LLM rewrites.
  * - No personal/private context inference.
  * - No execution of embedded commands.
- * - Original PAI source remains available in `imports/pai-packs/<skill>/`.
- *
- * Output of `normalizeSkillContent` flows into `soma-pack.json` as the
- * `normalization` field so every action and warning is reviewable.
  */
 import type {
   PaiPackNormalizationAction,
   PaiPackNormalizationWarning,
-  PaiPackNormalizationReport,
-  SomaSkillManifest,
 } from "./types";
 
 export interface NormalizeContentResult {
@@ -469,108 +464,4 @@ function collectReleaseSafetyWarnings(
       detail: "Claude-specific release-safety check; integrate with Soma policy model.",
     });
   }
-}
-
-export function mergeNormalizationReports(
-  reports: readonly { actions: PaiPackNormalizationAction[]; warnings: PaiPackNormalizationWarning[] }[],
-): PaiPackNormalizationReport {
-  return {
-    mode: "deterministic",
-    actions: reports.flatMap((report) => report.actions),
-    warnings: reports.flatMap((report) => report.warnings),
-  };
-}
-
-export interface NormalizeSkillDescriptionResult {
-  description: string;
-  action?: PaiPackNormalizationAction;
-}
-
-export function normalizeSkillDescription(
-  description: string,
-  options: {
-    file: string;
-    fallback: string;
-    maxLength?: number;
-  },
-): NormalizeSkillDescriptionResult {
-  const maxLength = options.maxLength ?? SOMA_SKILL_DESCRIPTION_MAX_LENGTH;
-  const source = (description || options.fallback).replace(/\s+/g, " ").trim();
-  const fallback = options.fallback.replace(/\s+/g, " ").trim();
-  const initial = source || fallback;
-  if (initial.length <= maxLength) {
-    return { description: initial };
-  }
-
-  const sentences = initial.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g)?.map((sentence) => sentence.trim()) ?? [];
-  let compact = "";
-  for (const sentence of sentences) {
-    const next = compact ? `${compact} ${sentence}` : sentence;
-    if (next.length > maxLength) break;
-    compact = next;
-  }
-
-  if (!compact) {
-    compact = initial.slice(0, maxLength).trimEnd();
-    compact = compact.replace(/[,;:\s-]+$/u, "");
-  }
-
-  if (!compact) {
-    compact = fallback.slice(0, maxLength).trimEnd();
-  }
-
-  return {
-    description: compact,
-    action: {
-      file: options.file,
-      kind: "compacted-skill-description",
-      detail: `Compacted skill description from ${initial.length} to ${compact.length} characters for Soma's portable ${maxLength}-character skill metadata limit.`,
-    },
-  };
-}
-
-export interface GenerateSomaSkillManifestInput {
-  skillName: string;
-  description: string;
-  packName: string;
-  packId?: string;
-  entrypoint: string;
-  references: string[];
-  workflowFiles: string[];
-}
-
-export function generateSomaSkillManifest(input: GenerateSomaSkillManifestInput): SomaSkillManifest {
-  const { description } = normalizeSkillDescription(input.description, {
-    file: "soma-skill.json",
-    fallback: `Imported PAI pack: ${input.packName}`,
-  });
-
-  return {
-    schema: "soma.skill.v1",
-    name: input.skillName,
-    description,
-    packId: input.packId,
-    source: { kind: "pai-pack", packName: input.packName },
-    entrypoint: input.entrypoint,
-    references: [...input.references].sort(),
-    workflows: [...input.workflowFiles].sort(),
-    tools: [],
-    triggers: extractTriggersFromDescription(input.description),
-    // Substrates with real portable-skill projection. Algorithm
-    // capability registration filters on this list per substrate;
-    // skill-file projection does not.
-    substrates: ["claude-code", "codex", "grok", "pi-dev"],
-  };
-}
-
-const TRIGGER_PATTERN = /USE WHEN:?\s*([^.]+)\./i;
-
-function extractTriggersFromDescription(description: string): string[] {
-  const match = TRIGGER_PATTERN.exec(description);
-  if (!match) return [];
-  return match[1]
-    .split(/,(?![^()]*\))/)
-    .map((trigger) => trigger.trim())
-    .filter((trigger) => trigger.length > 0 && trigger.length < 80)
-    .slice(0, 12);
 }

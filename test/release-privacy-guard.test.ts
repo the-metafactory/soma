@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import { scanReleasePrivacy } from "../scripts/check-release-privacy";
-import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
+import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-release-privacy-");
