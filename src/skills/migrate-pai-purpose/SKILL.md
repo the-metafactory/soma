@@ -13,7 +13,7 @@ metadata:
 
 ## Core principle
 
-Soma's **Purpose** is four *portable* fields — `Mission / Goals / Principles / Commitments` — the durable "why" projected into every session. PAI's imported life-OS is a ~19-category tree. They are not the same size and must not be conflated:
+Soma's **Purpose** is four *portable* fields — `Mission / Missions / Principles / Commitments` — the durable "why" projected into every session. PAI's imported life-OS is a ~19-category tree. They are not the same size and must not be conflated:
 
 - **Purpose-grade** content → *distilled* into the four Purpose fields (a few lines each).
 - **Context-grade** content (mental models, frames, challenges, lessons, narratives) → **Soma memory notes**, surfaced on demand by recall.
@@ -27,7 +27,7 @@ Source files live under `profile/imports/claude/TELOS/`:
 
 | Imported file | Goes to | As |
 |---|---|---|
-| `MISSION.md` (M#) | Purpose → **Mission** (1–2 sentences) + **Goals** (the durable M0–Mn) | curated `purpose.md` |
+| `MISSION.md` (M#) | Purpose → **Mission** (1–2 sentences) + **Missions** (the durable M0–Mn) | curated `purpose.md` |
 | `BELIEFS.md` (B#) | Purpose → **Principles** (the load-bearing few) **and** a memory note (full B-set) | both |
 | `STRATEGIES.md` (S#) + master-narrative filter | Purpose → **Commitments** (the decision filters) | curated `purpose.md` |
 | `MODELS.md` (MO#) | memory note | `semantic` |
@@ -55,7 +55,7 @@ If absent, run `soma migrate pai --apply` first (`SOMA_HOME` defaults to `~/.som
   grep -qE '^- ---' "$SOMA_HOME/profile/purpose.md" && echo "likely clobbered — inspect"
   ```
   Then **open the file and confirm**: a curated Purpose has a plain `Mission: <one real sentence>` and short bullet lists; a dump has the unfilled template header as its mission and many `- ---` separators. Confirm before acting — never treat the grep as proof on its own.
-- Recover: if a good projection still exists at a substrate's generated `PURPOSE.md` (e.g. `~/.claude/rules/soma/PURPOSE.md`), reconstruct `purpose.md` from it in the parser's format — `Mission: <one line>` then `## Goals` / `## Principles` / `## Commitments` with `- ` bullets. Otherwise curate a fresh 4-field distillation from `MISSION.md` + `BELIEFS.md` + `STRATEGIES.md` with the principal.
+- Recover: if a good projection still exists at a substrate's generated `PURPOSE.md` (e.g. `~/.claude/rules/soma/PURPOSE.md`), reconstruct `purpose.md` from it in the parser's format — `Mission: <one line>` then `## Missions` / `## Principles` / `## Commitments` with `- ` bullets. Otherwise curate a fresh 4-field distillation from `MISSION.md` + `BELIEFS.md` + `STRATEGIES.md` with the principal.
 - Verify the parse: `soma precompact capture --session-id x` (or any startup-context read) must show the real mission, not the placeholder.
 - Because migrate re-clobbers on every run (until soma#441 lands), **always re-run Step 1 after any `soma migrate pai`**.
 

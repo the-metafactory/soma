@@ -91,7 +91,7 @@ export const portableProjectionInput: ProjectionInput = {
     },
     purpose: {
       mission: "Keep personal assistant context portable across substrates.",
-      goals: ["Prove context generation across substrates"],
+      missions: ["Prove context generation across substrates"],
       principles: ["Substrate adapters translate; they do not own core concepts"],
       commitments: ["Keep memory filesystem-native"],
     },
