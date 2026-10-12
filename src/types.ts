@@ -906,7 +906,7 @@ export interface VsaSkillInstallResult {
   upgradeMarker?: string;
 }
 
-export interface PaiPackNormalizationAction {
+export interface SkillNormalizationAction {
   file: string;
   kind:
     | "removed-substrate-notification-hook"
@@ -921,7 +921,7 @@ export interface PaiPackNormalizationAction {
   detail: string;
 }
 
-export interface PaiPackNormalizationWarning {
+export interface SkillNormalizationWarning {
   file: string;
   kind:
     | "ambiguous-substrate-path"
@@ -932,6 +932,12 @@ export interface PaiPackNormalizationWarning {
     | "unmapped-claude-home-path";
   detail: string;
 }
+
+/** @deprecated Renamed to {@link SkillNormalizationAction} (node #793). Kept for back-compat. */
+export type PaiPackNormalizationAction = SkillNormalizationAction;
+
+/** @deprecated Renamed to {@link SkillNormalizationWarning} (node #793). Kept for back-compat. */
+export type PaiPackNormalizationWarning = SkillNormalizationWarning;
 
 export interface SomaSkillManifest {
   schema: "soma.skill.v1";

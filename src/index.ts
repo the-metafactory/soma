@@ -159,7 +159,11 @@ export type {
   SomaProtectedPath,
   OptimizeParameters,
   OptimizePresetName,
+  SkillNormalizationAction,
+  SkillNormalizationWarning,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (node #793)
   PaiPackNormalizationAction,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (node #793)
   PaiPackNormalizationWarning,
   SomaSkillManifest,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (DD-15)

@@ -407,7 +407,7 @@ Each source skill gets one of three tags:
 | Tag | Trigger |
 |---|---|
 | `portable` | No `~/.claude/` references, no hook bindings, no `/<slash-command>` references in prose. |
-| `needs-adapt` | `~/.claude/...` reference(s); rewritten via the existing `skill-content-normalizer.ts` deterministic rewrite table (the same one `soma migrate pai` uses for `~/.claude/PAI/DOCUMENTATION/`, `~/.claude/PAI/TEMPLATES/`, `~/.claude/PAI/ALGORITHM/`, `~/.claude/PAI/MEMORY/`, and `~/.claude/skills/`). |
+| `needs-adapt` | `~/.claude/...` reference(s); rewritten via the existing `skill-content-normalizer.ts` deterministic rewrite table (the same one `soma migrate pai` used in soma 0.25 or earlier for `~/.claude/PAI/DOCUMENTATION/`, `~/.claude/PAI/TEMPLATES/`, `~/.claude/PAI/ALGORITHM/`, `~/.claude/PAI/MEMORY/`, and `~/.claude/skills/`). The `~/.soma/PAI/DOCUMENTATION|TEMPLATES|ALGORITHM/` targets are legacy-only: only `soma import pai-docs` from soma 0.25 or earlier populates them, so on any other home the rewritten references point at missing files. |
 | `claude-specific` | Hook binding (`Stop:`, `UserPromptSubmit:`, `PreToolUse:`, `PostToolUse:`, `SessionStart:`, `SubagentStop:`, `Notification:`, `PreCompact:`) OR `/<slash-command>` reference in prose (outside fenced code blocks). |
 
 **Apply behavior:**

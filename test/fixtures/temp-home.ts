@@ -14,7 +14,7 @@ import { join } from "node:path";
  */
 export async function withTempHome<T>(
   fn: (homeDir: string) => Promise<T>,
-  prefix = "soma-migrate-",
+  prefix = "soma-test-",
 ): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), prefix));
   try {
