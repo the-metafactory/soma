@@ -171,7 +171,7 @@ function renderPurposeProfile(): string {
     "",
     "Mission: Keep personal assistant context portable across substrates.",
     "",
-    "## Goals",
+    "## Missions",
     "",
     "- Establish Soma as the durable personal assistant home.",
     "",
@@ -190,6 +190,16 @@ function valueAfterPrefix(content: string, prefix: string, fallback: string): st
   const line = content.split("\n").find((candidate) => candidate.startsWith(prefix));
   const value = line?.slice(prefix.length).trim();
   return value === "" ? fallback : (value ?? fallback);
+}
+
+// soma#784 D9: M0–Mn are missions, not goals. `## Goals` stays a silent load
+// alias so no home has to migrate; when both headings exist, `## Missions` wins.
+function purposeMissions(content: string): string[] {
+  return hasSection(content, "Missions") ? sectionBullets(content, "Missions") : sectionBullets(content, "Goals");
+}
+
+function hasSection(content: string, heading: string): boolean {
+  return content.split("\n").some((line) => line.trim() === `## ${heading}`);
 }
 
 function sectionBullets(content: string, heading: string): string[] {
@@ -346,7 +356,7 @@ async function loadSomaSkills(somaHome: string): Promise<SomaSkill[]> {
 
 // soma#329: read the renamed `purpose.md`, falling back to a pre-rename
 // `telos.md` so existing homes load without a forced migration. The markdown
-// parser is heading-driven (`## Goals`/`## Principles`/`## Commitments`), so a
+// parser is heading-driven (`## Missions`/`## Principles`/`## Commitments`), so a
 // legacy `# Telos` body parses identically.
 async function readPurposeProfile(paths: ReturnType<typeof createPaths>): Promise<string> {
   try {
@@ -415,7 +425,7 @@ export async function loadSomaProfile(somaHome: string): Promise<Omit<Projection
     },
     purpose: {
       mission: valueAfterPrefix(purpose, "Mission:", "Keep personal assistant context portable across substrates."),
-      goals: sectionBullets(purpose, "Goals"),
+      missions: purposeMissions(purpose),
       principles: sectionBullets(purpose, "Principles"),
       commitments: sectionBullets(purpose, "Commitments"),
     },

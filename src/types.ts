@@ -32,7 +32,8 @@ export interface PrincipalIdentity {
 
 export interface Purpose {
   mission?: string;
-  goals: string[];
+  /** The durable missions (M0–Mn). Loaded from `## Missions`, or `## Goals` in an older home (soma#784 D9). */
+  missions: string[];
   principles: string[];
   commitments: string[];
 }

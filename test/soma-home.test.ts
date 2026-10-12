@@ -22,7 +22,7 @@ test("bootstraps a soma home with starter profile and memory layout", async () =
     expect(result.somaHome).toBe(somaHome);
     expect(result.context.profile.assistant.name).toBe("soma");
     expect(result.context.profile.principal.preferredName).toBe("Principal");
-    expect(result.context.profile.purpose.goals).toContain("Establish Soma as the durable personal assistant home.");
+    expect(result.context.profile.purpose.missions).toContain("Establish Soma as the durable personal assistant home.");
     expect(result.context.profile.memory.learning).toBe(join(somaHome, "memory/LEARNING"));
 
     await expect(readFile(join(somaHome, "profile/assistant.md"), "utf8")).resolves.toContain("# Assistant");
@@ -47,7 +47,7 @@ test("soma#329: loads a pre-rename home that still has profile/telos.md", async 
 
     const profile = await loadSomaProfile(somaHome);
     expect(profile.purpose.mission).toBe("Legacy mission from a pre-rename home.");
-    expect(profile.purpose.goals).toContain("Keep loading after the rename.");
+    expect(profile.purpose.missions).toContain("Keep loading after the rename.");
   });
 });
 
