@@ -72,9 +72,11 @@ const defaultProbe: BunPathProbe = {
     });
     if (result.error) return { ok: false, detail: String(result.error) };
     if (result.status !== 0) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- spawnSync/execFile output is untyped at runtime and can be null; keep the guard
       const stderr = (result.stderr ?? "").trim();
       return { ok: false, detail: `exit ${result.status}${stderr ? `: ${stderr}` : ""}` };
     }
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- spawnSync/execFile output is untyped at runtime and can be null; keep the guard
     return { ok: true, detail: (result.stdout ?? "").trim() };
   },
   locate: (tool) => {
@@ -83,6 +85,7 @@ const defaultProbe: BunPathProbe = {
     // `where` lists every PATH hit (shims before the real exe is
     // common under scoop) — take the first; validation makes a wrong
     // pick loud instead of latent.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- spawnSync/execFile output is untyped at runtime and can be null; keep the guard
     const first = (result.stdout ?? "").trim().split(/\r?\n/)[0]?.trim() ?? "";
     return first.length > 0 ? first : null;
   },
@@ -212,7 +215,7 @@ export function resolveValidatedBunPath(input: ResolveBunPathInput = {}): string
   const fromExecPath = (): string | null => (runningUnderBun && execPath ? execPath : null);
   const fromLocate = (tool: "which" | "where") => (): string | null => probe.locate(tool);
 
-  const producers: Array<{ source: BunPathSource; explicit?: boolean; get: () => string | null }> =
+  const producers: { source: BunPathSource; explicit?: boolean; get: () => string | null }[] =
     platform === "win32"
       ? [
           { source: "SOMA_BUN_PATH", explicit: true, get: fromEnv },

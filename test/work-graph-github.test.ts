@@ -588,7 +588,7 @@ test("a sibling repo's path reads back lower-cased, the same id a typed ref reso
 test("an id that is neither a number nor owner/name#N never reaches a request path", async () => {
   const { transport, calls } = fakeTransport({});
   const store = createGitHubGraphStore({ repo: REPO, transport });
-  for (const id of [`${REPO}`, "a#b", "../x#1", `${REPO}/extra#1`, "csoc&5", "root"]) {
+  for (const id of [REPO, "a#b", "../x#1", `${REPO}/extra#1`, "csoc&5", "root"]) {
     await expect(store.readNode({ id })).rejects.toThrow();
   }
   expect(calls).toEqual([]);
@@ -701,7 +701,7 @@ test("the GitHub frontier reports sibling-repo members as unwritable in one subt
   expect(ids(report.notWritable)).toEqual([`${RANGER}#497`]);
   expect(report.notWritable[0]?.writable).toBe(false);
   expect(keys).toEqual(["495"]);
-  await expect(store.claim(report.notWritable[0]!.ref, "ivy-agent")).rejects.toThrow(/writes only to its own repository/u);
+  await expect(store.claim(report.notWritable[0].ref, "ivy-agent")).rejects.toThrow(/writes only to its own repository/u);
   expect(keys).toEqual(["495", `GET repos/${RANGER}/issues/497`]);
 });
 
@@ -1246,7 +1246,7 @@ test("readNode ignores a receipt from before reopen and current reclose", async 
   expect(state.currentCloseReceipt).toBe(false);
 });
 
-type CompletionFixture = { receiptCommentId: string; checkpointId: string; autonomy: "approve"; closer: string; closedAt: string; gatedNodeHash: string };
+interface CompletionFixture { receiptCommentId: string; checkpointId: string; autonomy: "approve"; closer: string; closedAt: string; gatedNodeHash: string }
 
 async function currentCloseReceipt(completion?: CompletionFixture): Promise<boolean | undefined> {
   const { transport } = fakeTransport({
@@ -1286,7 +1286,7 @@ function autoCompletion(): Record<string, unknown> {
 async function autoCurrentCloseReceipt(checkRun: Record<string, unknown>): Promise<boolean | undefined> {
   const completion = autoCompletion();
   const receiptBody =
-    "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `auto`\n- **at:** 2026-01-03T00:00:00.000Z\n- **gated node hash:** `" + completion.gatedNodeHash +
+    "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `auto`\n- **at:** 2026-01-03T00:00:00.000Z\n- **gated node hash:** `" + (completion.gatedNodeHash as string) +
     "`\n- **ci:** `98765@deadbeef`\n- **attestation:** `unverified`\n\n### Evidence\n\n- `probed` — bun test exit 0 (https://example.test/run/1)\n";
   const { transport } = fakeTransport({
     [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE], completion }) }),

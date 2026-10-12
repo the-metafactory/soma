@@ -203,7 +203,7 @@ export async function listMemoryNotes(dir: string, options: ListMemoryNotesOptio
           }
           return undefined;
         }
-        return st !== undefined && st.isFile() ? full : undefined;
+        return st?.isFile() ? full : undefined;
       },
       concurrency,
     );

@@ -76,7 +76,7 @@ async function parseFile(path: string): Promise<SomaMemoryNote | undefined> {
 /** mtime in ms, or `undefined` if the path is absent. Uses `lstat` — a path swapped to
  *  a symlink after enumeration is measured as the link itself, never followed. */
 async function mtimeMs(path: string): Promise<number | undefined> {
-  return lstat(path).then((s) => s.mtimeMs).catch((error) => {
+  return lstat(path).then((s) => s.mtimeMs).catch((error: unknown) => {
     if (isEnoent(error)) return undefined;
     throw error;
   });
@@ -85,7 +85,7 @@ async function mtimeMs(path: string): Promise<number | undefined> {
 /** lstat-based classification of INDEX.md — the audit trusts only a REAL file, so a
  *  symlinked INDEX (which could point at a newer file to spoof freshness) is rejected. */
 async function classifyIndex(path: string): Promise<{ kind: "absent" | "symlink" | "irregular" | "file"; mtimeMs: number }> {
-  const info = await lstat(path).catch((error) => {
+  const info = await lstat(path).catch((error: unknown) => {
     if (isEnoent(error)) return undefined;
     throw error;
   });
@@ -171,7 +171,7 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
 async function probeTreeIntegrity(rootDirs: string[], somaHome: string): Promise<{ probe: SomaMemoryAuditProbe }> {
   const abnormal: string[] = [];
   for (const dir of rootDirs) {
-    const info = await lstat(dir).catch((error) => {
+    const info = await lstat(dir).catch((error: unknown) => {
       if (isEnoent(error)) return undefined;
       throw error;
     });
@@ -295,7 +295,7 @@ async function probeOrphanedArchive(
   const archived: { relFromSoma: string; id: string; month: string }[] = [];
   const neededMonths = new Set<string>();
   for (const { path, note } of parsed) {
-    if (note === undefined || note.type !== "episodic") continue;
+    if (note?.type !== "episodic") continue;
     // Path-segment containment (not a raw string prefix): `path` is under the archive
     // iff its relative path neither escapes (`..`) nor is absolute.
     const rel = relative(archiveDir, path);

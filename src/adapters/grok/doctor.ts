@@ -164,7 +164,7 @@ function registeredHookInterpreters(parsed: { hooks?: Record<string, { hooks?: {
     .filter((command): command is string => typeof command === "string");
   const interpreters = commands
     .map((command) => command.split(" ")[0])
-    .filter((token): token is string => token !== undefined && token.length > 0);
+    .filter((token) => token.length > 0);
   return new Set(interpreters);
 }
 

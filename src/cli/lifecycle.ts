@@ -5,17 +5,13 @@ import {
   runSomaLifecycleSessionStart,
 } from "../index";
 import { resolveLifecycleHomeDir } from "../lifecycle";
-import { resolveInstalledLifecycleHomeDir } from "../adapters/shared/lifecycle-home-binding";
+// Also registers the claude-code and codex SessionEnd transcript-digest handlers.
+import { resolveInstalledLifecycleHomeDir } from "../adapters/lifecycle";
 import type { SomaLifecycleOptions, SomaLifecycleResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
-// Composition layer: importing the Claude Code adapter registers its SessionEnd
-// transcript-digest handler with core lifecycle (dependency inversion — core never
-// imports the adapter). Side-effect import; the symbol itself is not used here.
-import "../adapters/claude-code/session-digest";
-import "../adapters/codex/session-digest";
-// Registers claude-code's projection self-repair provider (soma#460) — same
-// dependency inversion; core looks it up by substrate and never imports it.
+// Registers claude-code's projection self-repair provider (soma#460) — dependency
+// inversion; core looks it up by substrate and never imports it.
 import "../adapters/claude-code/projection-self-repair";
 
 export interface ParsedLifecycleArgs {

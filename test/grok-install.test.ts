@@ -489,6 +489,7 @@ test("grok install never emits a whitespace hook command for a spaced home (8.3 
     if (installed) {
       const hooksJson = JSON.parse(await readFile(join(homeDir, ".grok", "hooks", "soma-lifecycle.json"), "utf8"));
       const commands: string[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc types these entries as unknown; the assertion is needed
       for (const entries of Object.values(hooksJson.hooks) as { hooks: { command: string }[] }[][]) {
         for (const entry of entries) for (const h of entry.hooks) commands.push(h.command);
       }

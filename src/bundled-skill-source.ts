@@ -90,6 +90,7 @@ export async function readBundledSkill(name: string, somaRepoPath?: string): Pro
 export async function readBundledSkillFile(name: string, path: string, somaRepoPath?: string): Promise<string> {
   if (readsEmbeddedTree(somaRepoPath)) {
     const content = (await embeddedFiles())[`${name}/${path}`];
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Record lookup by a runtime key: undefined is reachable
     if (content !== undefined) return content;
   } else {
     try {

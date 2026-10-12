@@ -76,7 +76,7 @@ function canonicalizeShortPath(path) {
     cursor = parent;
   }
 
-  let result = path;
+  let result;
   try {
     const realCursor = realpathSync.native(cursor);
     result = suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;

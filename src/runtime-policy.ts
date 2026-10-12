@@ -308,7 +308,7 @@ function precedingToken(text: string, index: number): PrecedingToken {
   const from = Math.max(0, index - POSITION_LOOKBACK);
   const before = text.slice(from, index).replace(TRANSPARENT_TAIL, "");
   if (before === "") return { kind: "clause-start" };
-  const last = before[before.length - 1]!;
+  const last = before[before.length - 1];
   if (CLAUSE_START_CHARS.has(last)) return { kind: "clause-start" };
   const word = /[\p{L}'’]+$/u.exec(before);
   if (!word) return { kind: "other" };
@@ -1019,6 +1019,7 @@ function grepFileArguments(verb: string, args: string[]): string[] | undefined {
       for (let at = 0; at < cluster.length; at += 1) {
         const flag = cluster[at];
         if (GREP_COUNT_ONLY_SHORT_FLAGS.has(flag) || (flag === "L" && GREP_FILES_WITHOUT_MATCH_FAMILY.has(verb))) return undefined;
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Record lookup by a runtime key: undefined is reachable
         if (GREP_VALUE_FLAGS[verb]?.has(flag)) {
           if (flag === "e" || flag === "f") patternGiven = true;
           if (at === cluster.length - 1) index += 1;

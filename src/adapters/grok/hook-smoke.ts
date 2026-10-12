@@ -78,7 +78,7 @@ export async function smokeTestInstalledGrokHookCommand(substrateHome: string): 
     cwd: substrateHome,
   });
 
-  const result = spawnSync(argv[0]!, argv.slice(1), {
+  const result = spawnSync(argv[0], argv.slice(1), {
     input: payload,
     encoding: "utf8",
     timeout: GROK_HOOK_SMOKE_TIMEOUT_MS,
@@ -88,7 +88,9 @@ export async function smokeTestInstalledGrokHookCommand(substrateHome: string): 
   if (result.error) {
     throw smokeFailure(command, `spawn failed: ${String(result.error)}`);
   }
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- spawnSync/execFile output is untyped at runtime and can be null; keep the guard
   const stdout = (result.stdout ?? "").trim();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- spawnSync/execFile output is untyped at runtime and can be null; keep the guard
   const stderr = (result.stderr ?? "").trim();
   if (result.status !== 0) {
     throw smokeFailure(

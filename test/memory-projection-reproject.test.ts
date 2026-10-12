@@ -6,7 +6,7 @@ import { bootstrapSomaHome, reprojectSubstrateMemoryProjection, runSomaLifecycle
 import { memoryIndexPath } from "../src/memory-index";
 import { memoryNotePath, type WritableType } from "../src/memory-write";
 
-async function readEvents(somaHome: string): Promise<Array<Record<string, unknown>>> {
+async function readEvents(somaHome: string): Promise<Record<string, unknown>[]> {
   const raw = await readFile(somaMemoryEventsPath(somaHome), "utf8").catch(() => "");
   return raw
     .split("\n")

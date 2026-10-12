@@ -138,10 +138,12 @@ async function shouldRemoveGrokTarget(target: string): Promise<boolean> {
     const parent = basename(dirname(target));
     if (parent === "hooks") {
       const marker = GROK_HOOK_FILE_MARKERS[basename(target)];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Record lookup by a runtime key: undefined is reachable
       return marker !== undefined && (await readFile(target, "utf8")).includes(marker);
     }
     if (GROK_SUBAGENT_SURFACE_DIRS.has(parent)) {
       const marker = GROK_SUBAGENT_FILE_MARKERS[basename(target)];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Record lookup by a runtime key: undefined is reachable
       return marker !== undefined && (await readFile(target, "utf8")).includes(marker);
     }
     // `rules/` only ever holds the workspace `rules/soma` overlay, so a
@@ -151,6 +153,7 @@ async function shouldRemoveGrokTarget(target: string): Promise<boolean> {
     // README marker and is intentionally left untouched — the marker guard,
     // not the path, decides removal.
     const guard = GROK_SKILL_DIR_MARKERS[parent === "rules" ? "rules-soma" : basename(target)];
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Record lookup by a runtime key: undefined is reachable
     if (!guard) return false;
     return (await readFile(join(target, guard.file), "utf8")).includes(guard.marker);
   } catch (error) {

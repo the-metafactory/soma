@@ -78,6 +78,7 @@ async function shouldRemoveCoworkProjection(target: string, context: UninstallCo
         return isGeneratedCoworkHomeFile(target, content);
       case "vsa-skill":
         if (!(await cachedGeneratedCoworkRoot(context))) return false;
+        // eslint-disable-next-line @typescript-eslint/return-await -- awaiting here would route this call's rejection into the catch below and change the error path
         return isGeneratedCoworkVsaSkill(content);
       case "projection-file":
         if (!(await cachedGeneratedCoworkRoot(context))) return false;

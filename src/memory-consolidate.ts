@@ -296,6 +296,7 @@ function planSimilarPairs(notes: { note: SomaMemoryNote }[]): SomaMemorySimilarP
   for (let i = 0; i < active.length; i += 1) {
     const candidates = new Set<number>(); // keyed by j, only j > i → each pair once
     for (const token of tokens[i]) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- every token of every active note was posted above
       for (const j of postings.get(token)!) if (j > i) candidates.add(j);
     }
     for (const j of candidates) {
@@ -435,7 +436,7 @@ async function regenerateMonthlyDigests(paths: SomaPaths, months: Set<string>): 
     }
     const notes = parsed
       .map((entry) => entry.note)
-      .filter((n): n is SomaMemoryNote => n !== undefined && n.created.slice(0, 7) === month)
+      .filter((n): n is SomaMemoryNote => n?.created.slice(0, 7) === month)
       .sort((a, b) => a.id.localeCompare(b.id));
     if (notes.length === 0) continue;
     const digestPath = paths.episodic("digests", `${month}.md`);

@@ -16,7 +16,7 @@ function note(id: string, body: string): SomaMemoryNote {
     links: [],
     resurface_count: 0,
     body,
-  } as SomaMemoryNote;
+  };
 }
 
 test("episodic digest pointer rendering and parsing are mutual for normal ids", () => {

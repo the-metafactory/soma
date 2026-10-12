@@ -325,13 +325,16 @@ export async function listStartupAlgorithmRunSummaries(options: AlgorithmStoreOp
     const parsed = JSON.parse(await readFile(indexPath, "utf8")) as { runs?: unknown; scanStartedAt?: unknown };
     const after = await stat(indexPath, { bigint: true });
     if (before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || before.size !== after.size) {
+      // eslint-disable-next-line @typescript-eslint/return-await -- awaiting here would route this call's rejection into the catch below and change the error path
       return listAlgorithmRunSummaries(options);
     }
     if (!Array.isArray(parsed.runs) || !parsed.runs.every((run) => isIndexedRunSummary(run, runsDir))) {
+      // eslint-disable-next-line @typescript-eslint/return-await -- awaiting here would route this call's rejection into the catch below and change the error path
       return listAlgorithmRunSummaries(options);
     }
     const scanStartedMs = typeof parsed.scanStartedAt === "string" ? Date.parse(parsed.scanStartedAt) : NaN;
     if (!Number.isFinite(scanStartedMs) || BigInt(scanStartedMs) * 1_000_000n > after.mtimeNs) {
+      // eslint-disable-next-line @typescript-eslint/return-await -- awaiting here would route this call's rejection into the catch below and change the error path
       return listAlgorithmRunSummaries(options);
     }
     cached = parsed.runs;

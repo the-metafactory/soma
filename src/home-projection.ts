@@ -33,6 +33,7 @@ function maybeCodeOnlyProjection(
   return { ...projection, files: projection.files.filter((file) => !isSkillProjectionPath(file.path)) };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- S ties the substrate to its install spec's build context in the body
 function buildHomeProjectionFor<S extends InstallSubstrate>(
   substrate: S,
   input: ProjectionInput,
@@ -55,6 +56,7 @@ function buildHomeProjectionFor<S extends InstallSubstrate>(
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- S ties the substrate to its install spec in the body
 async function installHomeProjectionFor<S extends InstallSubstrate>(
   substrate: S,
   input: ProjectionInput,

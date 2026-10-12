@@ -36,6 +36,7 @@ const PROMPT_NOISE_PREFIXES = [
 
 /** Collapse control chars + whitespace and truncate — one clean digest pointer line. */
 function cleanLine(text: string): string {
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point of this regex
   const collapsed = text.replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ").replace(/\s+/g, " ").trim();
   return collapsed.length > PROMPT_LINE_MAX_CHARS ? `${collapsed.slice(0, PROMPT_LINE_MAX_CHARS - 1)}…` : collapsed;
 }

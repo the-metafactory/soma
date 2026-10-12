@@ -1657,7 +1657,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
   /** Read all blockers in parallel and refuse the whole operation if any cannot be read. */
   private async readBlockers(blockedBy: readonly NodeRef[]): Promise<void> {
     const reads = await Promise.allSettled(blockedBy.map(async (ref) => await this.readNode(ref)));
-    const unreadable = reads.flatMap((read, index) => read.status === "rejected" ? [{ id: blockedBy[index]!.id, reason: errorText(read.reason) }] : []);
+    const unreadable = reads.flatMap((read, index) => read.status === "rejected" ? [{ id: blockedBy[index].id, reason: errorText(read.reason) }] : []);
     if (unreadable.length > 0) throw new UnreadableBlockersError(unreadable);
   }
 

@@ -142,8 +142,13 @@ export async function readJudgments(somaHome: string, filter: JudgmentFilter = {
   let malformed = 0;
   const stream = createReadStream(judgeLedgerPath(somaHome), { encoding: "utf8" });
   const opened = new Promise<boolean>((resolve, reject) => {
-    stream.once("open", () => resolve(true));
-    stream.once("error", (error: NodeJS.ErrnoException) => (error.code === "ENOENT" ? resolve(false) : reject(error)));
+    stream.once("open", () => {
+      resolve(true);
+    });
+    stream.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") resolve(false);
+      else reject(error);
+    });
   });
   if (!(await opened)) return { records, malformed };
 

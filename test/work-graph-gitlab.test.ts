@@ -427,8 +427,8 @@ test("the GitLab store's GraphQL literals and field selections are balanced in s
   // Fake transports never parse a query, so an unbalanced document only fails against a live server.
   const source = await Bun.file(new URL("../src/work-graph-gitlab.ts", import.meta.url)).text();
   const documents = [
-    ...[...source.matchAll(/const (\w+_FIELDS) = `([^`]*)`/gu)].map((match) => ({ name: match[1]!, text: match[2]! })),
-    ...[...source.matchAll(/`((?:query|mutation)[({][^`]*)`/gu)].map((match) => ({ name: match[1]!.slice(0, 40), text: match[1]! })),
+    ...[...source.matchAll(/const (\w+_FIELDS) = `([^`]*)`/gu)].map((match) => ({ name: match[1], text: match[2] })),
+    ...[...source.matchAll(/`((?:query|mutation)[({][^`]*)`/gu)].map((match) => ({ name: match[1].slice(0, 40), text: match[1] })),
   ];
   expect(documents.length).toBeGreaterThan(5);
   for (const { name, text } of documents) expectBalancedGraphQL(name, text);
@@ -449,8 +449,8 @@ test("GitLab splits a wide subtree read into batches under the query complexity 
     inFlight -= 1;
     if (calls.length === 1) return { data: { namespace: { workItem: root } } };
     const variables = request.body?.variables as Record<string, string>;
-    if ("iid" in variables) return { data: { namespace: { workItem: child(variables.iid!) } } };
-    return { data: Object.fromEntries(Object.keys(variables).filter((key) => key.startsWith("iid")).map((key) => [`item${key.slice(3)}`, { workItem: child(variables[key]!) }])) };
+    if ("iid" in variables) return { data: { namespace: { workItem: child(variables.iid) } } };
+    return { data: Object.fromEntries(Object.keys(variables).filter((key) => key.startsWith("iid")).map((key) => [`item${key.slice(3)}`, { workItem: child(variables[key]) }])) };
   } });
   expect((await store.readSubtree({ id: "saca&1" })).map((state) => state.ref.id)).toEqual(iids.map((iid) => `saca/p#${iid}`));
   const batches = calls.slice(1).map((call) => Object.keys(call.body?.variables as object).filter((key) => key.startsWith("iid")).length);

@@ -32,8 +32,8 @@ export async function resolveInstalledLifecycleHomeDir(
     // Pi's generated extension has no companion JSON config. Parse only its
     // JSON string literal; never evaluate installed code to recover a binding.
     const source: unknown = substrate === "pi-dev"
-      ? JSON.parse(raw.match(/^const SOMA_HOME = ("(?:[^"\\]|\\.)*");$/mu)?.[1] ?? "null")
-      : JSON.parse(raw)?.somaHome;
+      ? JSON.parse(/^const SOMA_HOME = ("(?:[^"\\]|\\.)*");$/mu.exec(raw)?.[1] ?? "null")
+      : (JSON.parse(raw) as { somaHome?: unknown } | null)?.somaHome;
     if (typeof source !== "string" || !isAbsolute(source)) return undefined;
     const [installed, requested] = await Promise.all([realpath(source), realpath(options.somaHome)]);
     return installed === requested ? liveHome : undefined;

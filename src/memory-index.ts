@@ -240,6 +240,7 @@ function selectIndexLines(
   // Pass 1 — min-1-per-section: OFFER the top-scored line of each non-empty section
   // (subject to the hard ceiling — an oversized top line is still shed).
   for (const type of SECTION_ORDER) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bySection holds a bucket for every SECTION_ORDER type
     const top = bySection.get(type)!.at(0);
     if (top) tryAdmit(top);
   }
@@ -276,6 +277,7 @@ export function renderMemoryIndex(
   // Section buckets in fixed order, each internally score-sorted.
   const bySection = new Map<SomaMemoryNoteType, ScoredLine[]>();
   for (const type of SECTION_ORDER) bySection.set(type, []);
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the loop above created a bucket for every note type
   for (const line of scored) bySection.get(line.type)!.push(line);
   for (const lines of bySection.values()) lines.sort(compareScored);
 
@@ -309,9 +311,11 @@ export function renderMemoryIndex(
     );
   } else {
     for (const type of SECTION_ORDER) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bySection holds a bucket for every SECTION_ORDER type
       const lines = bySection.get(type)!.filter((line) => selected.has(line));
       if (lines.length === 0) continue;
       parts.push("", `## ${SECTION_TITLE[type]}`);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- only lines with rendered text are selected
       for (const line of lines) parts.push(line.text!);
     }
     // The shed footer belongs to a non-empty render; the rendered===0 branch above
@@ -367,7 +371,7 @@ export async function loadMemoryIndexForProjection(
       // Unexpected read failure: degrade (don't block install) but surface it.
       console.warn(
         `soma: could not read the memory index at ${path} for projection — skipping the memory file. ` +
-          `${error instanceof Error ? error.message : String(error)}`,
+          (error instanceof Error ? error.message : String(error)),
       );
     }
     return undefined;
