@@ -75,7 +75,9 @@ function runClaudeHook(homeDir: string, event: string, input: Record<string, unk
   const hook = join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs");
   const result = spawnSync(process.execPath, [hook, event], {
     cwd: process.cwd(),
-    env: { ...process.env, HOME: homeDir },
+    // Pin an interactive entrypoint: a runner inside `claude -p` inherits
+    // CLAUDE_CODE_ENTRYPOINT=sdk-cli, and the hook skips SDK lifecycle runs.
+    env: { ...process.env, HOME: homeDir, CLAUDE_CODE_ENTRYPOINT: "cli" },
     input: JSON.stringify(input),
     encoding: "utf8",
   });
