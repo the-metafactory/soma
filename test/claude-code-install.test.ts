@@ -73,9 +73,13 @@ function countHookCommandsContaining(settings: { hooks?: Record<string, unknown[
 
 function runClaudeHook(homeDir: string, event: string, input: Record<string, unknown>): void {
   const hook = join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs");
+  // The hook skips lifecycle under an SDK entrypoint (`CLAUDE_CODE_ENTRYPOINT=sdk-*`);
+  // a suite run from a headless Claude session inherits one, so drop it here.
+  const env: Record<string, string | undefined> = { ...process.env, HOME: homeDir };
+  delete env.CLAUDE_CODE_ENTRYPOINT;
   const result = spawnSync(process.execPath, [hook, event], {
     cwd: process.cwd(),
-    env: { ...process.env, HOME: homeDir },
+    env,
     input: JSON.stringify(input),
     encoding: "utf8",
   });
