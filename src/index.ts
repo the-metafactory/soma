@@ -8,9 +8,6 @@ export type {
   AlgorithmCapabilityKind,
   AlgorithmCapabilitySelection,
   AlgorithmCapabilitySelectionStatus,
-  AlgorithmImportOptions,
-  AlgorithmImportPlan,
-  AlgorithmImportResult,
   AlgorithmCriteriaPartition,
   AlgorithmGatesFired,
   AlgorithmLogEntry,
@@ -160,21 +157,13 @@ export type {
   RuntimePolicyToolCall,
   RuntimePolicyTrustedRoot,
   SomaProtectedPath,
-  PaiImportOptions,
-  PaiImportPlan,
-  PaiImportResult,
   OptimizeParameters,
   OptimizePresetName,
-  PaiPackImportFile,
-  PaiPackImportOptions,
-  PaiPackImportPlan,
-  PaiPackImportResult,
-  PaiPackOutcome,
-  PaiPackOutcomeKind,
-  PaiPackManifest,
-  PaiPackManifestFile,
+  SkillNormalizationAction,
+  SkillNormalizationWarning,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (node #793)
   PaiPackNormalizationAction,
-  PaiPackNormalizationReport,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (node #793)
   PaiPackNormalizationWarning,
   SomaSkillManifest,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (DD-15)
@@ -527,7 +516,6 @@ export {
 // parseSkillFrontmatter, skillBaselinesPath, compareSkillVersions) stay in
 // `./vsa-skill-installer` and are imported directly by tests and scripts.
 export { installVsaSkill } from "./vsa-skill-installer";
-export { importAlgorithm, planAlgorithmImport } from "./algorithm-importer";
 export {
   buildSomaStartupContext,
   captureCompletedAlgorithmLearnings,
@@ -606,55 +594,6 @@ export {
   type SyncAlgorithmRunFromVsaResult,
 } from "./algorithm-vsa-sync";
 export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./result-capture";
-export { importPaiIdentity, planPaiImport } from "./pai-importer";
-export {
-  importPaiPack,
-  PaiPackNameCollisionRefusal,
-  // #106 — `PaiPackSubstrateSpecificRefusal` is kept as a deprecated
-  // alias of `PaiPackUnrecognizedLayoutRefusal` (see pai-pack-importer.ts).
-  // Both names resolve to the same class.
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  PaiPackSubstrateSpecificRefusal,
-  PaiPackUnrecognizedLayoutRefusal,
-  planPaiPackImport,
-} from "./pai-pack-importer";
-// Sage r3 #108 Security (blocker) + Architecture (important):
-// `planPaiPackImportHandle`, `importPaiPackFromPlan`, and
-// `PaiPackImportPlanHandle` are migration-orchestrator plumbing and
-// MUST NOT appear on the public package barrel. Exposing them turns
-// an internal plan cache into irreversible SDK surface AND opens a
-// trust-boundary bypass — a JS caller could forge a handle whose
-// `routedFiles` escape `somaHome` and the cached plan would write
-// them without re-validating. The migration orchestrator imports the
-// trio directly from `./pai-pack-importer`; that module's
-// `castHandle` is unforgeable from outside the module file.
-// Sage r3 #103 Architecture: `PaiPackReservedNameRefusal` is an
-// internal migration-classification detail. The migration orchestrator
-// imports it directly from `./pai-pack-importer`; no demonstrated
-// external consumer needs to catch it. Keeping it off the barrel
-// avoids an irreversible public-API expansion. If a downstream caller
-// ever needs structural classification it can be promoted here in a
-// dedicated change with documented contract.
-export { importPaiDocs, planPaiDocsImport } from "./pai-docs-importer";
-// PAI MEMORY → Soma memory translator (#90) is intentionally NOT
-// re-exported from the package root — it is an internal phase of
-// `migratePai` and its public boundary is not yet stable (Sage r2
-// #95 Architecture finding). Tests that need direct access import
-// from `./pai-memory-migrator` explicitly.
-// PAI → Soma migration orchestrator (#28 minimal scope, extended
-// for full migrate in #90).
-// Sage r2 #99 Architecture: `formatPackOutcomeLines` is a presentation
-// helper for the CLI summary and `MIGRATION.md` body. Keeping it out
-// of the package's public API leaves us free to revise the text shape
-// without an SDK breakage. Internal callers in `src/cli.ts` import it
-// directly from `./pai-migration`.
-export {
-  migratePai,
-  planPaiMigration,
-  type PaiMigrationOptions,
-  type PaiMigrationPlan,
-  type PaiMigrationResult,
-} from "./pai-migration";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
 export { evaluateSomaPolicy } from "./policy";
 export {

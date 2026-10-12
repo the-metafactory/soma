@@ -1,5 +1,11 @@
 # Migrating from PAI to Soma
 
+> **Removed in current soma.** `soma migrate pai` and every `soma import` source
+> (`pai`, `algorithm`, `pai-pack`, `pai-docs`) were removed. Steps 1–4,
+> "Skipping phases" and "Resolving duplicate PAI pack skills" need **soma 0.25 or
+> earlier**: pin it, migrate, then upgrade. `soma migrate claude-skills` (below)
+> is unaffected.
+
 > **See also:** [Reference runbook: untangling a live PAI install into Soma](pai-to-soma-untangling-runbook.md) — the field companion to this document: operation ordering, verification gates, and the traps observed on a real live installation (staged homes, reproject-after-migration, skill projection).
 
 This walkthrough takes a Personal AI Infrastructure (PAI) install and
@@ -401,7 +407,7 @@ Each source skill gets one of three tags:
 | Tag | Trigger |
 |---|---|
 | `portable` | No `~/.claude/` references, no hook bindings, no `/<slash-command>` references in prose. |
-| `needs-adapt` | `~/.claude/...` reference(s); rewritten via the existing `pai-pack-normalizer.ts` deterministic rewrite table (the same one `soma migrate pai` uses for `~/.claude/PAI/DOCUMENTATION/`, `~/.claude/PAI/TEMPLATES/`, `~/.claude/PAI/ALGORITHM/`, `~/.claude/PAI/MEMORY/`, and `~/.claude/skills/`). |
+| `needs-adapt` | `~/.claude/...` reference(s); rewritten via the existing `skill-content-normalizer.ts` deterministic rewrite table (the same one `soma migrate pai` used in soma 0.25 or earlier for `~/.claude/PAI/DOCUMENTATION/`, `~/.claude/PAI/TEMPLATES/`, `~/.claude/PAI/ALGORITHM/`, `~/.claude/PAI/MEMORY/`, and `~/.claude/skills/`). The `~/.soma/PAI/DOCUMENTATION|TEMPLATES|ALGORITHM/` targets are legacy-only: only `soma import pai-docs` from soma 0.25 or earlier populates them, so on any other home the rewritten references point at missing files. |
 | `claude-specific` | Hook binding (`Stop:`, `UserPromptSubmit:`, `PreToolUse:`, `PostToolUse:`, `SessionStart:`, `SubagentStop:`, `Notification:`, `PreCompact:`) OR `/<slash-command>` reference in prose (outside fenced code blocks). |
 
 **Apply behavior:**
@@ -569,9 +575,9 @@ both columns are omitted so existing reports stay byte-stable.
 
 | Need | Use |
 |---|---|
-| Importing from a PAI source repo (`~/work/PAI`) | `soma migrate pai --pai-repo` |
+| Importing from a PAI source repo (`~/work/PAI`) | `soma migrate pai --pai-repo` (soma ≤ 0.25) |
 | Importing from your running `.claude/skills/` install (e.g. `~/.claude/skills/` or a Releases/vX.Y.Z snapshot) | `soma migrate claude-skills --from` |
-| Need identity/algorithm/memory phases alongside skills | `soma migrate pai` (this path runs all four phases) |
+| Need identity/algorithm/memory phases alongside skills | `soma migrate pai` (soma ≤ 0.25; runs all four phases) |
 | Want a smaller, collision-free skill import | `soma migrate claude-skills` |
 
 The two paths are not mutually exclusive — `soma migrate pai` covers

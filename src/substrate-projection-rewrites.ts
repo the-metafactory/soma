@@ -1,4 +1,4 @@
-import { normalizeSkillContent } from "./pai-pack-normalizer";
+import { normalizeSkillContent } from "./skill-content-normalizer";
 import type { ProjectionSubstrate } from "./types";
 
 const CLAUDE_HOME = "~/" + ".claude";

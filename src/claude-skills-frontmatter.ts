@@ -13,7 +13,7 @@
  *
  * **Reach.** The functions here are also safe to use from new code in
  * the same family (Phase 3 verifiers, etc.). Don't reach for these
- * from the pai-pack-normalizer — that module has its own structured
+ * from the skill-content-normalizer — that module has its own structured
  * frontmatter rewriter with different semantics.
  */
 export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/;

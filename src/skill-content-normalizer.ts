@@ -1,9 +1,10 @@
 /**
- * PAI pack import-time normalizer.
+ * Skill-content normalizer.
  *
- * Deterministic, auditable transformations applied to staged PAI pack content
- * before it is promoted into `~/.soma/skills/`. The normalizer never makes
- * semantic rewrites — it strips known substrate-specific runtime blocks,
+ * Deterministic, auditable transformations applied to staged skill content
+ * before it is promoted into `~/.soma/skills/` (`soma migrate claude-skills`)
+ * or projected into a substrate. The normalizer never makes semantic
+ * rewrites — it strips known substrate-specific runtime blocks,
  * deterministically rewrites a small set of Claude→Soma paths, and emits
  * warnings for everything else.
  *
@@ -11,22 +12,16 @@
  * - No LLM rewrites.
  * - No personal/private context inference.
  * - No execution of embedded commands.
- * - Original PAI source remains available in `imports/pai-packs/<skill>/`.
- *
- * Output of `normalizeSkillContent` flows into `soma-pack.json` as the
- * `normalization` field so every action and warning is reviewable.
  */
 import type {
-  PaiPackNormalizationAction,
-  PaiPackNormalizationWarning,
-  PaiPackNormalizationReport,
-  SomaSkillManifest,
+  SkillNormalizationAction,
+  SkillNormalizationWarning,
 } from "./types";
 
 export interface NormalizeContentResult {
   content: string;
-  actions: PaiPackNormalizationAction[];
-  warnings: PaiPackNormalizationWarning[];
+  actions: SkillNormalizationAction[];
+  warnings: SkillNormalizationWarning[];
 }
 
 export const SOMA_SKILL_DESCRIPTION_MAX_LENGTH = 1024;
@@ -66,14 +61,20 @@ const CUSTOMIZATION_BODY_MARKER = "SKILLCUSTOMIZATIONS";
 // reviewer exactly which subtree contract fired, which #86's single shared
 // kind could not — at scale, the audit trail has to disambiguate. Mapping
 // targets are anchored to the Soma homes established by #88 (memory taxonomy)
-// and #89 (soma import pai-docs); without those upstream issues these rules
-// would dangle.
-const CLAUDE_HOME_DETERMINISTIC: readonly { from: RegExp; to: string; kind: PaiPackNormalizationAction["kind"] }[] = [
+// and #89 (soma import pai-docs).
+//
+// Legacy-only (node #793): `soma import pai-docs` was removed, so nothing in
+// current soma populates `~/.soma/PAI/DOCUMENTATION|TEMPLATES|ALGORITHM/`. The
+// three PAI-subtree rewrites below resolve only on a home that ran the docs
+// import with soma 0.25 or earlier; elsewhere they point at missing files.
+// They stay because changing `soma migrate claude-skills` output is out of
+// scope for that removal; routing them to UNMAPPED is a separate change.
+const CLAUDE_HOME_DETERMINISTIC: readonly { from: RegExp; to: string; kind: SkillNormalizationAction["kind"] }[] = [
   // Skill payload root — clean Soma equivalent.
   { from: /~\/\.claude\/skills\//, to: "~/.soma/skills/", kind: "rewrote-claude-home-path" },
   // Issue #91 / AC-1: PAI docs subtree → Soma docs subtree. The `~/.soma/PAI/`
-  // root is populated by `soma import pai-docs` (#89); imported skills that
-  // reference DOCUMENTATION resolve to a real on-disk file after import.
+  // root was populated by `soma import pai-docs` (#89, soma 0.25 or earlier);
+  // see the legacy-only note above.
   { from: /~\/\.claude\/PAI\/DOCUMENTATION\//, to: "~/.soma/PAI/DOCUMENTATION/", kind: "rewrote-pai-doc-path" },
   // Issue #91 / AC-1: PAI templates subtree → Soma templates subtree.
   { from: /~\/\.claude\/PAI\/TEMPLATES\//, to: "~/.soma/PAI/TEMPLATES/", kind: "rewrote-pai-template-path" },
@@ -111,7 +112,7 @@ const CLAUDE_HOME_UNMAPPED_PREFIX = "~/.soma/UNMAPPED/";
 // already matched is gone by the time this regex runs.
 const CLAUDE_HOME_BARE = /~\/\.claude\/?(?![A-Za-z0-9_-]|\.[A-Za-z0-9])/;
 
-const CLAUDE_HOME_AMBIGUOUS: readonly { pattern: RegExp; kind: PaiPackNormalizationWarning["kind"]; detail: string }[] = [
+const CLAUDE_HOME_AMBIGUOUS: readonly { pattern: RegExp; kind: SkillNormalizationWarning["kind"]; detail: string }[] = [
   {
     pattern: /~\/\.claude\/(?:context|user|customization)\//,
     kind: "customization-overlay-reference",
@@ -148,8 +149,8 @@ function globalize(source: RegExp): RegExp {
 }
 
 export function normalizeSkillContent(relPath: string, content: string): NormalizeContentResult {
-  const actions: PaiPackNormalizationAction[] = [];
-  const warnings: PaiPackNormalizationWarning[] = [];
+  const actions: SkillNormalizationAction[] = [];
+  const warnings: SkillNormalizationWarning[] = [];
 
   // Collect warnings against the ORIGINAL content — otherwise deterministic
   // rewrites (e.g. ~/.claude/skills/ → ~/.soma/skills/) erase the patterns
@@ -282,7 +283,7 @@ function stripMarkedHeadingSections(
 function stripMandatoryNotificationBlock(
   relPath: string,
   content: string,
-  actions: PaiPackNormalizationAction[],
+  actions: SkillNormalizationAction[],
 ): string {
   if (!NOTIFICATION_HEADING.test(content) && !NOTIFICATION_CURL.test(content)) {
     return content;
@@ -323,7 +324,7 @@ function stripMandatoryNotificationBlock(
 function stripPaiCustomizationBlock(
   relPath: string,
   content: string,
-  actions: PaiPackNormalizationAction[],
+  actions: SkillNormalizationAction[],
 ): string {
   if (!CUSTOMIZATION_HEADING.test(content)) {
     return content;
@@ -357,7 +358,7 @@ function stripPaiCustomizationBlock(
 function applyDeterministicPathRewrites(
   relPath: string,
   content: string,
-  actions: PaiPackNormalizationAction[],
+  actions: SkillNormalizationAction[],
 ): string {
   let working = content;
   for (const rule of CLAUDE_HOME_DETERMINISTIC) {
@@ -376,8 +377,8 @@ function applyDeterministicPathRewrites(
 function applyUnmappedClaudePathCatchall(
   relPath: string,
   content: string,
-  actions: PaiPackNormalizationAction[],
-  warnings: PaiPackNormalizationWarning[],
+  actions: SkillNormalizationAction[],
+  warnings: SkillNormalizationWarning[],
 ): string {
   let working = content;
   const seenRests = new Set<string>();
@@ -431,7 +432,7 @@ function applyUnmappedClaudePathCatchall(
 function collectAmbiguousPathWarnings(
   relPath: string,
   content: string,
-  warnings: PaiPackNormalizationWarning[],
+  warnings: SkillNormalizationWarning[],
 ): void {
   for (const rule of CLAUDE_HOME_AMBIGUOUS) {
     if (rule.pattern.test(content)) {
@@ -443,7 +444,7 @@ function collectAmbiguousPathWarnings(
 function collectMutationCommandWarnings(
   relPath: string,
   content: string,
-  warnings: PaiPackNormalizationWarning[],
+  warnings: SkillNormalizationWarning[],
 ): void {
   for (const pattern of MUTATION_COMMAND_PATTERNS) {
     if (pattern.test(content)) {
@@ -460,7 +461,7 @@ function collectMutationCommandWarnings(
 function collectReleaseSafetyWarnings(
   relPath: string,
   content: string,
-  warnings: PaiPackNormalizationWarning[],
+  warnings: SkillNormalizationWarning[],
 ): void {
   if (RELEASE_SAFETY_PATTERN.test(content)) {
     warnings.push({
@@ -469,108 +470,4 @@ function collectReleaseSafetyWarnings(
       detail: "Claude-specific release-safety check; integrate with Soma policy model.",
     });
   }
-}
-
-export function mergeNormalizationReports(
-  reports: readonly { actions: PaiPackNormalizationAction[]; warnings: PaiPackNormalizationWarning[] }[],
-): PaiPackNormalizationReport {
-  return {
-    mode: "deterministic",
-    actions: reports.flatMap((report) => report.actions),
-    warnings: reports.flatMap((report) => report.warnings),
-  };
-}
-
-export interface NormalizeSkillDescriptionResult {
-  description: string;
-  action?: PaiPackNormalizationAction;
-}
-
-export function normalizeSkillDescription(
-  description: string,
-  options: {
-    file: string;
-    fallback: string;
-    maxLength?: number;
-  },
-): NormalizeSkillDescriptionResult {
-  const maxLength = options.maxLength ?? SOMA_SKILL_DESCRIPTION_MAX_LENGTH;
-  const source = (description || options.fallback).replace(/\s+/g, " ").trim();
-  const fallback = options.fallback.replace(/\s+/g, " ").trim();
-  const initial = source || fallback;
-  if (initial.length <= maxLength) {
-    return { description: initial };
-  }
-
-  const sentences = initial.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g)?.map((sentence) => sentence.trim()) ?? [];
-  let compact = "";
-  for (const sentence of sentences) {
-    const next = compact ? `${compact} ${sentence}` : sentence;
-    if (next.length > maxLength) break;
-    compact = next;
-  }
-
-  if (!compact) {
-    compact = initial.slice(0, maxLength).trimEnd();
-    compact = compact.replace(/[,;:\s-]+$/u, "");
-  }
-
-  if (!compact) {
-    compact = fallback.slice(0, maxLength).trimEnd();
-  }
-
-  return {
-    description: compact,
-    action: {
-      file: options.file,
-      kind: "compacted-skill-description",
-      detail: `Compacted skill description from ${initial.length} to ${compact.length} characters for Soma's portable ${maxLength}-character skill metadata limit.`,
-    },
-  };
-}
-
-export interface GenerateSomaSkillManifestInput {
-  skillName: string;
-  description: string;
-  packName: string;
-  packId?: string;
-  entrypoint: string;
-  references: string[];
-  workflowFiles: string[];
-}
-
-export function generateSomaSkillManifest(input: GenerateSomaSkillManifestInput): SomaSkillManifest {
-  const { description } = normalizeSkillDescription(input.description, {
-    file: "soma-skill.json",
-    fallback: `Imported PAI pack: ${input.packName}`,
-  });
-
-  return {
-    schema: "soma.skill.v1",
-    name: input.skillName,
-    description,
-    packId: input.packId,
-    source: { kind: "pai-pack", packName: input.packName },
-    entrypoint: input.entrypoint,
-    references: [...input.references].sort(),
-    workflows: [...input.workflowFiles].sort(),
-    tools: [],
-    triggers: extractTriggersFromDescription(input.description),
-    // Substrates with real portable-skill projection. Algorithm
-    // capability registration filters on this list per substrate;
-    // skill-file projection does not.
-    substrates: ["claude-code", "codex", "grok", "pi-dev"],
-  };
-}
-
-const TRIGGER_PATTERN = /USE WHEN:?\s*([^.]+)\./i;
-
-function extractTriggersFromDescription(description: string): string[] {
-  const match = TRIGGER_PATTERN.exec(description);
-  if (!match) return [];
-  return match[1]
-    .split(/,(?![^()]*\))/)
-    .map((trigger) => trigger.trim())
-    .filter((trigger) => trigger.length > 0 && trigger.length < 80)
-    .slice(0, 12);
 }

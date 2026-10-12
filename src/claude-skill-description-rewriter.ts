@@ -243,9 +243,7 @@ export async function defaultRewriteDispatch(
  * stderr tail when the binary exits non-zero, so the migrator can
  * classify the skill as `refused-other` with a useful reason.
  *
- * Bun's `spawn` is used directly — same pattern as
- * `pai-migration.ts:runVerifySubprocess` (the only other LLM-free
- * subprocess in this codebase today). When the binary is not on
+ * Bun's `spawn` is used directly. When the binary is not on
  * PATH, Bun surfaces `ENOENT` which we wrap with the agent name so
  * the principal sees `claude: not found` rather than a bare ENOENT.
  */

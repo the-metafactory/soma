@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { installVsaSkill } from "../src/index";
 import type { SomaSkillBaselines } from "../src/index";
-import { SOMA_SKILL_DESCRIPTION_MAX_LENGTH } from "../src/pai-pack-normalizer";
+import { SOMA_SKILL_DESCRIPTION_MAX_LENGTH } from "../src/skill-content-normalizer";
 import {
   compareSkillVersions,
   vsaSkillRuntimeDir,

@@ -49,12 +49,6 @@ import {
   type ParsedSnapshotCommandArgs,
 } from "./cli/snapshots";
 import {
-  IMPORT_COMMAND_HELP,
-  parseImportArgs,
-  runImportCli,
-  type ParsedImportArgs,
-} from "./cli/import";
-import {
   MEMORY_COMMAND_HELP,
   parseMemoryArgs,
   runMemoryCli,
@@ -170,7 +164,6 @@ type ParsedArgs =
   | ParsedProjectSkillArgs
   | ParsedUnprojectSkillArgs
   | ParsedOnboardingArgs
-  | ParsedImportArgs
   | ParsedMigrateArgs
   | ParsedAlgorithmArgs
   | ParsedGraphArgs
@@ -199,7 +192,6 @@ const TOP_LEVEL_COMMANDS = [
   "feedback",
   "graph",
   "history",
-  "import",
   "inference",
   "install",
   "init",
@@ -259,7 +251,6 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   daemon: SUBSTRATE_LIFECYCLE_COMMAND_HELP.daemon,
   init: ONBOARDING_COMMAND_HELP.init,
   doctor: ONBOARDING_COMMAND_HELP.doctor,
-  import: IMPORT_COMMAND_HELP,
   migrate: MIGRATE_COMMAND_HELP,
   ...SNAPSHOT_COMMAND_HELP,
   runtime: RUNTIME_COMMAND_HELP,
@@ -399,10 +390,6 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "doctor") {
     return parseDoctorArgs(args);
-  }
-
-  if (args[0] === "import") {
-    return parseImportArgs(args);
   }
 
   if (args[0] === "migrate") {
@@ -614,10 +601,6 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "writeback") {
     return runWritebackCli(parsed);
-  }
-
-  if (parsed.command === "import") {
-    return runImportCli(parsed);
   }
 
   if (parsed.command === "migrate") {

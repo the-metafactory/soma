@@ -27,7 +27,7 @@
  *   - Files are processed SEQUENTIALLY so the recall-first refusal dedups within
  *     the batch deterministically (a later near-duplicate sees earlier writes).
  *
- * Idempotency mirrors `pai-memory-migrator.ts`: a SHA manifest at
+ * Idempotency: a SHA manifest at
  * `memory/STATE/imports/backfill/.manifest.json` lets a rerun skip already-imported files
  * whose source bytes are unchanged and whose target note still exists. A no-op
  * rerun (nothing new written) re-emits each prior manifest entry verbatim and

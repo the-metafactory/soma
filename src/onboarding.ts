@@ -6,7 +6,6 @@ import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, in
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./soma-home";
 import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate } from "./runtime-artifact";
-import { migratePai } from "./pai-migration";
 import { isEnoent, pathExists } from "./fs-utils";
 import type {
   SomaDoctorDiagnosis,
@@ -20,6 +19,11 @@ import type {
 } from "./types";
 
 type InitSubstrate = SomaOnboardingSubstrate;
+
+// PAI migration was removed from soma (pin soma ≤ 0.25 for it). PAI detection
+// stays so `soma init` can say so once instead of silently ignoring the install.
+export const PAI_MIGRATION_REMOVED_NOTICE =
+  "PAI install detected: PAI migration needs soma 0.25 or earlier; this soma skips it.";
 
 export const ANTHROPIC_COWORK_INIT_UNSUPPORTED_MESSAGE =
   "soma init does not support anthropic-cowork yet; use soma install anthropic-cowork for the experimental scaffold.";
@@ -173,15 +177,6 @@ export async function planSomaInit(options: SomaOnboardingOptions & { apply?: bo
     });
   }
 
-  if (detected.detected.paiInstall) {
-    steps.push({
-      id: "migrate-pai",
-      kind: "command",
-      command: `soma migrate pai --pai-install ${shellQuote(detected.detected.paiInstall)} ${modeFlag} ${sharedPathFlags(detected)}`,
-      description: "Import PAI identity, Algorithm, memory, docs, and pack surfaces that are present.",
-    });
-  }
-
   steps.push({
     id: installStepId(detected.substrate),
     kind: "command",
@@ -234,20 +229,6 @@ export async function applySomaInit(options: SomaOnboardingOptions = {}): Promis
         throw new Error(`soma init migrate-claude-skills failed: ${detail}`);
       }
       steps.push({ id: step.id, status: "applied", detail: `${result.writtenCount} written` });
-    } else if (step.id === "migrate-pai" && plan.detected.paiInstall) {
-      const result = await migratePai({
-        homeDir: plan.homeDir,
-        claudeHome: plan.detected.paiInstall,
-        somaHome: plan.somaHome,
-      });
-      const refusedOther = result.packOutcomes.filter((outcome) => outcome.outcome === "refused-other");
-      if (refusedOther.length > 0) {
-        const detail = refusedOther
-          .map((outcome) => `${outcome.skillName ?? outcome.paiPackDir}: ${outcome.reason ?? "(no detail)"}`)
-          .join("; ");
-        throw new Error(`soma init migrate-pai failed: ${detail}`);
-      }
-      steps.push({ id: step.id, status: "applied", detail: `${result.filesWritten.length} files written` });
     } else if (step.id.startsWith("install-")) {
       const result = await installForSubstrate(plan.substrate, {
         homeDir: plan.homeDir,
@@ -272,9 +253,7 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
       id: "starter-profile",
       severity: "warning",
       message: "Soma profile still looks like the starter scaffold.",
-      action: detected.detected.paiInstall
-        ? `soma migrate pai --pai-install ${shellQuote(detected.detected.paiInstall)} --apply ${sharedPathFlags(detected)}`
-        : "Replace the starter profile with principal-specific Soma profile files.",
+      action: "Replace the starter profile with principal-specific Soma profile files.",
     });
   }
 
@@ -284,15 +263,6 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
       severity: "warning",
       message: "Claude skills source exists, but Soma has no Claude skills migration manifest.",
       action: `soma migrate claude-skills --from ${shellQuote(detected.detected.claudeSkillsDir)} --apply ${sharedPathFlags(detected)}`,
-    });
-  }
-
-  if (detected.detected.paiInstall && !(await pathExists(join(detected.somaHome, "profile/imports/claude/MIGRATION.md")))) {
-    findings.push({
-      id: "pai-not-migrated",
-      severity: "warning",
-      message: "PAI source exists, but Soma has no PAI migration manifest.",
-      action: `soma migrate pai --pai-install ${shellQuote(detected.detected.paiInstall)} --apply ${sharedPathFlags(detected)}`,
     });
   }
 

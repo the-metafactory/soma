@@ -1,53 +1,15 @@
 /**
- * Issue 86 — pai-pack-importer: claude-path rewriter too narrow,
- * PAI Customization block copied verbatim.
- *
- * Tests live in their own file so the regression surface is grep-able by
- * issue number and the fixture-driven invariants stay co-located.
+ * Issue 86 — claude-path rewriter too narrow, PAI Customization block
+ * copied verbatim. Originally pinned through the PAI pack importer; the
+ * normalizer contract survives it (node #793) for `soma migrate claude-skills`.
  *
  * - AC-1: every `~/.claude/<subpath>` either rewrites, gets stripped, or
  *         surfaces as a warning. No silent passthrough.
  * - AC-2: PAI Customization block stripped via named action kind.
- * - AC-3: importing the fixture produces ZERO `~/.claude/` residue in the
- *         imported skill body (grep test on every projected .md).
- * - AC-4: fixture-based coverage for every rewrite/strip/warn class.
  */
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { normalizeSkillContent } from "../src/pai-pack-normalizer";
-import { importPaiPack } from "../src/index";
+import { normalizeSkillContent } from "../src/skill-content-normalizer";
 
-const FIXTURE_PACK_DIR = join(import.meta.dir, "fixtures/pai-packs/issue-86");
-
-async function withTempHome<T>(fn: (homeDir: string, somaHome: string) => Promise<T>): Promise<T> {
-  const homeDir = await mkdtemp(join(tmpdir(), "soma-issue-86-"));
-  try {
-    return await fn(homeDir, join(homeDir, ".soma"));
-  } finally {
-    await rm(homeDir, { recursive: true, force: true });
-  }
-}
-
-async function collectMarkdownFiles(root: string): Promise<string[]> {
-  const out: string[] = [];
-  async function visit(dir: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await visit(full);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        out.push(full);
-      }
-    }
-  }
-  await visit(root);
-  return out.sort();
-}
-
-// ─── AC-2: PAI Customization block strip ────────────────────────────────
 
 test("AC-2: normalizeSkillContent strips the PAI Customization block", () => {
   const content = [
@@ -284,65 +246,6 @@ test("AC-3: bare ~/.claude prose mentions rewrite to ~/.soma (zero-residue grep)
   expect(result.content).toContain("~/.soma");
   expect(result.actions.some((a) => a.kind === "rewrote-unmapped-claude-path")).toBe(true);
   expect(result.warnings.some((w) => w.kind === "unmapped-claude-home-path")).toBe(true);
-});
-
-// ─── AC-3 / AC-4: end-to-end fixture import — zero claude residue ──────
-
-test("AC-3 + AC-4: importing the issue-86 fixture leaves zero ~/.claude/ residue", async () => {
-  await withTempHome(async (homeDir, somaHome) => {
-    // #105 — `importPaiPack` returns one result per derived skill.
-    // The issue-86 fixture has no nested skills, so we expect a one-element array.
-    const [result] = await importPaiPack({ homeDir, somaHome, paiPackDir: FIXTURE_PACK_DIR });
-    const skillRoot = join(somaHome, "skills", result.skillName);
-    // Match the issue 86 reproduction scope: SKILL.md + Workflows/*.md only.
-    // The `references/` directory under the skill root preserves original
-    // PAI install/verify/readme docs verbatim — those are kept as
-    // historical artifacts (per docs/pai-pack-importer.md: "Source docs are
-    // preserved under references/ so Claude-specific installation guidance
-    // remains available"). Rewriting them would corrupt their meaning.
-    const projected = (await collectMarkdownFiles(skillRoot)).filter((path) => {
-      const rel = path.slice(skillRoot.length + 1);
-      return rel === "SKILL.md" || rel.startsWith("Workflows/");
-    });
-
-    expect(projected.length).toBeGreaterThan(0);
-    for (const file of projected) {
-      const body = await readFile(file, "utf8");
-      // AC-3 grep test: zero ~/.claude residue (path-form OR bare prose).
-      expect(body, `~/.claude residue in projected ${file}`).not.toContain("~/.claude");
-    }
-
-    // AC-2: the PAI runtime Customization block (heading + body referencing
-    // SKILLCUSTOMIZATIONS) is stripped from SKILL.md. Note: mentions of the
-    // word "SKILLCUSTOMIZATIONS" elsewhere in skill prose are conceptual
-    // documentation of the PAI mental model (e.g. "user-specific content
-    // lives in SKILLCUSTOMIZATIONS"); those are not runtime hooks and are
-    // left alone. The block-vs-mention distinction matches the existing
-    // MANDATORY-block strip pattern.
-    const skillMd = await readFile(join(skillRoot, "SKILL.md"), "utf8");
-    expect(skillMd).not.toMatch(/^##+\s*Customization\s*$/m);
-
-    // Each named action kind must be present in the audit trail at least once
-    const actionKinds = new Set(result.normalization.actions.map((a) => a.kind));
-    expect(actionKinds.has("stripped-pai-customization-block")).toBe(true);
-    expect(actionKinds.has("rewrote-claude-home-path")).toBe(true);
-    expect(actionKinds.has("rewrote-unmapped-claude-path")).toBe(true);
-
-    // Warning surface must include the catch-all kind so silent passthrough
-    // is impossible — AC-1.
-    const warningKinds = new Set(result.normalization.warnings.map((w) => w.kind));
-    expect(warningKinds.has("unmapped-claude-home-path")).toBe(true);
-
-    // Original PAI source must still be archived verbatim (AC-4 archive
-    // contract from the existing importer suite — re-asserted here so the
-    // archive doesn't regress when the projection rewrites change).
-    const archivedSkill = await readFile(
-      join(somaHome, "imports", "pai-packs", result.skillName, "source", "src", "SKILL.md"),
-      "utf8",
-    );
-    expect(archivedSkill).toContain("~/.claude/PAI/USER/SKILLCUSTOMIZATIONS/");
-    expect(archivedSkill).toContain("## Customization");
-  });
 });
 
 // ─── AC-1: stress-test pack parity (real CreateSkill pack on disk) ─────

@@ -1,5 +1,5 @@
 /**
- * Issue 91 — pai-pack-importer: replace ~/.claude/PAI/... UNMAPPED catch-all
+ * Issue 91 — normalizer (originally pinned through the PAI pack importer): replace ~/.claude/PAI/... UNMAPPED catch-all
  * with deterministic ~/.soma/PAI/... rewrites.
  *
  * After #88 (memory taxonomy) + #89 (soma import pai-docs) landed, Soma has
@@ -18,7 +18,7 @@
  *         pins the new contract).
  */
 import { expect, test } from "bun:test";
-import { normalizeSkillContent } from "../src/pai-pack-normalizer";
+import { normalizeSkillContent } from "../src/skill-content-normalizer";
 
 // ─── AC-1 + AC-4: per-class deterministic rewrites ─────────────────────
 //

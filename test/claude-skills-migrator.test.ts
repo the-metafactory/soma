@@ -2,8 +2,7 @@
  * #115 — `soma migrate claude-skills` (Phase 1).
  *
  * Fixture-based tests for the portability classifier + migration
- * orchestrator. Patterned after `pai-memory-migrator.test.ts`:
- * temp-home lifecycle, deterministic SHAs, idempotency on rerun.
+ * orchestrator: temp-home lifecycle, deterministic SHAs, idempotency on rerun.
  *
  * Coverage:
  *   - Classifier (portable / needs-adapt / claude-specific): pure
@@ -32,7 +31,7 @@ import {
   readClaudeSkillsMigrationStatus,
 } from "../src/claude-skills-migrator";
 import type { ClaudeSkillsMigrationManifest } from "../src/types";
-import { withTempHome } from "./fixtures/pai-migration-fixtures";
+import { withTempHome } from "./fixtures/temp-home";
 
 interface SkillFile {
   // POSIX-style path relative to the skill directory.

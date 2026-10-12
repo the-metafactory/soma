@@ -1,12 +1,6 @@
 /**
- * Single-source kebab transform for PAI pack / nested skill names.
- *
- * Sage r1 #108 Maintainability — previously the same regex pipeline
- * lived in both `pai-pack-importer.ts:slugifySkillName` and
- * `pai-pack-routing.ts:kebabNestedName`, with a comment warning that
- * "Any change to either function MUST land in both." Extracting it
- * to this leaf module removes the trap: both modules import from
- * here, no duplication, no circular import.
+ * Single-source kebab transform for skill names (Sage r1 #108: one
+ * leaf module, so no caller carries its own copy of the pipeline).
  *
  * Pipeline:
  *   1. `([A-Z]+)([A-Z][a-z])` → `$1-$2`  — splits ALL-CAPS prefix

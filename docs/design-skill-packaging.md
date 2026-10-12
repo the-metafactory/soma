@@ -133,9 +133,9 @@ This document specifies the unified contract.
 - Cross-skill code dependencies. Forbidden in v1; declared in the schema for
   later. Skills depend on soma core and on declared tools (e.g. `bun`), not on
   other skills.
-- Replacing `soma migrate pai` or `soma import pai-pack`. Both remain. The PAI
-  pack importer becomes one specific way skills enter soma; `arc install` is
-  the routine way.
+- Replacing `soma migrate pai` or `soma import pai-pack`. Both remained at
+  the time; both were later removed (they live on in soma ≤ 0.25).
+  `arc install` is the routine way skills enter soma.
 - Importing skills authored directly inside a local substrate home
   (`~/.claude/skills/`, `~/.codex/skills/`, `~/.pi/agent/skills/`, etc.) is out
   of scope for v1. The supported substrate-to-soma ingestion path remains
@@ -374,8 +374,8 @@ and return a unified projection.
 
 Fresh installs are allowed to have the Algorithm rendering contract and adapter
 projection support without the imported Algorithm methodology skill. The
-portable `the-algorithm` skill is present only after `soma import algorithm` or
-`soma migrate pai` lands `~/.soma/skills/the-algorithm/`; substrate projections
+portable `the-algorithm` skill is present only once a bundled-skill install (or,
+in soma ≤ 0.25, `soma migrate pai`) lands `~/.soma/skills/the-algorithm/`; substrate projections
 must reflect that presence or absence instead of implying every fresh soma home
 already carries the imported methodology.
 

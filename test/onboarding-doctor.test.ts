@@ -1,13 +1,13 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { planSomaInit, diagnoseSomaDoctor } from "../src/onboarding";
+import { PAI_MIGRATION_REMOVED_NOTICE, planSomaInit, diagnoseSomaDoctor } from "../src/onboarding";
 import { withProvenance } from "../src/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
 import { DOCTOR_SUPPORTED_SUBSTRATES, isDoctorSubstrate } from "../src/adapters/doctor";
 import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex } from "../src/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
-import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
+import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-onboarding-");
@@ -32,7 +32,7 @@ async function writeMinimalPaiInstall(homeDir: string): Promise<void> {
   await writeFile(join(homeDir, ".config/pai/CORE_USER/profile.md"), "core user\n", "utf8");
 }
 
-test("planSomaInit orders PAI migrant commands as dry-run copy-paste steps", async () => {
+test("planSomaInit on a PAI home plans no PAI migration step (node #793)", async () => {
   await withTempHome(async (homeDir) => {
     await writeMinimalPaiInstall(homeDir);
 
@@ -47,16 +47,25 @@ test("planSomaInit orders PAI migrant commands as dry-run copy-paste steps", asy
     expect(plan.steps.map((step) => step.id)).toEqual([
       "bootstrap-soma-home",
       "migrate-claude-skills",
-      "migrate-pai",
       "install-codex",
     ]);
     expect(plan.steps.map((step) => (step.kind === "command" ? step.command : step.action))).toEqual([
       `create Soma home skeleton at ${join(homeDir, ".soma")} (identity, purpose, memory, skills, policy)`,
       `soma migrate claude-skills --from ${join(homeDir, ".claude/skills")} --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
-      `soma migrate pai --pai-install ${join(homeDir, ".claude")} --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
       `soma install codex --dry-run --home-dir ${homeDir} --soma-home ${join(homeDir, ".soma")}`,
     ]);
-    expect(plan.steps.map((step) => step.kind)).toEqual(["builtin", "command", "command", "command"]);
+    expect(plan.steps.map((step) => step.kind)).toEqual(["builtin", "command", "command"]);
+  });
+});
+
+test("soma init dry-run on a PAI home prints exactly one PAI notice line", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeMinimalPaiInstall(homeDir);
+
+    const output = await runSomaCli(["init", "--home-dir", homeDir]);
+
+    expect(output.split("\n").filter((line) => line.includes("PAI migration"))).toEqual([PAI_MIGRATION_REMOVED_NOTICE]);
+    expect(output).not.toContain("migrate pai");
   });
 });
 
@@ -93,7 +102,7 @@ test("planSomaInit shell-quotes paths in copy-paste commands", async () => {
   });
 });
 
-test("soma init --apply applies detected migration phases", async () => {
+test("soma init --apply on a PAI home skips PAI migration with one notice line", async () => {
   await withTempHome(async (homeDir) => {
     await writeMinimalPaiInstall(homeDir);
 
@@ -102,10 +111,12 @@ test("soma init --apply applies detected migration phases", async () => {
     expect(output).toContain("soma init — applied");
     expect(output).toContain("bootstrap-soma-home: applied");
     expect(output).toContain("migrate-claude-skills: applied");
-    expect(output).toContain("migrate-pai: applied");
+    expect(output).not.toContain("migrate-pai");
     expect(output).toContain("install-codex: applied");
+    expect(output.split("\n").filter((line) => line.includes("PAI migration"))).toEqual([PAI_MIGRATION_REMOVED_NOTICE]);
+    expect(PAI_MIGRATION_REMOVED_NOTICE).toContain("soma 0.25 or earlier");
     await expect(stat(join(homeDir, ".soma/imports/claude-skills/.manifest.json"))).resolves.toBeTruthy();
-    await expect(stat(join(homeDir, ".soma/profile/imports/claude/MIGRATION.md"))).resolves.toBeTruthy();
+    await expect(stat(join(homeDir, ".soma/profile/imports/claude/MIGRATION.md"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".codex/rules/soma.rules"))).resolves.toBeTruthy();
   });
 });
@@ -131,9 +142,13 @@ test("soma init on a fresh machine (no Claude install) bootstraps the Soma home"
       "install-codex",
     ]);
 
+    const planOutput = await runSomaCli(["init", "--home-dir", homeDir]);
+    expect(planOutput).not.toContain(PAI_MIGRATION_REMOVED_NOTICE);
+
     const output = await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
     expect(output).toContain("bootstrap-soma-home: applied");
     expect(output).not.toContain("migrate-claude-skills");
+    expect(output).not.toContain(PAI_MIGRATION_REMOVED_NOTICE);
     const principal = await readFile(join(homeDir, ".soma/profile/principal.md"), "utf8");
     expect(principal).toContain("status: starter-profile");
     await expect(stat(join(homeDir, ".soma/profile/purpose.md"))).resolves.toBeTruthy();
@@ -271,13 +286,12 @@ test("soma doctor reports missing migrations and projection drift actions", asyn
     expect(diagnosis.findings.map((finding) => finding.id)).toEqual([
       "starter-profile",
       "claude-skills-not-migrated",
-      "pai-not-migrated",
       "codex-projection-stale",
     ]);
     expect(caught.exitCode).toBe(1);
     expect(caught.message).toContain("soma doctor — drift detected");
     expect(caught.message).toContain("soma migrate claude-skills --from");
-    expect(caught.message).toContain("soma migrate pai --pai-install");
+    expect(caught.message).not.toContain("migrate pai");
     expect(caught.message).toContain(`--home-dir ${homeDir}`);
     expect(caught.message).toContain(`--soma-home ${join(homeDir, ".soma")}`);
     expect(caught.message).toContain("soma reproject codex");
@@ -340,17 +354,17 @@ test("soma init --apply fails when Claude skills migration has refused errors", 
   });
 });
 
-test("soma doctor reports ok after init applies the detected plan", async () => {
+test("soma doctor after init on a PAI home flags only the starter profile, never a PAI migration", async () => {
   await withTempHome(async (homeDir) => {
     await writeMinimalPaiInstall(homeDir);
 
     await runSomaCli(["init", "--apply", "--home-dir", homeDir]);
-    const output = await runSomaCli(["doctor", "--home-dir", homeDir]);
+    const diagnosis = await diagnoseSomaDoctor({ homeDir });
 
-    expect(output).toContain("soma doctor — ok");
-    expect(output).not.toContain("soma migrate claude-skills --from");
-    const migration = await readFile(join(homeDir, ".soma/profile/imports/claude/MIGRATION.md"), "utf8");
-    expect(migration).toContain("Last migrated at:");
+    // Without PAI migration (node #793) the starter profile stays until the
+    // principal authors one, exactly as on a fresh machine.
+    expect(diagnosis.findings.map((finding) => finding.id)).toEqual(["starter-profile"]);
+    expect(diagnosis.findings[0]?.action).toBe("Replace the starter profile with principal-specific Soma profile files.");
   });
 });
 

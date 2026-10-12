@@ -5,7 +5,13 @@ import {
   type UninstallClaudeCodeOptions,
 } from "../index";
 import { DOCTOR_SUPPORTED_SUBSTRATES, DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE, isDoctorSubstrate } from "../adapters/doctor";
-import { ANTHROPIC_COWORK_INIT_UNSUPPORTED_MESSAGE, applySomaInit, diagnoseSomaDoctor, planSomaInit } from "../onboarding";
+import {
+  ANTHROPIC_COWORK_INIT_UNSUPPORTED_MESSAGE,
+  PAI_MIGRATION_REMOVED_NOTICE,
+  applySomaInit,
+  diagnoseSomaDoctor,
+  planSomaInit,
+} from "../onboarding";
 import type { SomaDoctorDiagnosis, SomaInitPlan, SomaInstallOptions, SomaOnboardingOptions } from "../types";
 import {
   formatClaudeUninstallResult,
@@ -192,7 +198,8 @@ export async function runOnboardingCli(parsed: ParsedOnboardingArgs): Promise<st
     if (!parsed.apply) {
       return formatSomaInitPlan(await planSomaInit(parsed.options));
     }
-    return formatSomaInitApplied((await applySomaInit(parsed.options)).steps);
+    const applied = await applySomaInit(parsed.options);
+    return formatSomaInitApplied(applied.steps, paiNoticeLines(applied.plan));
   }
 
   if (parsed.mode === "uninstall") {
@@ -253,15 +260,24 @@ function formatSomaInitPlan(plan: SomaInitPlan): string {
     "",
     "Steps:",
     ...plan.steps.map((step, index) => `${index + 1}. ${step.kind === "command" ? step.command : step.action}`),
+    ...paiNoticeLines(plan),
     "",
   ].join("\n");
 }
 
-function formatSomaInitApplied(results: { id: string; status: "applied" | "skipped"; detail: string }[]): string {
+function paiNoticeLines(plan: SomaInitPlan): string[] {
+  return plan.detected.paiInstall ? ["", PAI_MIGRATION_REMOVED_NOTICE] : [];
+}
+
+function formatSomaInitApplied(
+  results: { id: string; status: "applied" | "skipped"; detail: string }[],
+  notice: string[],
+): string {
   return [
     "soma init — applied",
     "",
     ...results.map((result) => `${result.id}: ${result.status}${result.detail ? ` (${result.detail})` : ""}`),
+    ...notice,
     "",
   ].join("\n");
 }

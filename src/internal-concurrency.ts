@@ -1,8 +1,6 @@
 /**
- * Internal concurrency helper used by importers and migrators.
- *
- * Not exported from `src/index.ts` — this is plumbing for the
- * pai-pack-importer, pai-memory-migrator, pai-migration modules.
+ * Internal concurrency helper used by the memory modules and
+ * `claude-skills-migrator.ts`. Not exported from `src/index.ts`.
  * Sage r2 #95 Maintainability nit (avoid two copies of the same
  * worker-loop generic that could drift in limit / error-ordering
  * semantics).

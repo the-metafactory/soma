@@ -1,13 +1,4 @@
 import {
-  migratePai,
-  planPaiMigration,
-  type PaiMigrationOptions,
-  type PaiMigrationPlan,
-  type PaiMigrationResult,
-} from "../index";
-import { formatPackOutcomeLines } from "../pai-migration";
-import { formatReservedSkipLine } from "../pai-importer";
-import {
   countOutcomesWithMissingDependencies,
   migrateClaudeSkills,
   planClaudeSkillsMigration,
@@ -25,15 +16,10 @@ import type {
   ClaudeSkillsMigrationPlan,
   ClaudeSkillsMigrationResult,
   ClaudeSkillsSmokeSubstrate,
-  PaiPackOutcome,
   RewriteDescriptionsAgent,
 } from "../types";
 import { SomaCliError } from "./errors";
-import { warnDeprecatedSubstrateFlag } from "./deprecated-flags";
 import { readOption } from "./parse-utils";
-
-export const MIGRATE_PAI_USAGE =
-  "Usage: soma migrate pai [--dry-run] [--apply] [--status] [--home-dir <dir>] [--claude-home <dir>] [--soma-home <dir>] [--pai-install <dir>] [--pai-repo <root>] [--pai-source-dir <dir>] [--pai-packs-dir <dir>] [--pai-pack-dir <dir>] [--emit-resolution <path>] [--resolution <path>] [--skip-memory] [--skip-skills] [--skip-docs] [--overwrite-reserved] [--include-unrecognized] [--verbose]";
 
 // #115 — `soma migrate claude-skills`. Phase 1 verb + classifier
 // (#116) ships the flat-tree import; Phase 2 adds `--smoke
@@ -45,29 +31,16 @@ export const MIGRATE_PAI_USAGE =
 export const MIGRATE_CLAUDE_SKILLS_USAGE =
   "Usage: soma migrate claude-skills --from <skills-dir> [--dry-run] [--apply] [--status] [--home-dir <dir>] [--soma-home <dir>] [--include-claude-specific] [--smoke <codex|pi-dev|grok|all>] [--rewrite-descriptions <claude|codex|pi|none|auto>] [--quiet] [--verbose]";
 
-export const MIGRATE_COMMAND_HELP: { usage: string; subcommands: Record<"pai" | "claude-skills", string> } = {
-  usage: `${MIGRATE_PAI_USAGE}\n       ${MIGRATE_CLAUDE_SKILLS_USAGE.slice("Usage: ".length)}`,
+export const MIGRATE_COMMAND_HELP: { usage: string; subcommands: Record<"claude-skills", string> } = {
+  usage: MIGRATE_CLAUDE_SKILLS_USAGE,
   subcommands: {
-    pai: MIGRATE_PAI_USAGE,
     "claude-skills": MIGRATE_CLAUDE_SKILLS_USAGE,
   },
 };
 
-export interface ParsedMigratePaiArgs {
-  command: "migrate";
-  source: "pai";
-  mode: "plan" | "apply" | "status";
-  options: PaiMigrationOptions;
-  /** #106 — when true, plan/apply formatter prints inline file lists. Default false. */
-  verbose: boolean;
-}
-
 /**
- * #115 — `soma migrate claude-skills` parsed args. Sibling to
- * `ParsedMigratePaiArgs` (PAI path); a separate type because the
- * option sets do not overlap and merging them would force every
- * dispatch site to discriminate on `source` AND options shape. Keeping
- * them separate keeps the type narrowing trivial.
+ * #115 — `soma migrate claude-skills` parsed args. The only migrate
+ * source since PAI migration was removed (pin soma ≤ 0.25 for it).
  */
 export interface ParsedMigrateClaudeSkillsArgs {
   command: "migrate";
@@ -82,146 +55,22 @@ export interface ParsedMigrateClaudeSkillsArgs {
   verbose?: boolean;
 }
 
-export type ParsedMigrateArgs = ParsedMigratePaiArgs | ParsedMigrateClaudeSkillsArgs;
+export type ParsedMigrateArgs = ParsedMigrateClaudeSkillsArgs;
 
 function commandUsage(action?: string): string {
   return (isMigrateSource(action) ? MIGRATE_COMMAND_HELP.subcommands[action] : undefined) ?? MIGRATE_COMMAND_HELP.usage;
 }
 
 function isMigrateSource(action: string | undefined): action is keyof typeof MIGRATE_COMMAND_HELP.subcommands {
-  return action === "pai" || action === "claude-skills";
+  return action === "claude-skills";
 }
 
 export function parseMigrateArgs(args: string[]): ParsedMigrateArgs {
   const [command, source] = args;
-  if (command !== "migrate") {
-    throw new Error(commandUsage());
-  }
-  // #115 — second migration path. Routed early so the existing
-  // pai-only parser body stays untouched.
-  if (source === "claude-skills") {
-    return parseMigrateClaudeSkillsArgs(args);
-  }
-  if (source !== "pai") {
+  if (command !== "migrate" || source !== "claude-skills") {
     throw new Error(commandUsage(source));
   }
-  return parseMigratePaiArgs(args);
-}
-
-function parseMigratePaiArgs(args: string[]): ParsedMigratePaiArgs {
-  const [, , ...rest] = args;
-  const options: PaiMigrationOptions = {};
-  let mode: "plan" | "apply" | "status" = "plan";
-  const packPaths: string[] = [];
-  let verbose = false;
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-    switch (arg) {
-      case "--dry-run":
-        mode = "plan";
-        break;
-      case "--apply":
-        mode = "apply";
-        break;
-      case "--status":
-        mode = "status";
-        break;
-      case "--home-dir":
-        options.homeDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--claude-home":
-        options.claudeHome = readOption(rest, index, arg);
-        index += 1;
-        break;
-      // #90 — `--pai-install` is the principal-facing alias for
-      // `--claude-home`. Both target the same option field; the alias
-      // exists because the issue body specifies `--pai-install` as the
-      // canonical flag for the full-migrate surface.
-      case "--pai-install":
-        options.claudeHome = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--soma-home":
-        options.somaHome = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--pai-pack-dir":
-        // #28 back-compat — explicit per-pack paths (one flag per pack).
-        packPaths.push(readOption(rest, index, arg));
-        index += 1;
-        break;
-      case "--pai-packs-dir":
-        // #90 — single directory of many packs.
-        options.paiPacksDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--pai-source-dir":
-        options.paiSourceDir = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--pai-repo":
-        // #98 — single PAI repo root. The orchestrator derives both
-        // `paiSourceDir` (→ `<root>/Releases/<latest-semver>/.claude/PAI`)
-        // and `paiPacksDir` (→ `<root>/Packs`) from it BEFORE the
-        // phases run. Explicit `--pai-source-dir` / `--pai-packs-dir`
-        // always win — `--pai-repo` only fills the unset slots. See
-        // `applyPaiRepoDerivation` in `src/pai-migration.ts`.
-        options.paiRepo = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--emit-resolution":
-        options.emitResolutionPath = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--resolution":
-        options.resolutionPath = readOption(rest, index, arg);
-        index += 1;
-        break;
-      case "--skip-memory":
-        options.skipMemory = true;
-        break;
-      case "--skip-skills":
-        options.skipSkills = true;
-        break;
-      case "--skip-docs":
-        options.skipDocs = true;
-        break;
-      case "--overwrite-reserved":
-        options.overwriteReserved = true;
-        break;
-      case "--include-unrecognized":
-        // #106 — canonical name. Same passthrough as the legacy flag
-        // below; routes to `importPaiPack`'s legacy
-        // `includeSubstrateSpecific` SDK option key (kept stable to
-        // avoid SDK churn — see PaiPackImportOptions docstring).
-        options.includeSubstrateSpecific = true;
-        break;
-      case "--include-substrate-specific":
-        // #97 — passthrough to `importPaiPack`. #106 renamed the
-        // canonical flag to `--include-unrecognized`; this alias is
-        // kept for one release with a stderr deprecation warning so
-        // the canonical `migrate pai` walkthrough keeps working for
-        // anyone with the old flag in shell history / scripts.
-        warnDeprecatedSubstrateFlag();
-        options.includeSubstrateSpecific = true;
-        break;
-      case "--verbose":
-        // #106 — opt-in inline file lists in the plan/apply CLI
-        // output. Without this flag, refused-unrecognized-layout
-        // rows render as `(N files — run --verbose ...)` and the
-        // imported/refused-other rows render their reasons truncated.
-        // Full file lists ALWAYS land in MIGRATION.md regardless.
-        verbose = true;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
-    }
-  }
-
-  if (packPaths.length > 0) options.paiPackPaths = packPaths;
-  return { command: "migrate", source: "pai", mode, options, verbose };
+  return parseMigrateClaudeSkillsArgs(args);
 }
 
 function parseMigrateClaudeSkillsArgs(args: string[]): ParsedMigrateClaudeSkillsArgs {
@@ -352,208 +201,6 @@ function parseRewriteDescriptionsAgent(value: string): RewriteDescriptionsAgent 
   throw new Error(
     `Unknown --rewrite-descriptions agent: ${JSON.stringify(value)}. Allowed: ${VALID_REWRITE_DESCRIPTIONS_AGENTS.join(", ")}.`,
   );
-}
-
-/**
- * #106 — build the helpful footer suggestion lines based on what
- * outcomes the principal is looking at. One line per refusal kind
- * that has a documented opt-in flag.
- */
-function buildMigrationFooterSuggestions(
-  outcomes: readonly { outcome: string }[],
-): string[] {
-  const unrecognizedCount = outcomes.filter((o) => o.outcome === "refused-unrecognized-layout").length;
-  const reservedCount = outcomes.filter((o) => o.outcome === "refused-reserved").length;
-  const lines: string[] = [];
-  if (unrecognizedCount > 0) {
-    const packLabel = unrecognizedCount === 1 ? "pack" : "packs";
-    lines.push(
-      `${unrecognizedCount} ${packLabel} refused-unrecognized-layout — re-run with --include-unrecognized to import them.`,
-    );
-  }
-  if (reservedCount > 0) {
-    const packLabel = reservedCount === 1 ? "pack" : "packs";
-    lines.push(
-      `${reservedCount} ${packLabel} refused-reserved — re-run with --overwrite-reserved to overwrite Soma's reserved skills.`,
-    );
-  }
-  return lines;
-}
-
-/**
- * #106 — render inline file lists for `refused-unrecognized-layout`
- * outcomes when `--verbose` is set. Mirrors the per-pack section the
- * MIGRATION.md body always carries; the only diff is indent + the
- * one-line preface saying which pack the list belongs to.
- */
-function renderVerboseUnrecognizedFiles(
-  outcomes: readonly PaiPackOutcome[],
-): string[] {
-  const out: string[] = [];
-  const needsDetail = outcomes
-    .filter((o) => o.outcome === "refused-unrecognized-layout" && (o.unrecognizedFiles?.length ?? 0) > 0)
-    .sort((a, b) => a.paiPackDir.localeCompare(b.paiPackDir));
-  if (needsDetail.length === 0) return out;
-  out.push("", "Unrecognized files (--verbose):");
-  for (const o of needsDetail) {
-    const label = o.skillName ?? o.paiPackDir;
-    out.push(`  ${label}:`);
-    for (const file of o.unrecognizedFiles ?? []) {
-      out.push(`    - ${file}`);
-    }
-  }
-  return out;
-}
-
-function formatPaiMigrationPlan(plan: PaiMigrationPlan, verbose = false): string {
-  const algorithmLine = plan.algorithm
-    ? `  - algorithm: ${plan.algorithm.sourceFiles.length} source file(s)`
-    : "  - algorithm: not present";
-  const memoryLine = plan.memory === null
-    ? "  - memory:   skipped"
-    : plan.memory.memoryDir === null
-      ? "  - memory:   no PAI MEMORY tree present"
-      : `  - memory:   ${plan.memory.files.length} file(s) to translate`;
-  const docsLine = plan.docs === null
-    ? "  - docs:     skipped (pass --pai-source-dir to enable)"
-    : `  - docs:     ${plan.docs.files.length} file(s) from ${plan.docs.releaseVersion ?? "(no version)"}`;
-  // #102 — render the per-pack outcome table on the plan surface, same
-  // shape as the apply path (#97 AC-5). Single-sourced through
-  // `formatPackOutcomeLines` so apply + plan can't drift on labels /
-  // sort order / reason suffix. `labelKind: "path"` matches the
-  // surrounding `Source:` / `Target:` / `Manifest:` full-path style.
-  //
-  // #106 — collapse style by default: refused-unrecognized-layout
-  // rows render as `(N files — run --verbose or read MIGRATION.md)`
-  // instead of dumping the full file list inline (was ~30KB for the
-  // canonical PAI Packs collection). `--verbose` flips to the legacy
-  // verbose style.
-  const outcomeLines = formatPackOutcomeLines(plan.packOutcomes, {
-    labelKind: "path",
-    style: verbose ? "verbose" : "collapsed",
-  });
-  // `packs.length` now reflects "successfully planned" derived skills,
-  // not source packs (#105 — a pack with N nested skills emits N
-  // entries here, plus 1 row per outcome). The discovered count is
-  // unique pack directories from outcomes; the to-import count is the
-  // derived-skill cardinality.
-  const uniquePackDirs = new Set(plan.packOutcomes.map((o) => o.paiPackDir)).size;
-  const verboseDetail = verbose ? renderVerboseUnrecognizedFiles(plan.packOutcomes) : [];
-  const footerSuggestions = buildMigrationFooterSuggestions(plan.packOutcomes);
-  const footerLines = footerSuggestions.length === 0 ? [] : ["", ...footerSuggestions];
-  return [
-    "soma migrate pai — plan (dry-run; pass --apply to execute)",
-    "",
-    `Source:   ${plan.claudeHome}`,
-    `Target:   ${plan.somaHome}`,
-    `Manifest: ${plan.manifestPath}`,
-    "",
-    "Categories:",
-    `  - identity: ${plan.identity.sourceFiles.length} source file(s)`,
-    algorithmLine,
-    memoryLine,
-    docsLine,
-    `  - packs:    ${uniquePackDirs} discovered, ${plan.packs.length} skill(s) to import`,
-    "",
-    "Pack outcomes:",
-    ...outcomeLines,
-    ...verboseDetail,
-    ...footerLines,
-    "",
-  ].join("\n");
-}
-
-function formatPaiMigrationResult(result: PaiMigrationResult, verbose = false): string {
-  // soma#441 — per-run reserved-skip detail for the identity phase.
-  // Ephemeral CLI-only line, mirrors the memory phase's "written N /
-  // unchanged M" precedent immediately below — the persisted
-  // MIGRATION.md manifest reports only the stable end-state total
-  // (see `renderManifest`'s identity line), not this per-run delta.
-  const identitySkippedReservedLines = (result.identity.skippedReserved ?? []).map(
-    (path) => formatReservedSkipLine(result.somaHome, path, "  - identity "),
-  );
-  const memoryLine = result.memory === null
-    ? "  - memory:   skipped"
-    : result.memory.memoryDir === null
-      ? "  - memory:   no PAI MEMORY tree present"
-      : `  - memory:   ${result.memory.writtenCount} written, ${result.memory.skippedCount} unchanged`;
-  const docsLine = result.docs === null
-    ? "  - docs:     skipped"
-    : `  - docs:     ${result.docs.writtenCount} written, ${result.docs.files.length - result.docs.writtenCount} unchanged`;
-  // #97 — per-pack outcome summary. Sage r1 #99: single-sourced
-  // through `formatPackOutcomeLines` so the CLI summary and the
-  // manifest body can't drift on outcome labels / reason suffix /
-  // sort order. `labelKind: "path"` keeps the principal-facing
-  // summary consistent with the surrounding `Source:` / `Target:`
-  // / `Manifest:` lines (full paths).
-  //
-  // #106 — collapsed by default; `--verbose` plumbs through to the
-  // legacy verbose form.
-  const outcomeLines = formatPackOutcomeLines(result.packOutcomes, {
-    labelKind: "path",
-    style: verbose ? "verbose" : "collapsed",
-  });
-  // #105 — `result.packs` is now one-entry-per-derived-skill (a pack
-  // with N nested skills produces N entries). The summary line counts
-  // unique pack directories so the principal-facing count matches the
-  // source-of-truth `~/work/PAI/Packs/` cardinality, not the derived
-  // skill cardinality (which lives in the outcomes table immediately
-  // below).
-  const uniquePackDirs = new Set(result.packs.map((p) => p.paiPackDir)).size;
-  const verboseDetail = verbose ? renderVerboseUnrecognizedFiles(result.packOutcomes) : [];
-  const footerSuggestions = buildMigrationFooterSuggestions(result.packOutcomes);
-  const footerLines = footerSuggestions.length === 0 ? [] : ["", ...footerSuggestions];
-  return [
-    "soma migrate pai — applied",
-    "",
-    `Source:   ${result.claudeHome}`,
-    `Target:   ${result.somaHome}`,
-    `Manifest: ${result.manifestPath}`,
-    "",
-    "Written:",
-    `  - identity: ${result.identity.files.length} file(s)`,
-    ...identitySkippedReservedLines,
-    result.algorithm ? `  - algorithm: ${result.algorithm.files.length} file(s)` : "  - algorithm: skipped (not present)",
-    memoryLine,
-    docsLine,
-    `  - packs:    ${uniquePackDirs} pack(s) → ${result.packs.length} skill(s), ${result.packs.reduce((sum, p) => sum + p.files.length, 0)} file(s)`,
-    "",
-    "Pack outcomes:",
-    ...outcomeLines,
-    ...verboseDetail,
-    ...footerLines,
-    "",
-    `Total files written: ${result.filesWritten.length}`,
-    "",
-  ].join("\n");
-}
-
-async function readPaiMigrationManifest(options: PaiMigrationOptions): Promise<string | null> {
-  // Sage r1: derive manifest path directly without invoking the
-  // migration planner. Status only needs to read the existing
-  // manifest; source-discovery + pack-listing work is irrelevant
-  // here and would make `--status` fail on, e.g., missing source
-  // dirs even when the manifest exists.
-  const { readFile } = await import("node:fs/promises");
-  const { homedir } = await import("node:os");
-  const { join, resolve } = await import("node:path");
-  const somaHome = resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
-  const manifestPath = join(somaHome, "profile/imports/claude/MIGRATION.md");
-  try {
-    return await readFile(manifestPath, "utf8");
-  } catch (error) {
-    if (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  }
-}
-
-function formatPaiMigrationStatus(manifest: string | null): string {
-  if (manifest === null) {
-    return "soma migrate pai — no migration manifest found. Run `soma migrate pai --apply` first.\n";
-  }
-  return `${manifest}\n`;
 }
 
 // #124 — Grouped outcome structure for disposition-bucketed output.
@@ -738,9 +385,7 @@ function extractClassifierDetail(reason: string): string {
   return inMatch ? inMatch[1] : reason;
 }
 
-// #115 — `soma migrate claude-skills` formatters. Mirrors the `migrate
-// pai` shape (header line + per-row table) so principals reading
-// both surfaces don't need to context-switch.
+// #115 — `soma migrate claude-skills` formatters: header line + per-row table.
 // #124 — Grouped by disposition for scannable outcome summaries.
 function formatClaudeSkillsMigrationPlan(plan: ClaudeSkillsMigrationPlan): string {
   if (!plan.isFlatSkillsTree) {
@@ -943,111 +588,54 @@ function countOutcomesByDisposition(
 }
 
 export async function runMigrateCli(parsed: ParsedMigrateArgs): Promise<string> {
-  // #115 — second migration path. Dispatched first so the
-  // existing PAI path stays untouched.
-  if (parsed.source === "claude-skills") {
-    const claudeOptions = parsed.options;
-    if (parsed.mode === "status") {
-      return formatClaudeSkillsMigrationStatus(
-        await readClaudeSkillsMigrationStatus(claudeOptions),
-      );
-    }
-    // #125 — build the progress emitter once at the CLI boundary.
-    // `quiet` collapses to a no-op emitter; otherwise we bind to
-    // `process.stderr` and detect TTY via `isTTY === true` on the
-    // same stream. Tests inject `claudeOptions.progressEmitter`
-    // directly (the parser doesn't expose stream injection), so
-    // we only build the default when the caller didn't supply
-    // one. This keeps `runSomaCli`-based tests free to assert on
-    // a captured emitter.
-    claudeOptions.progressEmitter ??= createProgressEmitter({
-        stderr: process.stderr,
-        quiet: parsed.quiet === true,
-        isatty: process.stderr.isTTY,
-        verbose: parsed.verbose === true,
-      });
-    if (parsed.mode === "plan") {
-      // #118 — plan mode is informative; refused-other rows are
-      // displayed but the CLI exits 0 (mirror of #112's plan/apply
-      // split for `migrate pai`).
-      return formatClaudeSkillsMigrationPlan(
-        await planClaudeSkillsMigration(claudeOptions),
-      );
-    }
-    await createSomaSnapshot({
-      homeDir: claudeOptions.homeDir,
-      somaHome: claudeOptions.somaHome,
-      name: "before-migrate-claude-skills",
-      trigger: "migrate-claude-skills",
-    });
-    const csResult = await migrateClaudeSkills(claudeOptions);
-    const formatted = formatClaudeSkillsMigrationResult(csResult);
-    // #118 — apply mode: surface a non-zero exit code when any skill
-    // refused with a genuine error (out-of-home symlink target,
-    // cycle, broken link, denylisted target). Plan mode already
-    // returned without throwing above. Other dispositions
-    // (skipped-claude-specific, skipped-idempotent) are policy-
-    // respected and stay zero-exit.
-    if (csResult.refusedOtherCount > 0) {
-      const refused = csResult.outcomes.filter((o) => o.disposition === "refused-other");
-      const detail = refused
-        .map((o) => `  - ${o.sourceName}: ${o.refusalReason ?? o.reason}`)
-        .join("\n");
-      throw new SomaCliError(
-        `${formatted}\nsoma migrate claude-skills — ${csResult.refusedOtherCount} skill(s) refused with genuine errors:\n${detail}\n`,
-        1,
-      );
-    }
-    return formatted;
-  }
+  const claudeOptions = parsed.options;
   if (parsed.mode === "status") {
-    return formatPaiMigrationStatus(await readPaiMigrationManifest(parsed.options));
+    return formatClaudeSkillsMigrationStatus(
+      await readClaudeSkillsMigrationStatus(claudeOptions),
+    );
   }
+  // #125 — build the progress emitter once at the CLI boundary.
+  // `quiet` collapses to a no-op emitter; otherwise we bind to
+  // `process.stderr` and detect TTY via `isTTY === true` on the
+  // same stream. Tests inject `claudeOptions.progressEmitter`
+  // directly (the parser doesn't expose stream injection), so
+  // we only build the default when the caller didn't supply
+  // one. This keeps `runSomaCli`-based tests free to assert on
+  // a captured emitter.
+  claudeOptions.progressEmitter ??= createProgressEmitter({
+      stderr: process.stderr,
+      quiet: parsed.quiet === true,
+      isatty: process.stderr.isTTY,
+      verbose: parsed.verbose === true,
+    });
   if (parsed.mode === "plan") {
-    const plan = await planPaiMigration(parsed.options);
-    const formatted = formatPaiMigrationPlan(plan, parsed.verbose);
-    // #112 — split exit semantics by mode. Plan-mode (dry-run) is
-    // "show me what would happen"; a known-malformed upstream pack
-    // is informative, not a deploy blocker. The footer line stays —
-    // it's the principal signal regardless of exit code — but the
-    // CLI exits 0 so interactive use doesn't pair a non-zero exit
-    // with what is essentially a preview. Apply-mode keeps exit 1
-    // on `refused-other` per #97 AC-4 (write phase had a genuine
-    // error → CI must triage).
-    //
-    // Pre-#112 (per #102 AC-4 mirror): plan mode shared the apply
-    // policy and threw `SomaCliError(..., 1)` on any `refused-other`.
-    // That mirror is intentionally dropped here.
-    const refusedOther = plan.packOutcomes.filter((o) => o.outcome === "refused-other");
-    if (refusedOther.length > 0) {
-      const detail = refusedOther
-        .map((o) => `  - ${o.skillName ?? o.paiPackDir}: ${o.reason ?? "(no detail)"}`)
-        .join("\n");
-      return `${formatted}\nsoma migrate pai — ${refusedOther.length} pack(s) failed with genuine errors:\n${detail}\n`;
-    }
-    return formatted;
+    // #118 — plan mode is informative; refused-other rows are
+    // displayed but the CLI exits 0.
+    return formatClaudeSkillsMigrationPlan(
+      await planClaudeSkillsMigration(claudeOptions),
+    );
   }
   await createSomaSnapshot({
-    homeDir: parsed.options.homeDir,
-    somaHome: parsed.options.somaHome,
-    name: "before-migrate-pai",
-    trigger: "migrate-pai",
+    homeDir: claudeOptions.homeDir,
+    somaHome: claudeOptions.somaHome,
+    name: "before-migrate-claude-skills",
+    trigger: "migrate-claude-skills",
   });
-  const result = await migratePai(parsed.options);
-  const formatted = formatPaiMigrationResult(result, parsed.verbose);
-  // #97 — AC-4: exit non-zero only when a pack outcome is
-  // `refused-other` (genuine error). Substrate-specific and
-  // reserved-name refusals are policy-respected and zero-exit; the
-  // principal asked for them by NOT passing the relevant override
-  // flag. The CLI still prints the full outcome table so they
-  // know what happened.
-  const refusedOther = result.packOutcomes.filter((o) => o.outcome === "refused-other");
-  if (refusedOther.length > 0) {
-    const detail = refusedOther
-      .map((o) => `  - ${o.skillName ?? o.paiPackDir}: ${o.reason ?? "(no detail)"}`)
+  const csResult = await migrateClaudeSkills(claudeOptions);
+  const formatted = formatClaudeSkillsMigrationResult(csResult);
+  // #118 — apply mode: surface a non-zero exit code when any skill
+  // refused with a genuine error (out-of-home symlink target,
+  // cycle, broken link, denylisted target). Plan mode already
+  // returned without throwing above. Other dispositions
+  // (skipped-claude-specific, skipped-idempotent) are policy-
+  // respected and stay zero-exit.
+  if (csResult.refusedOtherCount > 0) {
+    const refused = csResult.outcomes.filter((o) => o.disposition === "refused-other");
+    const detail = refused
+      .map((o) => `  - ${o.sourceName}: ${o.refusalReason ?? o.reason}`)
       .join("\n");
     throw new SomaCliError(
-      `${formatted}\nsoma migrate pai — ${refusedOther.length} pack(s) failed with genuine errors:\n${detail}\n`,
+      `${formatted}\nsoma migrate claude-skills — ${csResult.refusedOtherCount} skill(s) refused with genuine errors:\n${detail}\n`,
       1,
     );
   }
