@@ -8,7 +8,8 @@ Code was read at each repo's fetched default branch, not the local checkout:
 
 | repo | ref read | note |
 |---|---|---|
-| ranger | `origin/main` 6004cb6 | |
+| ranger | `origin/main` 6004cb6 | re-checked at a355d2e: no change to `escalate.ts`, `card-sync.ts`, `digest.ts`, `serve.ts`, `cli.ts`, `announce.ts`, `budget.ts` |
+| enzian (pack) | deployed clone `~/.local/share/metafactory/arc/repos/packs/enzian` 620d7c0 | |
 | cortex | `origin/main` a9dc3aa8 | deployed copy `~/.local/share/metafactory/arc/repos/cortex` is v6.15.0 (80af4dea); it has the same attention wiring (`src/cortex.ts` holds 3 `publishReconcileDelta` references) |
 | reflex | `origin/main` c49aacd | launchd runs the local checkout, which is on `chore/bump-myelin-v0.6.0` (1 commit ahead of and 1 behind `origin/main`); `src/daemon.ts` there also has the expiry sweep |
 | recall | `origin/master` 1dcca52 | |
@@ -141,8 +142,23 @@ The contract is `PlatformAdapter` (`cortex src/adapters/types.ts:216-359`). The 
   - `f-testing` (`f-testing.yaml`)
   - `tana-meetings-daily`, `tana-meetings-catchup`, `tana-meetings-manual` (`tana-meetings.yaml`)
 
-  No live blueprint uses `approval`. `enzian-digest` fires `@jc/enzian-tick` with `mode: digest`. Where that digest is delivered was not inspected.
+  No live blueprint uses `approval`. `enzian-digest` fires `@jc/enzian-tick` with `mode: digest`; its delivery is §10a.
 - **Scope.** Shared across reflex blueprints. It is the only implemented "proposal that expires" in MetaFactory.
+
+## 10a. Enzian daily digest (reflex → cortex brain → web adapter)
+
+- **What it does.** Weekdays 17:30 reflex fires `enzian-digest` (`~/.config/reflex/activations/enzian.yaml`). The cortex process spec `~/.config/cortex/switch/processes/enzian-tick-kick.yaml` runs `brain/kick.ts --mode digest`, which publishes one brain task on `local.jc.switch.brain.enzian.tick` with `response_routing {surface: web, thread: <channel>/digest-<YYYY-MM-DD>, adapter_instance: ENZIAN_HOME_ADAPTER ?? "web:console-switch"}` (`brain/kick.ts:50,60-70,100`). The brain renders ran/delivered/failed/queued per meeting (`brain/digest.ts:18-45`) and posts it on its own task (`brain/handler.ts:24-27,148-161`). The "Waiting on you" line is hard-coded to "nothing (Enzian raises no gates)" (`brain/digest.ts:43`).
+- **Delivery.** One post per day on a fresh thread. No edit in place, no no-op when unchanged. Meeting names stay in the console's local store (`brain/digest.ts:6-7`).
+- **Runs.** Deployed. reflex (`ai.meta-factory.reflex`) → cortex switch stack → web adapter → "Principal Console" (`~/work/cyphr/sales-assistant/apps/console/src/main.ts`, launchd `ch.switch.console`, running, `127.0.0.1:8791` returned 200).
+- **Scope.** Per producer: Enzian only. It is the one live digest that already rides the cortex adapter path instead of a private client.
+- **Vigil reuse.** Shows the shape a Vigil digest could take today: reflex schedule → cortex task with `response_routing` → any adapter. Nothing in that path counts or merges other producers.
+
+## 10b. soma harness gate (macOS notification)
+
+- **What it does.** Weekly `harness-eval --check` against live soma-home data. On `regressed` or `could-not-run` it raises a macOS Notification Center banner via `osascript` (`scripts/harness-gate-check.sh:50,57,63,91,94`), plus a `RESULT` line in `~/Library/Logs/soma/harness-gate.log`.
+- **Runs.** Deployed: launchd `ch.switch.soma.harness-gate`, Monday 09:00 (`scripts/launchd/ch.switch.soma.harness-gate.plist.template:28-32`), loaded, last exit 1. The last 4 logged results are all `RESULT regressed`.
+- **Scope.** Per producer. It alerts on every red run, not on a change of state: a regression that stays red re-notifies weekly.
+- **Vigil reuse.** None beyond being one more unbudgeted channel (Notification Center) a Vigil would have to absorb.
 
 ## 11. recall proposal spine
 
@@ -156,14 +172,14 @@ The contract is `PlatformAdapter` (`cortex src/adapters/types.ts:216-359`). The 
 
 - **What it does.** One line per Claude Code session: mode and task, model, dir and branch, context %, 5 h and 7 d usage windows. It reads Claude Code stdin JSON plus `STATE/statusline-mode-<sid>.json` and `STATE/current-work-<sid>-*.json` (`src/adapters/claude-code/statusline.sh:1-13,172-193`). It doesn't use the network and shows no attention, alert or proposal content.
 - **Runs.** Deployed by `soma install claude-code`: `~/.claude/settings.json` `statusLine` → `~/.claude/hooks/soma/soma-statusline.sh`. The file matches source except the substituted `SOMA_HOME` (line 12).
-- **Scope.** Per session. It renders only when a session is open. Soma `src/` has no other notification sender: no Discord, push or webhook code found.
+- **Scope.** Per session. It renders only when a session is open. Soma `src/` has no other notification sender: no Discord, push or webhook code found. The one soma notifier outside `src/` is the harness gate script (§10b).
 
 ## 13. Other prior art for limiting interruptions
 
 - **ivy-heartbeat** (`~/work/ivy-heartbeat`, last commit 2026-03-26) runs checks and dispatches alerts to terminal, voice and email (`src/alert/dispatcher.ts:16-37`). It suppresses all channels outside active hours, default 08–22 (`src/alert/hours.ts`, `src/alert/types.ts:17-20`). This is the only quiet-hours rule found. It's not running: `com.pai.ivy-heartbeat-serve.plist` exists but is not loaded, and port 7878 didn't answer.
 - **What actually limits interruptions.** Taken together, only these mechanisms limit, count or collapse messages to the principal:
   - ranger card caps and age bands (§1)
-  - ranger digest no-op when unchanged (§2)
+  - ranger digest no-op when unchanged (§2); the Enzian digest (§10a) and harness gate (§10b) have no such rule
   - MC F-11 dedup, coalesce and throttle, which is off (§6)
   - PagerDuty `dedup_key`, which is not configured (§9)
   - recall pending cap, which is not deployed (§11)
@@ -175,12 +191,13 @@ The contract is `PlatformAdapter` (`cortex src/adapters/types.ts:216-359`). The 
 
 ## Capabilities a Vigil needs that nothing provides
 
-1. **One attention budget across producers.** No component counts or caps messages to the principal across ranger, cortex, reflex and soma. Ranger caps cards per tick by throughput. MC F-11 throttles over seconds and is off. Nothing has a daily or rolling count of interruptions.
+1. **One attention budget across producers.** No component counts or caps messages to the principal across ranger, cortex, reflex, Enzian and soma. Live channels today: Discord (ranger), MC dashboard (cortex), Principal Console (Enzian via cortex web adapter), macOS Notification Center (soma harness gate). Ranger caps cards per tick by throughput. MC F-11 throttles over seconds and is off. Nothing has a daily or rolling count of interruptions.
 2. **One router choosing text, digest or dashboard per state change.** Each producer hard-wires its channel: ranger → its own Discord client per map; cortex attention → MC dashboard, plus a review-sink channel only if `cockpit.attention.channel` is set (it isn't); reflex → bus decision envelopes plus CLI. Nothing picks the delivery form from severity or remaining budget.
-3. **A cross-producer digest.** Ranger's digest covers one map from one producer (14 a day possible). The cortex adapters have no digest primitive. Nothing merges ranger cards, cortex attention and reflex decisions into one digest.
+3. **A cross-producer digest.** Ranger's digest covers one map from one producer (14 a day possible); Enzian's covers Enzian only and hard-codes "Waiting on you: nothing". The cortex adapters have no digest primitive. Nothing merges ranger cards, cortex attention and reflex decisions into one digest.
 4. **Ranger and reflex on the shared attention path.** The `system.attention.*` envelope plus the MC queue exist but are fed only by cortex producers. Ranger's cards stay in its journal and Discord. reflex Matched/Expired decisions aren't turned into attention items.
 5. **Expiring proposals that reach the principal.** reflex has a TTL, but no live blueprint uses `approval`, and a Matched Decision raises no notice. MC `AttentionItem` has no expiry (38 open on switch). recall has no time-based expiry and isn't deployed.
 6. **Edit in place across adapters.** `PlatformAdapter.postResponse` returns no message id. Only Discord's progress message and ranger's own Discord client edit in place. Slack and Mattermost can't edit.
 7. **An attention view in the statusline.** It shows session data only. No surface shows pending attention or proposals inside a session.
 8. **Quiet hours on a live path.** The only implementation (ivy-heartbeat) isn't running and isn't connected to any MetaFactory producer.
 9. **Resolve on the paging path.** The PagerDuty renderer only triggers, and it isn't configured.
+10. **Change-of-state gating for every producer.** ranger cards and cortex `system.attention.*` fire on transitions; the soma harness gate re-notifies on every red weekly run (4 in a row logged) and the Enzian digest posts daily regardless of content. Nothing enforces "alert on change" at a shared choke point.
