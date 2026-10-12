@@ -47,6 +47,11 @@ Runtime state was only read. Every fact below cites a file. No design choice is 
   - `PulseRunner` keeps only `private lastExecution` in memory (`src/lib/runner.ts:24,90,184`).
   - `pulse run` executes nothing: it prints a note and exits 1 (`src/commands/run.ts:28-33`).
   - `RunState` lives one run, in memory (`src/lib/step-options.ts:64-81`).
+- Per-step events exist, but only as in-process callbacks, not as a log or a bus emission:
+  - `ActionStepEvent` = `step.started {action, started_at}` | `step.completed {action, durationMs, output_fields}` | `step.failed {action, durationMs, error}` (`src/types/pipeline.ts:157-160`), fired via the optional `StepRunnerOptions.onActionStepEvent` (`src/lib/step-runner.ts:98,117`).
+  - Primitives have parallel hooks: `onGateEvent`, `onAgentEvent`, `onTribunalEvent`, `onGovernedEvent` (`src/lib/primitive-runner.ts:548-1256`).
+  - Only `examples/*/run-*.ts` and tests pass these hooks; no `src/commands/*` CLI does, and no sibling repo under `~/work/mf` does.
+  - All are step-level. There is no run-level `run.started`/`run.completed` event type in pulse.
 - Side fact: for a failed node, `startedAt` is set after the retries finish (`src/lib/executor.ts:72`), so the real start time is lost.
 
 ### ranger
