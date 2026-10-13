@@ -201,6 +201,8 @@ export interface AlgorithmLoopExecutor {
 export interface AuthoredFrontmatter {
   task: string;
   effort: AlgorithmEffortTier;
+  /** Goal ID only; private goal wording stays in soma-home (D10). */
+  serves?: string;
   mode?: AlgorithmMode;
   iteration?: number;
   started?: string;

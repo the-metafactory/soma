@@ -45,6 +45,8 @@ interface WorkGraphNodeBase {
   id: string;            // backend-native identity (GitHub: issue number),
                          // assigned by the store — never caller-supplied
   title: string;
+  serves?: string;       // G<n> goal ID on the map root only (D10);
+                         // descendants neither inherit nor override it
   kind?: string;         // free-form doctrine tag (e.g. research, grilling);
                          // the runtime never enforces its MEANING but
                          // normalizes its FORM in createNode validation:
@@ -719,7 +721,7 @@ soma graph link <node> [--blocked-by <ref>]... [--parent <id>]
                                    # check included; an edge it has is skipped;
                                    # --parent then attaches an unattached node,
                                    # only once every edge landed (#740)
-soma graph chart ...               # create a typed graph root; GitLab requires
+soma graph chart ... [--serves G<n>] # create a typed graph root; GitLab requires
                                    # --home-project <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;
                                    # refuses an already-closed node, --dry-run too;
@@ -737,6 +739,21 @@ soma graph decisions <root>        # the map's decision index, DERIVED from clos
                                    # <!-- soma:decisions:begin/end --> markers and
                                    # refuses when they are absent
 ```
+
+`soma graph chart ... --serves G5` links the map to a goal by writing
+`"serves": "G5"` in the root's `soma:work-graph-node` typed block.
+`soma graph node <root>` displays it in text and as `node.serves` in `--json`.
+The ID must match `^G\d+$`; malformed IDs refuse before creation. The goal's
+record lives only in `<soma-home>/profile/goals/G<n>.md` (`SOMA_HOME`, otherwise
+`~/.soma`). Unknown or non-active goals (`draft`, `paused`, `achieved`, `dropped`)
+produce one stderr warning naming the ID and state, and chart still succeeds.
+No goal wording is stored in the tracker or printed in the warning.
+
+`serves` belongs on the map root only (D10): `add --serves` and `link --serves`
+refuse, and descendants neither inherit nor override the field. There is no
+verb for setting it on an existing root. Roots without it read as before, with
+no goal lookup or warning. VSAs can carry the same ID in authored frontmatter
+as `serves: G5`; their parser preserves it and applies the same advisory check.
 
 Audit's `build-brief-not-ready` finding reports every open `kind: build` node
 missing the exact `## Deliverable` or `## Acceptance criteria` heading, or

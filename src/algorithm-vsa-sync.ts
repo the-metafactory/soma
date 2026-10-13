@@ -506,7 +506,7 @@ async function syncAlgorithmRunFromVsaInner(
     return noopResult();
   }
 
-  const isa = parseVsa(markdown, options.vsaPath);
+  const isa = parseVsa(markdown, options.vsaPath, { somaHome });
   const slug = datePrefixSlug(isa.slug, timestamp);
   const vsaCriteria = getCriteria(isa);
   // A real VSA has a frontmatter slug AND criteria. Reject non-VSA markdown.
