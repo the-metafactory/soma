@@ -10,10 +10,15 @@ jobs:
   deterministic-portability:
     name: Deterministic portability
     runs-on: ubuntu-latest
+    env:
+      # PRs compare with the target commit; pushes compare with the previous head.
+      SOMA_BOUNDARIES_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -26,6 +31,9 @@ jobs:
 
       - name: Lint
         run: bun run lint
+
+      - name: Component boundaries
+        run: bun run check:boundaries
 
       - name: Portability suite
         run: bun run test:portability

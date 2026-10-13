@@ -1,0 +1,7 @@
+{
+  "core": 1,
+  "memory": 5,
+  "flows": 15,
+  "substrates": 7,
+  "legacy": 18
+}
