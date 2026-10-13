@@ -14,6 +14,7 @@ import {
   SOMA_SKILLS_HEADING,
 } from "./shared";
 import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
+import { activeGoalLines } from "../goal-records";
 
 export const ANTHROPIC_COWORK_ENTRYPOINT_PATH = "SOMA.md";
 export const ANTHROPIC_COWORK_README_PATH = "soma/README.md";
@@ -119,6 +120,7 @@ function renderPurpose(input: ProjectionInput): string {
     "",
     renderList(purpose.missions),
     "",
+    ...renderCoworkGoals(purpose.goals),
     "## Principles",
     "",
     renderList(purpose.principles),
@@ -127,6 +129,12 @@ function renderPurpose(input: ProjectionInput): string {
     "",
     renderList(purpose.commitments),
   ].join("\n");
+}
+
+// soma#784 D9: only active goals project; no section when none is active.
+function renderCoworkGoals(goals: ProjectionInput["profile"]["purpose"]["goals"]): string[] {
+  const lines = activeGoalLines(goals);
+  return lines.length === 0 ? [] : ["## Goals", "", renderList(lines), ""];
 }
 
 function renderPolicy(input: ProjectionInput): string {

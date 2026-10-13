@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { activeGoalLines } from "../../goal-records";
 import type { SkillsDiscoveryMode } from "../../install-spec";
 import { withProvenance as applyProvenance } from "./provenance";
 import type { ProjectionInput, SomaSkill, SubstrateId } from "../../types";
@@ -131,6 +132,16 @@ export function formatRecord(record: Record<string, unknown> | undefined): strin
     .join("\n");
 }
 
+/**
+ * The `active` goals under a "Goals" heading, as `G<n>: <wording> (supports M…)`
+ * (soma#784 D9). Nothing when no goal is active, so a home without goal
+ * records projects the same bytes as before goal records existed.
+ */
+export function renderActiveGoals(goals: ProjectionInput["profile"]["purpose"]["goals"]): string[] {
+  const lines = activeGoalLines(goals);
+  return lines.length === 0 ? [] : ["Goals:", formatList(lines), ""];
+}
+
 export function renderActiveVsa(input: ProjectionInput): string {
   if (!input.activeVsa) {
     return "No active VSA was provided.";
@@ -177,6 +188,7 @@ export function renderAssistantCore(input: ProjectionInput): string {
     "Missions:",
     formatList(profile.purpose.missions),
     "",
+    ...renderActiveGoals(profile.purpose.goals),
     "Principles:",
     formatList(profile.purpose.principles),
     "",
