@@ -7,6 +7,7 @@ import {
   type ParsedAlgorithmArgs,
 } from "./cli/algorithm";
 import { SomaCliError } from "./cli/errors";
+import { GOAL_COMMAND_HELP, parseGoalArgs, runGoalCli, type ParsedGoalArgs } from "./cli/goal";
 import {
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
   parseDaemonArgs,
@@ -167,6 +168,7 @@ type ParsedArgs =
   | ParsedMigrateArgs
   | ParsedAlgorithmArgs
   | ParsedGraphArgs
+  | ParsedGoalArgs
   | ParsedLifecycleArgs
   | ParsedMemoryArgs
   | ParsedTelemetryArgs
@@ -191,6 +193,7 @@ const TOP_LEVEL_COMMANDS = [
   "export",
   "feedback",
   "graph",
+  "goal",
   "history",
   "inference",
   "install",
@@ -228,6 +231,7 @@ const TOP_LEVEL_COMMANDS = [
 const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string, string> }> = {
   algorithm: ALGORITHM_COMMAND_HELP,
   graph: GRAPH_COMMAND_HELP,
+  goal: GOAL_COMMAND_HELP,
   memory: MEMORY_COMMAND_HELP,
   telemetry: TELEMETRY_COMMAND_HELP,
   stats: STATS_COMMAND_HELP,
@@ -338,6 +342,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "graph") {
     return parseGraphArgs(args);
+  }
+
+  if (args[0] === "goal") {
+    return parseGoalArgs(args);
   }
 
   if (args[0] === "policy") {
@@ -548,6 +556,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "graph") {
     return runGraphCli(parsed);
+  }
+
+  if (parsed.command === "goal") {
+    return runGoalCli(parsed);
   }
 
   if (parsed.command === "vsa") {

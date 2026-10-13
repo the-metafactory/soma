@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GoalRecord } from "./types";
 
@@ -167,4 +167,150 @@ export function activeGoalLines(goals: readonly GoalRecord[]): string[] {
       const supports = goal.supports.length === 0 ? "" : ` (supports ${goal.supports.join(", ")})`;
       return `${goal.id}: ${goal.wording}${supports}`;
     });
+}
+
+export interface AddGoalOptions {
+  supports: string[];
+  wording: string;
+  sensor?: string;
+  reviewBy?: string;
+}
+
+/** Allocate from file names, including invalid records; never fill a gap. */
+export async function addGoalRecord(goalsDir: string, options: AddGoalOptions): Promise<string> {
+  if (!options.wording.trim() || /[\r\n]/.test(options.wording)) {
+    throw new Error("wording must be a non-empty single line");
+  }
+  if (options.supports.some((code) => !/^M\d+$/.test(code))) {
+    throw new Error("supports must contain M<n> mission codes");
+  }
+  const schema = await goalFrontmatterSchema();
+  const fields = {
+    id: "G5", status: "draft", supports: options.supports,
+    ...(options.sensor === undefined ? {} : { sensor: options.sensor }),
+    ...(options.reviewBy === undefined ? {} : { review_by: options.reviewBy }),
+  };
+  const parsed = schema.safeParse(fields);
+  if (!parsed.success) throw new Error(`Invalid goal field: ${parsed.error.issues[0].path.join(".")}`);
+  await mkdir(goalsDir, { recursive: true, mode: 0o700 });
+  for (;;) {
+    const ids = (await readGoalFiles(goalsDir)).map((file) => BigInt(file.slice(1, -3)));
+    const next = ids.reduce((max, id) => id > max ? id : max, 4n) + 1n;
+    const id = `G${next}`;
+    // JSON string literals are YAML-safe, even for sensor ids with punctuation.
+    const lines = [`id: ${id}`, "status: draft", `supports: ${JSON.stringify(options.supports)}`];
+    if (options.sensor !== undefined) lines.push(`sensor: ${JSON.stringify(options.sensor)}`);
+    if (options.reviewBy !== undefined) lines.push(`review_by: ${options.reviewBy}`);
+    try {
+      await writeFile(join(goalsDir, `${id}.md`), `---\n${lines.join("\n")}\n---\n${options.wording}\n`, {
+        encoding: "utf8", flag: "wx", mode: 0o600,
+      });
+      return id;
+    } catch (error) {
+      // Another author may have allocated the same id since our directory read.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+}
+
+async function readGoalRecord(goalsDir: string, id: string) {
+  if (!/^G\d+$/.test(id)) throw new Error("Goal id must match G<n>");
+  const path = join(goalsDir, `${id}.md`);
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`Goal ${id} does not exist: ${path}`, { cause: error });
+    throw new Error(`Cannot read goal ${id}: ${path}`, { cause: error });
+  }
+  const parts = splitGoalFile(content);
+  if (!parts) throw new Error(`Invalid frontmatter: ${path}`);
+  let raw: unknown;
+  try {
+    raw = Bun.YAML.parse(parts.frontmatter);
+  } catch {
+    // Parser diagnostics can include private body or field text.
+    throw new Error(`Unparseable goal frontmatter: ${path}`);
+  }
+  const parsed = (await goalFrontmatterSchema()).safeParse(raw);
+  if (!parsed.success) throw new Error(`Invalid goal field ${parsed.error.issues[0].path.join(".") || "frontmatter"}: ${path}`);
+  if (parsed.data.id !== id) throw new Error(`Goal id does not match file name: ${path}`);
+  return { path, content, parts, data: parsed.data };
+}
+
+/** Strict CLI listing; warnings never echo private goal content. */
+export async function listGoalRecords(goalsDir: string): Promise<GoalRecord[]> {
+  const goals = await Promise.all((await readGoalFiles(goalsDir)).map(async (file) => {
+    const { data, parts } = await readGoalRecord(goalsDir, file.slice(0, -3));
+    return {
+      id: data.id, status: data.status, supports: data.supports,
+      sensor: data.sensor, reviewBy: data.review_by, pursuitWindow: data.pursuit_window,
+      wording: wordingOf(parts.body), body: parts.body,
+    };
+  }));
+  return goals.sort((a, b) => {
+    const left = BigInt(a.id.slice(1));
+    const right = BigInt(b.id.slice(1));
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+}
+
+type GoalFile = Awaited<ReturnType<typeof readGoalRecord>>;
+export type InactiveGoalStatus = Exclude<GoalRecord["status"], "active">;
+
+async function writeGoalStatus(goal: GoalFile, status: GoalRecord["status"]): Promise<void> {
+  // Patch only the scalar, retaining key spelling, quotes, comments and CRLF.
+  const field = /^((?:status|"status"|'status')[ \t]*:[ \t]*)("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\r\n]|'')*'|[^\s#]+)([ \t]*(?:#[^\r\n]*)?)(\r?)$/gm;
+  const matches = [...goal.parts.frontmatter.matchAll(field)];
+  if (matches.length !== 1) throw new Error(`status must be a single-line scalar: ${goal.path}`);
+  const match = matches[0];
+  const quote = match[2].startsWith('"') ? '"' : match[2].startsWith("'") ? "'" : "";
+  const offset = goal.content.indexOf("\n") + 1 + match.index + match[1].length;
+  const updated = goal.content.slice(0, offset) + quote + status + quote + goal.content.slice(offset + match[2].length);
+  await writeFile(goal.path, updated, "utf8");
+}
+
+export async function setGoalStatus(goalsDir: string, id: string, status: InactiveGoalStatus): Promise<void> {
+  if (!(GOAL_STATUSES as readonly string[]).includes(status) || (status as string) === "active") {
+    throw new Error("set-status accepts paused, achieved, dropped or draft; use activate to become active");
+  }
+  await writeGoalStatus(await readGoalRecord(goalsDir, id), status);
+}
+
+async function blueprintSensorIds(activationsDir: string): Promise<Set<string>> {
+  let files: string[];
+  try {
+    files = (await readdir(activationsDir)).filter((file) => file.endsWith(".yaml")).sort();
+  } catch {
+    throw new Error(`Cannot read Reflex activations directory: ${activationsDir}`);
+  }
+  const { z } = await import("zod");
+  const schema = z.object({
+    schema: z.literal("metafactory/activation/v1"),
+    activations: z.array(z.object({ id: z.string().min(1) })),
+  });
+  const ids = new Set<string>();
+  for (const file of files) {
+    const path = join(activationsDir, file);
+    let raw: unknown;
+    try {
+      raw = Bun.YAML.parse(await readFile(path, "utf8"));
+    } catch {
+      throw new Error(`Unparseable or unreadable Reflex blueprint: ${path}`);
+    }
+    const parsed = schema.safeParse(raw);
+    if (!parsed.success) throw new Error(`Invalid Reflex blueprint (expected metafactory/activation/v1 with activations[].id): ${path}`);
+    for (const activation of parsed.data.activations) ids.add(activation.id);
+  }
+  return ids;
+}
+
+export async function activateGoalRecord(goalsDir: string, id: string, activationsDir: string): Promise<void> {
+  const goal = await readGoalRecord(goalsDir, id);
+  if (!goal.data.sensor) throw new Error(`Goal ${id} is missing sensor: ${goal.path}`);
+  if (!goal.data.review_by) throw new Error(`Goal ${id} is missing review_by: ${goal.path}`);
+  if (!(await blueprintSensorIds(activationsDir)).has(goal.data.sensor)) {
+    throw new Error(`Goal ${id} sensor is absent from Reflex blueprints: ${activationsDir}`);
+  }
+  await writeGoalStatus(goal, "active");
 }
