@@ -15,7 +15,7 @@ export async function loadSomaConfig(options: SomaPathsOptions = {}): Promise<So
     content = await readFile(path, "utf8");
   } catch (error) {
     if (isEnoent(error)) return {};
-    throw new Error(`Cannot read Soma config: ${path}`);
+    throw new Error(`Cannot read Soma config: ${path}`, { cause: error });
   }
   let raw: unknown;
   try {
