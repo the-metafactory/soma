@@ -22,8 +22,16 @@ import {
   type RunOutcome,
 } from "./run-ledger";
 
-/** The fetch, headers and body together, gives up after this. */
+/** The whole fetch, every redirect hop and the body together, gives up after this. */
 export const FEED_FETCH_TIMEOUT_MS = 10_000;
+
+/** A body past this is not a feed worth scanning: the read stops and the run fails. */
+export const FEED_MAX_BYTES = 2 * 1024 * 1024;
+
+/** Redirects are followed by hand, each hop checked for `https:`, up to this many. */
+export const FEED_MAX_REDIRECTS = 5;
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 export const FEED_SENSOR_DEFAULTS = { windowDays: 7, min: 1 } as const;
 
@@ -40,7 +48,7 @@ export interface FeedSensorOptions {
   min: number;
 }
 
-export type FeedFetch = (url: string, init: { signal: AbortSignal }) => Promise<Response>;
+export type FeedFetch = (url: string, init: { signal: AbortSignal; redirect: "manual" }) => Promise<Response>;
 
 export interface FeedSensorDeps {
   somaHome: string;
@@ -109,9 +117,10 @@ export function countInWindow(scan: FeedScan, now: Date, windowDays: number, war
   const noun = scan.kind === "rss" ? "item" : "entry";
   let count = 0;
   scan.dates.forEach((date, index) => {
-    const instant = date === undefined || date === "" ? Number.NaN : Date.parse(date);
+    const missing = date === undefined || date === "";
+    const instant = missing ? Number.NaN : Date.parse(date);
     if (Number.isNaN(instant)) {
-      warn(`soma goal sense feed: ${noun} ${index + 1}: ${date === undefined || date === "" ? "no date" : "date does not parse"}; skipped`);
+      warn(`soma goal sense feed: ${noun} ${index + 1}: ${missing ? "no date" : "date does not parse"}; skipped`);
       return;
     }
     if (instant >= start && instant <= end) count++;
@@ -140,20 +149,75 @@ function refusal(options: FeedSensorOptions): string | undefined {
 
 class FeedReadError extends Error {}
 
-function redact(text: string, url: string): string {
-  return text.replaceAll(url, "<url>").replaceAll(new URL(url).host, "<host>");
+/** Every URL fetched, then its `host` (with port) before its bare `hostname`. */
+function redact(text: string, urls: readonly string[]): string {
+  let redacted = text;
+  for (const url of urls) redacted = redacted.replaceAll(url, "<url>");
+  for (const url of urls) {
+    const { host, hostname } = new URL(url);
+    redacted = redacted.replaceAll(host, "<host>").replaceAll(hostname, "<host>");
+  }
+  return redacted;
+}
+
+const tooLarge = () => new FeedReadError(`body too large (over ${FEED_MAX_BYTES} bytes)`);
+
+/** The body as text, refused on a Content-Length past the cap and cut off once the stream passes it. */
+async function readCapped(response: Response): Promise<string> {
+  if (Number(response.headers.get("content-length")) > FEED_MAX_BYTES) {
+    await response.body?.cancel().catch(() => undefined);
+    throw tooLarge();
+  }
+  if (response.body === null) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    bytes += value.byteLength;
+    if (bytes > FEED_MAX_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
+/** Follow redirects by hand so that every hop, not just the last, must be `https:`. */
+async function fetchFeedBody(fetchFeed: FeedFetch, url: string, signal: AbortSignal, visited: string[]): Promise<string> {
+  let current = url;
+  for (let hop = 0; ; hop++) {
+    visited.push(current);
+    const response = await fetchFeed(current, { signal, redirect: "manual" });
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      if (!response.ok) throw new FeedReadError(`HTTP ${response.status}`);
+      return readCapped(response);
+    }
+    await response.body?.cancel().catch(() => undefined);
+    if (hop === FEED_MAX_REDIRECTS) throw new FeedReadError(`more than ${FEED_MAX_REDIRECTS} redirects`);
+    const location = response.headers.get("location");
+    if (location === null) throw new FeedReadError(`HTTP ${response.status} redirect without a Location`);
+    let next: URL;
+    try {
+      next = new URL(location, current);
+    } catch {
+      throw new FeedReadError("redirected to an invalid URL");
+    }
+    if (next.protocol !== "https:") throw new FeedReadError("redirected off https:");
+    current = next.href;
+  }
 }
 
 async function readFeed(options: FeedSensorOptions, deps: FeedSensorDeps): Promise<FeedScan> {
   const timeoutMs = deps.fetchTimeoutMs ?? FEED_FETCH_TIMEOUT_MS;
   const signal = AbortSignal.timeout(timeoutMs);
-  const fetchFeed: FeedFetch = deps.fetch ?? ((url, init) => fetch(url, { signal: init.signal }));
+  const fetchFeed: FeedFetch = deps.fetch ?? ((url, init) => fetch(url, init));
+  const visited: string[] = [];
   let body: string;
   try {
-    const response = await fetchFeed(options.url, { signal });
-    if (response.redirected && !response.url.startsWith("https:")) throw new FeedReadError("redirected off https:");
-    if (!response.ok) throw new FeedReadError(`HTTP ${response.status}`);
-    body = await response.text();
+    body = await fetchFeedBody(fetchFeed, options.url, signal, visited);
   } catch (error) {
     if (error instanceof FeedReadError) throw error;
     if (error instanceof Error && error.name === "TimeoutError") {
@@ -161,7 +225,7 @@ async function readFeed(options: FeedSensorOptions, deps: FeedSensorDeps): Promi
     }
     const code = (error as { code?: unknown } | null)?.code;
     const cause = typeof code === "string" ? code : error instanceof Error ? error.message : String(error);
-    throw new FeedReadError(`fetch failed: ${redact(cause, options.url)}`);
+    throw new FeedReadError(`fetch failed: ${redact(cause, visited)}`);
   }
   const scan = scanFeed(body);
   if (scan === undefined) throw new FeedReadError("the body is neither an RSS nor an Atom feed");

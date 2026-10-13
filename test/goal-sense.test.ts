@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
-import { FEED_FETCH_TIMEOUT_MS, runFeedSensor, type FeedFetch, type FeedSensorDeps, type FeedSensorOptions } from "../src/goal-sense";
+import { FEED_FETCH_TIMEOUT_MS, FEED_MAX_BYTES, FEED_MAX_REDIRECTS, runFeedSensor, type FeedFetch, type FeedSensorDeps, type FeedSensorOptions } from "../src/goal-sense";
 import { buildRunFinishedEnvelope, type RunLedgerEnv } from "../src/run-ledger";
 
 // `soma goal sense feed` (node #838): count one feed's items in a rolling
@@ -194,6 +194,116 @@ describe("soma goal sense feed", () => {
       expect(h.events[0].input.payload).not.toHaveProperty("state");
     });
   }
+
+  test("redaction covers the bare hostname when the URL carries a port", async () => {
+    const h = await harness(() => Promise.reject(new Error("could not connect to feed.example.test")));
+
+    const result = await runFeedSensor({ ...DEFAULTS, url: "https://feed.example.test:8443/feed.xml" }, h.deps);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("fetch failed");
+    expect(result.error).not.toContain("feed.example.test");
+  });
+
+  test("a Content-Length above the cap fails before the body is read", async () => {
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({ pull: () => { pulls++; } });
+    const h = await harness(() => Promise.resolve(new Response(body, { headers: { "content-length": String(FEED_MAX_BYTES + 1) } })));
+
+    const result = await runFeedSensor(DEFAULTS, h.deps);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("body too large");
+    expect(pulls).toBeLessThanOrEqual(1);
+    expect(h.events[0].input.payload).toMatchObject({ outcome: "failed" });
+    expect(h.events[0].input.payload).not.toHaveProperty("state");
+  });
+
+  test("a streamed body past the cap is cut off and fails", async () => {
+    const chunk = new Uint8Array(64 * 1024).fill(0x20);
+    let pulls = 0;
+    let cancelled = false;
+    // No Content-Length and no end: only the byte cap stops the read.
+    const endless = new ReadableStream<Uint8Array>({
+      pull: (controller) => { pulls++; controller.enqueue(chunk); },
+      cancel: () => { cancelled = true; },
+    });
+    const h = await harness(() => Promise.resolve(new Response(endless)));
+
+    const result = await runFeedSensor(DEFAULTS, h.deps);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("body too large");
+    expect(pulls * chunk.length).toBeLessThanOrEqual(FEED_MAX_BYTES + 2 * chunk.length);
+    expect(cancelled).toBe(true);
+    expect(h.events[0].input.payload).toMatchObject({ outcome: "failed" });
+  });
+
+  test("a body at the cap is still read", async () => {
+    const feed = rss(rfc822(daysAgo(1)));
+    const h = await harness(feed + " ".repeat(FEED_MAX_BYTES - feed.length));
+    expect(await runFeedSensor(DEFAULTS, h.deps)).toMatchObject({ exitCode: 0, value: "on-track" });
+  });
+
+  function redirects(chain: Record<string, Response>): FeedFetch {
+    return (url, init) => {
+      expect(init.redirect).toBe("manual");
+      const response = chain[url] as Response | undefined;
+      return response === undefined ? Promise.reject(new Error("unexpected hop")) : Promise.resolve(response);
+    };
+  }
+  const moved = (location: string, status = 301) => new Response(null, { status, headers: { location } });
+
+  test("an https→https redirect is followed, a relative Location included", async () => {
+    const h = await harness(redirects({
+      [URL]: moved("/moved.xml"),
+      "https://feed.example.test/moved.xml": moved("https://cdn.example.test/feed.xml", 308),
+      "https://cdn.example.test/feed.xml": new Response(rss(rfc822(daysAgo(1)))),
+    }));
+
+    const result = await runFeedSensor(DEFAULTS, h.deps);
+
+    expect(result).toMatchObject({ exitCode: 0, value: "on-track" });
+    expect(h.fetched).toEqual([URL, "https://feed.example.test/moved.xml", "https://cdn.example.test/feed.xml"]);
+    expect(JSON.stringify(await buildRunFinishedEnvelope(h.events[0]))).not.toContain("example.test");
+  });
+
+  test("an https→http→https chain is refused at the http hop, which is never fetched", async () => {
+    const h = await harness(redirects({
+      [URL]: moved("http://plain.example.test/feed.xml", 302),
+      "http://plain.example.test/feed.xml": moved("https://feed.example.test/back.xml"),
+      "https://feed.example.test/back.xml": new Response(rss(rfc822(daysAgo(1)))),
+    }));
+
+    const result = await runFeedSensor(DEFAULTS, h.deps);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("redirected off https:");
+    expect(result.error).not.toContain("example.test");
+    expect(h.fetched).toEqual([URL]);
+    expect(h.events[0].input.payload).toMatchObject({ outcome: "failed" });
+    expect(h.events[0].input.payload).not.toHaveProperty("state");
+  });
+
+  test(`more than ${FEED_MAX_REDIRECTS} redirects fail`, async () => {
+    const hop = (n: number) => `https://feed.example.test/hop-${n}.xml`;
+    const chain: Record<string, Response> = { [URL]: moved(hop(1)) };
+    for (let n = 1; n <= FEED_MAX_REDIRECTS; n++) chain[hop(n)] = moved(hop(n + 1));
+    const h = await harness(redirects(chain));
+
+    const result = await runFeedSensor(DEFAULTS, h.deps);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain(`more than ${FEED_MAX_REDIRECTS} redirects`);
+    expect(h.fetched).toHaveLength(FEED_MAX_REDIRECTS + 1);
+  });
+
+  test("a redirect with no Location fails", async () => {
+    const h = await harness(() => Promise.resolve(new Response(null, { status: 302 })));
+    const result = await runFeedSensor(DEFAULTS, h.deps);
+    expect(result.exitCode).toBe(1);
+    expect(result.error).toContain("Location");
+  });
 
   test("the fetch is bounded at 10 s: the sensor passes an abort signal and a slow feed fails", async () => {
     expect(FEED_FETCH_TIMEOUT_MS).toBe(10_000);

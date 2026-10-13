@@ -260,14 +260,16 @@ A goal's sensor reports its state on the run ledger (see [Run ledger](#run-ledge
 soma goal sense feed --goal G5 --url https://example.org/feed.xml [--window-days 7] [--min 1]
 ```
 
-It fetches one RSS 2.0 or Atom feed over `https:` (10 s limit), counts the
+It fetches one RSS 2.0 or Atom feed over `https:` (10 s limit for the whole
+fetch; up to 5 redirects, every hop `https:`; body at most 2 MiB), counts the
 items dated in the last `--window-days` days (RSS `<pubDate>`; Atom
 `<published>`, else `<updated>`; items dated after now do not count), and
 publishes one `execution.run.finished` with `ran.kind = job`, `ran.ref =
 goal-sense/G<n>`, `serves.goal = G<n>` and `state {subject: G<n>, value}`. At
 least `--min` items is `on-track`, fewer (including none) is `off-track`. An
 item with a missing or unparseable date is skipped with one stderr warning
-naming its position. A failed fetch (network, timeout, non-2xx) or a body with
+naming its position. A failed fetch (network, timeout, non-2xx, a redirect off
+`https:` or past 5 hops, a body over 2 MiB) or a body with
 neither an `<rss>` nor a `<feed>` root publishes `outcome: failed` with no
 state, names the cause on stderr and exits 1. A goal id that is not `G<n>`, a
 non-`https:` URL or a `--window-days`/`--min` that is not a positive integer
