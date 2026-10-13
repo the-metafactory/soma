@@ -440,7 +440,8 @@ gives up after 2 s. A failed or timed-out emit leaves the verb's output, exit
 code and run file unchanged and appends one `run_ledger.publish_failed` event
 to the Soma event log. An envelope that could not be sent stays in
 `<soma-home>/memory/STATE/run-ledger/outbox.jsonl`, and the next emit replays
-it.
+it. A timed-out emit is abandoned, not cancelled: its bounded connect or
+publish can keep the process alive a few seconds after the verb has printed.
 
 ### VSA
 
