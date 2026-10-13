@@ -218,6 +218,41 @@ Open `./soma-codex-preview` and you will see the same assistant context rendered
 in Codex's native shape: AGENTS instructions, rules, skills, and memory
 summaries. Nothing is hidden in a binary — it is all readable files.
 
+Goal records live in `<soma-home>/profile/goals/G<n>.md`. Create a draft,
+then activate it after its sensor has been provisioned in Reflex:
+
+```bash
+soma goal add --supports M1 --wording "<private wording>" \
+  --sensor <activation-id> --review-by 2026-12-31
+soma goal activate G5
+soma goal set-status G5 paused
+soma goal list
+soma goal list --wording
+```
+
+`add` prints only the new ID and always writes `status: draft`, including when
+sensor and review date are supplied. IDs start at G5 and use the largest existing
+`G<n>.md` filename plus one, leaving gaps untouched. Repeat `--supports` to name
+multiple missions; `--sensor` and `--review-by` are optional on creation.
+Wording must be one non-empty line; edit wording and supports by hand afterwards.
+
+`activate` requires `sensor` and a valid `review_by` date. It reads every
+`*.yaml` under `~/.config/reflex/activations` (override with
+`REFLEX_ACTIVATIONS_DIR`) and requires the sensor in a blueprint's
+`activations[].id`, with `schema: metafactory/activation/v1`. A missing directory,
+unreadable, unparseable or invalid blueprint, absent sensor, missing required
+field, or nonexistent goal refuses activation with exit 1 and leaves the goal
+unchanged. Soma never writes the Reflex blueprints.
+
+`activate` and `set-status` change only the status scalar, preserving the rest
+of the file. `set-status` accepts `paused`, `achieved`, `dropped` or `draft`;
+becoming `active` requires `activate`. `list` prints ID, status, supports and
+sensor for every goal. Only `--wording` includes the private first body line;
+other body text is never printed. All goal commands accept `--soma-home <dir>`
+or `--home-dir <dir>` (which resolves Soma to `<dir>/.soma` and Reflex to
+`<dir>/.config/reflex/activations` unless the environment override is set).
+Keep wording in Soma home; use goal IDs in trackers, run metadata and logs.
+
 Now run one Algorithm-backed task to see the working method, not just the
 context:
 
