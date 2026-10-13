@@ -17,9 +17,9 @@ import {
   type RunFinishedInput,
   type RunFinishedResult,
   type RunKind,
+  type RunLedgerDeps,
   type RunOutcome,
 } from "../run-ledger";
-import type { RunLedgerDeps } from "./algorithm";
 
 export const RUN_COMMAND_HELP = {
   usage: "Usage: soma run finished --kind <kind> --ref <ref> --outcome <outcome> --started-at <iso> [--detail-ref <path>] [--state-subject <s> --state-value <v>]",

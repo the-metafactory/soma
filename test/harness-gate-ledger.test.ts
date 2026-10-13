@@ -6,7 +6,7 @@ import { cleanupGateFixtures, runGate, WRAPPER, type GateOptions } from "./harne
 // Node #821: every run of the weekly harness gate reports itself to Vigil as one
 // `job` run through `soma run finished`, and no run raises a macOS banner. A
 // `soma` shim in $HOME/.local/bin records each call's argv, one argument per
-// line, a sentinel line after each call.
+// line, a sentinel line after each call, and prints what the verb would.
 
 afterEach(cleanupGateFixtures);
 
@@ -14,9 +14,16 @@ const END = "<<end>>";
 const OK = `console.log("\\nOK: no regressions vs baseline");`;
 const REGRESSION = `console.error("\\nREGRESSION: 2 metric(s) degraded past tolerance vs baseline (x):"); process.exit(1);`;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const PUBLISHED = "run finished: published";
 
-function recorder(name: string, exitCode = 0): string {
-  return `#!/bin/sh\nfor arg in "$@"; do printf '%s\\n' "$arg"; done >>"$HOME/${name}.argv"\nprintf '%s\\n' '${END}' >>"$HOME/${name}.argv"\nexit ${exitCode}\n`;
+function recorder(name: string, { exitCode = 0, stdout = "" } = {}): string {
+  const print = stdout === "" ? "" : `printf '%s\\n' '${stdout}'\n`;
+  return `#!/bin/sh\nfor arg in "$@"; do printf '%s\\n' "$arg"; done >>"$HOME/${name}.argv"\nprintf '%s\\n' '${END}' >>"$HOME/${name}.argv"\n${print}exit ${exitCode}\n`;
+}
+
+/** A `soma` that records its argv and reports `stdout`, like the verb does on exit 0. */
+function soma(stdout = PUBLISHED, exitCode = 0): string {
+  return recorder("soma", { exitCode, stdout });
 }
 
 /** Fails `git diff` and passes every other git call to the real git. */
@@ -51,7 +58,7 @@ function calls(home: string, name = "soma"): Call[] {
 }
 
 function gate(stub: string | null, options: GateOptions = {}) {
-  const run = runGate(stub, { ...options, shims: { soma: recorder("soma"), osascript: recorder("osascript"), ...options.shims } });
+  const run = runGate(stub, { ...options, shims: { soma: soma(), osascript: recorder("osascript"), ...options.shims } });
   return { ...run, calls: calls(run.home) };
 }
 
@@ -126,16 +133,22 @@ describe("harness gate run ledger", () => {
     expect(result.code).toBe(3);
   });
 
-  const emitFailures: [string, Record<string, string>][] = [
-    ["soma is not on PATH", {}],
-    ["soma exits nonzero", { soma: recorder("soma", 1) }],
+  // Anything but `run finished: published` is one EMIT failed line naming why.
+  const emitFailures: [string, Record<string, string>, string][] = [
+    ["soma is not on PATH", {}, "exit=127"],
+    ["soma exits nonzero", { soma: soma(PUBLISHED, 1) }, "exit=1"],
+    ["the verb reports failed", { soma: soma("run finished: failed") }, "status=failed"],
+    ["the verb reports rejected", { soma: soma("run finished: rejected") }, "status=rejected"],
+    ["the verb reports disabled", { soma: soma("run finished: disabled") }, "status=disabled"],
+    ["the verb prints nothing", { soma: soma("") }, "status=none"],
   ];
-  for (const [name, shims] of emitFailures) {
+  for (const [name, shims, reason] of emitFailures) {
     for (const [stub, result, code] of [[OK, "ok", 0], [REGRESSION, "regressed", 1], [null, "could-not-run", 2]] as const) {
-      test(`when ${name}, a ${result} run keeps its RESULT and exit code and logs one EMIT failed`, () => {
+      test(`when ${name}, a ${result} run keeps its RESULT and exit code and logs one EMIT failed ${reason}`, () => {
         const run = runGate(stub, { shims });
         expect(run.log).toContain(`RESULT ${result}`);
         expect(run.log.match(/EMIT failed/g)).toHaveLength(1);
+        expect(run.log).toMatch(new RegExp(`EMIT failed ${reason}$`, "m"));
         expect(run.code).toBe(code);
       });
     }

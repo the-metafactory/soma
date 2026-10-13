@@ -16,8 +16,10 @@
 # publishes one execution.run.finished envelope. The outcome is the job's own
 # result (ok and regressed both `succeeded`, could-not-run `failed`, guard
 # `blocked`); a measured verdict also carries `state soma:harness ok|regressed`.
-# A report that fails is logged as `EMIT failed` and never changes the RESULT
-# line or the exit code.
+# Any report other than `run finished: published` is logged as one `EMIT
+# failed` line naming why: `exit=<n>` when soma is missing or exits nonzero,
+# `status=<failed|rejected|disabled>` when the verb ran but published nothing.
+# It never changes the RESULT line or the exit code.
 #
 # Invoked by the launchd agent ch.switch.soma.harness-gate (see
 # scripts/launchd/ch.switch.soma.harness-gate.plist.template). Safe to run by hand.
@@ -50,10 +52,19 @@ finish() {
   if [ -n "${state}" ]; then
     args+=(--state-subject soma:harness --state-value "${state}")
   fi
-  soma "${args[@]}" >>"${LOG_FILE}" 2>&1
-  local emit_status=$?
+  local emit_output emit_status
+  emit_output="$(soma "${args[@]}" 2>>"${LOG_FILE}")"
+  emit_status=$?
+  if [ -n "${emit_output}" ]; then
+    printf '%s\n' "${emit_output}" >>"${LOG_FILE}"
+  fi
+  # The verb exits 0 whether or not it published; its last stdout line says which.
+  local emit_result="${emit_output##*$'\n'}"
   if [ "${emit_status}" -ne 0 ]; then
     printf '%s EMIT failed exit=%s\n' "${STAMP}" "${emit_status}" >>"${LOG_FILE}"
+  elif [ "${emit_result}" != "run finished: published" ]; then
+    local reported="${emit_result#run finished: }"
+    printf '%s EMIT failed status=%s\n' "${STAMP}" "${reported:-none}" >>"${LOG_FILE}"
   fi
   printf '\n' >>"${LOG_FILE}"
   exit "${code}"
