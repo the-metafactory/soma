@@ -177,6 +177,8 @@ export const components: ComponentManifest<ComponentName> = {
       "src/install",
       "src/result-capture",
       "src/feedback",
+      "src/run-ledger",
+      "src/run-ledger-env",
       "src/tools/learning/session-harvester",
       "src/execution/algorithm-loop-executor",
     ],

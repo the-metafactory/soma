@@ -429,6 +429,43 @@ soma algorithm capabilities --id <run-id> --capability sequential-analysis --rea
 soma algorithm invoke --id <run-id> --capability sequential-analysis --evidence "Plan sequenced and recorded"
 ```
 
+#### Run ledger
+
+When a verb (`advance`, `resume`, `batch`) moves a run into `complete`, Soma
+publishes one `execution.run.finished` envelope (`ran.kind = algorithm`,
+outcome `succeeded`) through myelin's outbox. The outcome `cancelled` is
+reserved for a run moved to `abandoned`, which no verb does today, so for now
+Soma emits only `succeeded`. Hooks never emit, and `sync-from-isa` stops at `learn`, so
+it never emits. Nothing is sent unless `SOMA_PRINCIPAL` is set.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SOMA_PRINCIPAL` | unset (ledger off) | Principal segment of the subject `local.<principal>.<stack>.execution.run.finished` and of the source `<principal>.soma.run`. |
+| `SOMA_STACK` | `default` | Stack segment of the subject. |
+| `SOMA_NATS_URL` | `nats://127.0.0.1:4222` | NATS server. A non-loopback host requires `SOMA_NATS_CREDS`. |
+| `SOMA_NATS_CREDS` | unset | Path to a NATS `.creds` file. A missing file fails the emit. |
+| `MF_CORRELATION_ID` | unset (generated) | Passed through as `payload.correlation_id`; any non-empty string. |
+| `MF_SERVES_GOAL` | unset | Goal ID the run serves (`serves.goal`). |
+| `MF_SERVES_NODE` | unset | Work-graph node the run serves (`serves.node`). |
+
+Delivery fails open. The emit (connect, replay the spool, publish, close)
+gives up after 2 s. A failed or timed-out emit leaves the verb's output, exit
+code and run file unchanged and appends one `run_ledger.publish_failed` event
+to the Soma event log. An envelope whose send failed stays in
+`<soma-home>/memory/STATE/run-ledger/outbox.jsonl`, and the next emit replays
+it. A configuration failure (missing creds file, non-loopback URL without
+creds) is refused before the spool and is not replayed. A timed-out emit is
+abandoned, not cancelled: its bounded connect or publish can keep the process
+alive a few seconds after the verb has printed.
+
+> **Not yet working from the arc-installed CLI.** The installed `soma` runs a
+> frozen runtime artifact (`<soma-home>/runtime/artifacts/<hash>/`) that holds
+> `src` and `package.json` but no `node_modules`, so it cannot load myelin.
+> Until node #866 lands, every emit from the installed CLI fails at stage
+> `load`: nothing is built or spooled, and the run is recorded only as a
+> `run_ledger.publish_failed` event. `bun run soma` from a source checkout
+> loads myelin and publishes.
+
 ### VSA
 
 An Verification State Artifact is the definition of done for a project, task, or work
