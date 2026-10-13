@@ -3,7 +3,7 @@
  * an `execution.run.finished` envelope on the bus.
  *
  * Every soma producer calls `publishRunFinished`. The Algorithm CLI is the first
- * caller; a general `soma run finished` verb is meant to be the second. The
+ * caller; the general `soma run finished` verb (`src/cli/run.ts`) is the second. The
  * funnel owns the bus environment (`SOMA_*`, `MF_*`), the myelin builder, the
  * outbox and the 2000 ms ceiling, so no caller repeats them.
  *
@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 import type {
   ExecutionRunFinishedEvent,
   ExecutionRunServes,
+  ExecutionRunState,
   MyelinEnvelope,
   RunKind,
   RunOutcome,
@@ -31,8 +32,16 @@ import { createPaths } from "./paths";
 import { RUN_LEDGER_ENV } from "./run-ledger-env";
 import type { SubstrateId } from "./types";
 
-// Callers name run kinds and outcomes through the funnel, not through myelin.
-export type { RunKind, RunOutcome };
+// Callers name run kinds, outcomes and state through the funnel, not through myelin.
+export type { ExecutionRunState, RunKind, RunOutcome };
+
+// myelin's RUN_KINDS and RUN_OUTCOMES, restated so a caller can check a value
+// without loading myelin. The Record keys make the compiler hold both lists to
+// myelin's unions: a missing or extra value does not typecheck.
+const RUN_KIND_SET: Record<RunKind, true> = { flow: true, node: true, algorithm: true, dispatch: true, job: true };
+const RUN_OUTCOME_SET: Record<RunOutcome, true> = { succeeded: true, failed: true, cancelled: true, blocked: true };
+export const RUN_KINDS = Object.keys(RUN_KIND_SET) as readonly RunKind[];
+export const RUN_OUTCOMES = Object.keys(RUN_OUTCOME_SET) as readonly RunOutcome[];
 
 /** The whole emit — load, build, connect, drain, publish, close — gives up after this. */
 export const RUN_LEDGER_TIMEOUT_MS = 2000;
@@ -63,10 +72,18 @@ export interface RunFinishedInput {
   detailRef?: string;
   /** Overrides `MF_SERVES_GOAL` / `MF_SERVES_NODE` when set. */
   serves?: ExecutionRunServes;
+  /** What the run measured, e.g. `{ subject: "soma:harness", value: "ok" }`. */
+  state?: ExecutionRunState;
 }
 
 /** Sends one built event. The default goes through myelin's outbox over NATS. */
 export type RunFinishedPublisher = (event: ExecutionRunFinishedEvent) => Promise<void>;
+
+/** What a CLI caller injects into the funnel: the bus environment and the publisher. */
+export interface RunLedgerDeps {
+  env?: RunLedgerEnv;
+  publishRunFinished?: RunFinishedPublisher;
+}
 
 export interface PublishRunFinishedOptions {
   somaHome: string;
@@ -249,6 +266,7 @@ async function emit(input: RunFinishedInput, config: RunLedgerConfig, publish: R
         started_at: input.startedAt,
         ended_at: input.endedAt,
         ...(serves === undefined ? {} : { serves }),
+        ...(input.state === undefined ? {} : { state: input.state }),
         ...(config.correlationId === undefined ? {} : { correlation_id: config.correlationId }),
         ...(input.detailRef === undefined ? {} : { detail_ref: input.detailRef }),
       },
