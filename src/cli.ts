@@ -127,6 +127,7 @@ import {
   runPreCompactCli,
   type ParsedPreCompactArgs,
 } from "./cli/precompact";
+import { RUN_COMMAND_HELP, runRunCli } from "./cli/run";
 import { RUNTIME_COMMAND_HELP, parseRuntimeArgs, runRuntimeCli, type ParsedRuntimeArgs } from "./cli/runtime";
 import {
   GRAPH_COMMAND_HELP,
@@ -151,6 +152,12 @@ interface ParsedVsaArgs {
   args: string[];
   /** True when invoked via the deprecated `soma isa` alias (soma#329). */
   viaIsaAlias?: boolean;
+}
+
+/** `soma run` parses its own flags: a bad flag must not fail the job that called it (node #821). */
+interface ParsedRunArgs {
+  command: "run";
+  args: string[];
 }
 
 type ParsedArgs =
@@ -181,6 +188,7 @@ type ParsedArgs =
   | ParsedPreCompactArgs
   | ParsedWritebackArgs
   | ParsedVsaArgs
+  | ParsedRunArgs
   | ParsedSnapshotCommandArgs
   | ParsedToolArgs
   | ParsedRuntimeArgs;
@@ -218,6 +226,7 @@ const TOP_LEVEL_COMMANDS = [
   "router",
   "runtime",
   "rollback",
+  "run",
   "session",
   "stats",
   "snapshot",
@@ -257,6 +266,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   doctor: ONBOARDING_COMMAND_HELP.doctor,
   migrate: MIGRATE_COMMAND_HELP,
   ...SNAPSHOT_COMMAND_HELP,
+  run: RUN_COMMAND_HELP,
   runtime: RUNTIME_COMMAND_HELP,
   adopt: ONBOARDING_COMMAND_HELP.adopt,
   vsa: {
@@ -402,6 +412,10 @@ function parseArgs(args: string[]): ParsedArgs {
 
   if (args[0] === "migrate") {
     return parseMigrateArgs(args);
+  }
+
+  if (args[0] === "run") {
+    return { command: "run", args: args.slice(1) };
   }
 
   if (args[0] === "runtime") {
@@ -617,6 +631,10 @@ export async function runSomaCli(args: string[]): Promise<string> {
 
   if (parsed.command === "migrate") {
     return runMigrateCli(parsed);
+  }
+
+  if (parsed.command === "run") {
+    return runRunCli(parsed.args);
   }
 
   if (parsed.command === "runtime") {

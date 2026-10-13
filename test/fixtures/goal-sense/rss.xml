@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A feed's own comment: <item><pubDate>Sun, 11 Oct 2026 06:30:00 +0000</pubDate></item> -->
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Fixture Feed Title</title>
+    <link>https://feed.example.test/</link>
+    <description>Fixture channel description</description>
+    <atom:link href="https://feed.example.test/feed.xml" rel="self" type="application/rss+xml"/>
+    <lastBuildDate>Fri, 09 Oct 2026 06:30:00 +0000</lastBuildDate>
+    <item>
+      <title>Fixture Item Title</title>
+      <link>https://feed.example.test/posts/fixture-item</link>
+      <guid isPermaLink="true">https://feed.example.test/posts/fixture-item</guid>
+      <description><![CDATA[<p>Fixture item text with an <item> inside CDATA &amp; an entity.</p>]]></description>
+      <pubDate>Fri, 09 Oct 2026 06:30:00 +0000</pubDate>
+    </item>
+  </channel>
+</rss>

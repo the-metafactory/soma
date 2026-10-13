@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Fixture Atom Title</title>
+  <link href="https://feed.example.test/"/>
+  <link rel="self" href="https://feed.example.test/atom.xml"/>
+  <id>urn:uuid:60a76c80-d399-11d9-b93C-0003939e0af6</id>
+  <updated>2026-10-12T05:00:00Z</updated>
+  <entry>
+    <title>Fixture Atom Entry</title>
+    <link href="https://feed.example.test/posts/newest"/>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <published>2026-10-04T06:30:00Z</published>
+    <updated>2026-10-12T05:00:00Z</updated>
+    <summary>Fixture atom summary text</summary>
+  </entry>
+  <entry>
+    <title>Fixture Older Entry</title>
+    <link href="https://feed.example.test/posts/older"/>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6b</id>
+    <published>2026-09-20T06:30:00Z</published>
+    <updated>2026-09-20T06:30:00Z</updated>
+  </entry>
+</feed>

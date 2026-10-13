@@ -4,11 +4,13 @@ import {
   activateGoalRecord, addGoalRecord, listGoalRecords, setGoalStatus,
   type AddGoalOptions, type InactiveGoalStatus,
 } from "../goal-records";
+import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../goal-sense";
 import { defaultSomaHome, type SomaPathsOptions } from "../paths";
 import { loadSomaConfig } from "../soma-config";
+import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-type GoalAction = "add" | "activate" | "set-status" | "list";
+type GoalAction = "add" | "activate" | "set-status" | "list" | "sense";
 
 export interface ParsedGoalArgs {
   command: "goal";
@@ -18,27 +20,60 @@ export interface ParsedGoalArgs {
     status?: InactiveGoalStatus;
     add: AddGoalOptions;
     includeWording: boolean;
+    feed?: FeedSensorOptions;
   };
 }
 
 const ACTIVATIONS_DIRECTORY_HELP = "(REFLEX_ACTIVATIONS_DIR overrides goals.activations_dir in <soma-home>/config.yaml; default: ~/.config/reflex/personal-activations)";
 
 export const GOAL_COMMAND_HELP = {
-  usage: `Usage: soma goal <add|activate|set-status|list> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
+  usage: `Usage: soma goal <add|activate|set-status|list|sense> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
   subcommands: {
     add: "Usage: soma goal add --wording <text> [--supports M<n>...] [--sensor <activation-id>] [--review-by YYYY-MM-DD] [--home-dir <dir>] [--soma-home <dir>]",
     activate: `Usage: soma goal activate G<n> [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
     "set-status": "Usage: soma goal set-status G<n> <paused|achieved|dropped|draft> [--home-dir <dir>] [--soma-home <dir>]",
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
+    sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
   },
 };
 
+/** Usage errors exit 2, like the sensor's own refusals. */
+function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
+  const usage = (reason: string) => new SomaCliError(`soma goal sense feed: ${reason}. ${GOAL_COMMAND_HELP.subcommands.sense}`, 2);
+  if (rest.shift() !== "feed") throw usage("the only sensor kind is feed");
+  const feed: Partial<FeedSensorOptions> = { ...FEED_SENSOR_DEFAULTS };
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index];
+    const value = rest[index + 1];
+    if (!["--goal", "--url", "--window-days", "--min", "--home-dir", "--soma-home"].includes(arg)) {
+      // Do not echo unknown arguments, as for the other goal verbs.
+      throw usage("unsupported argument");
+    }
+    if (!value || value.startsWith("--")) throw usage(`${arg} requires a value`);
+    index++;
+    if (arg === "--goal") feed.goal = value;
+    if (arg === "--url") feed.url = value;
+    // The sensor refuses anything that is not a positive integer.
+    if (arg === "--window-days") feed.windowDays = Number(value);
+    if (arg === "--min") feed.min = Number(value);
+    if (arg === "--home-dir") options.homeDir = value;
+    if (arg === "--soma-home") options.somaHome = value;
+  }
+  if (feed.goal === undefined) throw usage("--goal is required");
+  if (feed.url === undefined) throw usage("--url is required");
+  options.feed = feed as FeedSensorOptions;
+}
+
 export function parseGoalArgs(args: string[]): ParsedGoalArgs {
   const [command, action, ...rest] = args;
-  if (command !== "goal" || !["add", "activate", "set-status", "list"].includes(action)) {
+  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense"].includes(action)) {
     throw new Error(GOAL_COMMAND_HELP.usage);
   }
   const options: ParsedGoalArgs["options"] = { add: { wording: "", supports: [] }, includeWording: false };
+  if (action === "sense") {
+    parseSenseArgs(rest, options);
+    return { command: "goal", action, options };
+  }
   if (action === "activate" || action === "set-status") {
     options.id = rest.shift();
     if (!options.id || !/^G\d+$/.test(options.id)) throw new Error("Goal id must match G<n>");
@@ -75,11 +110,22 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
 
 export async function runGoalCli(
   parsed: ParsedGoalArgs,
-  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>> } = {},
+  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps> } = {},
 ): Promise<string> {
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
   switch (action) {
+    case "sense": {
+      if (!options.feed) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.sense, 2);
+      const lines: string[] = [];
+      const result = await runFeedSensor(options.feed, {
+        somaHome: defaultSomaHome(options),
+        ...dependencies.feedSensor,
+        stdout: (line) => lines.push(line),
+      });
+      if (result.exitCode !== 0) throw new SomaCliError(result.error ?? "soma goal sense feed failed", result.exitCode);
+      return lines.join("\n");
+    }
     case "add":
       return addGoalRecord(goalsDir, options.add);
     case "activate":
