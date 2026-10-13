@@ -43,6 +43,8 @@ import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import { readNodeForBridge } from "../work-graph-bridge";
+import { publishRunFinished, type RunFinishedPublisher, type RunLedgerEnv } from "../run-ledger";
+import type { RunOutcome } from "@the-metafactory/myelin";
 import { hashJudgmentInput, recordJudgment, regexClassifierVersion } from "../judge";
 import type {
   AlgorithmBatchOperation,
@@ -910,8 +912,26 @@ export async function appendVerificationGateViolationEvent(
   }
 }
 
-async function updateAndReportAlgorithmRun(
+/** How a run that reaches each terminal phase finished, for the run ledger. */
+const FINISHED_OUTCOMES: Partial<Record<AlgorithmPhase, RunOutcome>> = {
+  complete: "succeeded",
+  abandoned: "cancelled",
+};
+
+/** The ledger's half of `AlgorithmCliDeps`: the bus environment and the publisher. */
+export interface RunLedgerDeps {
+  env?: RunLedgerEnv;
+  publishRunFinished?: RunFinishedPublisher;
+}
+
+/**
+ * Exported as the test seam for terminal transitions no verb reaches yet
+ * (`abandoned`). Every Algorithm verb that writes a run comes through here, so
+ * this is the one place a run is seen to finish.
+ */
+export async function updateAndReportAlgorithmRun(
   options: AlgorithmCliOptions,
+  deps: RunLedgerDeps,
   update: (run: AlgorithmRun) => AlgorithmRun,
   registration: { registerCapabilities?: boolean; batch?: boolean } = {},
 ): Promise<string> {
@@ -948,6 +968,29 @@ async function updateAndReportAlgorithmRun(
     somaHome: options.somaHome,
   });
 
+  // Only the transition into a terminal phase finishes a run: a verb on a run
+  // already complete must not report it twice. The funnel never throws.
+  const outcome = FINISHED_OUTCOMES[getRunPhase(run)] === undefined ? FINISHED_OUTCOMES[getRunPhase(written.run)] : undefined;
+  if (outcome !== undefined) {
+    await publishRunFinished(
+      {
+        kind: "algorithm",
+        ref: written.run.id,
+        runId: written.run.id,
+        outcome,
+        startedAt: written.run.createdAt,
+        endedAt: written.run.updatedAt,
+        detailRef: written.path,
+      },
+      {
+        somaHome: defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome }),
+        substrate: options.substrate ?? written.run.substrate ?? "custom",
+        env: deps.env,
+        publish: deps.publishRunFinished,
+      },
+    );
+  }
+
   await runSomaLifecycleAlgorithmUpdated({
     homeDir: options.homeDir,
     somaHome: options.somaHome,
@@ -962,7 +1005,7 @@ async function updateAndReportAlgorithmRun(
  * the contract without a tracker. Production resolves to `readNodeForBridge`,
  * which is `soma graph node <id>`'s own seam.
  */
-export interface AlgorithmCliDeps {
+export interface AlgorithmCliDeps extends RunLedgerDeps {
   readNode: (nodeId: string, options: { repo?: string }) => Promise<BridgedNodeReport>;
 }
 
@@ -1008,12 +1051,12 @@ async function runStepAction(options: AlgorithmCliOptions, deps: AlgorithmCliDep
     }
     const nodeId = options.stepNodeId ?? (await resolveBridgedNodeId(options, stepId));
     const state = await deps.readNode(nodeId, { repo: options.repo });
-    return updateAndReportAlgorithmRun(options, (run) => syncBridgedPlanStep(run, stepId, state, { bind }));
+    return updateAndReportAlgorithmRun(options, deps, (run) => syncBridgedPlanStep(run, stepId, state, { bind }));
   }
 
   if (!options.stepStatus) throw new Error("--status is required (or use --node/--sync for a bridged step).");
   const stepStatus = options.stepStatus;
-  return updateAndReportAlgorithmRun(options, (run) => updateAlgorithmPlanStep(run, stepId, stepStatus, options.evidence));
+  return updateAndReportAlgorithmRun(options, deps, (run) => updateAlgorithmPlanStep(run, stepId, stepStatus, options.evidence));
 }
 
 export async function runAlgorithmCli(
@@ -1104,6 +1147,7 @@ export async function runAlgorithmCli(
     }
     return updateAndReportAlgorithmRun(
       options,
+      deps,
       (run) =>
         capabilities.reduce(
           (current, capability) =>
@@ -1125,6 +1169,7 @@ export async function runAlgorithmCli(
     }
     return updateAndReportAlgorithmRun(
       options,
+      deps,
       (run) =>
         recordAlgorithmCapabilityInvocation(run, {
           name: capability,
@@ -1140,7 +1185,7 @@ export async function runAlgorithmCli(
     if (!capability || !options.capabilityReason) {
       throw new Error("--capability and --reason are required.");
     }
-    return updateAndReportAlgorithmRun(options, (run) =>
+    return updateAndReportAlgorithmRun(options, deps, (run) =>
       removeAlgorithmCapabilitySelection(run, {
         name: capability,
         reason: options.capabilityReason ?? "",
@@ -1149,7 +1194,7 @@ export async function runAlgorithmCli(
   }
 
   if (parsed.action === "plan") {
-    return updateAndReportAlgorithmRun(options, (run) => setAlgorithmPlan(run, options.planSteps ?? []));
+    return updateAndReportAlgorithmRun(options, deps, (run) => setAlgorithmPlan(run, options.planSteps ?? []));
   }
 
   if (parsed.action === "observe") {
@@ -1163,19 +1208,19 @@ export async function runAlgorithmCli(
     // `--evidence-kind probed` (or tested). Defaulting to a floor-clearing value
     // would fail open for a gate whose whole point is rejecting unverified claims.
     const evidenceKind = options.evidenceKind ?? "specified";
-    return updateAndReportAlgorithmRun(options, (run) =>
+    return updateAndReportAlgorithmRun(options, deps, (run) =>
       recordAlgorithmObservation(run, { claim, evidence, evidenceKind }, undefined, { substrate: options.substrate }),
     );
   }
 
   if (parsed.action === "decision") {
     const text = requireText(options);
-    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmDecision(run, text));
+    return updateAndReportAlgorithmRun(options, deps, (run) => recordAlgorithmDecision(run, text));
   }
 
   if (parsed.action === "change") {
     const text = requireText(options);
-    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmChange(run, text));
+    return updateAndReportAlgorithmRun(options, deps, (run) => recordAlgorithmChange(run, text));
   }
 
   if (parsed.action === "ref") {
@@ -1183,7 +1228,7 @@ export async function runAlgorithmCli(
     const code = options.referenceCode;
     if (!code) throw new Error("--code is required.");
     const label = options.referenceLabel;
-    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmReference(run, { code, text, label }));
+    return updateAndReportAlgorithmRun(options, deps, (run) => recordAlgorithmReference(run, { code, text, label }));
   }
 
   if (parsed.action === "resolve") {
@@ -1191,7 +1236,7 @@ export async function runAlgorithmCli(
     const verdict = options.referenceVerdict;
     if (!code || !verdict) throw new Error("--code and --verdict are required.");
     const note = options.note;
-    return updateAndReportAlgorithmRun(options, (run) => resolveAlgorithmReference(run, { code, verdict, note }));
+    return updateAndReportAlgorithmRun(options, deps, (run) => resolveAlgorithmReference(run, { code, verdict, note }));
   }
 
   if (parsed.action === "step") {
@@ -1213,14 +1258,14 @@ export async function runAlgorithmCli(
     // probed/tested claim (or deferred-probe), making a hollow pass auditable — it
     // does not verify the probe actually happened.
     const evidenceKind = defaultEvidenceKind(options.evidenceKind, criterionStatus);
-    return updateAndReportAlgorithmRun(options, (run) =>
+    return updateAndReportAlgorithmRun(options, deps, (run) =>
       verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, undefined, { substrate: options.substrate }, evidenceKind),
     );
   }
 
   if (parsed.action === "learn") {
     const text = requireText(options);
-    return updateAndReportAlgorithmRun(options, (run) => recordAlgorithmLearning(run, text, undefined, { substrate: options.substrate }));
+    return updateAndReportAlgorithmRun(options, deps, (run) => recordAlgorithmLearning(run, text, undefined, { substrate: options.substrate }));
   }
 
   if (parsed.action === "reflect") {
@@ -1230,7 +1275,7 @@ export async function runAlgorithmCli(
       missedVerifyOrParallel: options.missedVerifyOrParallel,
       highestValueMove: options.highestValueMove,
     };
-    return updateAndReportAlgorithmRun(options, (run) =>
+    return updateAndReportAlgorithmRun(options, deps, (run) =>
       recordAlgorithmMetaReflection(
         run,
         { smarterRun, satisfaction: options.satisfaction, withinBudget: options.withinBudget },
@@ -1273,7 +1318,7 @@ export async function runAlgorithmCli(
 
   if (parsed.action === "batch") {
     const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, (run) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }), {
+    return updateAndReportAlgorithmRun(options, deps, (run) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }), {
       registerCapabilities: true,
       batch: true,
     });
@@ -1296,13 +1341,13 @@ export async function runAlgorithmCli(
   if (parsed.action === "resume") {
     if (!options.untilPhase) throw new Error("--until-phase is required.");
     const untilPhase = options.untilPhase;
-    return updateAndReportAlgorithmRun(options, (run) =>
+    return updateAndReportAlgorithmRun(options, deps, (run) =>
       advanceAlgorithmRunUntil(run, untilPhase, undefined, { substrate: options.substrate }),
       { registerCapabilities: true },
     );
   }
 
-  return updateAndReportAlgorithmRun(options, (run) => advanceAlgorithmRun(run, undefined, { substrate: options.substrate }), {
+  return updateAndReportAlgorithmRun(options, deps, (run) => advanceAlgorithmRun(run, undefined, { substrate: options.substrate }), {
     registerCapabilities: true,
   });
 }
