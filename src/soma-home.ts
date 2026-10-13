@@ -1,15 +1,26 @@
 import { mkdir, open, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { allInstallSpecs } from "./install-spec-registry";
+import { loadGoalRecords } from "./goal-records";
 import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
 import { createPaths } from "./paths";
 import { parseBehaviorPolicy } from "./policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
+import type { GoalRecordWarning } from "./goal-records";
 import type { BehaviorPolicy } from "./policy/behavior-policy";
 import type { ProjectionInput, SomaHomeBootstrapOptions, SomaHomeBootstrapResult, SomaSkill } from "./types";
 
-export interface LoadSomaHomeOptions {
+export interface LoadSomaProfileOptions {
+  /**
+   * Receives each goal-record warning (a skipped file, an active goal without
+   * a sensor or review date, an unknown mission code). Defaults to
+   * `console.warn`: a bad goal file never fails the load, but it is not hidden.
+   */
+  onGoalWarning?: (warning: GoalRecordWarning) => void;
+}
+
+export interface LoadSomaHomeOptions extends LoadSomaProfileOptions {
   includeSkills?: boolean;
 }
 
@@ -399,7 +410,10 @@ async function readCommunicationContract(paths: ReturnType<typeof createPaths>):
   }
 }
 
-export async function loadSomaProfile(somaHome: string): Promise<Omit<ProjectionInput["profile"], "skills">> {
+export async function loadSomaProfile(
+  somaHome: string,
+  options: LoadSomaProfileOptions = {},
+): Promise<Omit<ProjectionInput["profile"], "skills">> {
   const paths = createPaths(somaHome);
   // Four independent files. Serial awaits made them pay four round-trips on a
   // path soma re-executes per subprocess invocation (sage #636 r2).
@@ -411,6 +425,13 @@ export async function loadSomaProfile(somaHome: string): Promise<Omit<Projection
     readCommunicationContract(paths),
     readPurposeProfile(paths),
   ]);
+  const missions = purposeMissions(purpose);
+  // soma#784 D2/D9: typed goal records live one per file in `profile/goals/`.
+  const { goals, warnings } = await loadGoalRecords(paths.resolve("profile", "goals"), missions);
+  const warn = options.onGoalWarning ?? ((warning: GoalRecordWarning) => {
+    console.warn(warning.message);
+  });
+  for (const warning of warnings) warn(warning);
 
   return {
     assistant: {
@@ -425,7 +446,8 @@ export async function loadSomaProfile(somaHome: string): Promise<Omit<Projection
     },
     purpose: {
       mission: valueAfterPrefix(purpose, "Mission:", "Keep personal assistant context portable across substrates."),
-      missions: purposeMissions(purpose),
+      missions,
+      goals,
       principles: sectionBullets(purpose, "Principles"),
       commitments: sectionBullets(purpose, "Commitments"),
     },
@@ -465,7 +487,7 @@ export async function loadSomaHome(somaHome: string, options: LoadSomaHomeOption
   // skills directory walk (sage #636 r2).
   const paths = createPaths(somaHome);
   const [profile, skills, behavior] = await Promise.all([
-    loadSomaProfile(somaHome),
+    loadSomaProfile(somaHome, options),
     options.includeSkills === false ? Promise.resolve<SomaSkill[]>([]) : loadSomaSkills(somaHome),
     readBehaviorPolicy(paths),
   ]);

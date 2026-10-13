@@ -70,7 +70,7 @@ export async function reconcileVsa(
 ): Promise<VsaReconcileResult> {
   const somaHome = resolveSomaHome(options);
   const policyPromise = options.onConflict ? Promise.resolve(options.onConflict) : readDefaultConflictPolicy(somaHome);
-  const [policy, master, featureVsa] = await Promise.all([policyPromise, readVsa(slug, options), loadFeatureVsa(feature)]);
+  const [policy, master, featureVsa] = await Promise.all([policyPromise, readVsa(slug, options), loadFeatureVsa(feature, somaHome)]);
   assertValidPolicy(policy);
   const result = reconcileVsaArtifacts(master, featureVsa, { onConflict: policy, timestamp: options.timestamp });
 
@@ -129,9 +129,9 @@ export function reconcileVsaArtifacts(
   return { isa: next, report };
 }
 
-async function loadFeatureVsa(feature: FeatureVsaInput): Promise<VerificationStateArtifact> {
+async function loadFeatureVsa(feature: FeatureVsaInput, somaHome: string): Promise<VerificationStateArtifact> {
   if (typeof feature !== "string") return feature;
-  return parseVsa(await readFile(feature, "utf8"), feature);
+  return parseVsa(await readFile(feature, "utf8"), feature, { somaHome });
 }
 
 async function readDefaultConflictPolicy(somaHome: string): Promise<VsaConflictPolicy> {

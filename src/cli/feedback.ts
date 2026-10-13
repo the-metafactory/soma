@@ -1,7 +1,7 @@
 import { readSync } from "node:fs";
 import { captureSomaFeedback } from "../index";
-import { SOMA_FEEDBACK_STDIN_MAX_BYTES } from "../feedback-contract";
-import type { SomaFeedbackCaptureOptions, SomaFeedbackCaptureResult } from "../types";
+import { SOMA_FEEDBACK_ACTORS, SOMA_FEEDBACK_STDIN_MAX_BYTES } from "../feedback-contract";
+import type { SomaFeedbackActor, SomaFeedbackCaptureOptions, SomaFeedbackCaptureResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 
@@ -13,9 +13,9 @@ export interface ParsedFeedbackArgs {
 }
 
 export const FEEDBACK_COMMAND_HELP: { usage: string; subcommands: Record<ParsedFeedbackArgs["action"], string> } = {
-  usage: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
+  usage: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt] [--session-id <id>] [--transcript-path <path>] [--actor <interactive|sdk|automated>]",
   subcommands: {
-    capture: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt]",
+    capture: "Usage: soma feedback capture (--text <text> | --stdin) [--substrate <id>] [--source <source>] [--store-excerpt] [--session-id <id>] [--transcript-path <path>] [--actor <interactive|sdk|automated>]",
   },
 };
 
@@ -77,6 +77,18 @@ function parseFeedbackCaptureArgs(args: string[]): { options: SomaFeedbackCaptur
         options.timestamp = readOption(args, index, arg);
         index += 1;
         break;
+      case "--session-id":
+        options.sessionId = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--transcript-path":
+        options.transcriptPath = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--actor":
+        options.actor = parseFeedbackActor(readOption(args, index, arg));
+        index += 1;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -98,6 +110,11 @@ function parseFeedbackCaptureArgs(args: string[]): { options: SomaFeedbackCaptur
     options: parsedOptions,
     readTextFromStdin,
   };
+}
+
+function parseFeedbackActor(value: string): SomaFeedbackActor {
+  if ((SOMA_FEEDBACK_ACTORS as readonly string[]).includes(value)) return value as SomaFeedbackActor;
+  throw new Error(`Unknown --actor value: ${value}. Expected one of: ${SOMA_FEEDBACK_ACTORS.join(", ")}.\n${FEEDBACK_COMMAND_HELP.subcommands.capture}`);
 }
 
 export async function runFeedbackCli(parsed: ParsedFeedbackArgs): Promise<string> {

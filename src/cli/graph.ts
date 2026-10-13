@@ -91,6 +91,7 @@ import { createGraphStore, localBlockerId, localNodeId, probeRegistryKey, resolv
 import { invocationCwd } from "../path-utils";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
+import { GOAL_ID_PATTERN, readGoalStatus, warnServes, type ServesOptions } from "../goal-reference";
 
 const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "add", "link", "chart", "close", "audit", "decisions"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
@@ -108,7 +109,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <forge>:<host>/<path>] [--json]",
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
-    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
+    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <forge>:<host>/<path>]",
     audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--json] — scoped audits omit unchecked findings",
@@ -300,7 +301,7 @@ function requireTarget(action: GraphAction, target: string | undefined): string 
   return target.trim();
 }
 
-function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
+function parseAddArgs(target: string, rest: string[], chart = false): ParsedGraphAddArgs {
   const options: ParsedGraphAddArgs["options"] = { spec: {}, blockedBy: [] };
   const probes: unknown[] = [];
   const labels: string[] = [];
@@ -315,6 +316,14 @@ function parseAddArgs(target: string, rest: string[]): ParsedGraphAddArgs {
     }
 
     switch (arg) {
+      case "--serves": {
+        if (!chart) throw new Error("serves belongs on the root only (D10); use soma graph chart --serves G<n>");
+        const serves = readOption(rest, index, arg);
+        if (!GOAL_ID_PATTERN.test(serves)) throw new Error("--serves must match G<n> (^G\\d+$)");
+        options.spec.serves = serves;
+        index += 1;
+        break;
+      }
       case "--title":
         options.spec.title = readOption(rest, index, arg);
         index += 1;
@@ -404,7 +413,9 @@ function parseLinkArgs(target: string, rest: string[]): ParsedGraphLinkArgs {
       index = shared;
       continue;
     }
-    if (arg === "--parent") {
+    if (arg === "--serves") {
+      throw new Error("serves belongs on the root only (D10); use soma graph chart --serves G<n>");
+    } else if (arg === "--parent") {
       options.parent = readOption(rest, index, arg);
     } else if (arg === "--blocked-by") {
       options.blockedBy.push(readOption(rest, index, arg));
@@ -418,7 +429,7 @@ function parseLinkArgs(target: string, rest: string[]): ParsedGraphLinkArgs {
 }
 
 function parseChartArgs(rest: string[]): ParsedGraphChartArgs {
-  const parsed = parseAddArgs("__chart__", rest);
+  const parsed = parseAddArgs("__chart__", rest, true);
   if (parsed.options.blockedBy.length > 0) throw new Error("soma graph chart does not support --blocked-by");
   const { blockedBy: _blockedBy, ...options } = parsed.options;
   return { command: "graph", action: "chart", options };
@@ -585,7 +596,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
 // Dependencies
 // ---------------------------------------------------------------------------
 
-export interface GraphCliDeps {
+export interface GraphCliDeps extends Pick<ServesOptions, "goalStatus" | "warn"> {
   /** The store for a resolved ref (#535 D1) — the ref's forge decides the backend. */
   createStore: (repo: RepoRef) => GraphStore;
   /** `explicit` is `--repo` as typed; see {@link resolveGraphRepo} for the order. */
@@ -812,6 +823,8 @@ async function defaultDescribeProbeTree(dir: string): Promise<ProbeTree> {
 
 function defaultDeps(): GraphCliDeps {
   return {
+    goalStatus: readGoalStatus,
+    warn: (message) => console.warn(message),
     createStore: createGraphStore,
     resolveRepo: async (explicit) => await resolveGraphRepo(explicit),
     loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo: probeRegistryKey(repo) }),
@@ -880,6 +893,7 @@ function renderNodeState(state: NodeState): string {
     `autonomy: ${node.autonomy}`,
     `kind: ${node.kind ?? "—"}`,
     `checkpoint: ${node.checkpointId ?? "—"}`,
+    ...(node.serves === undefined ? [] : [`serves: ${node.serves}`]),
     ...(typeof state.storeFields?.home === "string" ? [`home: ${state.storeFields.home}`] : []),
     `author: ${state.author.length > 0 ? state.author : "—"}`,
     `assignees: ${state.assignees.length > 0 ? state.assignees.join(", ") : "—"}`,
@@ -1164,6 +1178,7 @@ async function runChart(parsed: ParsedGraphChartArgs, graph: WorkGraph, repo: Re
   const { bodyFile, ...rest } = parsed.options.spec;
   const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
   const storeData = repo.forge !== "gitlab" || rest.storeData === undefined || typeof rest.storeData !== "object" ? rest.storeData : { ...(rest.storeData as Record<string, unknown>), scopeProject: repo.path };
+  if (typeof rest.serves === "string") warnServes(rest.serves, deps);
   const created = await graph.createNode({ ...rest, ...(storeData === undefined ? {} : { storeData }), ...(body === undefined ? {} : { body }) });
   if (parsed.options.json === true) return JSON.stringify({ repo: displayRepo(repo), node: created.id }, null, 2);
   return `Created typed graph root ${created.id} (${displayRepo(repo)}).`;

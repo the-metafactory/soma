@@ -1664,6 +1664,51 @@ test("cli rejects mixed feedback text inputs", async () => {
   await expect(runSomaCli(["feedback", "capture", "--text", "you missed this", "--stdin"])).rejects.toThrow("either --text or --stdin");
 });
 
+test("cli feedback capture records session id, transcript path and actor (node #846)", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli([
+      "feedback",
+      "capture",
+      "--home-dir",
+      homeDir,
+      "--substrate",
+      "claude-code",
+      "--session-id",
+      "sess-cli",
+      "--transcript-path",
+      "/tmp/sess-cli.jsonl",
+      "--actor",
+      "sdk",
+      "--text",
+      "you missed the arc-manifest",
+    ]);
+
+    const [event] = (await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(event.metadata).toMatchObject({
+      schemaVersion: 1,
+      substrate: "claude-code",
+      sessionId: "sess-cli",
+      transcriptPath: "/tmp/sess-cli.jsonl",
+      actor: "sdk",
+    });
+  });
+});
+
+test("cli feedback capture rejects an unknown actor with a usage error and appends nothing", async () => {
+  await withTempHome(async (homeDir) => {
+    const result = spawnSync(
+      process.execPath,
+      ["src/cli.ts", "feedback", "capture", "--home-dir", homeDir, "--actor", "robot", "--text", "you missed the arc-manifest"],
+      { cwd: process.cwd(), encoding: "utf8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Unknown --actor value: robot");
+    expect(result.stderr).toContain("Usage: soma feedback capture");
+    await expect(stat(join(homeDir, ".soma/memory/STATE/events.jsonl"))).rejects.toThrow();
+  });
+});
+
 test("cli promotes Algorithm run memory", async () => {
   await withTempHome(async (homeDir) => {
     await runSomaCli([

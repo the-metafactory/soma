@@ -111,7 +111,7 @@ export async function readVsa(slug: string, options: VsaLibraryOptions = {}): Pr
   const somaHome = resolveSomaHome(options);
   const path = vsaPath(somaHome, slug);
   const raw = await readFile(path, "utf8");
-  return parseVsa(raw, path);
+  return parseVsa(raw, path, { somaHome });
 }
 
 export async function writeVsa(
@@ -162,7 +162,7 @@ export async function listVsas(options: VsaLibraryOptions = {}): Promise<VsaList
     candidates.map(async ({ slug, path }) => {
       try {
         const raw = await readFile(path, "utf8");
-        const isa = parseVsa(raw, path);
+        const isa = parseVsa(raw, path, { somaHome });
         return {
           slug,
           phase: isa.frontmatter.phase,

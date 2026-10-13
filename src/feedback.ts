@@ -1,7 +1,12 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./memory";
-import { SOMA_FEEDBACK_HOOK_TRIGGER_PATTERN_SOURCE, SOMA_FEEDBACK_PATTERN_SPECS } from "./feedback-contract";
+import {
+  SOMA_FEEDBACK_EVENT_SCHEMA_VERSION,
+  SOMA_FEEDBACK_HOOK_TRIGGER_PATTERN_SOURCE,
+  SOMA_FEEDBACK_PATTERN_SPECS,
+  isSomaFeedbackMachinePrompt,
+} from "./feedback-contract";
 import type { SomaFeedbackCaptureOptions, SomaFeedbackCaptureResult, SomaFeedbackClassification } from "./types";
 
 const FEEDBACK_PATTERNS = SOMA_FEEDBACK_PATTERN_SPECS.map((spec) => ({
@@ -25,6 +30,10 @@ function resolveSomaHome(options: Pick<SomaFeedbackCaptureOptions, "homeDir" | "
   return resolve(options.somaHome ?? join(options.homeDir ?? homedir(), ".soma"));
 }
 
+function nonEmpty(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function redactedFeedbackExcerpt(text: string): { text: string; truncated: boolean } {
   const normalized = text.trim().replace(/\s+/g, " ");
   const redacted = SECRET_EXCERPT_PATTERNS.reduce((value, pattern) => value.replace(pattern, "[redacted]"), normalized);
@@ -41,6 +50,14 @@ export function classifySomaFeedback(text: string): SomaFeedbackClassification {
       kind: "none",
       confidence: "high",
       reason: "Prompt is empty.",
+    };
+  }
+
+  if (isSomaFeedbackMachinePrompt(trimmed)) {
+    return {
+      kind: "none",
+      confidence: "high",
+      reason: "Prompt is machine-authored (task notification or pasted content).",
     };
   }
 
@@ -82,14 +99,22 @@ export async function captureSomaFeedback(options: SomaFeedbackCaptureOptions): 
   }
 
   const source = options.source ?? "prompt";
+  const substrate = options.substrate ?? "custom";
   const excerpt = options.storeExcerpt === true ? redactedFeedbackExcerpt(options.text) : undefined;
 
   const event = await appendSomaMemoryEvent(somaHome, {
     timestamp: options.timestamp,
-    substrate: options.substrate ?? "custom",
+    substrate,
     kind: "feedback.candidate",
     summary: `Feedback candidate captured: ${classification.kind}.`,
     metadata: {
+      // #647 v1 envelope fields (soma#785 Q6), carried in metadata until #647
+      // lifts them onto the memory event envelope.
+      schemaVersion: SOMA_FEEDBACK_EVENT_SCHEMA_VERSION,
+      substrate,
+      actor: options.actor ?? "interactive",
+      ...(nonEmpty(options.sessionId) ? { sessionId: options.sessionId } : {}),
+      ...(nonEmpty(options.transcriptPath) ? { transcriptPath: options.transcriptPath } : {}),
       feedbackKind: classification.kind,
       confidence: classification.confidence,
       reason: classification.reason,

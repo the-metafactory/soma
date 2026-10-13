@@ -2,6 +2,39 @@ import { expect, test } from "bun:test";
 import { parseVsa, serializeVsa } from "../src/index";
 import { SECTION_NAME_MAP } from "../src/vsa-accessors";
 
+test("serves is authored frontmatter and survives a fresh render", () => {
+  const warnings: string[] = [];
+  const options = { goalStatus: () => "active" as const, warn: (message: string) => warnings.push(message) };
+  const isa = parseVsa("---\ntask: linked\nserves: G5\n---\n\n## Goal\n\nDeliver work.\n", undefined, options);
+  expect(isa.frontmatter.serves).toBe("G5");
+  expect(isa.frontmatter.custom?.serves).toBeUndefined();
+  const rendered = serializeVsa({ ...isa });
+  expect(rendered).toContain("serves: G5");
+  expect(parseVsa(rendered, undefined, options).frontmatter.serves).toBe("G5");
+  expect(warnings).toEqual([]);
+});
+
+for (const status of [undefined, "draft", "paused", "dropped", "achieved"] as const) {
+  test(`VSA serves warns once for ${status ?? "unknown"} goal and still parses`, () => {
+    const warnings: string[] = [];
+    const isa = parseVsa("---\nserves: G9\n---\n", undefined, {
+      goalStatus: () => status, warn: (message) => warnings.push(message),
+    });
+    expect(isa.frontmatter.serves).toBe("G9");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("G9");
+    expect(warnings[0]).toContain(status ?? "unknown");
+  });
+}
+
+test("VSA without serves neither looks up a goal nor warns", () => {
+  const isa = parseVsa("---\ntask: legacy\n---\n", undefined, {
+    goalStatus: () => { throw new Error("must not look up goals"); },
+    warn: () => { throw new Error("must not warn"); },
+  });
+  expect(isa.frontmatter.serves).toBeUndefined();
+});
+
 const SAMPLE = `---
 task: Build the Algorithm
 effort: E3

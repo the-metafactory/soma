@@ -34,8 +34,33 @@ export interface Purpose {
   mission?: string;
   /** The durable missions (M0–Mn). Loaded from `## Missions`, or `## Goals` in an older home (soma#784 D9). */
   missions: string[];
+  /** Typed goal records from `profile/goals/G<n>.md`, in id order, every status (soma#784 D2, D9). */
+  goals: GoalRecord[];
   principles: string[];
   commitments: string[];
+}
+
+export type GoalStatus = "draft" | "active" | "paused" | "achieved" | "dropped";
+
+/**
+ * One goal (soma#784 D2–D8). The frontmatter fields are typed; `wording` is the
+ * body's first line and `body` the whole private body (drop condition, notes).
+ * Goal text stays in soma-home: only the id travels in envelopes and ledgers.
+ */
+export interface GoalRecord {
+  /** `G<n>`, opaque and never reused. */
+  id: string;
+  status: GoalStatus;
+  /** Mission codes (`M<n>`) this goal serves. */
+  supports: string[];
+  /** A reflex activation id that measures the goal. */
+  sensor?: string;
+  /** ISO date (`YYYY-MM-DD`) when the sweep recommends keep, revise or drop. */
+  reviewBy?: string;
+  /** Whole days a goal counts as pursued after its last live link (default 14). */
+  pursuitWindow?: number;
+  wording: string;
+  body: string;
 }
 
 /** @deprecated Renamed to {@link Purpose} (soma#329, ADR 0001). Kept for back-compat. */
@@ -176,6 +201,8 @@ export interface AlgorithmLoopExecutor {
 export interface AuthoredFrontmatter {
   task: string;
   effort: AlgorithmEffortTier;
+  /** Goal ID only; private goal wording stays in soma-home (D10). */
+  serves?: string;
   mode?: AlgorithmMode;
   iteration?: number;
   started?: string;
@@ -1822,6 +1849,8 @@ export interface SomaFeedbackClassification {
   reason: string;
 }
 
+export type SomaFeedbackActor = "interactive" | "sdk" | "automated";
+
 export interface SomaFeedbackCaptureOptions {
   homeDir?: string;
   somaHome?: string;
@@ -1830,6 +1859,12 @@ export interface SomaFeedbackCaptureOptions {
   source?: string;
   storeExcerpt?: boolean;
   timestamp?: string;
+  /** Substrate session id; omitted from the event when absent. */
+  sessionId?: string;
+  /** Substrate transcript path, recorded for triage; capture never reads it. */
+  transcriptPath?: string;
+  /** Who authored the prompt; defaults to `interactive`. */
+  actor?: SomaFeedbackActor;
 }
 
 export interface SomaFeedbackCaptureResult {

@@ -104,6 +104,8 @@ export interface WorkGraphNodeBase {
   /** Backend-native identity (GitHub: issue number), assigned by the store — never caller-supplied. */
   id: string;
   title: string;
+  /** Map-root goal ID (D10). Never inherited by or overridden on descendants. */
+  serves?: string;
   /** Backend-persisted close binding; absent until a gated close completes. */
   completion?: NodeCompletionBinding;
   /**
@@ -1036,6 +1038,13 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
   const parentId = record.parent === undefined || record.parent === null
     ? undefined
     : requireString(asRecord(record.parent, "invalid-node", "node spec: parent"), "id", "invalid-node", "node spec: parent");
+  const serves = optionalString(record, "serves", "invalid-node", "node spec");
+  if (serves !== undefined && !/^G\d+$/.test(serves)) {
+    throw new WorkGraphError("invalid-node", "serves must match G<n> (^G\\d+$)");
+  }
+  if (serves !== undefined && parentId !== undefined) {
+    throw new WorkGraphError("invalid-node", "serves belongs on the root only (D10)");
+  }
   const probes = parseProbes(record.probes);
   const labels = parseLabels(record.labels);
   const completion = record.completion === undefined ? undefined : (() => {
@@ -1056,6 +1065,7 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
 
   const base = {
     title,
+    ...(serves === undefined ? {} : { serves }),
     ...(kind === undefined ? {} : { kind }),
     ...(checkpointId === undefined ? {} : { checkpointId }),
     ...(storeData === undefined ? {} : { storeData }),
