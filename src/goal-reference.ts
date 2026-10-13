@@ -28,7 +28,7 @@ export function readGoalStatus(id: string, somaHome = process.env.SOMA_HOME ?? j
 
 /** D10: goal state warns once, never gates the work or publishes goal wording. */
 export function warnServes(id: string, options: ServesOptions = {}): void {
-  const warn = options.warn ?? ((message: string) => console.warn(message));
+  const warn = options.warn ?? ((message: string) => { console.warn(message); });
   if (!GOAL_ID_PATTERN.test(id)) {
     warn(`soma: serves ${id}: malformed goal id; expected G<n>`);
     return;

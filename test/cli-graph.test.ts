@@ -51,7 +51,7 @@ test("chart serves persists in the typed block and node text/JSON", async () => 
   const warnings: string[] = [];
   const overrides = { goalStatus: () => "active" as const, warn: (message: string) => warnings.push(message) };
   await run([...SERVES_CHART, "--serves", "G5"], store, overrides);
-  expect(JSON.parse(decodeNodeBlock(encodeNodeBlock(store.created[0]!)).raw!)).toMatchObject({ serves: "G5" });
+  expect(JSON.parse(decodeNodeBlock(encodeNodeBlock(store.created[0])).raw!)).toMatchObject({ serves: "G5" });
   expect(await run(["graph", "node", "900"], store, overrides)).toContain("serves: G5");
   expect(JSON.parse(await run(["graph", "node", "900", "--json"], store, overrides)).node.serves).toBe("G5");
   expect(warnings).toEqual([]);
