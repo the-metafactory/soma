@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  createEnvelope,
   RUN_KINDS as MYELIN_RUN_KINDS,
   RUN_OUTCOMES as MYELIN_RUN_OUTCOMES,
   validateExecutionRunFinished,
@@ -11,7 +10,13 @@ import {
 } from "@the-metafactory/myelin";
 import { runSomaCli } from "../src/cli";
 import { runRunCli, type RunCliDeps } from "../src/cli/run";
-import { RUN_KINDS, RUN_LEDGER_SOVEREIGNTY, RUN_OUTCOMES, runLedgerSpoolPath, type RunLedgerEnv } from "../src/run-ledger";
+import {
+  buildRunFinishedEnvelope,
+  RUN_KINDS,
+  RUN_OUTCOMES,
+  runLedgerSpoolPath,
+  type RunLedgerEnv,
+} from "../src/run-ledger";
 
 // `soma run finished` (node #821): the general verb a scheduled job calls to
 // report one finished run through the run ledger. A reporting failure never
@@ -83,8 +88,10 @@ describe("soma run finished", () => {
       detail_ref: "/var/log/harness-gate.log",
     });
     expect(event.input.payload.run_id).toMatch(UUID);
-    const envelope = createEnvelope({ ...event.input, sovereignty: { ...RUN_LEDGER_SOVEREIGNTY, ...event.input.sovereignty } });
+    // The envelope the funnel puts on the wire carries the state too.
+    const envelope = await buildRunFinishedEnvelope(event);
     expect(validateExecutionRunFinished(envelope)).toEqual({ valid: true, errors: [] });
+    expect(envelope.payload).toMatchObject({ state: { subject: "soma:harness", value: "ok" } });
   });
 
   test("each call is its own run: a fresh run_id per call", async () => {
