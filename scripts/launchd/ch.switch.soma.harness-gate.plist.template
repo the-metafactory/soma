@@ -14,10 +14,11 @@
     launchctl load   "$HOME/Library/LaunchAgents/ch.switch.soma.harness-gate.plist"
 
   Runs Mondays 09:00. The wrapper (scripts/harness-gate-check.sh) reports each
-  run to Vigil as one `job` run through `soma run finished`, and logs every run
-  to ~/Library/Logs/soma/harness-gate.log. The EnvironmentVariables below are
-  the run ledger's bus settings; with SOMA_PRINCIPAL empty nothing is
-  published. To remove: launchctl unload + rm plist.
+  run as one `job` run through `soma run finished` and logs every run to
+  ~/Library/Logs/soma/harness-gate.log. The report reaches Vigil only once
+  SOMA_PRINCIPAL and the bus settings below are configured and node #866 lets
+  the installed CLI publish; until then a report that does not publish leaves
+  an `EMIT failed` line in the gate log. To remove: launchctl unload + rm plist.
 -->
 <plist version="1.0">
 <dict>
