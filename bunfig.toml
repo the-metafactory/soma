@@ -1,0 +1,3 @@
+[test]
+# Keep the developer's bus environment out of every test run (node #820).
+preload = ["./test/preload-clear-bus-env.ts"]
