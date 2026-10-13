@@ -36,6 +36,139 @@ function record(fields = "sensor: feed-check\nreview_by: 2026-12-31\n") {
 
 const blueprint = (id = "feed-check") => `schema: metafactory/activation/v1\nactivations:\n  - id: ${id}\n    extra: unchanged\n`;
 
+async function directoryFixture() {
+  const f = await fixture();
+  const personalDir = join(f.root, ".config", "reflex", "personal-activations");
+  const switchDir = join(f.root, ".config", "reflex", "activations");
+  const configPath = join(f.somaHome, "config.yaml");
+  const goalPath = join(f.goalsDir, "G8.md");
+  await mkdir(personalDir, { recursive: true });
+  await mkdir(switchDir, { recursive: true });
+  await writeFile(goalPath, record());
+  const activate = (env: Readonly<Record<string, string | undefined>> = {}) => runGoalCli(parseGoalArgs([
+    "goal", "activate", "G8", "--home-dir", f.root, "--soma-home", f.somaHome,
+  ]), { env });
+  const configure = (dir: string) => writeFile(configPath, `goals:\n  activations_dir: ${JSON.stringify(dir)}\n`);
+  return { ...f, personalDir, switchDir, configPath, goalPath, activate, configure };
+}
+
+test.each([undefined, "", "{}", "goals: {}", "unrelated: retained"])(
+  "activation defaults to personal Reflex with config %j", async (config) => {
+    const f = await directoryFixture();
+    if (config !== undefined) await writeFile(f.configPath, config);
+    await writeFile(join(f.personalDir, "sensor.yaml"), blueprint());
+    await writeFile(join(f.switchDir, "bad.yaml"), "schema: [");
+    expect(await f.activate()).toBe("G8: active");
+    expect(await readFile(f.goalPath, "utf8")).toBe(record().replace("status: draft", "status: active"));
+  },
+);
+
+test("a switch-stack sensor cannot satisfy the personal Reflex default", async () => {
+  const f = await directoryFixture();
+  await writeFile(join(f.switchDir, "sensor.yaml"), blueprint());
+  await writeFile(join(f.personalDir, "other.yaml"), blueprint("other-sensor"));
+  await expect(f.activate()).rejects.toThrow(`sensor is absent from Reflex blueprints: ${f.personalDir}`);
+  expect(await readFile(f.goalPath, "utf8")).toBe(record());
+});
+
+test.each(["absolute", "home-relative", "soma-relative"])(
+  "activation reads goals.activations_dir with a %s path", async (kind) => {
+    const f = await directoryFixture();
+    const configuredDir = kind === "soma-relative" ? join(f.somaHome, "custom") : join(f.root, "custom");
+    await mkdir(configuredDir);
+    await f.configure(kind === "absolute" ? configuredDir : kind === "home-relative" ? "~/custom" : "custom");
+    await writeFile(join(configuredDir, "sensor.yaml"), blueprint());
+    await writeFile(join(f.personalDir, "bad.yaml"), "schema: [");
+    expect(await f.activate()).toBe("G8: active");
+  },
+);
+
+test("the environment directory wins over configured and default directories", async () => {
+  const f = await directoryFixture();
+  await f.configure(f.switchDir);
+  await writeFile(join(f.switchDir, "bad.yaml"), "schema: [");
+  await writeFile(join(f.personalDir, "bad.yaml"), "schema: [");
+  await writeFile(join(f.activationsDir, "sensor.yaml"), blueprint());
+  expect(await f.activate({ REFLEX_ACTIVATIONS_DIR: f.activationsDir })).toBe("G8: active");
+});
+
+test("an environment override also bypasses invalid lower-priority config", async () => {
+  const f = await directoryFixture();
+  await writeFile(f.configPath, "goals: [");
+  await writeFile(join(f.activationsDir, "sensor.yaml"), blueprint());
+  expect(await f.activate({ REFLEX_ACTIVATIONS_DIR: f.activationsDir })).toBe("G8: active");
+});
+
+test("the injected directory keeps precedence over environment and config", async () => {
+  const f = await directoryFixture();
+  await writeFile(f.configPath, "goals: [");
+  await writeFile(join(f.activationsDir, "sensor.yaml"), blueprint());
+  expect(await runGoalCli(parseGoalArgs(["goal", "activate", "G8", "--soma-home", f.somaHome]), {
+    activationsDir: f.activationsDir, env: { REFLEX_ACTIVATIONS_DIR: join(f.root, "missing") },
+  })).toBe("G8: active");
+});
+
+test("home-dir alone resolves Soma config and goals under .soma", async () => {
+  const f = await fixture();
+  const somaHome = join(f.root, ".soma");
+  const goalsDir = join(somaHome, "profile", "goals");
+  await mkdir(goalsDir, { recursive: true });
+  await writeFile(join(goalsDir, "G8.md"), record());
+  await writeFile(join(somaHome, "config.yaml"), `goals:\n  activations_dir: ${JSON.stringify(f.activationsDir)}\n`);
+  await writeFile(join(f.activationsDir, "sensor.yaml"), blueprint());
+  expect(await runGoalCli(parseGoalArgs(["goal", "activate", "G8", "--home-dir", f.root]), { env: {} }))
+    .toBe("G8: active");
+});
+
+test.each(["default", "config", "environment"])(
+  "a missing %s directory is named and leaves the goal draft", async (source) => {
+    const f = await directoryFixture();
+    const missingDir = source === "default" ? f.personalDir : join(f.root, "missing");
+    await rm(f.personalDir, { recursive: true });
+    await writeFile(join(f.switchDir, "sensor.yaml"), blueprint());
+    if (source === "config") await f.configure(missingDir);
+    if (source === "environment") await f.configure(f.switchDir);
+    await expect(f.activate(source === "environment" ? { REFLEX_ACTIVATIONS_DIR: missingDir } : {}))
+      .rejects.toThrow(`Cannot read Reflex activations directory: ${missingDir}`);
+    expect(await readFile(f.goalPath, "utf8")).toBe(record());
+  },
+);
+
+test.each([
+  "goals: [", "goals: []", "goals:\n  activations_dir: 7", "goals:\n  activations_dir: ''",
+  `goals:\n  activations_dir: [${PRIVATE_WORDING}]`,
+])("invalid config fails closed without exposing values: %j", async (config) => {
+  const f = await directoryFixture();
+  await writeFile(f.configPath, config);
+  await writeFile(join(f.personalDir, "sensor.yaml"), blueprint());
+  try {
+    await f.activate();
+    throw new Error("Expected activation failure");
+  } catch (error) {
+    expect(String(error)).toContain("Invalid Soma config");
+    expect(String(error)).toContain(f.configPath);
+    expect(String(error)).not.toContain(PRIVATE_WORDING);
+  }
+  expect(await readFile(f.goalPath, "utf8")).toBe(record());
+});
+
+test("unreadable config fails closed and names the config path", async () => {
+  const f = await directoryFixture();
+  await mkdir(f.configPath);
+  await writeFile(join(f.personalDir, "sensor.yaml"), blueprint());
+  await expect(f.activate()).rejects.toThrow(`Cannot read Soma config: ${f.configPath}`);
+  expect(await readFile(f.goalPath, "utf8")).toBe(record());
+});
+
+test.each([[["goal", "--help"]], [["goal", "activate", "--help"]]])(
+  "goal help names the personal default and config key: %j", async (args) => {
+    const help = await runSomaCli(args);
+    expect(help).toContain("~/.config/reflex/personal-activations");
+    expect(help).toContain("goals.activations_dir");
+    expect(help).toContain("REFLEX_ACTIVATIONS_DIR");
+  },
+);
+
 test("add on an empty Soma home creates G5 draft, prints only its id, and round-trips the wording", async () => {
   const f = await fixture();
   await rm(f.somaHome, { recursive: true });
@@ -267,7 +400,7 @@ test("goal CLI has help, an injected activation directory, and default home-dir 
   })).toBe("G8: active");
   const homeDir = join(f.root, "default-home");
   expect(await runSomaCli(["goal", "add", "--wording", PRIVATE_WORDING, "--home-dir", homeDir])).toBe("G5");
-  const defaultActivations = join(homeDir, ".config/reflex/activations");
+  const defaultActivations = join(homeDir, ".config/reflex/personal-activations");
   await mkdir(defaultActivations, { recursive: true });
   await writeFile(join(defaultActivations, "sensor.yaml"), blueprint());
   await writeFile(join(homeDir, ".soma/profile/goals/G8.md"), record());
