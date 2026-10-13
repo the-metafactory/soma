@@ -1,4 +1,4 @@
-import type { SomaFeedbackClassification, SomaFeedbackKind } from "./types";
+import type { SomaFeedbackActor, SomaFeedbackClassification, SomaFeedbackKind } from "./types";
 
 export const SOMA_FEEDBACK_STDIN_MAX_BYTES = 64 * 1024;
 
@@ -54,3 +54,20 @@ export const SOMA_FEEDBACK_HOOK_TRIGGER_PATTERN_SOURCE = `\\b(?:${SOMA_FEEDBACK_
 export const SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE = `\\b(?:${SOMA_FEEDBACK_PATTERN_SPECS.flatMap((spec) =>
   spec.automaticHook === false ? [] : spec.patternSources,
 ).join("|")})\\b`;
+
+// node #846 (soma#785 Q6): a feedback.candidate event carries the #647 v1
+// envelope fields in its metadata until #647 lifts them onto the envelope.
+export const SOMA_FEEDBACK_EVENT_SCHEMA_VERSION = 1;
+
+// soma#785 Q13: who authored the prompt. `automated` = a ranger worker
+// (RANGER_JOURNAL_PATH set), `sdk` = a headless run, `interactive` = a person.
+export const SOMA_FEEDBACK_ACTORS = ["interactive", "sdk", "automated"] as const satisfies readonly SomaFeedbackActor[];
+
+// soma#785 Q13: prompts the harness or a paste wrote, not the principal. A
+// trimmed prompt starting with one of these is never captured.
+export const SOMA_FEEDBACK_MACHINE_PROMPT_PREFIXES = ["<task-notification>", "<pasted_content"] as const;
+
+export function isSomaFeedbackMachinePrompt(text: string): boolean {
+  const trimmed = text.trimStart();
+  return SOMA_FEEDBACK_MACHINE_PROMPT_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}

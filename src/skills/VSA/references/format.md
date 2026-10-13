@@ -4,6 +4,27 @@ Load this reference only when the active task needs exact VSA structure, tier
 requirements, guardrail distinctions, ID stability, ephemeral feature behavior,
 or Algorithm integration details.
 
+## Frontmatter: the goal this work serves
+
+An optional authored field links the VSA to a goal record:
+
+```yaml
+serves: G5
+```
+
+The parser exposes it as `frontmatter.serves` and preserves it when rendering.
+Goal records live in `<soma-home>/profile/goals/G<n>.md`. A reference to an
+unknown or non-active goal (`draft`, `paused`, `achieved`, `dropped`) emits one
+warning naming the ID and state; parsing still succeeds. A VSA without
+`serves` performs no goal lookup and parses as before. Library callers may
+pass `somaHome`, `goalStatus`, or a `warn` callback as the parser's third argument;
+otherwise it uses `SOMA_HOME` or `~/.soma` and warns on stderr.
+
+Only the ID belongs here; private goal wording stays in soma-home. On a work
+graph, `soma graph chart --serves G5` writes the ID into the map root's typed
+block. Descendants neither inherit nor override it (D10). There is no verb
+for changing an existing root's `serves`.
+
 ## Twelve-Section Body
 
 Every VSA may contain up to twelve body sections. The tier completeness gate

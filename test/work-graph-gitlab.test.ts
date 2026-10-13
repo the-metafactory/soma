@@ -193,6 +193,25 @@ test("GitLab rejects an Epic without home before a transport call", async () => 
   await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp" }))).rejects.toThrow(/require --home-project/u);
 });
 
+test("GitLab graph root round-trips serves through its typed block", async () => {
+  let description = "";
+  const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {
+    const query = String(request.body?.query);
+    if (query.includes("workItemTypes")) return { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-epic", name: "Epic" }] } } } };
+    if (query.includes("workItemCreate")) {
+      description = ((request.body?.variables as { input: { descriptionWidget: { description: string } } }).input).descriptionWidget.description;
+      return { data: { workItemCreate: { workItem: { iid: "1", workItemType: { name: "Epic" }, namespace: { fullPath: "saca" } }, errors: [] } } };
+    }
+    return { data: { namespace: { workItem: gitLabEpic(description) } } };
+  } });
+  const ref = await store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", serves: "G5", storeData: { homeProject: REPO } }, parseGitLabCreateData));
+  expect(description).toContain('"serves": "G5"');
+  const state = await store.readNode(ref);
+  expect(state.typed).toBe(true);
+  expect(state.node.serves).toBe("G5");
+  expect(state.storeFields).toEqual({ home: REPO });
+});
+
 test("GitLab refuses labels instead of silently discarding map discovery metadata", async () => {
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => { throw new Error("transport must not run"); } });
   await expect(store.createNode(parseNodeSpec({ title: "map", autonomy: "approve", checkpointId: "cp", labels: ["orienteer:map"], storeData: { homeProject: "saca/secacademy" } }, parseGitLabCreateData))).rejects.toThrow(/does not support labels/u);

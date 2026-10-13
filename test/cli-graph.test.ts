@@ -42,6 +42,56 @@ import {
   type WorkGraphNode,
 } from "../src/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
+import { decodeNodeBlock, encodeNodeBlock } from "../src/work-graph-node-block";
+
+const SERVES_CHART = ["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map"];
+
+test("chart serves persists in the typed block and node text/JSON", async () => {
+  const store = new FakeStore();
+  const warnings: string[] = [];
+  const overrides = { goalStatus: () => "active" as const, warn: (message: string) => warnings.push(message) };
+  await run([...SERVES_CHART, "--serves", "G5"], store, overrides);
+  expect(JSON.parse(decodeNodeBlock(encodeNodeBlock(store.created[0]!)).raw!)).toMatchObject({ serves: "G5" });
+  expect(await run(["graph", "node", "900"], store, overrides)).toContain("serves: G5");
+  expect(JSON.parse(await run(["graph", "node", "900", "--json"], store, overrides)).node.serves).toBe("G5");
+  expect(warnings).toEqual([]);
+  await run(["graph", "add", "900", "--title", "child", "--autonomy", "approve", "--checkpoint", "child-cp"], store, overrides);
+  expect(store.created[1]?.serves).toBeUndefined();
+});
+
+for (const status of [undefined, "draft", "paused", "dropped", "achieved"] as const) {
+  test(`chart serves warns once for ${status ?? "unknown"} and creates root`, async () => {
+    const store = new FakeStore();
+    const warnings: string[] = [];
+    await run([...SERVES_CHART, "--serves", "G9", "--json"], store, {
+      goalStatus: () => status, warn: (message) => warnings.push(message),
+    });
+    expect(store.created[0]?.serves).toBe("G9");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("G9");
+    expect(warnings[0]).toContain(status ?? "unknown");
+  });
+}
+
+test("serves refuses child flags and malformed chart IDs", () => {
+  for (const action of ["add", "link"]) {
+    expect(() => parseGraphArgs(["graph", action, "1", "--serves", "G5"])).toThrow(/serves belongs on the root only.*D10/u);
+  }
+  for (const id of ["g5", "G", "G-1", "G5x", " G5", "../G5"]) {
+    expect(() => parseGraphArgs([...SERVES_CHART, "--serves", id])).toThrow(/G<n>/u);
+  }
+});
+
+test("legacy chart and node do not look up goals or warn", async () => {
+  const store = new FakeStore();
+  const overrides = {
+    goalStatus: () => { throw new Error("must not look up goals"); },
+    warn: () => { throw new Error("must not warn"); },
+  };
+  await run(SERVES_CHART, store, overrides);
+  expect(await run(["graph", "node", "900"], store, overrides)).not.toContain("serves:");
+  expect(JSON.parse(await run(["graph", "node", "900", "--json"], store, overrides)).node).not.toHaveProperty("serves");
+});
 
 const REPO = "the-metafactory/soma";
 const REPO_REF: RepoRef = { forge: "github", host: "github.com", path: REPO };
