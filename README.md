@@ -237,8 +237,19 @@ multiple missions; `--sensor` and `--review-by` are optional on creation.
 Wording must be one non-empty line; edit wording and supports by hand afterwards.
 
 `activate` requires `sensor` and a valid `review_by` date. It reads every
-`*.yaml` under `~/.config/reflex/activations` (override with
-`REFLEX_ACTIVATIONS_DIR`) and requires the sensor in a blueprint's
+`*.yaml` under `~/.config/reflex/personal-activations` by default. Set
+`goals.activations_dir` in `<soma-home>/config.yaml` to use another directory:
+
+```yaml
+goals:
+  activations_dir: ~/.config/reflex/personal-activations
+```
+
+`REFLEX_ACTIVATIONS_DIR` takes precedence over that config key. Config paths
+may be absolute, start with `~/` (expanded against `--home-dir` or the user's
+home), or be relative to Soma home. Missing config or an unset key uses the
+default; unreadable or invalid config refuses activation. `activate` requires
+the sensor in a blueprint's
 `activations[].id`, with `schema: metafactory/activation/v1`. A missing directory,
 unreadable, unparseable or invalid blueprint, absent sensor, missing required
 field, or nonexistent goal refuses activation with exit 1 and leaves the goal
@@ -250,7 +261,8 @@ becoming `active` requires `activate`. `list` prints ID, status, supports and
 sensor for every goal. Only `--wording` includes the private first body line;
 other body text is never printed. All goal commands accept `--soma-home <dir>`
 or `--home-dir <dir>` (which resolves Soma to `<dir>/.soma` and Reflex to
-`<dir>/.config/reflex/activations` unless the environment override is set).
+`<dir>/.config/reflex/personal-activations` unless a config or environment
+override is set).
 Keep wording in Soma home; use goal IDs in trackers, run metadata and logs.
 
 Now run one Algorithm-backed task to see the working method, not just the

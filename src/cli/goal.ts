@@ -1,10 +1,11 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   activateGoalRecord, addGoalRecord, listGoalRecords, setGoalStatus,
   type AddGoalOptions, type InactiveGoalStatus,
 } from "../goal-records";
 import { defaultSomaHome, type SomaPathsOptions } from "../paths";
+import { loadSomaConfig } from "../soma-config";
 import { readOption } from "./parse-utils";
 
 type GoalAction = "add" | "activate" | "set-status" | "list";
@@ -20,11 +21,13 @@ export interface ParsedGoalArgs {
   };
 }
 
+const ACTIVATIONS_DIRECTORY_HELP = "(REFLEX_ACTIVATIONS_DIR overrides goals.activations_dir in <soma-home>/config.yaml; default: ~/.config/reflex/personal-activations)";
+
 export const GOAL_COMMAND_HELP = {
-  usage: "Usage: soma goal <add|activate|set-status|list> ... [--home-dir <dir>] [--soma-home <dir>]",
+  usage: `Usage: soma goal <add|activate|set-status|list> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
   subcommands: {
     add: "Usage: soma goal add --wording <text> [--supports M<n>...] [--sensor <activation-id>] [--review-by YYYY-MM-DD] [--home-dir <dir>] [--soma-home <dir>]",
-    activate: "Usage: soma goal activate G<n> [--home-dir <dir>] [--soma-home <dir>] (REFLEX_ACTIVATIONS_DIR overrides ~/.config/reflex/activations)",
+    activate: `Usage: soma goal activate G<n> [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
     "set-status": "Usage: soma goal set-status G<n> <paused|achieved|dropped|draft> [--home-dir <dir>] [--soma-home <dir>]",
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
   },
@@ -72,7 +75,7 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
 
 export async function runGoalCli(
   parsed: ParsedGoalArgs,
-  dependencies: { activationsDir?: string } = {},
+  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>> } = {},
 ): Promise<string> {
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
@@ -82,7 +85,7 @@ export async function runGoalCli(
     case "activate":
       if (!options.id) throw new Error("Goal id must match G<n>");
       await activateGoalRecord(goalsDir, options.id, dependencies.activationsDir
-        ?? process.env.REFLEX_ACTIVATIONS_DIR ?? join(options.homeDir ?? homedir(), ".config", "reflex", "activations"));
+        ?? (dependencies.env ?? process.env).REFLEX_ACTIVATIONS_DIR ?? await goalActivationsDir(options));
       return `${options.id}: active`;
     case "set-status":
       if (!options.id) throw new Error("Goal id must match G<n>");
@@ -95,4 +98,13 @@ export async function runGoalCli(
         + (options.includeWording ? `\t${goal.wording}` : ""),
       ).join("\n");
   }
+}
+
+async function goalActivationsDir(options: SomaPathsOptions): Promise<string> {
+  const homeDir = options.homeDir ?? homedir();
+  const configured = (await loadSomaConfig(options)).goals?.activations_dir;
+  if (configured === undefined) return join(homeDir, ".config", "reflex", "personal-activations");
+  if (configured === "~") return resolve(homeDir);
+  if (configured.startsWith("~/")) return resolve(homeDir, configured.slice(2));
+  return resolve(defaultSomaHome(options), configured);
 }
