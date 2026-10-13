@@ -284,3 +284,53 @@ test.each(["../G8", "G8/../../other", "invalid"])("CLI refuses invalid goal id %
   expect(result.err).toContain("G<n>");
   expect(await readdir(f.goalsDir)).toEqual([]);
 });
+
+// `soma goal sense feed` (node #838): the wiring from argv to `runFeedSensor`.
+const SENSE_URL = "https://feed.example.test/feed.xml";
+const SENSE_RSS = `<?xml version="1.0"?><rss version="2.0"><channel><item><pubDate>Fri, 09 Oct 2026 06:30:00 +0000</pubDate></item></channel></rss>`;
+
+test("goal sense feed is wired: flags reach the sensor, stdout is the value line, help names the flags", async () => {
+  const f = await fixture();
+  const fetched: string[] = [];
+  const parsed = parseGoalArgs(["goal", "sense", "feed", "--goal", "G5", "--url", SENSE_URL,
+    "--window-days", "5", "--min", "1", "--soma-home", f.somaHome]);
+  const output = await runGoalCli(parsed, {
+    feedSensor: {
+      env: {},
+      now: () => new Date("2026-10-12T06:30:00Z"),
+      fetch: (url) => {
+        fetched.push(url);
+        return Promise.resolve(new Response(SENSE_RSS));
+      },
+    },
+  });
+  expect(fetched).toEqual([SENSE_URL]);
+  expect(output).toContain("G5: on-track");
+  expect(output).toContain("last 5 days");
+  expect(await runSomaCli(["goal", "sense", "feed", "--help"])).toContain("soma goal sense feed --goal G<n> --url <https-url>");
+});
+
+test.each([
+  ["a malformed goal id", ["--goal", "G5x", "--url", SENSE_URL]],
+  ["an http: URL", ["--goal", "G5", "--url", SENSE_URL.replace("https:", "http:")]],
+  ["a missing --url", ["--goal", "G5"]],
+  ["a non-integer --window-days", ["--goal", "G5", "--url", SENSE_URL, "--window-days", "1.5"]],
+  ["a zero --min", ["--goal", "G5", "--url", SENSE_URL, "--min", "0"]],
+  ["an unknown flag", ["--goal", "G5", "--url", SENSE_URL, "--title", "x"]],
+])("CLI goal sense feed refuses %s with exit 2 and empty stdout", async (_label, args) => {
+  const f = await fixture();
+  const result = f.invoke("sense", "feed", ...args);
+  expect(result.code).toBe(2);
+  expect(result.out).toBe("");
+  expect(result.err).not.toBe("");
+});
+
+test("CLI goal sense feed exits 1 and names the cause when the fetch fails", async () => {
+  const f = await fixture();
+  // Port 1 on loopback refuses the connection at once; the preload leaves SOMA_PRINCIPAL unset.
+  const result = f.invoke("sense", "feed", "--goal", "G5", "--url", "https://127.0.0.1:1/feed.xml");
+  expect(result.code).toBe(1);
+  expect(result.out).toBe("");
+  expect(result.err).toContain("fetch failed");
+  expect(result.err).not.toContain("127.0.0.1");
+});

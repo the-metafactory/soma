@@ -253,6 +253,31 @@ or `--home-dir <dir>` (which resolves Soma to `<dir>/.soma` and Reflex to
 `<dir>/.config/reflex/activations` unless the environment override is set).
 Keep wording in Soma home; use goal IDs in trackers, run metadata and logs.
 
+A goal's sensor reports its state on the run ledger (see [Run ledger](#run-ledger)).
+`soma goal sense feed` is the feed sensor, meant to be run by a Reflex activation:
+
+```bash
+soma goal sense feed --goal G5 --url https://example.org/feed.xml [--window-days 7] [--min 1]
+```
+
+It fetches one RSS 2.0 or Atom feed over `https:` (10 s limit), counts the
+items dated in the last `--window-days` days (RSS `<pubDate>`; Atom
+`<published>`, else `<updated>`; items dated after now do not count), and
+publishes one `execution.run.finished` with `ran.kind = job`, `ran.ref =
+goal-sense/G<n>`, `serves.goal = G<n>` and `state {subject: G<n>, value}`. At
+least `--min` items is `on-track`, fewer (including none) is `off-track`. An
+item with a missing or unparseable date is skipped with one stderr warning
+naming its position. A failed fetch (network, timeout, non-2xx) or a body with
+neither an `<rss>` nor a `<feed>` root publishes `outcome: failed` with no
+state, names the cause on stderr and exits 1. A goal id that is not `G<n>`, a
+non-`https:` URL or a `--window-days`/`--min` that is not a positive integer
+exits 2 before anything is fetched or published. The envelope carries the goal
+id and the state only, never the URL, the feed title or item text. The feed is
+scanned for its item blocks and date elements, not parsed as XML: links are
+never followed and entities never resolved. stdout prints the value, the count
+and the ledger result; with `SOMA_PRINCIPAL` unset nothing is published and the
+exit code is 0 (1 on a failed fetch).
+
 Now run one Algorithm-backed task to see the working method, not just the
 context:
 
