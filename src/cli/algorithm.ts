@@ -917,6 +917,16 @@ const FINISHED_OUTCOMES: Partial<Record<AlgorithmPhase, RunOutcome>> = {
   abandoned: "cancelled",
 };
 
+/**
+ * The outcome when `after` finishes the run `before` described, else
+ * `undefined`. Only the move into a terminal phase finishes a run: a verb on a
+ * run already terminal must not report it twice.
+ */
+function finishedOutcome(before: AlgorithmRun, after: AlgorithmRun): RunOutcome | undefined {
+  if (FINISHED_OUTCOMES[getRunPhase(before)] !== undefined) return undefined;
+  return FINISHED_OUTCOMES[getRunPhase(after)];
+}
+
 /** The ledger's half of `AlgorithmCliDeps`: the bus environment and the publisher. */
 export interface RunLedgerDeps {
   env?: RunLedgerEnv;
@@ -967,9 +977,8 @@ export async function updateAndReportAlgorithmRun(
     somaHome: options.somaHome,
   });
 
-  // Only the transition into a terminal phase finishes a run: a verb on a run
-  // already complete must not report it twice. The funnel never throws.
-  const outcome = FINISHED_OUTCOMES[getRunPhase(run)] === undefined ? FINISHED_OUTCOMES[getRunPhase(written.run)] : undefined;
+  // The funnel never throws.
+  const outcome = finishedOutcome(run, written.run);
   if (outcome !== undefined) {
     await publishRunFinished(
       {
