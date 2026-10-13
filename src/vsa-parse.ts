@@ -9,6 +9,7 @@ import type {
   VsaSection,
 } from "./types";
 import { getCriteria, progressFromCriteria, verifiedFromCriteria } from "./vsa-accessors";
+import { warnServes, type ServesOptions } from "./goal-reference";
 
 /**
  * Round-trip contract: parseVsa → serializeVsa produces **semantic equivalence**
@@ -26,6 +27,7 @@ const RAW_INPUT = new WeakMap<VerificationStateArtifact, string>();
 const AUTHORED_KEYS: ReadonlySet<keyof AuthoredFrontmatter> = new Set([
   "task",
   "effort",
+  "serves",
   "mode",
   "iteration",
   "started",
@@ -54,9 +56,10 @@ const PHASES: readonly AlgorithmPhase[] = [
 ];
 const MODES: readonly AlgorithmMode[] = ["minimal", "native", "algorithm"];
 
-export function parseVsa(markdown: string, sourcePath?: string): VerificationStateArtifact {
+export function parseVsa(markdown: string, sourcePath?: string, options: ServesOptions = {}): VerificationStateArtifact {
   const { frontmatterRaw, body } = splitFrontmatter(markdown);
   const frontmatter = parseFrontmatter(frontmatterRaw);
+  if (frontmatter.serves !== undefined) warnServes(frontmatter.serves, options);
   const slug = typeof frontmatter.custom?.slug === "string" ? frontmatter.custom.slug : (sourcePath ? slugFromPath(sourcePath) : frontmatter.task || "isa");
   const sections = parseSections(body);
   const isa: VerificationStateArtifact = { slug, frontmatter, sections, sourcePath };
@@ -142,6 +145,7 @@ function parseFrontmatter(raw: string): VsaFrontmatter {
     authored.mode = yaml.mode as AlgorithmMode;
   }
   if (typeof yaml.iteration === "number") authored.iteration = yaml.iteration;
+  if (typeof yaml.serves === "string") authored.serves = yaml.serves;
   if (typeof yaml.started === "string") authored.started = yaml.started;
   if (typeof yaml.algorithm_config === "object" && yaml.algorithm_config !== null) {
     authored.algorithm_config = yaml.algorithm_config as Record<string, unknown>;
@@ -172,7 +176,7 @@ function parseFrontmatter(raw: string): VsaFrontmatter {
 
 function renderFrontmatter(frontmatter: VsaFrontmatter): string {
   const lines: string[] = ["---"];
-  for (const key of ["task", "effort", "phase", "progress", "mode", "iteration", "started", "updated", "verified"] as const) {
+  for (const key of ["task", "effort", "serves", "phase", "progress", "mode", "iteration", "started", "updated", "verified"] as const) {
     const value = frontmatter[key];
     if (value === undefined) continue;
     lines.push(`${key}: ${renderYamlScalar(value)}`);
