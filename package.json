@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Substrate-portable Personal AI Assistant core.",
   "scripts": {
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "eslint . --ignore-pattern \"integrations/**\"",
+    "lint:fix": "eslint . --ignore-pattern \"integrations/**\" --fix",
     "soma": "bun src/cli.ts",
     "harness-eval": "bun scripts/harness-eval.ts",
     "typecheck": "tsc --noEmit",

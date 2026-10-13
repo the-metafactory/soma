@@ -59,6 +59,7 @@ export function ageDays(isoDate: string, now: Date): number {
 
 // --- note-text sanitization (SECURITY-CRITICAL) --------------------------------
 
+/* eslint-disable no-control-regex -- these patterns exist to match terminal control sequences */
 const OSC_SEQUENCE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g; // OSC … terminated by BEL or ST
 const CSI_SEQUENCE = /\x1b[@-_][0-?]*[ -/]*[@-~]/g; // CSI and other two-byte ESC sequences
 // 8-bit C1 forms: a single introducer byte (0x9b CSI / 0x9d OSC) with no
@@ -69,6 +70,7 @@ const C1_CSI_SEQUENCE = /\x9b[0-?]*[ -/]*[@-~]/g; // C1 CSI (0x9b … final)
 const C1_OSC_SEQUENCE = /\x9d[^\x07\x1b\x9c]*(?:\x07|\x1b\\|\x9c)/g; // C1 OSC … terminated by BEL, ST, or C1 ST
 const STRAY_ESC = /\x1b./g; // any stray ESC + following byte
 const C0_C1_KEEP_TAB_NL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g; // C0/C1 controls except \t (\x09) and \n (\x0a)
+/* eslint-enable no-control-regex */
 
 /**
  * Strip terminal control sequences from note-authored text before it reaches

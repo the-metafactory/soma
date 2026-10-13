@@ -47,7 +47,7 @@ export interface HomeProjectionBuildContext<S extends InstallSubstrate = Install
 /** Adapter-owned native projection facts; the installer retains orchestration. */
 export interface HomeProjectionSpec<S extends InstallSubstrate = InstallSubstrate> {
   build(input: ProjectionInput, context: HomeProjectionBuildContext<S>): Projection;
-  isSkillProjectionPath(path: string): boolean;
+  isSkillProjectionPath: (path: string) => boolean;
   write?(projection: SomaHomeProjection, options: SomaHomeProjectionOptions): Promise<WrittenProjection>;
 }
 

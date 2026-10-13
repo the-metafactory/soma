@@ -136,16 +136,16 @@ test("grok install renders a Windows-safe bare-exec hook surface", async () => {
       "UserPromptSubmit",
     ]);
     for (const event of ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PreCompact", "PostCompact"]) {
-      expect(hooksJson.hooks[event]![0]!.matcher).toBeUndefined();
+      expect(hooksJson.hooks[event][0].matcher).toBeUndefined();
     }
     // Empirical tool names (2026-06-10 enumeration probe, grok 0.2.38):
     // matchers are ANCHORED full-match regex and the real edit tools are
     // Write/StrReplace — not the docs' `search_replace` alias.
-    expect(hooksJson.hooks.PostToolUse![0]!.matcher).toBe(GROK_ALGORITHM_UPDATED_MATCHER);
+    expect(hooksJson.hooks.PostToolUse[0].matcher).toBe(GROK_ALGORITHM_UPDATED_MATCHER);
     expect(GROK_ALGORITHM_UPDATED_MATCHER).toBe("Write|StrReplace");
     // the fail-closed policy hook covers the verified
     // read/write/shell tool names from the enumeration table.
-    expect(hooksJson.hooks.PreToolUse![0]!.matcher).toBe(GROK_PRE_TOOL_USE_MATCHER);
+    expect(hooksJson.hooks.PreToolUse[0].matcher).toBe(GROK_PRE_TOOL_USE_MATCHER);
     expect(GROK_PRE_TOOL_USE_MATCHER).toBe("Shell|Read|Write|StrReplace");
 
     const verbs = new Set<string>();
@@ -796,7 +796,7 @@ test("installed grok pre-tool-use hook denies egress via a Windows 8.3 short-nam
     // through cmd, preserving the quotes execFileSync mangles). Skip when the
     // volume has 8.3 generation disabled: the fix is a verified no-op there,
     // since pwsh can only emit a short name a volume actually generates.
-    let shortSrc = "";
+    let shortSrc: string;
     try {
       shortSrc = execSync(`for %I in ("${longSrc}") do @echo %~sI`, { encoding: "utf8", windowsHide: true }).trim();
     } catch {

@@ -127,7 +127,7 @@ function assistantVisibleText(content: unknown): string {
   if (!Array.isArray(content)) return typeof content === "string" ? content : "";
   return content
     .map(asRecord)
-    .filter((block): block is Record<string, unknown> => block !== undefined && block.type === "text" && typeof block.text === "string")
+    .filter((block): block is Record<string, unknown> => block?.type === "text" && typeof block.text === "string")
     .map((block) => block.text as string)
     .join("\n");
 }
@@ -211,7 +211,7 @@ export interface RouterCorpusTranscriptResult {
 export function extractRouterCorpusTranscript(
   raw: string,
   meta: { project: string; sessionId: string },
-  seenIds: Set<string> = new Set(),
+  seenIds = new Set<string>(),
 ): RouterCorpusTranscriptResult {
   const skipped = emptySkipCounts();
   const entries: TranscriptEntry[] = [];

@@ -635,7 +635,8 @@ function nodeFromIssue(issue: GitHubIssue): { node: WorkGraphNode; typed: boolea
     if ((ciCheckRunId !== undefined && typeof ciCheckRunId !== "string") || (ciHeadSha !== undefined && typeof ciHeadSha !== "string")) {
       throw new WorkGraphError("invalid-node", "invalid persisted completion CI binding");
     }
-    return { node: { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }), ...(ciCheckRunId === undefined ? {} : { ciCheckRunId: ciCheckRunId as string, ciHeadSha: ciHeadSha as string }) } }, typed: true, text: decoded.text };
+    // eslint-disable-next-line @typescript-eslint/non-nullable-type-assertion-style -- the ! form this rule asks for is forbidden by no-non-null-assertion
+    return { node: { ...node, completion: { receiptCommentId: completion.receiptCommentId as string, checkpointId: completion.checkpointId as string, autonomy: completion.autonomy as WorkGraphNode["autonomy"], closer: completion.closer as string, closedAt: completion.closedAt as string, gatedNodeHash: completion.gatedNodeHash as string, ...(autoProbeKeys === undefined ? {} : { autoProbeKeys: autoProbeKeys as string[] }), ...(ciCheckRunId === undefined ? {} : { ciCheckRunId: ciCheckRunId, ciHeadSha: ciHeadSha as string }) } }, typed: true, text: decoded.text };
   } catch (error) {
     // Visible state, never a silent downgrade: the node falls back to the
     // most-gated class AND says why.
@@ -701,7 +702,7 @@ class GitHubGraphStore implements GraphStore {
   private locate(ref: NodeRef): { repo: string; number: number } {
     if (BARE_ISSUE_ID.test(ref.id)) return { repo: this.repo, number: Number(ref.id) };
     const located = parseLocatedNodeId(ref.id);
-    if (located !== undefined && located.sigil === "#") {
+    if (located?.sigil === "#") {
       return { repo: validateRepoRef({ forge: "github", host: this.host, path: located.path }).path, number: located.iid };
     }
     throw new WorkGraphError("invalid-node", `"${ref.id}" is not a GitHub node id: expected an issue number or owner/name#<number>.`);
@@ -1110,7 +1111,7 @@ class GitHubGraphStore implements GraphStore {
       this.transport({ method: "GET", path: `${this.readPath(ref)}/events`, paginate: true }),
     ]);
     const comment = comments.find((entry) => entry.id === completion.receiptCommentId);
-    if (comment === undefined || comment.author !== completion.closer || !isStructurallyValidCloseReceipt(comment.body)) return false;
+    if (comment?.author !== completion.closer || !isStructurallyValidCloseReceipt(comment.body)) return false;
     const timeline = asArray(events, "issue events").flatMap((entry) => {
       const record = asRecord(entry, "issue event");
       const at = typeof record.created_at === "string" ? Date.parse(record.created_at) : NaN;
@@ -1119,7 +1120,7 @@ class GitHubGraphStore implements GraphStore {
       return Number.isFinite(at) && (event === "closed" || event === "reopened") ? [{ event, at, actor }] : [];
     }).sort((left, right) => left.at - right.at);
     const close = [...timeline].reverse().find((entry) => entry.event === "closed");
-    if (close === undefined || close.actor === undefined) return false;
+    if (close?.actor === undefined) return false;
     const reopened = [...timeline].reverse().find((entry) => entry.event === "reopened" && entry.at < close.at);
     const commentAt = comment.createdAt === undefined ? NaN : Date.parse(comment.createdAt);
     const boundAt = Date.parse(completion.closedAt);
@@ -1300,6 +1301,7 @@ class GitHubGraphStore implements GraphStore {
       closer: posted.author,
       closedAt: boundReceipt.at,
       gatedNodeHash,
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- node comes from a decoded issue body; keep the fallback for a node without probes
       ...(node.autonomy === "auto" ? { autoProbeKeys: (node.probes ?? []).map((probe) => JSON.stringify(probe)).sort() } : {}),
       ...(receipt.ci === undefined ? {} : { ciCheckRunId: receipt.ci.checkRunId, ciHeadSha: receipt.ci.headSha }),
     };

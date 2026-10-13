@@ -824,7 +824,7 @@ async function defaultDescribeProbeTree(dir: string): Promise<ProbeTree> {
 function defaultDeps(): GraphCliDeps {
   return {
     goalStatus: readGoalStatus,
-    warn: (message) => console.warn(message),
+    warn: (message) => { console.warn(message); },
     createStore: createGraphStore,
     resolveRepo: async (explicit) => await resolveGraphRepo(explicit),
     loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo: probeRegistryKey(repo) }),

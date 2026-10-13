@@ -37,7 +37,7 @@ const SECRET_KEY =
 /** A `.env` basename, including `.env.local`, `.env.production`, `prod.env`. */
 export function isEnvFileName(path: string): boolean {
   const name = basename(path);
-  return /^\.env(\..+)?$/u.test(name) || /\.env$/u.test(name);
+  return /^\.env(\..+)?$/u.test(name) || name.endsWith(".env");
 }
 
 /** Literals that carry no secret even under a secret-named key. Numbers are NOT here: a PIN is a number. */
@@ -64,7 +64,7 @@ const isReference = (value: string, envFormat: boolean) =>
  * only (no `+` or `=`) and have a second segment or an extension.
  */
 const isPathValue = (value: string) =>
-  value.length <= 200 && /^(?:~|\.{1,2})?\/[\w.@~/-]*$/u.test(value) && (value.indexOf("/", 1) !== -1 || value.includes("."));
+  value.length <= 200 && /^(?:~|\.{1,2})?\/[\w.@~/-]*$/u.test(value) && (value.includes("/", 1) || value.includes("."));
 
 /** A YAML block scalar indicator (`|`, `>-`, `|+2`): the value is on the following, deeper-indented lines. */
 const BLOCK_SCALAR = /^[|>][+-]?\d?[+-]?$/u;
@@ -113,7 +113,7 @@ export function redactSecrets(text: string, options: RedactOptions = {}): Redact
 
   /** One line, redacted; `opensBlock` is the key indent when a secret-named key starts a block scalar. */
   function redactBody(line: string, envLike: boolean): { text: string; opensBlock?: number } {
-    let out = line
+    const out = line
       .replace(/eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gu, () => mask("jwt"))
       .replace(/\bS[AUONCPX][A-Z2-7]{50,}\b/gu, () => mask("nkey-seed"))
       .replace(/\b[a-fA-F0-9]{40,}\b/gu, (match) => (match.length === 64 && /sha256|hash|digest|sum/iu.test(line) ? match : mask("hex")))
@@ -150,7 +150,7 @@ export function redactSecrets(text: string, options: RedactOptions = {}): Redact
   function redactLine(raw: string): { text: string; opensBlock?: number } {
     // `grep -n`, `rg` and rtk prefix lines with "path:N:", "N:" or "N:0:". Split
     // the prefix off so the key rules see the real line, then put it back.
-    const prefix = raw.match(/^((?:[^\s:]+[:-])?\d+(?::\d+)?[:-])(?=\s|["'A-Za-z_-])/u)?.[1] ?? "";
+    const prefix = /^((?:[^\s:]+[:-])?\d+(?::\d+)?[:-])(?=\s|["'A-Za-z_-])/u.exec(raw)?.[1] ?? "";
     const body = raw.slice(prefix.length);
     // An UPPER_CASE=value line is `.env` even on stdin, where the name is unknown.
     const envLike = options.envFile === true || /^\s*(?:export\s+)?[A-Z][A-Z0-9_]*=/u.test(body);

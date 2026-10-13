@@ -634,7 +634,7 @@ test("a second resurface crosses RESURFACE_ADMIT and the note appears in the nex
       createOpts(somaHome, { id: "asst-note", trigger: "consolidation", consolidationAuthority: true, body: "assistant fact earning admission" }),
     );
 
-    let before = await rebuildMemoryIndex({ somaHome, now: LATER });
+    const before = await rebuildMemoryIndex({ somaHome, now: LATER });
     expect(before.admitted).toBe(0); // resurface_count 0 < RESURFACE_ADMIT (2) — not yet earned
 
     await resurfaceMemoryNote({ somaHome, id: "asst-note", now: LATER });

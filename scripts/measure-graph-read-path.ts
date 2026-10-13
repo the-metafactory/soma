@@ -27,15 +27,16 @@ function parseArgs(argv: readonly string[]): { repo?: string; root: string; node
   const options = new Map<string, string>();
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg?.startsWith("--") !== true) continue;
+    if (!arg.startsWith("--")) continue;
     const value = argv[index + 1];
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- argv[index + 1] is past the end for a trailing flag
     if (value === undefined || value.startsWith("--")) throw new Error(`${arg} needs a value`);
     options.set(arg.slice(2), value);
     index += 1;
   }
   const root = options.get("root");
   if (root === undefined) throw new Error("usage: --root <node-id> [--repo owner/name] [--node <node-id>]");
-  return { root, ...(options.has("repo") ? { repo: options.get("repo") as string } : {}), ...(options.has("node") ? { node: options.get("node") as string } : {}) };
+  return { root, ...(options.has("repo") ? { repo: options.get("repo") } : {}), ...(options.has("node") ? { node: options.get("node") } : {}) };
 }
 
 /** Wraps the real transport so every call is attributed and timed. */
@@ -45,7 +46,8 @@ function instrument(): { transport: ReturnType<typeof createGhCliTransport>; cal
   const transport = async (request: GitHubApiRequest): Promise<unknown> => {
     const label =
       request.path === "graphql"
-        ? String((request.body?.query as string) ?? "").includes("subIssues")
+        ? // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-conversion, @typescript-eslint/no-unnecessary-condition -- body.query is untyped request JSON; keep the coercion
+          String((request.body?.query as string) ?? "").includes("subIssues")
           ? "graphql subtree walk"
           : "graphql parent lookup"
         : // Collapse issue numbers so repeated calls group.

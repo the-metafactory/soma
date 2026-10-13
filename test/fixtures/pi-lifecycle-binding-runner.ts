@@ -2,8 +2,8 @@
 // leak into the rest of the test suite. Lifecycle subprocesses remain real.
 import { mock } from "bun:test";
 
-mock.module("@mariozechner/pi-ai", () => ({ StringEnum: () => ({}) }));
-mock.module("@sinclair/typebox", () => ({
+void mock.module("@mariozechner/pi-ai", () => ({ StringEnum: () => ({}) }));
+void mock.module("@sinclair/typebox", () => ({
   Type: {
     Object: () => ({}),
     Optional: () => ({}),

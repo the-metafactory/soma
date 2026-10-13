@@ -414,7 +414,7 @@ test("retrieval-quality: a real recall(#425) followed by soma memory used (#427)
 
     const recall = await recallMemory({ somaHome, query: "Bun SQLite storage", now: NOW });
     expect(recall.matches.length).toBeGreaterThan(0); // sanity: the recall actually matched the seeded note
-    const recalledId = recall.matches[0]!.id;
+    const recalledId = recall.matches[0].id;
     expect(recalledId).toBe("reporter-stack");
 
     // Before "used" fires, nothing has reinforced the recall.

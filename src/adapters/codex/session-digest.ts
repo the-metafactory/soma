@@ -24,6 +24,7 @@ const PROMPT_NOISE_PREFIXES = [
 ];
 
 function cleanLine(text: string): string {
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point of this regex
   const collapsed = text.replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ").replace(/\s+/g, " ").trim();
   return collapsed.length > PROMPT_LINE_MAX_CHARS ? `${collapsed.slice(0, PROMPT_LINE_MAX_CHARS - 1)}...` : collapsed;
 }
@@ -56,13 +57,13 @@ function isTextOnlyContent(content: unknown): boolean {
 }
 
 type ClassifiedEntry = { kind: "prompt"; text: string } | { kind: "assistant"; tools: string[] };
-type DigestState = {
+interface DigestState {
   promptCount: number;
   promptHead: string[];
   promptTail: string[];
   toolCounts: Map<string, number>;
   assistantTurns: number;
-};
+}
 
 function roleOf(entry: Record<string, unknown>, message: Record<string, unknown> | undefined): string | undefined {
   const role = message?.role ?? entry.role ?? entry.type;

@@ -150,7 +150,7 @@ test("prompts from headless sessions, or with no entrypoint recorded, are left o
     typed("too old to tell", { entrypoint: undefined }),
     queued("bot queued this", { commandMode: "prompt", origin: { kind: "human" } }),
   ];
-  (entries[3] as Record<string, unknown>).entrypoint = "sdk-ts";
+  entries[3].entrypoint = "sdk-ts";
 
   const { rows, skipped } = extractRouterCorpusTranscript(jsonl(entries), { project: "p", sessionId: "s" });
 
@@ -163,7 +163,7 @@ test("finds the mode hook's decision through a chain of other hook attachments",
   const prompt = typed("review the adapter");
   const hookA = { type: "attachment", uuid: nextId(), parentUuid: prompt.uuid, attachment: { type: "hook_success" } };
   const hookB = { type: "attachment", uuid: nextId(), parentUuid: hookA.uuid, attachment: { type: "hook_success" } };
-  const mode = { ...modeHook(hookB.uuid as string, "NATIVE"), uuid: nextId() };
+  const mode = { ...modeHook(hookB.uuid, "NATIVE"), uuid: nextId() };
 
   const { rows } = extractRouterCorpusTranscript(jsonl([prompt, hookA, hookB, mode]), { project: "p", sessionId: "s" });
 

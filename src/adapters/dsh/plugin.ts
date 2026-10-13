@@ -53,9 +53,11 @@ const defaultRunPnpm: PnpmRunner = (args, cwd) =>
     execFile("pnpm", args, { cwd, timeout: 120_000 }, (error, _stdout, stderr) => {
       if (error) {
         const code = typeof error.code === "number" ? error.code : 1;
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-conversion, @typescript-eslint/no-unnecessary-condition -- spawnSync/execFile output is untyped at runtime and can be null; keep the guard
         resolvePromise({ exitCode: code, stderr: String(stderr ?? error.message) });
         return;
       }
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-conversion, @typescript-eslint/no-unnecessary-condition -- spawnSync/execFile output is untyped at runtime and can be null; keep the guard
       resolvePromise({ exitCode: 0, stderr: String(stderr ?? "") });
     });
   });
