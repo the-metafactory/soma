@@ -32,6 +32,7 @@ export const componentNames = [
   "core",
   "events",
   "memory",
+  "purpose",
   "vsa",
   "tools",
   "policy",
@@ -83,10 +84,15 @@ export const components: ComponentManifest<ComponentName> = {
     exclude: ["src/memory-promotion", "src/memory-projection-reproject"],
     mayImport: ["core", "events", "legacy"],
   },
+  // Typed goal records (soma#784): Soma owns Purpose (docs/boundaries.md).
+  purpose: {
+    files: ["src/goal-records", "src/goal-reference"],
+    mayImport: ["core", "legacy"],
+  },
   vsa: {
     files: ["src/vsa", "src/vsa-*", "src/adapter-active-vsa"],
     exclude: ["src/vsa-skill-installer"],
-    mayImport: ["core", "events", "memory", "legacy"],
+    mayImport: ["core", "events", "memory", "purpose", "legacy"],
   },
   tools: {
     files: ["src/tools/**"],
@@ -109,7 +115,7 @@ export const components: ComponentManifest<ComponentName> = {
   },
   home: {
     files: ["src/soma-home", "src/snapshots", "src/work-registry", "src/communication-contract"],
-    mayImport: ["core", "events", "memory", "policy", "legacy"],
+    mayImport: ["core", "events", "memory", "purpose", "policy", "legacy"],
   },
   algorithm: {
     files: ["src/algorithm", "src/algorithm-*"],
@@ -150,7 +156,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/skill-content-*",
     ],
     exclude: ["src/adapters/private-roots", "src/projection-private-roots"],
-    mayImport: ["core", "events", "memory", "vsa", "policy", "home", "algorithm", "router", "execution", "legacy"],
+    mayImport: ["core", "events", "memory", "purpose", "vsa", "policy", "home", "algorithm", "router", "execution", "legacy"],
     units: Object.fromEntries(substrateUnitNames.map((name) => [name, substrateUnit(name)])),
   },
   migrate: {
