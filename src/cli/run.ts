@@ -66,7 +66,8 @@ function oneOf<T extends string>(flag: Flag, value: string, values: readonly T[]
 /** Everything but `runId` and `endedAt`, which belong to the call, not the flags. */
 type RunFinishedFlags = Omit<RunFinishedInput, "runId" | "endedAt">;
 
-function parseFinishedFlags(args: string[]): RunFinishedFlags {
+/** Every argument is a known flag followed by a non-empty value. */
+function readFlagPairs(args: string[]): Map<Flag, string> {
   const values = new Map<Flag, string>();
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index];
@@ -75,6 +76,11 @@ function parseFinishedFlags(args: string[]): RunFinishedFlags {
     if (value === "" || value.startsWith("--")) throw new RunFlagError(`${flag} requires a value`);
     values.set(flag as Flag, value);
   }
+  return values;
+}
+
+function parseFinishedFlags(args: string[]): RunFinishedFlags {
+  const values = readFlagPairs(args);
   const required = (flag: Flag): string => {
     const value = values.get(flag);
     if (value === undefined) throw new RunFlagError(`${flag} is required`);

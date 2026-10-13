@@ -3,7 +3,10 @@
 # Weekly harness regression gate — the scheduled half of the harness eval
 # (docs/harness-objective-function.md, loop-closure plan T6). CI runs the metric
 # unit tests on every PR; this runs `harness-eval --check` against the LIVE
-# soma-home data CI does not have, and reports each run to Vigil.
+# soma-home data CI does not have, and reports each run through `soma run
+# finished`. That report reaches Vigil only once SOMA_PRINCIPAL and the bus are
+# configured and node #866 lets the installed CLI publish; until then a report
+# that does not publish leaves an `EMIT failed` line in the gate log.
 #
 # Exit codes, one per outcome, so a broken gate never reads as a red one (#681):
 #   0  ok           — measured, harness-eval printed its OK verdict
