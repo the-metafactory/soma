@@ -34,8 +34,33 @@ export interface Purpose {
   mission?: string;
   /** The durable missions (M0–Mn). Loaded from `## Missions`, or `## Goals` in an older home (soma#784 D9). */
   missions: string[];
+  /** Typed goal records from `profile/goals/G<n>.md`, in id order, every status (soma#784 D2, D9). */
+  goals: GoalRecord[];
   principles: string[];
   commitments: string[];
+}
+
+export type GoalStatus = "draft" | "active" | "paused" | "achieved" | "dropped";
+
+/**
+ * One goal (soma#784 D2–D8). The frontmatter fields are typed; `wording` is the
+ * body's first line and `body` the whole private body (drop condition, notes).
+ * Goal text stays in soma-home: only the id travels in envelopes and ledgers.
+ */
+export interface GoalRecord {
+  /** `G<n>`, opaque and never reused. */
+  id: string;
+  status: GoalStatus;
+  /** Mission codes (`M<n>`) this goal serves. */
+  supports: string[];
+  /** A reflex activation id that measures the goal. */
+  sensor?: string;
+  /** ISO date (`YYYY-MM-DD`) when the sweep recommends keep, revise or drop. */
+  reviewBy?: string;
+  /** Whole days a goal counts as pursued after its last live link (default 14). */
+  pursuitWindow?: number;
+  wording: string;
+  body: string;
 }
 
 /** @deprecated Renamed to {@link Purpose} (soma#329, ADR 0001). Kept for back-compat. */
