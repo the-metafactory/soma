@@ -27,7 +27,7 @@ import type {
   Sovereignty,
   TransportPublisher,
 } from "@the-metafactory/myelin";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { createPaths } from "./paths";
 import { RUN_LEDGER_ENV } from "./run-ledger-env";
 import type { SubstrateId } from "./types";

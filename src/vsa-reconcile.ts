@@ -13,7 +13,7 @@ import {
   setSection,
 } from "./vsa-accessors";
 import { readVsa, resolveSomaHome, vsaDir, writeVsa, type VsaLibraryOptions } from "./vsa";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { parseVsa } from "./vsa-parse";
 import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint, VsaSection, SubstrateId } from "./types";
 

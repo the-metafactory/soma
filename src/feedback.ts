@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import {
   SOMA_FEEDBACK_EVENT_SCHEMA_VERSION,
   SOMA_FEEDBACK_HOOK_TRIGGER_PATTERN_SOURCE,

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { applyVsaUpdate, getActiveVsa, vsaPath } from "./vsa";
-import { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "./memory";
+import { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "./event-journal";
 import { checkSomaPolicy } from "./policy-audit";
 import type { VsaUpdatePayload, SomaMemoryEventInput, SubstrateId } from "./types";
 

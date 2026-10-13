@@ -3,7 +3,7 @@ import { mkdir, writeFile, unlink, readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import {
   serializeMemoryNote,
   parseMemoryNote,

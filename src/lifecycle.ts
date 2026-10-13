@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { listAlgorithmRunSummaries, listAlgorithmRuns, listStartupAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { buildLearningReadback } from "./learning-readback";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
 import { repairProjectedArtifacts, type ProjectedArtifact } from "./projection-self-repair";
 import { loadSomaProfile } from "./soma-home";

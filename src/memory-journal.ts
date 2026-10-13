@@ -1,6 +1,6 @@
 import { constants as fsConstants } from "node:fs";
 import { streamEventLines } from "./event-log";
-import { somaMemoryEventsPath } from "./memory";
+import { somaMemoryEventsPath } from "./event-journal";
 import type { SomaMemoryEvent, SomaMemoryRetrievalQuality } from "./types";
 
 /**

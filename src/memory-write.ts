@@ -6,7 +6,7 @@ import { createPaths } from "./paths";
 import { isEnoent } from "./fs-utils";
 import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./internal-concurrency";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, isValidNoteId, NOTE_ID_MAX_LEN } from "./memory-note";
 import { memoryTermSet } from "./memory-terms";
 import { jaccard, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";

@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseTelemetryEventLine, queryRecentEventRecords, streamEventLines } from "./event-log";
-import { somaMemoryEventsPath } from "./memory";
+import { somaMemoryEventsPath } from "./event-journal";
 import type {
   AlgorithmPhase,
   SomaMemoryEvent,
