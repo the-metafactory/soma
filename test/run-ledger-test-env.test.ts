@@ -3,17 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { publishRunFinished, runLedgerSpoolPath } from "../src/run-ledger";
-// Not imported from the preload: importing it would clear the env itself and
-// make the control below vacuous.
-const RUN_LEDGER_ENV_VARS = [
-  "SOMA_PRINCIPAL",
-  "SOMA_STACK",
-  "SOMA_NATS_URL",
-  "SOMA_NATS_CREDS",
-  "MF_CORRELATION_ID",
-  "MF_SERVES_GOAL",
-  "MF_SERVES_NODE",
-];
+// The side-effect-free list, never the preload itself: importing the preload
+// would clear the env on its own and make the control below vacuous.
+import { RUN_LEDGER_ENV, RUN_LEDGER_ENV_VARS } from "../src/run-ledger-env";
 
 const PROBE = "the test env carries no run-ledger bus variables";
 const repoRoot = join(import.meta.dir, "..");
@@ -48,15 +40,12 @@ test(PROBE, async () => {
 async function probeWithShellBusEnv(extraArgs: string[]): Promise<{ exitCode: number; output: string }> {
   const child = Bun.spawn(["bun", ...extraArgs, "test", "test/run-ledger-test-env.test.ts", "-t", PROBE], {
     cwd: repoRoot,
+    // Every listed variable, so a name added to the list is covered here too.
     env: {
       ...process.env,
-      SOMA_PRINCIPAL: "jc",
-      SOMA_STACK: "default",
-      SOMA_NATS_URL: "nats://127.0.0.1:1",
-      SOMA_NATS_CREDS: "/nonexistent.creds",
-      MF_CORRELATION_ID: "shell-correlation",
-      MF_SERVES_GOAL: "G1",
-      MF_SERVES_NODE: "820",
+      ...Object.fromEntries(RUN_LEDGER_ENV_VARS.map((name) => [name, "from-shell"])),
+      [RUN_LEDGER_ENV.principal]: "jc",
+      [RUN_LEDGER_ENV.natsUrl]: "nats://127.0.0.1:1",
     },
     stdout: "pipe",
     stderr: "pipe",

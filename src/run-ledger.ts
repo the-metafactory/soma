@@ -27,7 +27,11 @@ import type {
 } from "@the-metafactory/myelin";
 import { appendSomaMemoryEvent } from "./memory";
 import { createPaths } from "./paths";
+import { RUN_LEDGER_ENV } from "./run-ledger-env";
 import type { SubstrateId } from "./types";
+
+// Callers name run kinds and outcomes through the funnel, not through myelin.
+export type { RunKind, RunOutcome };
 
 /** The whole emit — load, build, connect, drain, publish, close — gives up after this. */
 export const RUN_LEDGER_TIMEOUT_MS = 2000;
@@ -101,19 +105,19 @@ function setting(env: RunLedgerEnv, name: string): string | undefined {
 
 /** `undefined` when `SOMA_PRINCIPAL` is unset or empty: the ledger is off. */
 function readRunLedgerConfig(env: RunLedgerEnv): RunLedgerConfig | undefined {
-  const principal = setting(env, "SOMA_PRINCIPAL");
+  const principal = setting(env, RUN_LEDGER_ENV.principal);
   if (principal === undefined) return undefined;
-  const goal = setting(env, "MF_SERVES_GOAL");
-  const node = setting(env, "MF_SERVES_NODE");
+  const goal = setting(env, RUN_LEDGER_ENV.servesGoal);
+  const node = setting(env, RUN_LEDGER_ENV.servesNode);
   const serves = goal === undefined && node === undefined
     ? undefined
     : { ...(goal === undefined ? {} : { goal }), ...(node === undefined ? {} : { node }) };
   return {
     principal,
-    stack: setting(env, "SOMA_STACK") ?? DEFAULT_STACK,
-    natsUrl: setting(env, "SOMA_NATS_URL") ?? DEFAULT_NATS_URL,
-    natsCreds: setting(env, "SOMA_NATS_CREDS"),
-    correlationId: setting(env, "MF_CORRELATION_ID"),
+    stack: setting(env, RUN_LEDGER_ENV.stack) ?? DEFAULT_STACK,
+    natsUrl: setting(env, RUN_LEDGER_ENV.natsUrl) ?? DEFAULT_NATS_URL,
+    natsCreds: setting(env, RUN_LEDGER_ENV.natsCreds),
+    correlationId: setting(env, RUN_LEDGER_ENV.correlationId),
     serves,
   };
 }
@@ -184,14 +188,17 @@ function natsPublisher(config: RunLedgerConfig, spoolPath: string): RunFinishedP
     try {
       host = new URL(config.natsUrl).hostname;
     } catch (error) {
-      throw new RunLedgerError("config", `SOMA_NATS_URL is not a URL: ${config.natsUrl}`, { cause: error });
+      throw new RunLedgerError("config", `${RUN_LEDGER_ENV.natsUrl} is not a URL: ${config.natsUrl}`, { cause: error });
     }
     if (config.natsCreds === undefined && !LOOPBACK_HOSTS.has(host)) {
-      throw new RunLedgerError("config", `SOMA_NATS_CREDS is required for a non-loopback SOMA_NATS_URL (got ${host})`);
+      throw new RunLedgerError(
+        "config",
+        `${RUN_LEDGER_ENV.natsCreds} is required for a non-loopback ${RUN_LEDGER_ENV.natsUrl} (got ${host})`,
+      );
     }
     const credentials = config.natsCreds?.startsWith("~/") ? `${homedir()}${config.natsCreds.slice(1)}` : config.natsCreds;
     if (credentials !== undefined && !existsSync(credentials)) {
-      throw new RunLedgerError("config", `SOMA_NATS_CREDS names a missing file: ${credentials}`);
+      throw new RunLedgerError("config", `${RUN_LEDGER_ENV.natsCreds} names a missing file: ${credentials}`);
     }
 
     const { NATSTransport } = await loadMyelin();

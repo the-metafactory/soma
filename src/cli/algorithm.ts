@@ -43,8 +43,7 @@ import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import { readNodeForBridge } from "../work-graph-bridge";
-import { publishRunFinished, type RunFinishedPublisher, type RunLedgerEnv } from "../run-ledger";
-import type { RunOutcome } from "@the-metafactory/myelin";
+import { publishRunFinished, type RunFinishedPublisher, type RunLedgerEnv, type RunOutcome } from "../run-ledger";
 import { hashJudgmentInput, recordJudgment, regexClassifierVersion } from "../judge";
 import type {
   AlgorithmBatchOperation,

@@ -1,5 +1,5 @@
 {
-  "core": 4559,
+  "core": 4560,
   "events": 5500,
   "memory": 10536,
   "purpose": 4096,
@@ -13,7 +13,7 @@
   "execution": 4804,
   "substrates": 37266,
   "migrate": 15650,
-  "flows": 43630,
-  "cli": 69139,
+  "flows": 43653,
+  "cli": 69161,
   "legacy": 56202
 }

@@ -438,10 +438,20 @@ it never emits. Nothing is sent unless `SOMA_PRINCIPAL` is set.
 Delivery fails open. The emit (connect, replay the spool, publish, close)
 gives up after 2 s. A failed or timed-out emit leaves the verb's output, exit
 code and run file unchanged and appends one `run_ledger.publish_failed` event
-to the Soma event log. An envelope that could not be sent stays in
+to the Soma event log. An envelope whose send failed stays in
 `<soma-home>/memory/STATE/run-ledger/outbox.jsonl`, and the next emit replays
-it. A timed-out emit is abandoned, not cancelled: its bounded connect or
-publish can keep the process alive a few seconds after the verb has printed.
+it. A configuration failure (missing creds file, non-loopback URL without
+creds) is refused before the spool and is not replayed. A timed-out emit is
+abandoned, not cancelled: its bounded connect or publish can keep the process
+alive a few seconds after the verb has printed.
+
+> **Not yet working from the arc-installed CLI.** The installed `soma` runs a
+> frozen runtime artifact (`<soma-home>/runtime/artifacts/<hash>/`) that holds
+> `src` and `package.json` but no `node_modules`, so it cannot load myelin.
+> Until node #866 lands, every emit from the installed CLI fails at stage
+> `load`: nothing is built or spooled, and the run is recorded only as a
+> `run_ledger.publish_failed` event. `bun run soma` from a source checkout
+> loads myelin and publishes.
 
 ### VSA
 

@@ -129,13 +129,19 @@ async function cli(somaHome: string, args: string[], deps: Partial<AlgorithmCliD
   return runAlgorithmCli(parseAlgorithmArgs(["algorithm", ...args, "--id", RUN_ID, "--soma-home", somaHome]), deps);
 }
 
-async function ledgerEvents(somaHome: string): Promise<{ kind: string; summary: string; metadata?: Record<string, unknown> }[]> {
+interface LedgerEvent {
+  kind: string;
+  summary: string;
+  metadata?: Record<string, unknown>;
+}
+
+async function ledgerEvents(somaHome: string): Promise<LedgerEvent[]> {
   try {
     const raw = await readFile(join(somaHome, "memory", "STATE", "events.jsonl"), "utf8");
     return raw
       .split("\n")
       .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as { kind: string; summary: string; metadata?: Record<string, unknown> })
+      .map((line) => JSON.parse(line) as LedgerEvent)
       .filter((event) => event.kind.startsWith("run_ledger."));
   } catch {
     return [];
@@ -414,53 +420,53 @@ test("SOMA_PRINCIPAL unset builds and publishes nothing and touches no spool", a
   }
 });
 
-test("NATS unreachable: output and run file unchanged, one failure event, spool holds the put", async () => {
+/**
+ * Run `advance` on a ready fixture with `deps`, assert it fails open — output
+ * and run file match a ledger-off baseline, one failure event at `stage` — and
+ * return that event.
+ */
+async function expectFailOpen(
+  deps: (somaHome: string) => Partial<AlgorithmCliDeps>,
+  stage: string,
+): Promise<{ somaHome: string; failure: LedgerEvent }> {
   const run = fixtureRun("learn");
   const expected = await baseline(run, ["advance"]);
   const somaHome = await homeWith(run);
 
-  const output = await cli(somaHome, ["advance"], { env: { SOMA_PRINCIPAL: "jc", SOMA_NATS_URL: CLOSED_LOOPBACK } });
+  const output = await cli(somaHome, ["advance"], deps(somaHome));
 
   expect(normalized(output, somaHome)).toBe(expected.output);
   expect(await runFile(somaHome)).toBe(expected.file);
   const failures = await ledgerEvents(somaHome);
   expect(failures.map((event) => event.kind)).toEqual(["run_ledger.publish_failed"]);
-  expect(failures[0].metadata).toMatchObject({ runId: RUN_ID, stage: "publish" });
+  expect(failures[0].metadata).toMatchObject({ runId: RUN_ID, stage });
+  return { somaHome, failure: failures[0] };
+}
+
+test("NATS unreachable: output and run file unchanged, one failure event, spool holds the put", async () => {
+  const { somaHome } = await expectFailOpen(() => ({ env: { SOMA_PRINCIPAL: "jc", SOMA_NATS_URL: CLOSED_LOOPBACK } }), "publish");
+
   const spool = (await readFile(runLedgerSpoolPath(somaHome), "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { op: string; subject?: string });
   expect(spool).toHaveLength(1);
   expect(spool[0]).toMatchObject({ op: "put", subject: "local.jc.default.execution.run.finished" });
 });
 
 test("SOMA_NATS_CREDS naming a missing file fails open with one failure event", async () => {
-  const run = fixtureRun("learn");
-  const expected = await baseline(run, ["advance"]);
-  const somaHome = await homeWith(run);
-  const creds = join(somaHome, "missing.creds");
+  const { failure } = await expectFailOpen(
+    (somaHome) => ({ env: { SOMA_PRINCIPAL: "jc", SOMA_NATS_URL: CLOSED_LOOPBACK, SOMA_NATS_CREDS: join(somaHome, "missing.creds") } }),
+    "config",
+  );
 
-  const output = await cli(somaHome, ["advance"], { env: { SOMA_PRINCIPAL: "jc", SOMA_NATS_URL: CLOSED_LOOPBACK, SOMA_NATS_CREDS: creds } });
-
-  expect(normalized(output, somaHome)).toBe(expected.output);
-  expect(await runFile(somaHome)).toBe(expected.file);
-  const failures = await ledgerEvents(somaHome);
-  expect(failures.map((event) => event.kind)).toEqual(["run_ledger.publish_failed"]);
-  expect(failures[0].summary).toContain("SOMA_NATS_CREDS");
+  expect(failure.summary).toContain("SOMA_NATS_CREDS");
 });
 
 test("a throwing builder fails open with one failure event and publishes nothing", async () => {
-  const run = fixtureRun("learn");
-  const expected = await baseline(run, ["advance"]);
-  const somaHome = await homeWith(run);
   // A dot cannot sit in a subject segment, so the builder refuses the principal.
   const { events, deps } = capture({ SOMA_PRINCIPAL: "j.c" });
 
-  const output = await cli(somaHome, ["advance"], deps);
+  await expectFailOpen(() => deps, "build");
 
-  expect(normalized(output, somaHome)).toBe(expected.output);
-  expect(await runFile(somaHome)).toBe(expected.file);
   expect(events).toEqual([]);
-  const failures = await ledgerEvents(somaHome);
-  expect(failures.map((event) => event.kind)).toEqual(["run_ledger.publish_failed"]);
-  expect(failures[0].metadata).toMatchObject({ stage: "build" });
 });
 
 test("an emit that outlasts the ceiling is abandoned and recorded as timed out", async () => {
