@@ -21,6 +21,7 @@ import type {
   ExecutionRunFinishedEvent,
   ExecutionRunServes,
   ExecutionRunState,
+  MyelinEnvelope,
   RunKind,
   RunOutcome,
   Sovereignty,
@@ -149,18 +150,9 @@ async function loadMyelin(): Promise<typeof import("@the-metafactory/myelin")> {
   }
 }
 
-/**
- * Wrap `inner` in myelin's outbox at `spoolPath` and send one event through it.
- * The outbox spools before it sends and never rejects, so a send failure is
- * read off its log and thrown here. Failures while replaying an older spool are
- * not this emit's: those entries stay spooled for the next one.
- */
-export async function publishThroughOutbox(
-  event: ExecutionRunFinishedEvent,
-  target: { inner: TransportPublisher; spoolPath: string },
-): Promise<void> {
+/** The envelope that goes on the wire for a built event: reflex sovereignty under the event's own. */
+export async function buildRunFinishedEnvelope(event: ExecutionRunFinishedEvent): Promise<MyelinEnvelope> {
   const { createEnvelope, validateEnvelope } = await loadMyelin();
-  const { createOutbox } = await import("@the-metafactory/myelin/outbox");
   const envelope = createEnvelope({
     ...event.input,
     sovereignty: { ...RUN_LEDGER_SOVEREIGNTY, ...event.input.sovereignty },
@@ -172,6 +164,21 @@ export async function publishThroughOutbox(
       `envelope validation failed: ${validation.errors.map((error) => `${error.field}: ${error.message}`).join("; ")}`,
     );
   }
+  return envelope;
+}
+
+/**
+ * Wrap `inner` in myelin's outbox at `spoolPath` and send one event through it.
+ * The outbox spools before it sends and never rejects, so a send failure is
+ * read off its log and thrown here. Failures while replaying an older spool are
+ * not this emit's: those entries stay spooled for the next one.
+ */
+export async function publishThroughOutbox(
+  event: ExecutionRunFinishedEvent,
+  target: { inner: TransportPublisher; spoolPath: string },
+): Promise<void> {
+  const envelope = await buildRunFinishedEnvelope(event);
+  const { createOutbox } = await import("@the-metafactory/myelin/outbox");
 
   const failures: string[] = [];
   let sending = false;

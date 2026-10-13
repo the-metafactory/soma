@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import {
-  createEnvelope,
   InMemoryTransport,
   validateExecutionRunFinished,
   type ExecutionRunFinishedEvent,
@@ -23,6 +22,7 @@ import { abandonAlgorithmRun, getRunPhase } from "../src/algorithm-lifecycle";
 import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm-store";
 import { parseAlgorithmArgs, runAlgorithmCli, updateAndReportAlgorithmRun, type AlgorithmCliDeps } from "../src/cli/algorithm";
 import {
+  buildRunFinishedEnvelope,
   publishRunFinished,
   publishThroughOutbox,
   RUN_LEDGER_SOVEREIGNTY,
@@ -173,10 +173,6 @@ async function baseline(run: AlgorithmRun, args: string[]): Promise<{ output: st
   return { output: normalized(output, somaHome), file: await runFile(somaHome) };
 }
 
-function envelopeOf(event: ExecutionRunFinishedEvent): MyelinEnvelope {
-  return createEnvelope({ ...event.input, sovereignty: { ...RUN_LEDGER_SOVEREIGNTY, ...event.input.sovereignty } });
-}
-
 test("advance from learn to complete publishes one valid execution.run.finished envelope", async () => {
   const somaHome = await homeWith(fixtureRun("learn"));
   const { events, deps } = capture({ SOMA_PRINCIPAL: "jc" });
@@ -202,7 +198,7 @@ test("advance from learn to complete publishes one valid execution.run.finished 
   });
   expect(event.input.payload).not.toHaveProperty("serves");
   expect(event.input.payload).not.toHaveProperty("state");
-  expect(validateExecutionRunFinished(envelopeOf(event))).toEqual({ valid: true, errors: [] });
+  expect(validateExecutionRunFinished(await buildRunFinishedEnvelope(event))).toEqual({ valid: true, errors: [] });
   expect(await ledgerEvents(somaHome)).toEqual([]);
 });
 
@@ -259,7 +255,7 @@ test("a run moved to abandoned through updateAndReportAlgorithmRun publishes out
   expect(getRunPhase(run)).toBe("abandoned");
   expect(events).toHaveLength(1);
   expect(events[0].input.payload).toMatchObject({ outcome: "cancelled", ended_at: run.updatedAt });
-  expect(validateExecutionRunFinished(envelopeOf(events[0])).valid).toBe(true);
+  expect(validateExecutionRunFinished(await buildRunFinishedEnvelope(events[0])).valid).toBe(true);
 });
 
 test("verbs that leave the run non-terminal publish nothing", async () => {

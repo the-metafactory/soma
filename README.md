@@ -421,8 +421,9 @@ soma algorithm invoke --id <run-id> --capability sequential-analysis --evidence 
 
 When a verb (`advance`, `resume`, `batch`) moves a run into `complete`, Soma
 publishes one `execution.run.finished` envelope (`ran.kind = algorithm`,
-outcome `succeeded`; a run moved to `abandoned` reports `cancelled`) through
-myelin's outbox. Hooks never emit, and `sync-from-isa` stops at `learn`, so
+outcome `succeeded`) through myelin's outbox. The outcome `cancelled` is
+reserved for a run moved to `abandoned`, which no verb does today, so for now
+Soma emits only `succeeded`. Hooks never emit, and `sync-from-isa` stops at `learn`, so
 it never emits. Nothing is sent unless `SOMA_PRINCIPAL` is set.
 
 | Variable | Default | Meaning |
