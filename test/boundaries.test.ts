@@ -1,8 +1,9 @@
 import { cp } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { ComponentManifest } from "../src/components";
-import { BASELINE_PATH, checkBoundaries, formatReport } from "../scripts/check-boundaries";
+import { BASELINE_PATH, VIOLATIONS_PATH, checkBoundaries, formatReport, repositoryBaseRevision } from "../scripts/check-boundaries";
 import { fixtureManifest, publicMemoryManifest } from "./fixtures/boundaries/manifest";
 import { withTempHome } from "./fixtures/temp-home";
 
@@ -11,11 +12,28 @@ const fixture = (name: string): string => join(import.meta.dir, "fixtures", "bou
 const check = (name: string, manifest: ComponentManifest = fixtureManifest) =>
   checkBoundaries({ root: fixture(name), manifest });
 
+function commitFixture(root: string): string {
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+  git("init");
+  git("add", ".");
+  git(
+    "-c", "user.name=Boundary Test",
+    "-c", "user.email=boundaries@example.invalid",
+    "-c", "commit.gpgsign=false",
+    "-c", `core.hooksPath=${join(root, "no-hooks")}`,
+    "commit", "-m", "Fixture base",
+  );
+  return git("rev-parse", "HEAD").trim();
+}
+
 describe("component boundaries on the repository", () => {
   test(
     "the committed violation list and closure baseline match the tree",
     () => {
-      const report = checkBoundaries({ root: repoRoot });
+      const report = checkBoundaries({
+        root: repoRoot,
+        baseRevision: repositoryBaseRevision(repoRoot),
+      });
       if (!report.ok) throw new Error(formatReport(report));
       expect(report.ok).toBe(true);
     },
@@ -24,6 +42,64 @@ describe("component boundaries on the repository", () => {
 });
 
 describe("checkBoundaries on fixture trees", () => {
+  test("adding a prohibited import together with its exception fails against the Git base", async () => {
+    await withTempHome(async (root) => {
+      await cp(fixture("clean"), root, { recursive: true });
+      const baseRevision = commitFixture(root);
+      await cp(fixture("known-violation"), root, { recursive: true });
+
+      // The edited list and baseline agree with the edited tree. Only the base
+      // revision reveals that this exception is new.
+      const report = checkBoundaries({ root, manifest: fixtureManifest, baseRevision });
+      expect(report.ok).toBe(false);
+      expect(report.errors.join("\n")).toContain("added exception");
+      expect(report.errors.join("\n")).toContain("src/memory.ts -> src/writeback.ts");
+      expect(report.addedEntries).toEqual(["src/memory.ts -> src/writeback.ts"]);
+      expect(report.closureGrowth).toEqual([]);
+      expect(checkBoundaries({ root, manifest: fixtureManifest, baseRevision, updateBaseline: true }).ok).toBe(false);
+    }, "soma-boundaries-git-");
+  });
+
+  test("existing base exceptions pass, and fixing an import and removing its exception passes", async () => {
+    await withTempHome(async (root) => {
+      await cp(fixture("known-violation"), root, { recursive: true });
+      const baseRevision = commitFixture(root);
+      expect(checkBoundaries({ root, manifest: fixtureManifest, baseRevision }).ok).toBe(true);
+      await cp(fixture("clean"), root, { recursive: true });
+      const report = checkBoundaries({ root, manifest: fixtureManifest, baseRevision });
+      expect(report.ok).toBe(true);
+      expect(report.addedEntries).toEqual([]);
+      expect(report.staleEntries).toEqual([]);
+      expect(report.violations).toEqual([]);
+    }, "soma-boundaries-git-");
+  });
+
+  test("an unavailable base revision fails closed", async () => {
+    await withTempHome(async (root) => {
+      await cp(fixture("known-violation"), root, { recursive: true });
+      commitFixture(root);
+      const report = checkBoundaries({ root, manifest: fixtureManifest, baseRevision: "missing-base" });
+      expect(report.ok).toBe(false);
+      expect(report.errors.join("\n")).toContain("cannot check exceptions against base missing-base");
+    }, "soma-boundaries-git-");
+  });
+
+  test.each(["clean", "known-violation"])(
+    "a base tree without an exception list only permits debt already in that tree (%s)",
+    async (baseFixture) => {
+      await withTempHome(async (root) => {
+        await cp(fixture(baseFixture), root, { recursive: true });
+        await Bun.file(join(root, VIOLATIONS_PATH)).delete();
+        const baseRevision = commitFixture(root);
+        await cp(fixture("known-violation"), root, { recursive: true });
+        const report = checkBoundaries({ root, manifest: fixtureManifest, baseRevision });
+        expect(report.ok).toBe(baseFixture === "known-violation");
+        expect(report.addedEntries).toEqual(baseFixture === "known-violation" ? [] : ["src/memory.ts -> src/writeback.ts"]);
+        expect(report.closureGrowth).toEqual([]);
+      }, "soma-boundaries-git-");
+    },
+  );
+
   test("a clean tree passes", () => {
     const report = check("clean");
     expect(report.errors).toEqual([]);

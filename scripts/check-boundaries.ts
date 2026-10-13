@@ -16,20 +16,35 @@
  * type-only imports all count as edges.
  *
  * Known violations live in `scripts/boundaries/violations.json` and may only
- * shrink: an unlisted violation fails as new, a listed pair that is no longer a
- * violation fails as stale. `scripts/boundaries/closure-baseline.json` caps each
+ * shrink: additions compared with the Git base fail, an unlisted violation
+ * fails as new, and a listed pair that is no longer a violation fails as stale.
+ * On first landing, exceptions are computed from the base tree instead.
+ * `scripts/boundaries/closure-baseline.json` caps each
  * component's import-closure size (lines of every reachable `src` file);
  * `--update-baseline` rewrites it so growth becomes a reviewed diff.
  *
- * Usage: bun scripts/check-boundaries.ts [--update-baseline]
+ * Usage: bun scripts/check-boundaries.ts [--update-baseline] [--base <revision>]
+ * Base defaults to SOMA_BOUNDARIES_BASE_REF (set by CI), then the merge base
+ * of HEAD and origin/main for local branch checks.
  */
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, posix, resolve } from "node:path";
 import ts from "typescript";
 import { components, type ComponentManifest, type ComponentSpec } from "../src/components";
 
 export const VIOLATIONS_PATH = "scripts/boundaries/violations.json";
 export const BASELINE_PATH = "scripts/boundaries/closure-baseline.json";
+
+/** CI supplies the exact base commit; locally compare the branch with its fork point. */
+export function repositoryBaseRevision(root: string): string {
+  return process.env.SOMA_BOUNDARIES_BASE_REF ?? execFileSync("git", ["merge-base", "HEAD", "origin/main"], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+  }).trim();
+}
 
 export type EdgeKind = "import" | "type-import" | "re-export" | "dynamic-import";
 export type ViolationRule = "direction" | "public-entry" | "unit" | "test-index" | "test-public-entry";
@@ -67,6 +82,7 @@ export interface BoundaryReport {
   violations: Violation[];
   newViolations: Violation[];
   staleEntries: string[];
+  addedEntries: string[];
   closures: Record<string, number>;
   closureGrowth: ClosureDelta[];
   closureShrink: ClosureDelta[];
@@ -77,6 +93,8 @@ export interface CheckOptions {
   root: string;
   manifest?: ComponentManifest;
   updateBaseline?: boolean;
+  /** Compare exception additions with this Git revision. Omit for non-Git fixture trees. */
+  baseRevision?: string;
 }
 
 const SOURCE_EXTENSIONS = [".ts", ".mjs"];
@@ -180,19 +198,85 @@ function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8")) as unknown;
 }
 
-function readViolationList(root: string, errors: string[]): string[] {
-  const path = join(root, VIOLATIONS_PATH);
-  if (!existsSync(path)) return [];
-  const value = readJson(path);
+function parseViolationList(value: unknown, errors: string[], label: string): string[] {
   if (!Array.isArray(value) || !value.every((entry): entry is string => typeof entry === "string")) {
-    errors.push(`${VIOLATIONS_PATH} must be a JSON array of "<from> -> <to>" strings`);
+    errors.push(`${label} must be a JSON array of "<from> -> <to>" strings`);
     return [];
   }
   const sorted = [...new Set(value)].sort();
   if (sorted.length !== value.length || sorted.some((entry, i) => entry !== value[i])) {
-    errors.push(`${VIOLATIONS_PATH} must be sorted and free of duplicates`);
+    errors.push(`${label} must be sorted and free of duplicates`);
   }
   return value;
+}
+
+function readViolationList(root: string, errors: string[]): string[] {
+  const path = join(root, VIOLATIONS_PATH);
+  return existsSync(path) ? parseViolationList(readJson(path), errors, VIOLATIONS_PATH) : [];
+}
+
+function readBaseViolations(root: string, revision: string, manifest: ComponentManifest): string[] {
+  const git = (...args: string[]): string =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+  // Resolve to a commit first, so neither revision names nor paths become options.
+  const commit = git("rev-parse", "--verify", "--end-of-options", `${revision}^{commit}`).trim();
+  if (git("ls-tree", "--name-only", commit, "--", VIOLATIONS_PATH).trim()) {
+    const errors: string[] = [];
+    const list = parseViolationList(JSON.parse(git("show", `${commit}:${VIOLATIONS_PATH}`)), errors, `${revision}:${VIOLATIONS_PATH}`);
+    if (errors.length) throw new Error(errors.join("; "));
+    return list;
+  }
+
+  // First landing has no historical list. Compute existing debt from the base
+  // source graph using this manifest, rather than trusting the proposed seed.
+  const paths = git("ls-tree", "--name-only", commit, "--", "src", "test").trim().split("\n").filter(Boolean);
+  if (!paths.includes("src")) throw new Error("base revision has no src tree");
+  const snapshot = mkdtempSync(join(tmpdir(), "soma-boundaries-base-"));
+  try {
+    const archive = execFileSync("git", ["archive", "--format=tar", commit, "--", ...paths], {
+      cwd: root,
+      maxBuffer: 128 * 1024 * 1024,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    execFileSync("tar", ["-xf", "-", "-C", snapshot], { input: archive, stdio: ["pipe", "pipe", "pipe"] });
+    const report = checkBoundaries({ root: snapshot, manifest });
+    if (report.unmatched.length || report.ambiguous.length) {
+      throw new Error("base-tree membership does not match the manifest");
+    }
+    return report.violations.map((violation) => violation.key);
+  } finally {
+    rmSync(snapshot, { recursive: true, force: true });
+  }
+}
+
+interface ClosureGraph {
+  files: readonly string[];
+  owner: ReadonlyMap<string, string>;
+  adjacency: ReadonlyMap<string, ReadonlySet<string>>;
+  lineCount: ReadonlyMap<string, number>;
+}
+
+function calculateClosures(names: readonly string[], graph: ClosureGraph): Record<string, number> {
+  const closures: Record<string, number> = {};
+  for (const name of names) {
+    const visited = new Set<string>();
+    const queue = graph.files.filter((file) => graph.owner.get(file) === name);
+    for (const file of queue) visited.add(file);
+    while (queue.length > 0) {
+      const next = queue.pop();
+      if (next === undefined) break;
+      for (const target of graph.adjacency.get(next) ?? []) {
+        if (!visited.has(target)) {
+          visited.add(target);
+          queue.push(target);
+        }
+      }
+    }
+    let lines = 0;
+    for (const file of visited) lines += graph.lineCount.get(file) ?? 0;
+    closures[name] = lines;
+  }
+  return closures;
 }
 
 function readBaseline(root: string, errors: string[]): Partial<Record<string, number>> {
@@ -343,6 +427,18 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
 
   // Shrink-only known violations.
   const known = readViolationList(root, errors);
+  let addedEntries: string[] = [];
+  if (options.baseRevision !== undefined) {
+    try {
+      const baseKnown = new Set(readBaseViolations(root, options.baseRevision, manifest));
+      addedEntries = known.filter((key) => !baseKnown.has(key));
+      for (const key of addedEntries) {
+        errors.push(`added exception in ${VIOLATIONS_PATH}: "${key}" is not in base ${options.baseRevision}; exceptions may only shrink`);
+      }
+    } catch (error) {
+      errors.push(`cannot check exceptions against base ${options.baseRevision}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const knownSet = new Set(known);
   const actualKeys = new Set(violations.map((violation) => violation.key));
   const newViolations = violations.filter((violation) => !knownSet.has(violation.key));
@@ -353,25 +449,7 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
   }
 
   // Closure baseline.
-  const closures: Record<string, number> = {};
-  for (const name of names) {
-    const visited = new Set<string>();
-    const queue = srcList.filter((file) => owner.get(file) === name);
-    for (const file of queue) visited.add(file);
-    while (queue.length > 0) {
-      const next = queue.pop();
-      if (next === undefined) break;
-      for (const target of adjacency.get(next) ?? []) {
-        if (!visited.has(target)) {
-          visited.add(target);
-          queue.push(target);
-        }
-      }
-    }
-    let lines = 0;
-    for (const file of visited) lines += lineCount.get(file) ?? 0;
-    closures[name] = lines;
-  }
+  const closures = calculateClosures(names, { files: srcList, owner, adjacency, lineCount });
   const closureGrowth: ClosureDelta[] = [];
   const closureShrink: ClosureDelta[] = [];
   let baselineUpdated = false;
@@ -412,6 +490,7 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
     violations,
     newViolations,
     staleEntries,
+    addedEntries,
     closures,
     closureGrowth,
     closureShrink,
@@ -432,7 +511,15 @@ export function formatReport(report: BoundaryReport): string {
 
 if (import.meta.main) {
   const root = resolve(import.meta.dir, "..");
-  const report = checkBoundaries({ root, updateBaseline: process.argv.includes("--update-baseline") });
+  const baseIndex = process.argv.indexOf("--base");
+  if (baseIndex !== -1 && (!process.argv[baseIndex + 1] || process.argv[baseIndex + 1].startsWith("--"))) {
+    console.error("--base requires a Git revision");
+    process.exit(1);
+  }
+  const baseRevision = baseIndex === -1
+    ? repositoryBaseRevision(root)
+    : process.argv[baseIndex + 1];
+  const report = checkBoundaries({ root, baseRevision, updateBaseline: process.argv.includes("--update-baseline") });
   const output = formatReport(report);
   if (report.ok) console.log(output);
   else console.error(output);
