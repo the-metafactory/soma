@@ -43,7 +43,7 @@ import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import { readNodeForBridge } from "../work-graph-bridge";
-import { publishRunFinished, type RunFinishedPublisher, type RunLedgerEnv, type RunOutcome } from "../run-ledger";
+import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../run-ledger";
 import { hashJudgmentInput, recordJudgment, regexClassifierVersion } from "../judge";
 import type {
   AlgorithmBatchOperation,
@@ -925,12 +925,6 @@ const FINISHED_OUTCOMES: Partial<Record<AlgorithmPhase, RunOutcome>> = {
 function finishedOutcome(before: AlgorithmRun, after: AlgorithmRun): RunOutcome | undefined {
   if (FINISHED_OUTCOMES[getRunPhase(before)] !== undefined) return undefined;
   return FINISHED_OUTCOMES[getRunPhase(after)];
-}
-
-/** The ledger's half of `AlgorithmCliDeps`: the bus environment and the publisher. */
-export interface RunLedgerDeps {
-  env?: RunLedgerEnv;
-  publishRunFinished?: RunFinishedPublisher;
 }
 
 /**

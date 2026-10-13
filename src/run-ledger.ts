@@ -79,6 +79,12 @@ export interface RunFinishedInput {
 /** Sends one built event. The default goes through myelin's outbox over NATS. */
 export type RunFinishedPublisher = (event: ExecutionRunFinishedEvent) => Promise<void>;
 
+/** What a CLI caller injects into the funnel: the bus environment and the publisher. */
+export interface RunLedgerDeps {
+  env?: RunLedgerEnv;
+  publishRunFinished?: RunFinishedPublisher;
+}
+
 export interface PublishRunFinishedOptions {
   somaHome: string;
   /** Attribution for the failure event. */

@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -62,15 +62,19 @@ export function runGate(stub: string | null, { dirtyBaseline = false, repo = tru
   if (dirtyBaseline) writeFileSync(join(root, "scripts", "harness-eval-baseline.json"), "{\"lowered\":true}\n");
 
   // HOME points into the fixture so the log lands there and no real
-  // ~/.local/bin or ~/.bun/bin shadows PATH: without a shim there is no `soma`.
+  // ~/.local/bin or ~/.bun/bin shadows PATH. Only bun itself is linked onto
+  // PATH, not its whole directory, so without a shim there is no `soma`.
   const home = join(root, "home");
   const shimDir = join(home, ".local", "bin");
   mkdirSync(shimDir, { recursive: true });
   for (const [name, body] of Object.entries(shims)) writeFileSync(join(shimDir, name), body, { mode: 0o755 });
+  const bunDir = join(root, "bun-bin");
+  mkdirSync(bunDir);
+  symlinkSync(process.execPath, join(bunDir, "bun"));
   const proc = Bun.spawnSync(["bash", join(root, "scripts", "harness-gate-check.sh")], {
     cwd: root,
     // The ceiling stops git from finding an enclosing repo above the fixture.
-    env: { HOME: home, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, GIT_CEILING_DIRECTORIES: dirname(root) },
+    env: { HOME: home, PATH: `${bunDir}:/usr/bin:/bin`, GIT_CEILING_DIRECTORIES: dirname(root) },
     stdout: "pipe",
     stderr: "pipe",
   });
