@@ -232,6 +232,39 @@ test("lifecycle CLI-facing handlers append events and include context", async ()
   });
 });
 
+test("session-end without a registered transcript handler keeps the ordinary lifecycle artifacts", async () => {
+  await withTempHome(async (homeDir) => {
+    await bootstrapSomaHome({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+    const timestamp = "2026-05-14T10:30:00.000Z";
+    const end = await runSomaLifecycleSessionEnd({
+      homeDir,
+      substrate: "custom",
+      sessionId: "session-no-transcript-handler",
+      transcriptPath: join(homeDir, "missing-transcript.jsonl"),
+      timestamp,
+    });
+    const eventsPath = join(somaHome, "memory/STATE/events.jsonl");
+    const events = (await readFile(eventsPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(end).toMatchObject({ event: "session_end", somaHome, timestamp });
+    expect(end.files).toEqual(expect.arrayContaining([
+      join(somaHome, "memory/STATE/algorithm-work-index.json"),
+      join(somaHome, "memory/STATE/active-algorithm-run.json"),
+      join(somaHome, "memory/STATE/work.json"),
+      eventsPath,
+    ]));
+    expect(end.files.some((file) => file.includes(join("memory", "episodic", "sessions")))).toBe(false);
+    expect(events.find((event) => event.kind === "lifecycle.session_end")).toMatchObject({
+      summary: "Session ended; captured 0 Algorithm learning artifact(s).",
+      metadata: { sessionId: "session-no-transcript-handler", substrate: "custom" },
+    });
+  });
+});
+
 test("session-start continues when the memory reproject/projection fails", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
