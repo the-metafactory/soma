@@ -13,7 +13,8 @@ if (maintenance.has(args[0] ?? "")) entry = sourceEntry;
 else {
   // Even read-only graph verbs load the same mutable-on-disk module. Verify all
   // graph launches: a modified "node" handler could write despite its verb.
-  // The measured warm hash cost is ~10 ms for the current source tree.
+  // The measured warm hash cost is ~130 ms for the current source tree with its
+  // carried dependencies (node #866).
   const graphCommand = args[0] === "graph";
   const runtime = graphCommand
     ? await inspectRuntimeArtifact(somaHome, "cli", { load: false })

@@ -22,7 +22,7 @@
  * still deny, and must not be dressed up as a guard failure.
  */
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -102,15 +102,19 @@ async function brokenSomaRepo(homeDir: string, name = "broken-soma-repo"): Promi
 }
 
 /**
- * A staged-from copy of this checkout. `stageRuntimeArtifact` reads only `src/`
- * and `package.json`, so this is a faithful install source we are free to break
- * afterwards — which the real checkout, running these tests, is not.
+ * A staged-from copy of this checkout. `stageRuntimeArtifact` reads `src/`,
+ * `package.json` and the production dependencies below `node_modules/`
+ * (node #866), so this is a faithful install source we are free to break
+ * afterwards — which the real checkout, running these tests, is not. The
+ * dependencies are shared through a link: resolution reads through it, and
+ * only `src/` is broken here.
  */
 async function copiedSomaRepo(homeDir: string): Promise<string> {
   const repo = join(homeDir, "source-checkout");
   await mkdir(repo, { recursive: true });
   await cp(join(REPO_ROOT, "src"), join(repo, "src"), { recursive: true });
   await cp(join(REPO_ROOT, "package.json"), join(repo, "package.json"));
+  await symlink(join(REPO_ROOT, "node_modules"), join(repo, "node_modules"));
   return repo;
 }
 
