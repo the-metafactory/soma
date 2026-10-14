@@ -126,7 +126,23 @@ function logEntry(phase: AlgorithmPhase, text: string, timestamp = new Date().to
   };
 }
 
-export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
+/** Library callers supply SOMA_SESSION_ID; IO glue projects native session variables. */
+export type AlgorithmSessionEnv = Readonly<Record<string, string | undefined>>;
+
+/** Read the neutral session key projected by substrate adapters at the IO boundary. */
+export function algorithmSessionId(env: AlgorithmSessionEnv): string | undefined {
+  const sessionId = env.SOMA_SESSION_ID;
+  return sessionId === "" ? undefined : sessionId;
+}
+
+/** Pure mutation helper; IO callers supply their environment at the write boundary. */
+export function recordAlgorithmSession(run: AlgorithmRun, env: AlgorithmSessionEnv): AlgorithmRun {
+  const sessionId = algorithmSessionId(env);
+  if (sessionId === undefined || run.sessionIds?.includes(sessionId)) return run;
+  return { ...run, sessionIds: [...(run.sessionIds ?? []), sessionId] };
+}
+
+export function createAlgorithmRun(input: AlgorithmRunInput, env: AlgorithmSessionEnv = {}): AlgorithmRun {
   assertNonEmpty(input.prompt, "prompt");
   assertNonEmpty(input.intent, "intent");
   assertNonEmpty(input.currentState, "current state");
@@ -153,6 +169,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     id: input.id ?? createRunId(timestamp),
     createdAt: timestamp,
     updatedAt: timestamp,
+    sessionIds: [],
     substrate: input.substrate,
     prompt: input.prompt,
     intent: input.intent,
@@ -184,14 +201,15 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     metaReflection: [],
     provenance: [],
   };
+  const touched = recordAlgorithmSession(run, env);
   return input.substrate
-    ? appendAlgorithmProvenance(run, {
+    ? appendAlgorithmProvenance(touched, {
         timestamp,
         operation: "run.created",
         substrate: input.substrate,
         phase: "observe",
       })
-    : run;
+    : touched;
 }
 
 export function nextAlgorithmPhase(phase: AlgorithmPhase): AlgorithmPhase | undefined {
@@ -546,6 +564,28 @@ export class VerificationGateError extends Error {
   }
 }
 
+export interface AlgorithmVerifyOptions {
+  timestamp?: string;
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">;
+  evidenceKind?: Checkpoint["evidenceKind"];
+  // VerificationGate opt-out for the RECONSTRUCTION surface. The gate fires on
+  // fresh assistant/CLI assertions (default); the VSA→run sync passes false because
+  // it reconstructs already-DECLARED state from existing VSA markdown (a bare
+  // `[x]` legitimately carries no probe kind). Synced hollow passes remain
+  // caught by the audit-time LEARN gate (layer b) — the strictness belongs on
+  // the assertion surface, not on mirroring on-disk state.
+  enforceGate?: boolean;
+  env?: AlgorithmSessionEnv;
+}
+
+export function verifyAlgorithmCriterion(
+  run: AlgorithmRun,
+  criterionId: string,
+  status: "passed" | "failed" | "dropped" | "deferred-probe",
+  evidence: string,
+  options?: AlgorithmVerifyOptions,
+): AlgorithmRun;
+/** Compatibility overload for existing timestamp/provenance callers. */
 export function verifyAlgorithmCriterion(
   run: AlgorithmRun,
   criterionId: string,
@@ -554,14 +594,22 @@ export function verifyAlgorithmCriterion(
   timestamp?: string,
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
   evidenceKind?: Checkpoint["evidenceKind"],
-  // VerificationGate opt-out for the RECONSTRUCTION surface. The gate fires on
-  // fresh assistant/CLI assertions (default); the VSA→run sync passes false because
-  // it reconstructs already-DECLARED state from existing VSA markdown (a bare
-  // `[x]` legitimately carries no probe kind). Synced hollow passes remain
-  // caught by the audit-time LEARN gate (layer b) — the strictness belongs on
-  // the assertion surface, not on mirroring on-disk state.
-  enforceGate = true,
+  enforceGate?: boolean,
+): AlgorithmRun;
+export function verifyAlgorithmCriterion(
+  run: AlgorithmRun,
+  criterionId: string,
+  status: "passed" | "failed" | "dropped" | "deferred-probe",
+  evidence: string,
+  optionsOrTimestamp: AlgorithmVerifyOptions | string = {},
+  legacyProvenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+  legacyEvidenceKind?: Checkpoint["evidenceKind"],
+  legacyEnforceGate = true,
 ): AlgorithmRun {
+  const options: AlgorithmVerifyOptions = typeof optionsOrTimestamp === "string"
+    ? { timestamp: optionsOrTimestamp, provenance: legacyProvenance, evidenceKind: legacyEvidenceKind, enforceGate: legacyEnforceGate }
+    : { provenance: legacyProvenance, evidenceKind: legacyEvidenceKind, enforceGate: legacyEnforceGate, ...optionsOrTimestamp };
+  const { timestamp, provenance, evidenceKind, enforceGate = true, env = {} } = options;
   assertNonEmpty(evidence, "verification evidence");
 
   // VerificationGate (layer a) — fail-fast at record time. #330's LEARN gate
@@ -586,7 +634,13 @@ export function verifyAlgorithmCriterion(
     evidence,
     evidenceKind,
   );
-  const entry = logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp);
+  const sessionId = algorithmSessionId(env);
+  const entry: AlgorithmLogEntry = {
+    ...logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp),
+    criterionId,
+    outcome: status,
+    ...(sessionId === undefined ? {} : { sessionId }),
+  };
   const vsaWithRecompute: VerificationStateArtifact = {
     ...vsaWithSection,
     frontmatter: {
@@ -603,7 +657,7 @@ export function verifyAlgorithmCriterion(
     vsa: vsaWithRecompute,
     verification: [...run.verification, entry],
   };
-  return appendAlgorithmProvenance(next, {
+  return appendAlgorithmProvenance(recordAlgorithmSession(next, env), {
     timestamp: entry.timestamp,
     phase: entry.phase,
     operation: "criterion.verify",
@@ -901,6 +955,7 @@ export function applyAlgorithmBatch(
   operations: AlgorithmBatchOperation[],
   timestamp = new Date().toISOString(),
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+  env: AlgorithmSessionEnv = {},
 ): AlgorithmRun {
   if (operations.length === 0) {
     throw new Error("Algorithm batch requires at least one operation.");
@@ -933,9 +988,7 @@ export function applyAlgorithmBatch(
           operation.criterionId,
           operation.status,
           operation.evidence,
-          timestamp,
-          provenance,
-          defaultEvidenceKind(operation.evidenceKind, operation.status),
+          { timestamp, provenance, evidenceKind: defaultEvidenceKind(operation.evidenceKind, operation.status), env },
         );
       case "capability":
         return selectAlgorithmCapability(current, {

@@ -27,9 +27,10 @@ import type {
   Sovereignty,
   TransportPublisher,
 } from "@the-metafactory/myelin";
-import { appendSomaMemoryEvent } from "./memory";
-import { createPaths } from "./paths";
+import { appendSomaMemoryEvent } from "./event-journal";
+import { createPaths } from "./core/index";
 import { RUN_LEDGER_ENV } from "./run-ledger-env";
+import { resolveSubstrateSessionEnv } from "./adapters/session-env";
 import type { SubstrateId } from "./types";
 
 // Callers name run kinds, outcomes and state through the funnel, not through myelin.
@@ -137,7 +138,7 @@ function readRunLedgerConfig(env: RunLedgerEnv): RunLedgerConfig | undefined {
     stack: setting(env, RUN_LEDGER_ENV.stack) ?? DEFAULT_STACK,
     natsUrl: setting(env, RUN_LEDGER_ENV.natsUrl) ?? DEFAULT_NATS_URL,
     natsCreds: setting(env, RUN_LEDGER_ENV.natsCreds),
-    correlationId: setting(env, RUN_LEDGER_ENV.correlationId),
+    correlationId: setting(env, RUN_LEDGER_ENV.correlationId) ?? setting(env, "SOMA_SESSION_ID"),
     serves,
   };
 }
@@ -301,7 +302,7 @@ async function recordFailure(options: PublishRunFinishedOptions, input: RunFinis
  * event's append.
  */
 export async function publishRunFinished(input: RunFinishedInput, options: PublishRunFinishedOptions): Promise<RunFinishedResult> {
-  const config = readRunLedgerConfig(options.env ?? process.env);
+  const config = readRunLedgerConfig(resolveSubstrateSessionEnv(options.env ?? process.env));
   if (config === undefined) return "disabled";
 
   const publish = options.publish ?? natsPublisher(config, runLedgerSpoolPath(options.somaHome));

@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { installSpecFor, isRegisteredInstallSubstrate } from "./install-spec-registry";
 import type { HomeProjectionBuildContext } from "./install-spec";
 import { writeProjection } from "./projection";
-import { defaultSomaRepoPath } from "./repo-path";
+import { defaultSomaRepoPath } from "./core/index";
 import type { InstallSubstrate, Projection, ProjectionInput, ProjectionSubstrate, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "./types";
 
 export function resolveHomeProjectionPaths(

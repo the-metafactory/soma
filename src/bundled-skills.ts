@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { bundledSkillNames, readBundledSkill } from "./bundled-skill-source";
-import { defaultSomaHome } from "./paths";
+import { defaultSomaHome } from "./core/index";
 import { VSA_SKILL_NAME } from "./vsa-skill-installer";
 
 /**

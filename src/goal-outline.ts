@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { isEnoent } from "./fs-errors";
+import { isEnoent } from "./core/index";
 import { publishRunFinished, type RunFinishedPublisher, type RunFinishedResult, type RunLedgerEnv } from "./run-ledger";
 import { inference } from "./tools/inference";
 import { createAutoInferenceBackend } from "./tools/inference/factory";

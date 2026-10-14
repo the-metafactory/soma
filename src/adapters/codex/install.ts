@@ -5,7 +5,7 @@ import { configureCodexInstall } from "./config";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
 import { CODEX_DEFAULT_HOME, codexMemoryPrivateRoots, codexProjectionPrivateRoots } from "../private-roots";
-import { pathExists } from "../../fs-utils";
+import { pathExists } from "../../core/index";
 import { isCodexSkillProjectionPath, projectCodexHome } from "./adapter";
 
 export const CODEX_HOME_FILES = [

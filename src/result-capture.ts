@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { streamEventRecords } from "./event-log";
-import { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
+import { appendSomaMemoryEvent, somaMemoryEventsPath } from "./event-journal";
 import type {
   SomaMemoryEvent,
   SomaResultCaptureOptions,

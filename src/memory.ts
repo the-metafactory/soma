@@ -1,11 +1,9 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, extname, join, sep } from "node:path";
 import { memoryTerms } from "./memory-terms";
-import { createPaths } from "./paths";
-import { appendEventBatch } from "./event-log";
+import { createPaths } from "./core/index";
+import { appendSomaMemoryEvent } from "./event-journal";
 import type {
-  SomaMemoryEvent,
-  SomaMemoryEventInput,
   SomaMemorySearchMatch,
   SomaMemorySearchOptions,
   SomaMemorySearchResult,
@@ -61,47 +59,10 @@ const CURATED_NOTE_DIRS = new Set<string>(["semantic", "procedural"]);
 const SEARCH_EXTENSIONS = new Set([".md", ".txt", ".json", ".jsonl", ".yaml", ".yml", ".toml"]);
 const SKIP_DIRECTORIES = new Set(["node_modules", ".git"]);
 
-function createEventId(): string {
-  return `evt_${Date.now().toString(36)}_${crypto.randomUUID()}`;
-}
-
 function assertNonEmpty(value: string, field: string): void {
   if (value.trim().length === 0) {
     throw new Error(`Soma memory event ${field} must not be empty.`);
   }
-}
-
-export async function appendSomaMemoryEvent(somaHome: string, input: SomaMemoryEventInput): Promise<SomaMemoryEvent> {
-  const [event] = await appendSomaMemoryEvents(somaHome, [input]);
-  return event;
-}
-
-export async function appendSomaMemoryEvents(somaHome: string, inputs: readonly SomaMemoryEventInput[]): Promise<SomaMemoryEvent[]> {
-  if (inputs.length === 0) return [];
-  const events = inputs.map((input) => {
-    assertNonEmpty(input.substrate, "substrate");
-    assertNonEmpty(input.kind, "kind");
-    assertNonEmpty(input.summary, "summary");
-
-    return {
-      id: input.id ?? createEventId(),
-      timestamp: input.timestamp ?? new Date().toISOString(),
-      substrate: input.substrate,
-      kind: input.kind,
-      summary: input.summary,
-      artifactPaths: input.artifactPaths,
-      metadata: input.metadata,
-    };
-  });
-  const eventPath = createPaths(somaHome).events();
-
-  await appendEventBatch(eventPath, Buffer.from(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8"));
-
-  return events;
-}
-
-export function somaMemoryEventsPath(somaHome: string): string {
-  return createPaths(somaHome).events();
 }
 
 function resolveSomaHome(options: Pick<SomaMemorySearchOptions, "homeDir" | "somaHome"> = {}): string {

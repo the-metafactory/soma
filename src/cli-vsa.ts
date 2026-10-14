@@ -14,7 +14,7 @@ import {
   type VsaListEntry,
 } from "./vsa";
 import { installVsaSkill } from "./vsa-skill-installer";
-import { datePrefixSlug } from "./dated-slug";
+import { datePrefixSlug } from "./core/index";
 
 /**
  * `soma vsa <action>` CLI surface (#36). Thin shell over the library

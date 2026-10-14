@@ -1,3 +1,4 @@
+export type { SomaPaths, SomaMemoryPromotionStore } from "./core/index";
 export type {
   AlgorithmEffortTier,
   AlgorithmEffortSource,
@@ -54,7 +55,6 @@ export type {
   Projection,
   ProjectionInput,
   SomaMemoryLayout,
-  SomaPaths,
   SomaProfile,
   SomaSkill,
   SomaSnapshotEntry,
@@ -94,7 +94,6 @@ export type {
   SomaMemoryEventInput,
   SomaMemoryPromotionOptions,
   SomaMemoryPromotionResult,
-  SomaMemoryPromotionStore,
   SomaMemoryRecallOptions,
   SomaMemoryRecallResult,
   SomaMemoryRecalledNote,
@@ -379,7 +378,7 @@ export {
 export { writeProjection } from "./projection";
 export { SomaInstallError } from "./installation-execution";
 export type { SomaHomeInstallReceipt, SomaInstallStage, SomaPartialInstallResult, SomaRuntimeArtifactReceipt, SomaSubstrateInstallReceipt } from "./installation-execution";
-export { createPaths, type SomaPathsOptions } from "./paths";
+export { createPaths, type SomaPathsOptions } from "./core/index";
 export {
   advisor,
   inference,
@@ -526,6 +525,8 @@ export {
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
 } from "./lifecycle";
+export { registerSessionEndTranscriptHandler, registerProjectionRepairProvider } from "./lifecycle-registry";
+export type { SessionEndTranscriptHandler, ProjectionRepairProvider } from "./lifecycle-registry";
 export { buildLearningReadback } from "./learning-readback";
 export type { LearningReadbackOptions } from "./learning-readback";
 export { repairProjectedArtifacts } from "./projection-self-repair";
@@ -536,7 +537,8 @@ export type {
   ProjectionRepairResult,
 } from "./projection-self-repair";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
-export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./event-journal";
+export { searchSomaMemory } from "./memory";
 export { streamEventLines, streamEventRecords } from "./event-log";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
 // Public write surface only. Path/dedup helpers (memoryNotePath,
@@ -615,7 +617,8 @@ export {
   type ToolCallPolicyGuardResult,
   type ToolCallPolicyGuardDecision,
 } from "./tool-policy-guard";
-export { bootstrapSomaHome, loadSomaHome, loadSomaProfile } from "./soma-home";
+export { bootstrapSomaHome } from "./home-bootstrap";
+export { loadSomaHome, loadSomaProfile } from "./soma-home";
 // Algorithm ↔ VSA bridge (#39) — advisory, non-blocking.
 export {
   markVsaVerifiedFromCriteria,
@@ -793,4 +796,4 @@ export {
   type ConfinementDeps,
 } from "./work-graph-attestation";
 
-export { SOMA_VERSION } from "./version";
+export { SOMA_VERSION } from "./core/index";

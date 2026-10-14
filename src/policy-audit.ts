@@ -1,4 +1,4 @@
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { evaluateSomaPolicyBatch, evaluateSomaPolicyWithFilesystem, normalizeSomaPolicyPath, policyOptionsForTarget } from "./policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "./projection-private-roots";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "./types";

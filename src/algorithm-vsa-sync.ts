@@ -14,12 +14,13 @@
  * already embeds an VSA. The missing link is slug → runId continuity across
  * edits and substrates. We persist that mapping in a small durable index under
  * the soma STATE dir (`memory/STATE/vsa-run-index.json`). This is the simplest
- * durable approach and is substrate-agnostic (every host writes the same file).
+ * durable approach and is substrate-agnostic (every substrate writes the same file).
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { resolveSubstrateSessionEnv } from "./adapters/session-env";
 import {
   advanceAlgorithmRun,
   createAlgorithmRun,
@@ -30,15 +31,17 @@ import {
   recordAlgorithmChange,
   recordAlgorithmLearning,
   recordAlgorithmObservation,
+  recordAlgorithmSession,
   setAlgorithmPlan,
   verifyAlgorithmCriterion,
+  type AlgorithmSessionEnv,
 } from "./algorithm";
 import {
   registerSomaHomeAlgorithmCapabilities,
   selectAlgorithmCapability,
 } from "./algorithm-capabilities";
 import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
-import { datePrefixSlug } from "./dated-slug";
+import { datePrefixSlug } from "./core/index";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { parseVsa, serializeVsa } from "./vsa-parse";
 import { getCriteria, getDecisions, getGoal, isClosedCriterion } from "./vsa-accessors";
@@ -69,6 +72,8 @@ export interface SyncAlgorithmRunFromVsaOptions {
    */
   principalAuthority?: boolean;
   timestamp?: string;
+  /** Substrate environment, injectable for session attribution. */
+  env?: AlgorithmSessionEnv;
 }
 
 export interface SyncAlgorithmRunFromVsaResult {
@@ -323,6 +328,7 @@ function reconcileCriteria(
   vsaCriteria: readonly Checkpoint[],
   timestamp: string,
   substrate: SubstrateId,
+  env: AlgorithmSessionEnv,
 ): AlgorithmRun {
   let next = run;
   const runCriteriaById = new Map(getCriteria(next.vsa).map((c) => [c.id, c]));
@@ -350,10 +356,11 @@ function reconcileCriteria(
       vsaCriterion.id,
       vsaCriterion.status,
       evidence,
-      timestamp,
-      { substrate },
-      vsaCriterion.evidenceKind,
-      false, // reconstruction, not a fresh assertion — VerificationGate does not apply (layer b still audits)
+      {
+        timestamp, provenance: { substrate }, evidenceKind: vsaCriterion.evidenceKind,
+        enforceGate: false, // reconstruction, not a fresh assertion — layer b still audits
+        env,
+      },
     );
   }
 
@@ -370,7 +377,9 @@ function reconcileCriteria(
     const evidence = goal ? `synced from VSA progress: ${goal}` : `synced from VSA progress: ${vsaCriterion.text}`;
     // A pass fabricated to match a frontmatter progress counter is specification
     // grade only — it must not clear the LEARN integrity gate as if probed.
-    next = verifyAlgorithmCriterion(next, vsaCriterion.id, "passed", evidence, timestamp, { substrate }, "specified", false);
+    next = verifyAlgorithmCriterion(next, vsaCriterion.id, "passed", evidence, {
+      timestamp, provenance: { substrate }, evidenceKind: "specified", enforceGate: false, env,
+    });
     runCriteria = getCriteria(next.vsa);
     completed = runCriteria.filter(isClosedCriterion).length;
   }
@@ -498,6 +507,7 @@ async function syncAlgorithmRunFromVsaInner(
 ): Promise<SyncAlgorithmRunFromVsaResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
+  const env = resolveSubstrateSessionEnv(options.env ?? process.env);
 
   let markdown: string;
   try {
@@ -523,7 +533,7 @@ async function syncAlgorithmRunFromVsaInner(
   // 1. Reconcile checked criteria FIRST. The LEARN gate refuses entry until
   //    every criterion is passed/dropped, so criteria state must be current
   //    before we attempt to advance the phase.
-  run = reconcileCriteria(run, isa, vsaCriteria, timestamp, options.substrate);
+  run = reconcileCriteria(run, isa, vsaCriteria, timestamp, options.substrate, env);
   const reconciledCriteria = getCriteria(run.vsa);
 
   // 2. Advance forward to (a reachable cap of) the VSA's declared phase. Never backward.
@@ -543,6 +553,7 @@ async function syncAlgorithmRunFromVsaInner(
   const changed = created || before !== after;
 
   if (changed) {
+    run = recordAlgorithmSession(run, env);
     await writeAlgorithmRun(run, { somaHome });
   }
 

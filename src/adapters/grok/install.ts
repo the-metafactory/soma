@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { isEnoent } from "../../fs-errors";
+import { isEnoent } from "../../core/index";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { removeProjectedSkillLinks } from "../../projected-skill-links";
 import { GROK_DEFAULT_HOME, grokProjectionPrivateRoots } from "../private-roots";

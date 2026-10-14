@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { pruneLegacyVsaSkill } from "../src/legacy-skill-prune";
 import { installSomaForClaudeCode, installSomaForCodex } from "../src/index";
-import { createPaths } from "../src/paths";
+import { createPaths } from "../src/core/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-prune-"));

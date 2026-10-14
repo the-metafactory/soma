@@ -1,9 +1,17 @@
-import { cp } from "node:fs/promises";
+import { cp, mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { ComponentManifest } from "../src/components";
-import { BASELINE_PATH, VIOLATIONS_PATH, checkBoundaries, formatReport, repositoryBaseRevision } from "../scripts/check-boundaries";
+import {
+  BASELINE_PATH,
+  CLOSURE_STEP,
+  VIOLATIONS_PATH,
+  checkBoundaries,
+  closureCeiling,
+  formatReport,
+  repositoryBaseRevision,
+} from "../scripts/check-boundaries";
 import { fixtureManifest, publicMemoryManifest } from "./fixtures/boundaries/manifest";
 import { withTempHome } from "./fixtures/temp-home";
 
@@ -27,6 +35,30 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("another component may import core's public entry, but not a core implementation file", async () => {
+    await withTempHome(async (root) => {
+      await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
+      await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+      const importer = join(root, "src/cli/core-entry-fixture.ts");
+      await mkdir(join(root, "src/cli"), { recursive: true });
+      await writeFile(importer, 'import { createPaths } from "../core/paths";\n');
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      expect(internal.newViolations).toContainEqual(expect.objectContaining({
+        from: "src/cli/core-entry-fixture.ts",
+        to: "src/core/paths.ts",
+        fromComponent: "cli",
+        toComponent: "core",
+        rule: "public-entry",
+      }));
+
+      await writeFile(importer, 'import { createPaths } from "../core/index";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.ok).toBe(true);
+    }, "soma-boundaries-core-");
+  }, { timeout: 30_000 });
+
   test(
     "the committed violation list and closure baseline match the tree",
     () => {
@@ -218,26 +250,42 @@ describe("checkBoundaries on fixture trees", () => {
       expect(grown.ok).toBe(false);
       expect(grown.closureGrowth).toContainEqual({ component: "memory", baseline: 4, actual: 5 });
       expect(grown.errors).toContain(
-        "closure of memory grew: 4 -> 5 lines (+1); run with --update-baseline if intended",
+        "closure of memory grew past its ceiling: 4 -> 5 lines (+1); run with --update-baseline if intended",
       );
 
       const updated = checkBoundaries({ root, manifest: fixtureManifest, updateBaseline: true });
       expect(updated.ok).toBe(true);
       expect(updated.baselineUpdated).toBe(true);
-      expect(await Bun.file(join(root, BASELINE_PATH)).json()).toMatchObject({ memory: 5 });
+      expect(await Bun.file(join(root, BASELINE_PATH)).json()).toMatchObject({ memory: closureCeiling(5) });
 
       expect(checkBoundaries({ root, manifest: fixtureManifest }).ok).toBe(true);
     }, "soma-boundaries-");
   });
 
-  test("a closure that shrinks passes and is reported", async () => {
+  test("a closure under its ceiling passes silently; one that shrank below its ceiling's step is reported", async () => {
     await withTempHome(async (root) => {
       await cp(fixture("clean"), root, { recursive: true });
-      await Bun.write(join(root, BASELINE_PATH), JSON.stringify({ core: 1, memory: 9, flows: 13, substrates: 7, legacy: 16 }));
+      const ceilings = { core: 500, memory: 500, flows: 500, substrates: 500, legacy: 500 };
+      await Bun.write(join(root, BASELINE_PATH), JSON.stringify(ceilings));
+      const quiet = checkBoundaries({ root, manifest: fixtureManifest });
+      expect(quiet.ok).toBe(true);
+      expect(quiet.closureShrink).toEqual([]);
+
+      await Bun.write(join(root, BASELINE_PATH), JSON.stringify({ ...ceilings, memory: 2000 }));
       const report = checkBoundaries({ root, manifest: fixtureManifest });
       expect(report.ok).toBe(true);
-      expect(report.closureShrink).toEqual([{ component: "memory", baseline: 9, actual: 4 }]);
-      expect(report.notes.join("\n")).toContain("closure of memory shrank: 9 -> 4 lines (-5)");
+      expect(report.closureShrink).toEqual([{ component: "memory", baseline: 2000, actual: 4 }]);
+      expect(report.notes.join("\n")).toContain("closure of memory shrank: 4 lines under a ceiling of 2000; --update-baseline lowers it to 500");
     }, "soma-boundaries-");
+  });
+
+  test("ceilings add 5% headroom in steps of 500 lines, so small growth leaves the baseline alone", () => {
+    expect(closureCeiling(1)).toBe(CLOSURE_STEP);
+    expect(closureCeiling(4594)).toBe(5000);
+    expect(closureCeiling(4761)).toBe(5000);
+    expect(closureCeiling(4762)).toBe(5500);
+    expect(closureCeiling(70198)).toBe(74000);
+    // A PR that adds a few hundred lines to a 4,594-line closure stays under 5,000.
+    expect(4594 + 300).toBeLessThanOrEqual(closureCeiling(4594));
   });
 });

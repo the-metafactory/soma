@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrateVsaStorageDir } from "../src/home-migration";
-import { bootstrapSomaHome } from "../src/soma-home";
+import { bootstrapSomaHome } from "../src/home-bootstrap";
 import { vsaDir } from "../src/vsa";
 
 async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {

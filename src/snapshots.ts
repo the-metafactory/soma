@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { beginEventRollback, compressEventSegment, eventArchiveDir, eventArchiveVersion, eventCountsIndexPath, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock, writeCumulativeEventCounts } from "./event-log";
 import packageJson from "../package.json";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import type {
   SomaSnapshotEntry,
   SomaSnapshotListOptions,
