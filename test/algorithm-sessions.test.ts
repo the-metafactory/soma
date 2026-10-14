@@ -15,6 +15,8 @@ import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 const homes: string[] = [];
 const S1 = { CLAUDE_CODE_SESSION_ID: "S1" };
 const S2 = { CLAUDE_CODE_SESSION_ID: "S2" };
+const neutralS1 = { SOMA_SESSION_ID: "S1" };
+const neutralS2 = { SOMA_SESSION_ID: "S2" };
 const evidence = "bun test test/algorithm-sessions.test.ts: assertions passed";
 
 afterEach(async () => {
@@ -47,21 +49,34 @@ async function cli(somaHome: string, args: string[], env: AlgorithmSessionEnv = 
 test("session mutation helper preserves order, deduplicates, and leaves absent keys unchanged", () => {
   const original = fixture();
   expect(recordAlgorithmSession(original, {})).toBe(original);
-  expect(recordAlgorithmSession(original, { CLAUDE_CODE_SESSION_ID: "" })).toBe(original);
-  const first = recordAlgorithmSession(original, S1);
-  expect(recordAlgorithmSession(first, S1)).toBe(first);
-  expect(recordAlgorithmSession(recordAlgorithmSession(first, S2), S1).sessionIds).toEqual(["S1", "S2"]);
+  expect(recordAlgorithmSession(original, { SOMA_SESSION_ID: "" })).toBe(original);
+  expect(recordAlgorithmSession(original, S1)).toBe(original);
+  const first = recordAlgorithmSession(original, neutralS1);
+  expect(recordAlgorithmSession(first, neutralS1)).toBe(first);
+  expect(recordAlgorithmSession(recordAlgorithmSession(first, neutralS2), neutralS1).sessionIds).toEqual(["S1", "S2"]);
   expect(original.sessionIds).toEqual([]);
   const legacy = { ...original };
   delete legacy.sessionIds;
   expect(recordAlgorithmSession(legacy, {})).toBe(legacy);
-  expect(recordAlgorithmSession(legacy, S1).sessionIds).toEqual(["S1"]);
+  expect(recordAlgorithmSession(legacy, neutralS1).sessionIds).toEqual(["S1"]);
+});
+
+test("named verify options preserve the existing positional API including reconstruction", () => {
+  const original = fixture();
+  const timestamp = "2026-10-14T10:00:00.000Z";
+  const provenance = { substrate: "codex" as const };
+  for (const enforceGate of [true, false]) {
+    const evidenceKind = enforceGate ? "tested" as const : "specified" as const;
+    const named = verifyAlgorithmCriterion(original, "C3", "passed", evidence, { timestamp, provenance, evidenceKind, enforceGate });
+    const positional = verifyAlgorithmCriterion(original, "C3", "passed", evidence, timestamp, provenance, evidenceKind, enforceGate);
+    expect(named).toEqual(positional);
+  }
 });
 
 for (const outcome of ["passed", "failed", "dropped", "deferred-probe"] as const) {
   test(`verification stores structured ${outcome} without changing prose`, () => {
     const run = verifyAlgorithmCriterion(fixture(), "C3", outcome, evidence,
-      "2026-10-14T10:00:00.000Z", undefined, outcome === "passed" ? "tested" : undefined, true, S1);
+      { timestamp: "2026-10-14T10:00:00.000Z", evidenceKind: outcome === "passed" ? "tested" : undefined, env: neutralS1 });
     expect(run.verification.at(-1)).toEqual({
       timestamp: "2026-10-14T10:00:00.000Z",
       phase: "observe",
@@ -74,7 +89,7 @@ for (const outcome of ["passed", "failed", "dropped", "deferred-probe"] as const
   });
 }
 
-test("CLI new and subsequent verbs append each host session once; reads and missing keys do not", async () => {
+test("CLI new and subsequent verbs append each substrate session once; reads and missing keys do not", async () => {
   const somaHome = await home();
   await cli(somaHome, ["new", "--prompt", "Track sessions", "--intent", "Persist provenance",
     "--current-state", "No sessions", "--goal", "Recorded sessions", "--criterion", "C3:Verified provenance"], S1);
@@ -85,7 +100,7 @@ test("CLI new and subsequent verbs append each host session once; reads and miss
     "--op", "decision:Keep structured provenance"], S2);
   await cli(somaHome, ["verify", "--criterion-id", "C3", "--status", "passed",
     "--evidence-kind", "tested", "--evidence", evidence], S1);
-  await cli(somaHome, ["learn", "--text", "Use host sessions at mutation boundaries"]);
+  await cli(somaHome, ["learn", "--text", "Use substrate sessions at mutation boundaries"]);
   const { run } = await readAlgorithmRunById("sessions", { somaHome });
   expect(run.sessionIds).toEqual(["S1", "S2"]);
   expect(run.verification.map((entry) => entry.sessionId)).toEqual(["S2", "S1"]);
@@ -93,6 +108,22 @@ test("CLI new and subsequent verbs append each host session once; reads and miss
   const before = await readFile(path, "utf8");
   await cli(somaHome, ["show"], { CLAUDE_CODE_SESSION_ID: "read-only" });
   expect(await readFile(path, "utf8")).toBe(before);
+});
+
+test("CLI projects neutral sessions ahead of native sessions for writes and gate telemetry", async () => {
+  const somaHome = await home();
+  await writeAlgorithmRun(fixture(), { somaHome });
+  const env = { SOMA_SESSION_ID: "neutral", CLAUDE_CODE_SESSION_ID: "native" };
+  await cli(somaHome, ["verify", "--criterion-id", "C3", "--status", "passed",
+    "--evidence-kind", "tested", "--evidence", evidence], env);
+  const { run } = await readAlgorithmRunById("sessions", { somaHome });
+  expect(run.sessionIds).toEqual(["neutral"]);
+  expect(run.verification.at(-1)?.sessionId).toBe("neutral");
+  await expect(cli(somaHome, ["verify", "--criterion-id", "C3", "--status", "passed",
+    "--evidence-kind", "specified", "--evidence", evidence], env)).rejects.toBeInstanceOf(VerificationGateError);
+  const events = (await readFile(join(somaHome, "memory/STATE/events.jsonl"), "utf8"))
+    .trim().split("\n").map((line) => JSON.parse(line));
+  expect(events.find((event) => event.kind === "verification.gate_violation").metadata.sessionId).toBe("neutral");
 });
 
 for (const action of ["verify", "batch"] as const) {

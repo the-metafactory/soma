@@ -7,13 +7,13 @@
   "tools": 7792,
   "policy": 9571,
   "home": 23752,
-  "algorithm": 9369,
+  "algorithm": 9395,
   "router": 5164,
   "graph": 9633,
   "execution": 4811,
-  "substrates": 37273,
+  "substrates": 37298,
   "migrate": 15657,
-  "flows": 43993,
-  "cli": 69764,
-  "legacy": 56243
+  "flows": 44049,
+  "cli": 69825,
+  "legacy": 56298
 }

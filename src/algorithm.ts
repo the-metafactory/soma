@@ -126,11 +126,12 @@ function logEntry(phase: AlgorithmPhase, text: string, timestamp = new Date().to
   };
 }
 
+/** Library callers supply SOMA_SESSION_ID; IO glue projects native session variables. */
 export type AlgorithmSessionEnv = Readonly<Record<string, string | undefined>>;
 
-/** Resolve the host's session key without inventing one for unsupported hosts. */
+/** Read the neutral session key projected by substrate adapters at the IO boundary. */
 export function algorithmSessionId(env: AlgorithmSessionEnv): string | undefined {
-  const sessionId = env.CLAUDE_CODE_SESSION_ID;
+  const sessionId = env.SOMA_SESSION_ID;
   return sessionId === "" ? undefined : sessionId;
 }
 
@@ -563,6 +564,28 @@ export class VerificationGateError extends Error {
   }
 }
 
+export interface AlgorithmVerifyOptions {
+  timestamp?: string;
+  provenance?: Pick<AlgorithmProvenanceInput, "substrate">;
+  evidenceKind?: Checkpoint["evidenceKind"];
+  // VerificationGate opt-out for the RECONSTRUCTION surface. The gate fires on
+  // fresh assistant/CLI assertions (default); the VSA→run sync passes false because
+  // it reconstructs already-DECLARED state from existing VSA markdown (a bare
+  // `[x]` legitimately carries no probe kind). Synced hollow passes remain
+  // caught by the audit-time LEARN gate (layer b) — the strictness belongs on
+  // the assertion surface, not on mirroring on-disk state.
+  enforceGate?: boolean;
+  env?: AlgorithmSessionEnv;
+}
+
+export function verifyAlgorithmCriterion(
+  run: AlgorithmRun,
+  criterionId: string,
+  status: "passed" | "failed" | "dropped" | "deferred-probe",
+  evidence: string,
+  options?: AlgorithmVerifyOptions,
+): AlgorithmRun;
+/** Compatibility overload for existing timestamp/provenance callers. */
 export function verifyAlgorithmCriterion(
   run: AlgorithmRun,
   criterionId: string,
@@ -571,15 +594,22 @@ export function verifyAlgorithmCriterion(
   timestamp?: string,
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
   evidenceKind?: Checkpoint["evidenceKind"],
-  // VerificationGate opt-out for the RECONSTRUCTION surface. The gate fires on
-  // fresh assistant/CLI assertions (default); the VSA→run sync passes false because
-  // it reconstructs already-DECLARED state from existing VSA markdown (a bare
-  // `[x]` legitimately carries no probe kind). Synced hollow passes remain
-  // caught by the audit-time LEARN gate (layer b) — the strictness belongs on
-  // the assertion surface, not on mirroring on-disk state.
-  enforceGate = true,
-  env: AlgorithmSessionEnv = {},
+  enforceGate?: boolean,
+): AlgorithmRun;
+export function verifyAlgorithmCriterion(
+  run: AlgorithmRun,
+  criterionId: string,
+  status: "passed" | "failed" | "dropped" | "deferred-probe",
+  evidence: string,
+  optionsOrTimestamp: AlgorithmVerifyOptions | string = {},
+  legacyProvenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+  legacyEvidenceKind?: Checkpoint["evidenceKind"],
+  legacyEnforceGate = true,
 ): AlgorithmRun {
+  const options: AlgorithmVerifyOptions = typeof optionsOrTimestamp === "string"
+    ? { timestamp: optionsOrTimestamp, provenance: legacyProvenance, evidenceKind: legacyEvidenceKind, enforceGate: legacyEnforceGate }
+    : { provenance: legacyProvenance, evidenceKind: legacyEvidenceKind, enforceGate: legacyEnforceGate, ...optionsOrTimestamp };
+  const { timestamp, provenance, evidenceKind, enforceGate = true, env = {} } = options;
   assertNonEmpty(evidence, "verification evidence");
 
   // VerificationGate (layer a) — fail-fast at record time. #330's LEARN gate
@@ -958,11 +988,7 @@ export function applyAlgorithmBatch(
           operation.criterionId,
           operation.status,
           operation.evidence,
-          timestamp,
-          provenance,
-          defaultEvidenceKind(operation.evidenceKind, operation.status),
-          true,
-          env,
+          { timestamp, provenance, evidenceKind: defaultEvidenceKind(operation.evidenceKind, operation.status), env },
         );
       case "capability":
         return selectAlgorithmCapability(current, {

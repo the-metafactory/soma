@@ -62,7 +62,7 @@ ${criteriaLines}${decisionBlock}
 `;
 }
 
-test("sync mutations track host sessions and attribute reconstructed verification", async () => {
+test("sync mutations track substrate sessions and attribute reconstructed verification", async () => {
   await withSomaHome(async (somaHome, dir) => {
     const input = {
       slug: "session-sync",
@@ -76,7 +76,7 @@ test("sync mutations track host sessions and attribute reconstructed verificatio
     expect(first.created).toBe(true);
     if (first.runId === null) throw new Error("Expected a sync run");
     expect((await readAlgorithmRunById(first.runId, { somaHome })).run.sessionIds).toEqual(["S1"]);
-    // An unchanged sync is a read, so a later host must not be added yet.
+    // An unchanged sync is a read, so a later session must not be added yet.
     const unchanged = await syncAlgorithmRunFromVsa({ ...options, env: { CLAUDE_CODE_SESSION_ID: "S2" } });
     expect(unchanged.noop).toBe(true);
     expect((await readAlgorithmRunById(first.runId, { somaHome })).run.sessionIds).toEqual(["S1"]);
