@@ -1,10 +1,10 @@
 import { lstat, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative } from "node:path";
 import { parseDigestPointerIds } from "./episodic-digest";
-import { createPaths } from "./paths";
-import { isEnoent } from "./fs-utils";
+import { createPaths } from "./core/index";
+import { isFsUtilsEnoent as isEnoent } from "./core/index";
 import { listMemoryNotes } from "./memory-fs";
-import { runBoundedConcurrent } from "./internal-concurrency";
+import { runBoundedConcurrent } from "./core/index";
 import { memoryIndexPath } from "./memory-index";
 import { somaMemoryEventsPath } from "./memory";
 // The neutral journal read-model (#425/#428) — audit sources its retrieval-quality

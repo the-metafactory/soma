@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isSkillStub, renderSkills, renderSkillStub, stripProvenance } from "./adapters/shared";
 import { buildSubstrateHomeProjection } from "./home-projection";
 import type { InstallSubstrate } from "./install-spec";
-import { pathExists } from "./fs-utils";
+import { pathExists } from "./core/index";
 import { installSpecFor } from "./install-spec-registry";
 import { writeProjection } from "./projection";
 import { extractSkillFrontmatter, SKILL_MD } from "./skill-frontmatter";

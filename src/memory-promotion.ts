@@ -4,20 +4,21 @@ import { join } from "node:path";
 import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./memory";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { noteIdSlugSegment, toNoteIdSlug } from "./memory-note";
 import { writeMemoryNote } from "./memory-write";
 import { getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
-import { SOMA_MEMORY_BACKFILL_TYPE_MAP, SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./types";
+import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
+import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./core/index";
 import type {
   AlgorithmRun,
   SomaMemoryPromotionOptions,
   SomaMemoryPromotionResult,
-  SomaMemoryPromotionStore,
   SubstrateId,
   WritableNoteType,
 } from "./types";
+import type { SomaMemoryPromotionStore } from "./core/index";
 
 /**
  * Internal promotion options — extends the public options with `onDurable`, a

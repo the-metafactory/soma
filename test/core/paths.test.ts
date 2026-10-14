@@ -2,10 +2,10 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
-import { createPaths, type SomaPaths } from "../src/index";
+import { createPaths, type SomaPaths } from "../../src/core/index";
 // Not on the public barrel — a launcher-contract detail two CLI paths share,
 // so the test reaches for it where it lives.
-import { invocationCwd } from "../src/path-utils";
+import { invocationCwd } from "../../src/core/path-utils";
 
 test("createPaths defaults under a home directory", () => {
   const homeDir = "/tmp/soma-paths-home";

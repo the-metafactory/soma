@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, extname, join, sep } from "node:path";
 import { memoryTerms } from "./memory-terms";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { appendEventBatch } from "./event-log";
 import type {
   SomaMemoryEvent,

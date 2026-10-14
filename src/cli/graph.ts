@@ -27,7 +27,7 @@
  * cannot substitute for either.
  */
 
-import { selectMarkdownSections } from "../markdown-sections";
+import { selectMarkdownSections } from "../core/index";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -88,7 +88,7 @@ import {
 // to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
 // other importers point at core directly, so there is one path to each symbol.
 import { createGraphStore, localBlockerId, localNodeId, probeRegistryKey, resolveGraphRepo, resolveNodeTarget } from "../work-graph-bridge";
-import { invocationCwd } from "../path-utils";
+import { invocationCwd } from "../core/index";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 import { GOAL_ID_PATTERN, readGoalStatus, warnServes, type ServesOptions } from "../goal-reference";

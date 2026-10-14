@@ -1,14 +1,14 @@
 import { mkdir, readdir, readFile, realpath, rename, lstat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import { createPaths } from "./paths";
-import { isEnoent } from "./fs-utils";
+import { createPaths } from "./core/index";
+import { isFsUtilsEnoent as isEnoent } from "./core/index";
 import { listMemoryNotes } from "./memory-fs";
 import { appendSomaMemoryEvent } from "./memory";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, NOTE_ID_PATTERN, NOTE_ID_MAX_LEN } from "./memory-note";
 import { renderDigestPointer } from "./episodic-digest";
 import { collectDurableNotes, mergeAndCloseAssistantPair } from "./memory-write";
 import { computeNoteRetrievalCounts } from "./memory-journal";
-import { runBoundedConcurrent } from "./internal-concurrency";
+import { runBoundedConcurrent } from "./core/index";
 import { memoryTermSet } from "./memory-terms";
 import { jaccard, ageDays, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
 import { rebuildMemoryIndex, memoryIndexPath } from "./memory-index";
@@ -20,8 +20,8 @@ import type {
   SomaMemorySimilarPair,
   SomaMemoryNote,
   SomaMemoryTrust,
-  SomaPaths,
 } from "./types";
+import type { SomaPaths } from "./core/index";
 
 /**
  * Deterministic consolidation (subsystem M6). A no-LLM maintenance pass. Every op

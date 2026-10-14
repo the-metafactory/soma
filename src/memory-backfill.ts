@@ -42,17 +42,18 @@ import { listMemoryNotes } from "./memory-fs";
 import { rebuildMemoryIndex } from "./memory-index";
 import { MemoryNoteError, toNoteIdSlug, NOTE_ID_MAX_LEN } from "./memory-note";
 import { memoryNotePath, writeMemoryNote } from "./memory-write";
-import { createPaths } from "./paths";
-import { SOMA_MEMORY_BACKFILL_TYPE_MAP, SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./types";
+import { createPaths } from "./core/index";
+import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
+import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./core/index";
 import type {
   SomaMemoryBackfillEntry,
   SomaMemoryBackfillManifest,
   SomaMemoryBackfillManifestEntry,
   SomaMemoryBackfillOptions,
   SomaMemoryBackfillResult,
-  SomaPaths,
   WritableNoteType,
 } from "./types";
+import type { SomaPaths } from "./core/index";
 
 const MANIFEST_SCHEMA = "soma.memory-backfill.v1";
 // Backfill is a Memory-subsystem operation, so its bookkeeping lives INSIDE the

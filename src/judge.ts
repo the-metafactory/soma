@@ -4,7 +4,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { ALGORITHM_CLASSIFIER_CONTRACT } from "./algorithm-classifier";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 
 /**
  * `soma judge` — the judgment ledger and caller registry.

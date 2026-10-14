@@ -1,4 +1,4 @@
-import { cp } from "node:fs/promises";
+import { cp, mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -27,6 +27,30 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("another component may import core's public entry, but not a core implementation file", async () => {
+    await withTempHome(async (root) => {
+      await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
+      await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+      const importer = join(root, "src/cli/core-entry-fixture.ts");
+      await mkdir(join(root, "src/cli"), { recursive: true });
+      await writeFile(importer, 'import { createPaths } from "../core/paths";\n');
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      expect(internal.newViolations).toContainEqual(expect.objectContaining({
+        from: "src/cli/core-entry-fixture.ts",
+        to: "src/core/paths.ts",
+        fromComponent: "cli",
+        toComponent: "core",
+        rule: "public-entry",
+      }));
+
+      await writeFile(importer, 'import { createPaths } from "../core/index";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.ok).toBe(true);
+    }, "soma-boundaries-core-");
+  }, { timeout: 30_000 });
+
   test(
     "the committed violation list and closure baseline match the tree",
     () => {

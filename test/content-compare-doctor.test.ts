@@ -19,7 +19,7 @@ import { PROJECTION_LIFECYCLE_SUBSTRATES, type InstallSubstrate } from "../src/c
 import { installSomaForCursor, installSomaForPiDev } from "../src/index";
 import { diagnoseContentCompareDrift } from "../src/adapters/content-compare-doctor";
 import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../src/doctor-projection-input";
-import { defaultSomaRepoPath } from "../src/repo-path";
+import { defaultSomaRepoPath } from "../src/core/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 

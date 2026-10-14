@@ -8,7 +8,7 @@
  * process exits 0. Only an unknown subcommand is a usage error.
  */
 import { randomUUID } from "node:crypto";
-import { defaultSomaHome } from "../paths";
+import { defaultSomaHome } from "../core/index";
 import {
   publishRunFinished,
   RUN_KINDS,

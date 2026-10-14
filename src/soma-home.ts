@@ -1,7 +1,7 @@
 import { open, readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { loadGoalRecords } from "./goal-records";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { parseBehaviorPolicy } from "./policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
 import type { GoalRecordWarning } from "./goal-records";

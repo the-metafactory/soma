@@ -1,4 +1,4 @@
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { collectDurableNotes } from "./memory-write";
 import type { ScannedNote } from "./memory-write";
 import { memoryTerms } from "./memory-terms";
