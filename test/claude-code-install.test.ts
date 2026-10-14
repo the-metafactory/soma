@@ -565,7 +565,7 @@ test("audit §3: per-tool writeback events are 1-in-10 hash-sampled (most calls 
     expect(emitted).toBeLessThan(TOTAL / 3); // sampled well below the raw call count
   });
   // This checks sampling across 30 process launches; hook latency is measured separately.
-}, 30_000); // Thirty real hook subprocesses can exceed the previous 10 s limit.
+}, 60_000); // Match the repo budget for thirty real hook subprocesses on a loaded host.
 
 test("AC-5: CLAUDE.md left untouched (pivot dropped @-import composition)", async () => {
   await withTempHome(async (homeDir) => {
