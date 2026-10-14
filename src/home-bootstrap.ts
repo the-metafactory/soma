@@ -1,0 +1,284 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { allInstallSpecs } from "./install-spec-registry";
+import { migrateVsaStorageDir } from "./home-migration";
+import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
+import { createPaths } from "./paths";
+import { loadSomaHome } from "./soma-home";
+import type { SomaHomeBootstrapOptions, SomaHomeBootstrapResult } from "./types";
+
+// #88 / DD-2: canonical PAI v5.0.0 memory taxonomy (17 substrate-neutral +
+// 2 PAI-bound). The directory list and per-category README content live in
+// `memory-readmes.ts` so the install planner, bootstrap, and tests all share
+// one source of truth.
+const MEMORY_DIRS = SOMA_MEMORY_CATEGORIES;
+
+function resolveSomaHome(options: SomaHomeBootstrapOptions = {}): string {
+  return createPaths(options).root();
+}
+
+function renderAssistantProfile(): string {
+  return [
+    "# Assistant",
+    "",
+    "Name: soma",
+    "Display name: Soma",
+    "",
+    "## Traits",
+    "",
+    "- portable: true",
+    "- concise: true",
+  ].join("\n");
+}
+
+/**
+ * Starter `profile/communication.md` — how the assistant talks (Identity
+ * compartment). Deliberately generic: this is a public template, so it carries
+ * no principal-specific voice, and the banned-phrase list ships with only the
+ * few tics that are model-general. The principal grows it from there.
+ *
+ * Conduct rules (scope, permissions, evidence) belong in `policy/behavior.md`
+ * and are NOT restated here — one rule, one home.
+ *
+ * PROVENANCE: the section structure (positive/negative patterns, banned
+ * phrases, reference codes, aliases, authored examples) and several of the
+ * banned phrases are adapted from `disler/fixing-smartass-opus-5`
+ * (https://github.com/disler/fixing-smartass-opus-5, MIT). Adapted, not copied:
+ * that project's "never add a co-author to a commit message" rule is
+ * deliberately absent (it contradicts this repo's trailer convention), its
+ * "no decorative headings" rule is relaxed here because the VSA and Algorithm
+ * rendering contracts are heading-dense by design, and `C`/`P` are reserved
+ * from the reference-code space for VSA criteria and plan steps.
+ */
+function renderCommunicationContract(): string {
+  return [
+    "# Communication Contract",
+    "",
+    "How this assistant talks. Operational boundaries — scope, permissions,",
+    "evidence — live in `policy/behavior.md`, not here.",
+    "",
+    "This file projects verbatim into every substrate — Soma parses nothing out",
+    "of it. Edit it directly; every section below works by being read.",
+    "",
+    "Structure adapted from disler/fixing-smartass-opus-5 (MIT).",
+    "",
+    "## Positive patterns",
+    "",
+    "- State each fact once.",
+    "- Match the level of detail to the size of the request.",
+    "- Challenge an incorrect assumption directly, and say why.",
+    "- Prefer the simplest word that carries the idea.",
+    "- Use headings and lists where they aid navigation; drop them when the answer is short.",
+    "",
+    "## Negative patterns",
+    "",
+    "- Do not flatter, validate, or agree without a reason.",
+    "- Do not restate an idea already stated.",
+    "- Do not reach for an analogy when the thing itself is in front of us.",
+    "- Do not chain em dashes.",
+    "",
+    "## Banned phrases",
+    "",
+    "Owned by the principal. Add a phrase the first time it grates. This list is",
+    "model-specific and expected to churn — a new model brings new tics, and the",
+    "sections around it do not change.",
+    "",
+    "- load-bearing",
+    "- worth stating plainly",
+    "- here's the honest truth",
+    "- the real tension",
+    "",
+    "## Reference codes",
+    "",
+    "When presenting three or more findings, options, risks, questions, actions,",
+    "or decisions, give each one a short code. Codes stay stable for the whole",
+    "conversation, so a reply can be `keep D1, reject O2, answer Q1` instead of",
+    "re-quoting what it refers to.",
+    "",
+    "- F: findings",
+    "- O: options",
+    "- R: risks",
+    "- Q: questions",
+    "- A: actions",
+    "- D: decisions",
+    "",
+    "`C` and `P` are reserved by the Algorithm: `C1` is a VSA criterion and `P1`",
+    "a plan step. Recording a code under either letter is refused.",
+    "",
+    "A code becomes durable only when written to a run — `soma algorithm ref --id",
+    "<run-id> --code D1 --text ...`, and `soma algorithm resolve --id <run-id>",
+    "--code D1 --verdict kept` to close it. There is no implicit active run: a",
+    "code typed in chat is shorthand between us until one of those commands runs.",
+    "A recorded `D` code also appends to that run's decisions log.",
+    "",
+    "## Aliases",
+    "",
+    "Expand these only when the token stands alone, never inside a longer word.",
+    "",
+    "- scr: Simplify, compress, and repeat your response.",
+    "- eli: Explain this like I am 18. Simplify the language. Shorten it.",
+    "- foc: Focus on what matters most here. Boil it down to the one thing.",
+    "- ref: Rewrite the response with reference codes.",
+    "",
+    "## Examples",
+    "",
+    "Authored pairs beat authored rules: a model matches an example harder than",
+    "it follows an instruction. Paste a response you liked under `Do`, and the",
+    "bloated version under `Do not`.",
+    "",
+    "### Simple investigation",
+    "",
+    "User: `Is legacy-config.json still referenced?`",
+    "",
+    "Do:",
+    "",
+    "```text",
+    "No. The only match is the file itself.",
+    "```",
+    "",
+    "Do not:",
+    "",
+    "```text",
+    "Great question. Let me search the repository and determine whether this file",
+    "is still load-bearing. After a comprehensive review, the answer is no. I can",
+    "also remove it and inspect adjacent files if you would like.",
+    "```",
+  ].join("\n");
+}
+
+function renderPrincipalProfile(): string {
+  return [
+    "# Principal",
+    "",
+    "Name: principal",
+    "Preferred name: Principal",
+    "",
+    "## Profile",
+    "",
+    "- status: starter-profile",
+  ].join("\n");
+}
+
+function renderPurposeProfile(): string {
+  return [
+    "# Purpose",
+    "",
+    "Mission: Keep personal assistant context portable across substrates.",
+    "",
+    "## Missions",
+    "",
+    "- Establish Soma as the durable personal assistant home.",
+    "",
+    "## Principles",
+    "",
+    "- Substrate adapters translate; they do not own core concepts.",
+    "- Filesystem-native state is the portability layer.",
+    "",
+    "## Commitments",
+    "",
+    "- Keep memory filesystem-native.",
+  ].join("\n");
+}
+
+export async function bootstrapSomaHome(options: SomaHomeBootstrapOptions = {}): Promise<SomaHomeBootstrapResult> {
+  const somaHome = resolveSomaHome(options);
+  // soma#329 slice 3: rename a pre-rename `isa/` storage dir to `vsa/` before
+  // bootstrap recreates the compartment dir below — otherwise the mkdir would
+  // create an empty `vsa/` alongside the legacy `isa/` and strand the existing
+  // VSAs. Runs on every install/reproject/upgrade/init; no-op once migrated.
+  await migrateVsaStorageDir(somaHome);
+  const paths = createPaths(somaHome);
+  const files = [
+    {
+      path: "profile/assistant.md",
+      content: renderAssistantProfile(),
+    },
+    {
+      path: "profile/principal.md",
+      content: renderPrincipalProfile(),
+    },
+    {
+      path: "profile/purpose.md",
+      content: renderPurposeProfile(),
+    },
+    {
+      path: "profile/communication.md",
+      content: renderCommunicationContract(),
+    },
+    {
+      path: "policy/README.md",
+      content: "# Soma Policy\n\nPolicy files live here. Generated substrate projections should declare enforceable and advisory policy separately.",
+    },
+    {
+      path: "skills/README.md",
+      content: "# Soma Skills\n\nPortable Soma skills live here. Substrate-specific skills are projections.",
+    },
+    {
+      path: "projections/README.md",
+      content: "# Soma Projections\n\nGenerated substrate projections can be cached here. Substrate homes remain projections, not source of truth.",
+    },
+    {
+      path: "vsa/INDEX.md",
+      content: "# Soma VSAs\n\nOne VSA per project or task lives in this directory as `<slug>.md`.\nThe active VSA slug is recorded in `memory/STATE/active.json`.\nTemplates seeded by the VSA skill live under `.templates/`.\n",
+    },
+  ];
+  const writtenFiles: string[] = [];
+
+  await mkdir(somaHome, { recursive: true });
+
+  // #88 / DD-2: bootstrap the canonical PAI v5.0.0 memory taxonomy. Each
+  // category directory ships a README describing what belongs there;
+  // PAI-bound categories (`PAISYSTEMUPDATES`, `AUTO`) self-declare their
+  // substrate provenance. README write uses `flag: "wx"` so principal edits
+  // survive re-runs (idempotent contract — see test AC-3).
+  for (const directory of MEMORY_DIRS) {
+    await mkdir(paths.resolve("memory", directory), { recursive: true });
+  }
+
+  for (const entry of SOMA_MEMORY_CATEGORY_READMES) {
+    const readmePath = paths.resolve("memory", entry.category, "README.md");
+    // `flag: "wx"` makes README writes idempotent — principal edits survive
+    // re-install (test AC-3). Sage R1: only record the path in `writtenFiles`
+    // when the write actually happened, so callers don't see a skipped EEXIST
+    // path masquerading as a fresh write.
+    try {
+      await writeFile(readmePath, `${entry.content}\n`, { encoding: "utf8", flag: "wx" });
+      writtenFiles.push(readmePath);
+    } catch (error: unknown) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+
+  // Derive from the install-spec registry so bootstrap creates a projection
+  // directory for every registered substrate — the same source the install
+  // planner's SOMA_BOOTSTRAP_DIRECTORIES uses, so plan and apply cannot drift.
+  for (const spec of allInstallSpecs()) {
+    await mkdir(join(somaHome, "projections", spec.substrate), { recursive: true });
+  }
+
+  // VSA storage layout (#32). Library CRUD (#34) owns reads/writes;
+  // bootstrap only ensures the canonical directories exist. `.templates/`
+  // is left empty here — Layer 2 (#33) populates skill assets; future
+  // template seeding lives outside bootstrap to avoid Layer 1 → Layer 2
+  // coupling.
+  await mkdir(join(somaHome, "vsa", ".templates"), { recursive: true });
+
+  for (const file of files) {
+    const target = join(somaHome, file.path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, `${file.content}\n`, { encoding: "utf8", flag: "wx" }).catch((error: unknown) => {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST") {
+        throw error;
+      }
+    });
+    writtenFiles.push(target);
+  }
+
+  return {
+    somaHome,
+    context: await loadSomaHome(somaHome, { includeSkills: options.includeSkills }),
+    files: writtenFiles,
+  };
+}
