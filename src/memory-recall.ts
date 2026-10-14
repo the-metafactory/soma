@@ -5,7 +5,7 @@ import { memoryTerms } from "./memory-terms";
 // Aliased: `toRecalledNote` below binds a local `ageDays` (the field name on
 // SomaMemoryRecalledNote), so the imported function keeps a distinct name.
 import { noteDateMs, ageDays as ageDaysSince } from "./memory-corpus";
-import { appendSomaMemoryEvent } from "./event-journal";
+import { appendSomaMemoryEvent } from "./events/index";
 import type {
   SomaMemoryNote,
   SomaMemoryRecallOptions,

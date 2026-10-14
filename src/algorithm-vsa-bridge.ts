@@ -13,7 +13,7 @@
  */
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSomaMemoryEvent } from "./event-journal";
+import { appendSomaMemoryEvent } from "./events/index";
 import { getActiveVsa, readVsa, writeVsa } from "./vsa";
 import { runSomaLifecycleVsaUpdated } from "./lifecycle";
 import { getCriteria } from "./vsa-accessors";

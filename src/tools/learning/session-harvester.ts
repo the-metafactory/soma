@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { streamEventLines } from "../../event-log";
+import { streamEventLines } from "../../events/index";
 import { listSomaWorkRegistryEntries, type SomaCurrentWorkPointer, type SomaWorkRegistryEntry } from "../../work-registry";
 import { isoTimestamp, pathsForLearningOptions, safeFileToken } from "./paths";
 import { transcriptContentToText } from "./transcript";

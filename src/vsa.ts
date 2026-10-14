@@ -15,7 +15,7 @@ import {
   renderCriteriaMarkdown,
 } from "./vsa-accessors";
 import { parseVsa, serializeVsa } from "./vsa-parse";
-import { appendSomaMemoryEvent } from "./event-journal";
+import { appendSomaMemoryEvent } from "./events/index";
 import { TIER_REQUIRED_SECTIONS, evaluateCompleteness, type CompletenessReport } from "./vsa-schema";
 import type {
   AlgorithmEffortTier,

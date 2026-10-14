@@ -2,7 +2,7 @@ import {
   SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE,
   SOMA_FEEDBACK_MACHINE_PROMPT_PREFIXES,
   SOMA_FEEDBACK_STDIN_MAX_BYTES,
-} from "../../feedback-contract";
+} from "../../events/index";
 
 interface FeedbackHookHelperOptions {
   functionName: string;

@@ -3,7 +3,7 @@ import { mkdir, writeFile, unlink, readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createPaths } from "./core/index";
 import { isFsUtilsEnoent as isEnoent } from "./core/index";
-import { appendSomaMemoryEvent } from "./event-journal";
+import { appendSomaMemoryEvent } from "./events/index";
 import {
   serializeMemoryNote,
   parseMemoryNote,
@@ -13,15 +13,8 @@ import {
   noteIdSlugSegment,
 } from "./memory-note";
 import { SOMA_MEMORY_ACTION_APPROVALS } from "./types";
-import type {
-  SomaMemoryActionOptions,
-  SomaMemoryActionResult,
-  SomaMemoryDigestOptions,
-  SomaMemoryDigestResult,
-  SomaMemoryEvent,
-  SomaMemoryNote,
-  SubstrateId,
-} from "./types";
+import type { SomaMemoryEvent } from "./events/index";
+import type { SomaMemoryActionOptions, SomaMemoryActionResult, SomaMemoryDigestOptions, SomaMemoryDigestResult, SomaMemoryNote, SubstrateId } from "./types";
 
 /**
  * Episodic capture (subsystem M5). Session digests + a first-class action log,
