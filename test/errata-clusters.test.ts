@@ -167,7 +167,7 @@ describe("clusterErrata", () => {
     expect(result.clusters).toEqual([{ id: "EC1", key: { kind: "artifact", path: "src/a.ts" }, errataIds: ["E1"], status: "open", createdAt: now.toISOString() }]);
   });
 
-  test("a theme that quotes the complaint is refused before any write; a judge failure writes nothing", async () => {
+  test("a refused theme or a judge failure writes no theme; the deterministic assignments written ahead of it stand", async () => {
     const complaint = "The delivered output ignored the contract we agreed on. Please redo it.";
     const { deps, appended, judgments } = harness([
       created(errata("E1", { passedBy: check })),
@@ -178,16 +178,16 @@ describe("clusterErrata", () => {
       : { theme: "ignored the contract", reason: "ok", backendVersion: "1" });
     deps.somaHome = await mkdtemp(join(tmpdir(), "soma-clusters-")); homes.push(deps.somaHome);
     await expect(clusterErrata(deps)).rejects.toThrow("Errata theme quotes the complaint.");
-    expect(appended()).toEqual([]);
+    // E1 is keyed by its check and written before any judge is called; nothing of E2 or E3 is written.
+    expect(appended()).toMatchObject([{ kind: "clustered", id: "E1", clusterId: "EC1", key: { kind: "check", passedBy: check } }]);
     expect(judgments).toEqual([]);
     deps.classifyTheme = async () => { throw new Error("PRIVATE SUBPROCESS FAILURE"); };
     await expect(clusterErrata(deps)).rejects.toThrow();
-    expect(appended()).toEqual([]);
+    expect(appended()).toHaveLength(1);
     deps.recordJudgment = async () => false;
     deps.classifyTheme = async () => ({ theme: "Missed constraint", reason: "ok", backendVersion: "1" });
     await expect(clusterErrata(deps)).rejects.toThrow("Errata theme judgment could not be recorded.");
-    // The deterministic assignment of E1 is written ahead of the failing theme judgment and is not repeated.
-    expect(appended()).toMatchObject([{ kind: "clustered", id: "E1", clusterId: "EC1" }]);
+    expect(appended()).toHaveLength(1);
     deps.recordJudgment = async (record) => { judgments.push(record); return true; };
     expect((await clusterErrata(deps)).clustered).toBe(2);
     expect(appended().map((event) => event.kind === "clustered" && [event.id, event.clusterId])).toEqual([["E1", "EC1"], ["E2", "EC2"], ["E3", "EC2"]]);
@@ -214,8 +214,14 @@ describe("clusterErrata", () => {
     await appendErrata(somaHome, base);
     await appendErrata(somaHome, { ...base, artifacts: ["src/b.ts"] });
     await appendErrata(somaHome, { ...base, artifacts: ["src/a.ts"] });
-    const deps: ErrataClusterDeps = { somaHome, now: () => now, classifyTheme: async () => ({ theme: "Missed constraint", reason: "r", backendVersion: "1" }) };
+    const seenByJudge: unknown[] = [];
+    const deps: ErrataClusterDeps = {
+      somaHome, now: () => now,
+      // The ledger lock is released while the judge runs: a reader sees the artifact cluster already written.
+      classifyTheme: async () => { seenByJudge.push(await readErrataClusters(somaHome)); return { theme: "Missed constraint", reason: "r", backendVersion: "1" }; },
+    };
     expect((await clusterErrata(deps)).clustered).toBe(3);
+    expect(seenByJudge).toMatchObject([[{ id: "EC1", errataIds: ["E1", "E3"], status: "ripe" }]]);
     expect(await readErrataClusters(somaHome)).toMatchObject([
       { id: "EC1", key: { kind: "artifact", path: "src/a.ts" }, errataIds: ["E1", "E3"], status: "ripe" },
       { id: "EC2", key: { kind: "theme", label: "Missed constraint" }, errataIds: ["E2"], status: "open" },
@@ -237,5 +243,54 @@ describe("clusterErrata", () => {
       { kind: "clustered", id: "E1", clusterId: "EC2", key: { kind: "theme", label: "y" }, at: now.toISOString() }]);
     deps.somaHome = somaHome;
     await expect(clusterErrata(deps)).rejects.toThrow("Errata already clustered: E1");
+  });
+
+  test("null-link Errata bridged by a third one's artifacts form one cluster, not two", async () => {
+    const { deps, appended } = harness([
+      created(errata("E1", { artifacts: ["src/a.ts"] })),
+      created(errata("E2", { artifacts: ["src/b.ts"] })),
+      created(errata("E3", { artifacts: ["src/a.ts", "src/b.ts"] })),
+      created(errata("E4", { artifacts: ["src/c.ts"] })),
+      created(errata("E5", { artifacts: ["src/d.ts", "src/c.ts"] })),
+    ]);
+    deps.somaHome = await mkdtemp(join(tmpdir(), "soma-clusters-")); homes.push(deps.somaHome);
+    const result = await clusterErrata(deps);
+    expect(appended().map((event) => event.kind === "clustered" && [event.id, event.clusterId, event.key])).toEqual([
+      ["E1", "EC1", { kind: "artifact", path: "src/a.ts" }], ["E2", "EC1", { kind: "artifact", path: "src/a.ts" }], ["E3", "EC1", { kind: "artifact", path: "src/a.ts" }],
+      ["E4", "EC2", { kind: "artifact", path: "src/c.ts" }], ["E5", "EC2", { kind: "artifact", path: "src/c.ts" }],
+    ]);
+    expect(result.clusters).toMatchObject([{ id: "EC1", errataIds: ["E1", "E2", "E3"], status: "ripe" }, { id: "EC2", errataIds: ["E4", "E5"], status: "ripe" }]);
+  });
+
+  test("a group bridged into an existing cluster joins it whole, the earliest cluster when it touches two", async () => {
+    const { deps, appended } = harness([
+      created(errata("E1", { artifacts: ["src/a.ts"] })),
+      created(errata("E2", { artifacts: ["src/b.ts"] })),
+      { kind: "clustered", id: "E1", clusterId: "EC1", key: { kind: "theme", label: "Missed constraint" }, at: now.toISOString() },
+      { kind: "clustered", id: "E2", clusterId: "EC2", key: { kind: "theme", label: "Unverified claim" }, at: now.toISOString() },
+      created(errata("E3", { artifacts: ["src/x.ts"] })),
+      created(errata("E4", { artifacts: ["src/x.ts", "src/a.ts"] })),
+      created(errata("E5", { artifacts: ["src/b.ts", "src/a.ts"] })),
+    ]);
+    deps.somaHome = await mkdtemp(join(tmpdir(), "soma-clusters-")); homes.push(deps.somaHome);
+    await clusterErrata(deps);
+    expect(appended().map((event) => event.kind === "clustered" && [event.id, event.clusterId])).toEqual([["E3", "EC1"], ["E4", "EC1"], ["E5", "EC1"]]);
+  });
+
+  test("the ledger is re-read before a verdict is committed: an Errata dropped or shared meanwhile keeps no theme", async () => {
+    const { deps, events, appended, judgments } = harness([
+      created(errata("E1", { artifacts: ["src/a.ts"] })),
+      created(errata("E2", { artifacts: ["src/b.ts"] })),
+    ], (input) => {
+      // While the judge runs, E1 is dropped and a null-link Errata sharing E2's path is promoted.
+      if (input.themes.length === 0) events.push(dropped("E1"), created(errata("E3", { artifacts: ["src/b.ts"] })));
+      return { theme: "Missed constraint", reason: "ok", backendVersion: "1" };
+    });
+    deps.somaHome = await mkdtemp(join(tmpdir(), "soma-clusters-")); homes.push(deps.somaHome);
+    const result = await clusterErrata(deps);
+    expect(appended().filter((event) => event.kind === "clustered").map((event) => event.kind === "clustered" && [event.id, event.clusterId, event.key.kind]))
+      .toEqual([["E2", "EC1", "artifact"], ["E3", "EC1", "artifact"]]);
+    expect(judgments).toEqual([]);
+    expect(result).toMatchObject({ clustered: 2, clusters: [{ id: "EC1", errataIds: ["E2", "E3"], status: "ripe" }] });
   });
 });

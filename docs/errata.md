@@ -90,8 +90,11 @@ changes afterwards. Keys, in order:
    criterion, or close receipt).
 2. `artifact`: a `passedBy: null` Errata sharing an artifact path with another
    null-link Errata, whether already clustered (in any cluster kind) or promoted
-   in the same batch. No judge is called. A linked Errata's paths never key a
-   cluster.
+   in the same batch. Pending null-link Errata are grouped as connected sets
+   over shared paths first, so three Errata on `a`, `b` and `a, b` form one
+   cluster; a group touching an existing cluster joins it whole (the earliest
+   cluster when it touches several). No judge is called. A linked Errata's paths
+   never key a cluster.
 3. `theme`: a null-link Errata nothing shares is given a theme by headless
    `claude -p` (same model and isolation as the verdict call). The judge sees the
    redacted complaint and the theme labels already in use; it reuses one or
@@ -102,9 +105,15 @@ changes afterwards. Keys, in order:
    and the label, before the `clustered` event is written. Labels match
    case-insensitively.
 
-All themes of a batch are judged before any write. A judge failure, a refused
-label or a judgment that cannot be recorded fails the triage run; the deterministic
-assignments written ahead of it stand, and the rest is retried on the next run.
+Clustering takes the ledger lock twice. First it applies and writes the
+deterministic keys and lists the Errata nothing shares; then it releases the lock
+while every one of those is judged, so readers never wait on a Claude call; then,
+under the lock again, it re-reads the ledger and commits each verdict whose
+Errata is still unshared (recording the judgment first). A verdict whose Errata
+was dropped or keyed deterministically meanwhile is discarded. All themes of a
+batch are judged before any theme is written. A judge failure, a refused label or
+a judgment that cannot be recorded fails the triage run; the deterministic
+assignments, already written, stand, and the themes are retried on the next run.
 An explicit `errata:` marker therefore still promotes without Claude, but the run
 reports failure until its theme is judged.
 

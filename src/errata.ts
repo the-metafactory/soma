@@ -372,100 +372,160 @@ function passedByKey(passedBy: ErrataPassedBy): string {
 const errataNumber = (id: string) => Number(id.slice(1));
 const themeKey = (label: string) => label.trim().toLowerCase();
 
+const clusterNumber = (id: string) => Number(id.slice(2));
+
+interface ErrataAssignment { record: ErrataRecord; clusterId: string; key: ErrataClusterKey }
+
 /**
- * Assign every active, unclustered Errata to a cluster (soma#785 Q15). Deterministic
- * keys first: the same `passedBy` check and criterion; then, for `passedBy: null`, a
- * shared artifact path with another null-link Errata, clustered or in this batch; last,
- * a judged theme for a null-link Errata nothing shares. Each theme verdict is recorded
- * under `errata-triage` before its `clustered` event is appended. Ripeness is derived
- * from the folded ledger, never stored. Dropped Errata are never clustered.
+ * One ledger snapshot with the deterministic keys applied (soma#785 Q15). Every pending
+ * linked Errata joins its `passedBy` check cluster. Pending null-link Errata form connected
+ * groups over shared artifact paths; a group any of whose paths a null-link member of an
+ * existing cluster already holds joins the earliest such cluster, any other group of two or
+ * more opens an `artifact` cluster, and a lone Errata nothing shares is left in `themed`.
+ * A linked member's paths never key a cluster.
+ */
+function snapshotClusters(events: readonly ErrataEvent[], now: () => Date) {
+  const ledger = foldLedger(events);
+  const records = new Map(ledger.records.map((record) => [record.id, record]));
+  let nextCluster = ledger.clusters.reduce((max, cluster) => Math.max(max, clusterNumber(cluster.id)), 0) + 1;
+  const byCheck = new Map<string, string>();
+  const byTheme = new Map<string, string>();
+  // Null-link members' artifact paths, earliest cluster first.
+  const byArtifact = new Map<string, string>();
+  for (const cluster of ledger.clusters) {
+    if (cluster.key.kind === "check") byCheck.set(passedByKey(cluster.key.passedBy), cluster.id);
+    if (cluster.key.kind === "theme") byTheme.set(themeKey(cluster.key.label), cluster.id);
+    for (const id of cluster.memberIds) {
+      const member = records.get(id);
+      if (member?.status !== "active" || member.passedBy !== null) continue;
+      for (const path of member.artifacts) if (!byArtifact.has(path)) byArtifact.set(path, cluster.id);
+    }
+  }
+  const assignments: ErrataAssignment[] = [];
+  const newCluster = (key: ErrataClusterKey): string => {
+    const id = `EC${nextCluster++}`;
+    if (key.kind === "check") byCheck.set(passedByKey(key.passedBy), id);
+    if (key.kind === "theme") byTheme.set(themeKey(key.label), id);
+    ledger.clusters.push({ id, key, memberIds: [], createdAt: now().toISOString() });
+    return id;
+  };
+  const assign = (record: ErrataRecord, clusterId: string): ErrataAssignment => {
+    const cluster = ledger.clusters.find((cluster) => cluster.id === clusterId);
+    if (!cluster) throw new Error(`Unknown Errata cluster: ${clusterId}`);
+    const assignment = { record, clusterId, key: cluster.key };
+    assignments.push(assignment);
+    return assignment;
+  };
+  const pending = ledger.records.filter((record) => record.status === "active" && record.clusterId === undefined)
+    .sort((a, b) => errataNumber(a.id) - errataNumber(b.id));
+  const unlinked: ErrataRecord[] = [];
+  for (const record of pending) {
+    if (record.passedBy === null) { unlinked.push(record); continue; }
+    const key = passedByKey(record.passedBy);
+    assign(record, byCheck.get(key) ?? newCluster({ kind: "check", passedBy: record.passedBy }));
+  }
+  // Connected groups over shared paths, so E1=[a], E2=[b], E3=[a,b] land in one cluster.
+  const parent = new Map(unlinked.map((record) => [record.id, record.id]));
+  const find = (id: string): string => {
+    const root = parent.get(id)!;
+    return root === id ? id : find(root);
+  };
+  const union = (a: string, b: string) => { parent.set(find(a), find(b)); };
+  const holders = new Map<string, string>();
+  for (const record of unlinked) {
+    for (const path of record.artifacts) {
+      const holder = holders.get(path);
+      if (holder === undefined) holders.set(path, record.id); else union(record.id, holder);
+    }
+  }
+  const groups = new Map<string, ErrataRecord[]>();
+  for (const record of unlinked) {
+    const root = find(record.id);
+    groups.set(root, [...groups.get(root) ?? [], record]);
+  }
+  const themed: ErrataRecord[] = [];
+  for (const group of groups.values()) {
+    const existing = group.flatMap((record) => record.artifacts.flatMap((path) => byArtifact.has(path) ? [byArtifact.get(path)!] : []))
+      .sort((a, b) => clusterNumber(a) - clusterNumber(b))[0];
+    if (existing !== undefined) { for (const record of group) assign(record, existing); continue; }
+    if (group.length === 1) { themed.push(group[0]); continue; }
+    // Keyed by the first path of the earliest member that another member shares.
+    const path = group[0].artifacts.find((path) => group.slice(1).some((other) => other.artifacts.includes(path)))!;
+    const id = newCluster({ kind: "artifact", path });
+    for (const record of group) assign(record, id);
+  }
+  return {
+    assignments, themed,
+    /** Theme labels in use, including those coined on this snapshot. */
+    themeLabels: () => ledger.clusters.flatMap((cluster) => cluster.key.kind === "theme" ? [cluster.key.label] : []),
+    assignTheme: (record: ErrataRecord, label: string) => assign(record, byTheme.get(themeKey(label)) ?? newCluster({ kind: "theme", label })),
+  };
+}
+
+/**
+ * Assign every active, unclustered Errata to a cluster (soma#785 Q15). Under the ledger
+ * lock, the deterministic keys (check, then shared artifact path) are applied and written;
+ * the Errata nothing shares are listed. The lock is released while every one of them is
+ * judged for a theme, so readers never wait on a Claude call. Then, under the lock again,
+ * the ledger is re-read: each verdict whose Errata is still unshared is recorded under
+ * `errata-triage` and its `clustered` event appended; a verdict whose Errata was dropped or
+ * keyed deterministically meanwhile is discarded. Ripeness is derived from the folded ledger,
+ * never stored. Dropped Errata are never clustered.
  */
 export async function clusterErrata(deps: ErrataClusterDeps): Promise<ErrataClusterResult> {
   const now = deps.now ?? (() => new Date());
+  const read = deps.readLedger ?? (() => readEvents(deps.somaHome));
+  const append = deps.appendEvent ?? ((event: ErrataEvent) => writeEvent(deps.somaHome, event));
+  const writeJudgment = deps.recordJudgment ?? ((judgment: JudgmentRecord) => recordJudgment(deps.somaHome, judgment));
+  const classify = deps.classifyTheme ?? classifyErrataThemeWithClaude;
+  const commit = async (events: ErrataEvent[], assignment: ErrataAssignment) => {
+    const event: ErrataEvent = { kind: "clustered", id: assignment.record.id, clusterId: assignment.clusterId, key: assignment.key, at: now().toISOString() };
+    await append(event);
+    events.push(event);
+  };
+  const first = await withLedgerLock(deps.somaHome, async () => {
+    const events = [...await read()];
+    const snapshot = snapshotClusters(events, now);
+    for (const assignment of snapshot.assignments) await commit(events, assignment);
+    return { events, written: snapshot.assignments.length, themed: snapshot.themed, themes: snapshot.themeLabels() };
+  });
+  if (first.themed.length === 0) return { clustered: first.written, clusters: activeClusters(foldLedger(first.events)) };
+
+  // Every theme is judged before any theme write; a judge failure leaves the whole remainder for the next run.
+  const themes = [...first.themes];
+  const verdicts: { record: ErrataRecord; verdict: ErrataThemeVerdict; input: ErrataThemeInput; latencyMs: number }[] = [];
+  for (const record of first.themed) {
+    const input: ErrataThemeInput = { complaint: redactSomaFeedbackText(record.complaint), themes: [...themes] };
+    const before = now().getTime();
+    const verdict = await classify(input);
+    validateErrataTheme(verdict, input);
+    const label = verdict.theme.trim();
+    if (!themes.some((theme) => themeKey(theme) === themeKey(label))) themes.push(label);
+    verdicts.push({ record, verdict, input, latencyMs: Math.max(0, now().getTime() - before) });
+  }
+
   return withLedgerLock(deps.somaHome, async () => {
-    const events = [...await (deps.readLedger ?? (() => readEvents(deps.somaHome)))()];
-    const append = deps.appendEvent ?? ((event: ErrataEvent) => writeEvent(deps.somaHome, event));
-    const ledger = foldLedger(events);
-    const records = new Map(ledger.records.map((record) => [record.id, record]));
-    let nextCluster = ledger.clusters.reduce((max, cluster) => Math.max(max, Number(cluster.id.slice(2))), 0) + 1;
-    const byCheck = new Map<string, string>();
-    const byTheme = new Map<string, string>();
-    // Null-link members' artifact paths, earliest cluster first; never a check cluster's linked member.
-    const byArtifact = new Map<string, string>();
-    for (const cluster of ledger.clusters) {
-      if (cluster.key.kind === "check") byCheck.set(passedByKey(cluster.key.passedBy), cluster.id);
-      if (cluster.key.kind === "theme") byTheme.set(themeKey(cluster.key.label), cluster.id);
-      for (const id of cluster.memberIds) {
-        const member = records.get(id);
-        if (member?.status !== "active" || member.passedBy !== null) continue;
-        for (const path of member.artifacts) if (!byArtifact.has(path)) byArtifact.set(path, cluster.id);
-      }
+    const events = [...await read()];
+    const snapshot = snapshotClusters(events, now);
+    let written = first.written;
+    // Errata promoted meanwhile take a deterministic key now; a theme for them waits for the next run.
+    for (const assignment of snapshot.assignments) { await commit(events, assignment); written++; }
+    const unshared = new Set(snapshot.themed.map((record) => record.id));
+    for (const { record, verdict, input, latencyMs } of verdicts) {
+      if (!unshared.has(record.id)) continue;
+      const assignment = snapshot.assignTheme(record, verdict.theme.trim());
+      const recorded = await writeJudgment({
+        v: 1, ts: now().toISOString(), caller: "errata-triage", backend: "claude-p", backendVersion: verdict.backendVersion,
+        inputSha256: hashJudgmentInput(JSON.stringify(input)),
+        decision: { verdict: "theme", theme: verdict.theme.trim(),
+          reason: redactSomaFeedbackText(verdict.reason), errataId: record.id, clusterId: assignment.clusterId, status: "clustered" },
+        latencyMs,
+      });
+      if (!recorded) throw new Error("Errata theme judgment could not be recorded.");
+      await commit(events, assignment);
+      written++;
     }
-    const pending = ledger.records.filter((record) => record.status === "active" && record.clusterId === undefined)
-      .sort((a, b) => errataNumber(a.id) - errataNumber(b.id));
-    const assignments: { record: ErrataRecord; clusterId: string; key: ErrataClusterKey; verdict?: ErrataThemeVerdict; input?: ErrataThemeInput; latencyMs?: number }[] = [];
-    const newCluster = (key: ErrataClusterKey): string => {
-      const id = `EC${nextCluster++}`;
-      if (key.kind === "check") byCheck.set(passedByKey(key.passedBy), id);
-      if (key.kind === "theme") byTheme.set(themeKey(key.label), id);
-      ledger.clusters.push({ id, key, memberIds: [], createdAt: now().toISOString() });
-      return id;
-    };
-    const keyOf = (clusterId: string): ErrataClusterKey => {
-      const cluster = ledger.clusters.find((cluster) => cluster.id === clusterId);
-      if (!cluster) throw new Error(`Unknown Errata cluster: ${clusterId}`);
-      return cluster.key;
-    };
-    const assign = (record: ErrataRecord, clusterId: string, extra: Partial<(typeof assignments)[number]> = {}) => {
-      assignments.push({ record, clusterId, key: keyOf(clusterId), ...extra });
-      if (record.passedBy === null) for (const path of record.artifacts) if (!byArtifact.has(path)) byArtifact.set(path, clusterId);
-    };
-    const unlinked: ErrataRecord[] = [];
-    for (const record of pending) {
-      if (record.passedBy === null) { unlinked.push(record); continue; }
-      const key = passedByKey(record.passedBy);
-      assign(record, byCheck.get(key) ?? newCluster({ kind: "check", passedBy: record.passedBy }));
-    }
-    const themed: ErrataRecord[] = [];
-    for (const [index, record] of unlinked.entries()) {
-      const shared = record.artifacts.find((path) => byArtifact.has(path));
-      if (shared !== undefined) { assign(record, byArtifact.get(shared)!); continue; }
-      // Two null-link Errata in one batch sharing a path form an artifact cluster without any judge.
-      const later = record.artifacts.find((path) => unlinked.slice(index + 1).some((other) => other.artifacts.includes(path)));
-      if (later !== undefined) { assign(record, newCluster({ kind: "artifact", path: later })); continue; }
-      themed.push(record);
-    }
-    // Every theme is judged before any write; a judge failure leaves the whole remainder for the next run.
-    const classify = deps.classifyTheme ?? classifyErrataThemeWithClaude;
-    for (const record of themed) {
-      const input: ErrataThemeInput = {
-        complaint: redactSomaFeedbackText(record.complaint),
-        themes: ledger.clusters.flatMap((cluster) => cluster.key.kind === "theme" ? [cluster.key.label] : []),
-      };
-      const before = now().getTime();
-      const verdict = await classify(input);
-      validateErrataTheme(verdict, input);
-      const latencyMs = Math.max(0, now().getTime() - before);
-      const label = verdict.theme.trim();
-      assign(record, byTheme.get(themeKey(label)) ?? newCluster({ kind: "theme", label }), { verdict, input, latencyMs });
-    }
-    const record = deps.recordJudgment ?? ((judgment: JudgmentRecord) => recordJudgment(deps.somaHome, judgment));
-    for (const assignment of assignments) {
-      if (assignment.verdict && assignment.input) {
-        const recorded = await record({
-          v: 1, ts: now().toISOString(), caller: "errata-triage", backend: "claude-p", backendVersion: assignment.verdict.backendVersion,
-          inputSha256: hashJudgmentInput(JSON.stringify(assignment.input)),
-          decision: { verdict: "theme", theme: assignment.verdict.theme.trim(), reason: redactSomaFeedbackText(assignment.verdict.reason),
-            errataId: assignment.record.id, clusterId: assignment.clusterId, status: "clustered" },
-          latencyMs: assignment.latencyMs ?? 0,
-        });
-        if (!recorded) throw new Error("Errata theme judgment could not be recorded.");
-      }
-      const event: ErrataEvent = { kind: "clustered", id: assignment.record.id, clusterId: assignment.clusterId, key: assignment.key, at: now().toISOString() };
-      await append(event);
-      events.push(event);
-    }
-    return { clustered: assignments.length, clusters: activeClusters(foldLedger(events)) };
+    return { clustered: written, clusters: activeClusters(foldLedger(events)) };
   });
 }
 
