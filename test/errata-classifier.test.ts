@@ -31,9 +31,13 @@ if (mode === "nonzero" || (mode === "version-failure" && version)) {
 }
 if (version) { console.log("2.1.296 (Claude Code)"); process.exit(0); }
 if (mode === "bad-json") { console.log("PRIVATE BAD JSON"); process.exit(0); }
+const schema = JSON.parse(args[args.indexOf("--json-schema") + 1]);
 const verdict = mode === "bad-verdict" ? "unknown" : mode === "drop" ? "drop" : "promote";
 const reason = mode === "long-reason" ? "x".repeat(241) : "Rejects the delivered output.";
-console.log(JSON.stringify({ type: "result", subtype: mode === "error-result" ? "error_max_turns" : "success", is_error: mode === "error-result", structured_output: { verdict, reason } }));
+const structured_output = "theme" in schema.properties
+  ? { theme: mode === "quoting-theme" ? "The output is wrong" : "Unverified claim", reason: "Asserted without a probe." }
+  : { verdict, reason };
+console.log(JSON.stringify({ type: "result", subtype: mode === "error-result" ? "error_max_turns" : "success", is_error: mode === "error-result", structured_output }));
 `, { mode: 0o700 });
   async function cli(mode: string, missing = false) {
     const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/cli.ts"), "errata", "triage", "--soma-home", home], {
@@ -46,16 +50,45 @@ console.log(JSON.stringify({ type: "result", subtype: mode === "error-result" ? 
   return { home, trace, cli };
 }
 
-test("explicit marker promotes through the CLI even with Claude absent from PATH", async () => {
+test("explicit marker promotes through the CLI even with Claude absent from PATH; the theme waits for the next run", async () => {
   const { home, trace, cli } = await setup("errata: The output is wrong.");
   const result = await cli("missing", true);
-  expect(result.code).toBe(0);
-  expect(result.stdout).toContain("1 promoted");
+  expect(result.code).not.toBe(0);
+  expect(result.stderr).toContain("1 promoted");
+  expect(result.stderr).toContain("0 clustered");
+  expect(result.stdout + result.stderr).not.toContain("The output is wrong");
   expect(await Bun.file(trace).exists()).toBe(false);
-  expect(await readErrata(home)).toHaveLength(1);
+  expect((await readErrata(home)).map((record) => [record.id, record.clusterId])).toEqual([["E1", undefined]]);
   expect((await readJudgments(home)).records).toMatchObject([{
     caller: "errata-triage", backend: "explicit-marker", decision: { eventId: "feedback-1", verdict: "promote" },
   }]);
+  const retry = await cli("promote");
+  expect(retry.code).toBe(0);
+  expect(retry.stdout).toContain("0 promoted");
+  expect(retry.stdout).toContain("1 clustered");
+  expect(await readErrata(home)).toMatchObject([{ id: "E1", clusterId: "EC1" }]);
+  const invocations = (await readFile(trace, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; text: string });
+  expect(invocations).toHaveLength(2);
+  const theme = invocations[1];
+  expect(JSON.parse(theme.args[theme.args.indexOf("--json-schema") + 1]).properties.theme.maxLength).toBe(60);
+  expect(JSON.parse(theme.text)).toEqual({ themes: [], complaint: "errata: The output is wrong." });
+  expect(theme.args[theme.args.indexOf("--model") + 1]).toBe(ERRATA_TRIAGE_MODEL);
+  expect(theme.args[theme.args.indexOf("--tools") + 1]).toBe("");
+  expect(theme.args).toContain("--no-session-persistence");
+  expect((await readJudgments(home)).records[1]).toMatchObject({
+    caller: "errata-triage", backend: "claude-p", backendVersion: "2.1.296 (Claude Code)", decision: { verdict: "theme", errataId: "E1", clusterId: "EC1", theme: "Unverified claim" },
+  });
+});
+
+test("a theme that quotes the complaint is refused; the Errata stays unclustered and retryable", async () => {
+  const { home, cli } = await setup("errata: The output is wrong.");
+  const result = await cli("quoting-theme");
+  expect(result.code).not.toBe(0);
+  expect(result.stdout + result.stderr).not.toContain("The output is wrong");
+  expect((await readErrata(home)).map((record) => [record.id, record.clusterId])).toEqual([["E1", undefined]]);
+  expect((await readJudgments(home)).records).toHaveLength(1);
+  expect((await cli("promote")).code).toBe(0);
+  expect(await readErrata(home)).toMatchObject([{ id: "E1", clusterId: "EC1" }]);
 });
 
 test("Claude process receives fixed model, schema and redacted stdin in isolation; repeat CLI does not invoke it", async () => {
@@ -65,9 +98,11 @@ test("Claude process receives fixed model, schema and redacted stdin in isolatio
   expect(result.stdout).toContain("1 promoted");
   const invocations = (await readFile(trace, "utf8")).trim().split("\n").map((line) =>
     JSON.parse(line) as { args: string[]; text: string; cwd: string; entrypoint: string });
-  expect(invocations).toHaveLength(2);
+  // Version and verdict for the promotion, then version and theme for the cluster.
+  expect(invocations).toHaveLength(4);
   const classification = invocations[1];
   expect(classification.text).toBe("The output is wrong. [redacted]");
+  expect(JSON.parse(invocations[3].text)).toEqual({ themes: [], complaint: "The output is wrong. [redacted]" });
   expect(classification.args).toContain("-p");
   expect(classification.args[classification.args.indexOf("--model") + 1]).toBe(ERRATA_TRIAGE_MODEL);
   expect(JSON.parse(classification.args[classification.args.indexOf("--json-schema") + 1]).properties.verdict.enum).toEqual(["promote", "drop"]);
@@ -80,9 +115,9 @@ test("Claude process receives fixed model, schema and redacted stdin in isolatio
   expect(classification.cwd).not.toBe(home);
   expect(await Bun.file(classification.cwd).exists()).toBe(false);
   expect((await readJudgments(home)).records[0]).toMatchObject({ backend: "claude-p", backendVersion: "2.1.296 (Claude Code)" });
-  expect(await readErrata(home)).toHaveLength(1);
+  expect(await readErrata(home)).toMatchObject([{ id: "E1", clusterId: "EC1" }]);
   expect((await cli("promote")).code).toBe(0);
-  expect((await readFile(trace, "utf8")).trim().split("\n")).toHaveLength(2);
+  expect((await readFile(trace, "utf8")).trim().split("\n")).toHaveLength(4);
 });
 
 for (const mode of ["missing", "nonzero", "version-failure", "bad-json", "bad-verdict", "long-reason", "error-result"]) {
