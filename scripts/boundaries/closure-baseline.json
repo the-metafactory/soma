@@ -1,8 +1,8 @@
 {
-  "core": 1000,
+  "core": 1500,
   "events": 6500,
   "memory": 12000,
-  "purpose": 5000,
+  "purpose": 5500,
   "vsa": 8500,
   "tools": 9000,
   "policy": 10500,
@@ -13,7 +13,7 @@
   "execution": 6000,
   "substrates": 39500,
   "migrate": 17000,
-  "flows": 46500,
-  "cli": 74000,
+  "flows": 47000,
+  "cli": 74500,
   "legacy": 59500
 }
