@@ -20,8 +20,12 @@
  * fails as new, and a listed pair that is no longer a violation fails as stale.
  * On first landing, exceptions are computed from the base tree instead.
  * `scripts/boundaries/closure-baseline.json` caps each
- * component's import-closure size (lines of every reachable `src` file);
- * `--update-baseline` rewrites it so growth becomes a reviewed diff.
+ * component's import-closure size (lines of every reachable `src` file).
+ * The cap is a ceiling with headroom (`closureCeiling`), not the exact size:
+ * an exact cap made every PR that added a line rewrite the file, so parallel
+ * PRs always conflicted on it (2026-10-14: soma #878-#882). Organic growth
+ * stays under the ceiling; crossing it fails, and `--update-baseline` writes
+ * the next ceiling, so that growth is a reviewed diff.
  *
  * Usage: bun scripts/check-boundaries.ts [--update-baseline] [--base <revision>]
  * Base defaults to SOMA_BOUNDARIES_BASE_REF (set by CI), then the merge base
@@ -295,6 +299,21 @@ function readBaseline(root: string, errors: string[]): Partial<Record<string, nu
   return value;
 }
 
+/** Headroom over the measured closure, as a fraction of it. */
+export const CLOSURE_HEADROOM = 0.05;
+/** Ceilings are written in steps of this many lines, so small changes leave them alone. */
+export const CLOSURE_STEP = 500;
+
+/**
+ * The cap `--update-baseline` writes for a closure of `lines`: the size plus
+ * CLOSURE_HEADROOM, rounded up to the next CLOSURE_STEP. A new import edge
+ * that pulls in another component's closure jumps by thousands of lines and
+ * still crosses it.
+ */
+export function closureCeiling(lines: number): number {
+  return Math.max(CLOSURE_STEP, Math.ceil((lines * (1 + CLOSURE_HEADROOM)) / CLOSURE_STEP) * CLOSURE_STEP);
+}
+
 function writeJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -454,7 +473,7 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
   const closureShrink: ClosureDelta[] = [];
   let baselineUpdated = false;
   if (options.updateBaseline) {
-    writeJson(join(root, BASELINE_PATH), closures);
+    writeJson(join(root, BASELINE_PATH), Object.fromEntries(names.map((name) => [name, closureCeiling(closures[name])])));
     baselineUpdated = true;
     notes.push(`wrote ${BASELINE_PATH}`);
   } else {
@@ -467,11 +486,14 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
         errors.push(
           limit === undefined
             ? `closure of ${name} has no baseline (${actual} lines); run with --update-baseline`
-            : `closure of ${name} grew: ${limit} -> ${actual} lines (+${actual - limit}); run with --update-baseline if intended`,
+            : `closure of ${name} grew past its ceiling: ${limit} -> ${actual} lines (+${actual - limit}); run with --update-baseline if intended`,
         );
-      } else if (actual < limit) {
+      } else if (closureCeiling(actual) < limit) {
+        // Shrunk below what its ceiling allows for: --update-baseline would lower the cap.
         closureShrink.push({ component: name, baseline: limit, actual });
-        notes.push(`closure of ${name} shrank: ${limit} -> ${actual} lines (-${limit - actual})`);
+        notes.push(
+          `closure of ${name} shrank: ${actual} lines under a ceiling of ${limit}; --update-baseline lowers it to ${closureCeiling(actual)}`,
+        );
       }
     }
     for (const name of Object.keys(baseline)) {

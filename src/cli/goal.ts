@@ -10,7 +10,7 @@ import { loadSomaConfig } from "../soma-config";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-type GoalAction = "add" | "activate" | "set-status" | "list" | "sense";
+type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "kinds";
 
 export interface ParsedGoalArgs {
   command: "goal";
@@ -20,6 +20,7 @@ export interface ParsedGoalArgs {
     status?: InactiveGoalStatus;
     add: AddGoalOptions;
     includeWording: boolean;
+    json?: boolean;
     feed?: FeedSensorOptions;
   };
 }
@@ -27,12 +28,13 @@ export interface ParsedGoalArgs {
 const ACTIVATIONS_DIRECTORY_HELP = "(REFLEX_ACTIVATIONS_DIR overrides goals.activations_dir in <soma-home>/config.yaml; default: ~/.config/reflex/personal-activations)";
 
 export const GOAL_COMMAND_HELP = {
-  usage: `Usage: soma goal <add|activate|set-status|list|sense> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
+  usage: `Usage: soma goal <add|activate|set-status|list|sense|kinds> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
   subcommands: {
     add: "Usage: soma goal add --wording <text> [--supports M<n>...] [--sensor <activation-id>] [--review-by YYYY-MM-DD] [--home-dir <dir>] [--soma-home <dir>]",
     activate: `Usage: soma goal activate G<n> [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
     "set-status": "Usage: soma goal set-status G<n> <paused|achieved|dropped|draft> [--home-dir <dir>] [--soma-home <dir>]",
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
+    kinds: "Usage: soma goal kinds [--json] [--home-dir <dir>] [--soma-home <dir>]",
     sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
   },
 };
@@ -66,7 +68,7 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
 
 export function parseGoalArgs(args: string[]): ParsedGoalArgs {
   const [command, action, ...rest] = args;
-  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense"].includes(action)) {
+  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "kinds"].includes(action)) {
     throw new Error(GOAL_COMMAND_HELP.usage);
   }
   const options: ParsedGoalArgs["options"] = { add: { wording: "", supports: [] }, includeWording: false };
@@ -93,6 +95,8 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
       else options.somaHome = value;
     } else if (arg === "--wording" && action === "list") {
       options.includeWording = true;
+    } else if (arg === "--json" && action === "kinds") {
+      options.json = true;
     } else if (action === "add" && ["--wording", "--supports", "--sensor", "--review-by"].includes(arg)) {
       const value = readOption(rest, index++, arg);
       if (arg === "--wording") options.add.wording = value;
@@ -115,6 +119,13 @@ export async function runGoalCli(
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
   switch (action) {
+    case "kinds": {
+      // Keep catalog/Zod loading off the other goal commands' startup path.
+      const { listGoalKinds } = await import("../goal-kinds/registry");
+      const kinds = listGoalKinds();
+      return options.json ? JSON.stringify(kinds, null, 2)
+        : kinds.map((kind) => `${kind.id}\t${kind.role}\t${kind.description}`).join("\n");
+    }
     case "sense": {
       if (!options.feed) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.sense, 2);
       const lines: string[] = [];
