@@ -114,7 +114,7 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "events", "tools", "legacy"],
   },
   home: {
-    files: ["src/soma-home", "src/soma-config", "src/snapshots", "src/work-registry", "src/communication-contract"],
+    files: ["src/soma-home", "src/soma-config", "src/goal-resources", "src/snapshots", "src/work-registry", "src/communication-contract"],
     mayImport: ["core", "events", "memory", "purpose", "policy", "legacy"],
   },
   algorithm: {
@@ -180,6 +180,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/run-ledger",
       "src/run-ledger-env",
       "src/goal-sense",
+      "src/goal-kinds/**",
       "src/tools/learning/session-harvester",
       "src/execution/algorithm-loop-executor",
     ],
