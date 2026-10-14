@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { PAI_MIGRATION_REMOVED_NOTICE, planSomaInit, diagnoseSomaDoctor } from "../src/onboarding";
@@ -532,4 +532,25 @@ test("DOCTOR_SUPPORTED_SUBSTRATES / isDoctorSubstrate still gate a genuinely unk
   expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "claude-code", "cursor", "grok", "pi-dev", "dsh"]);
   expect(isDoctorSubstrate("anthropic-cowork")).toBe(false);
   expect(isDoctorSubstrate("bogus")).toBe(false);
+});
+
+test("soma doctor reports a dependency missing from the active CLI runtime artifact (node #866)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForCodex({ homeDir });
+    const somaHome = join(homeDir, ".soma");
+    const intact = await diagnoseSomaDoctor({ homeDir });
+    expect(intact.findings.map((finding) => finding.id)).not.toContain("runtime-artifact-unloadable");
+
+    const state = JSON.parse(await readFile(join(somaHome, "runtime", "cli", "active.json"), "utf8")) as { active: string };
+    const myelin = join(somaHome, "runtime", "artifacts", state.active, "node_modules", "@the-metafactory", "myelin");
+    await rm(myelin, { recursive: true, force: true });
+
+    // The cli and codex targets share one content-addressed artifact, so both report it.
+    const diagnosis = await diagnoseSomaDoctor({ homeDir });
+    const unloadable = diagnosis.findings.filter((candidate) => candidate.id === "runtime-artifact-unloadable");
+    expect(diagnosis.status).toBe("error");
+    const cliFinding = unloadable.find((candidate) => candidate.message.startsWith("Active CLI runtime artifact is unloadable"));
+    expect(cliFinding?.message).toContain("(missing runtime dependency @the-metafactory/myelin (required by package.json)");
+    expect(cliFinding?.action).toContain("soma runtime rollback --target cli");
+  });
 });

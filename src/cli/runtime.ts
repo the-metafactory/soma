@@ -26,5 +26,6 @@ export async function runRuntimeCli(args: ParsedRuntimeArgs): Promise<string> {
     return `soma runtime — activated retained ${args.target} artifact ${state.active}`;
   }
   const result = await inspectRuntimeArtifact(somaHome, args.target);
-  return result.status === "ready" ? `soma runtime — active ${args.target} artifact ${result.state?.active}` : `soma runtime — ${args.target} ${result.status}`;
+  if (result.status === "ready") return `soma runtime — active ${args.target} artifact ${result.state?.active}`;
+  return `soma runtime — ${args.target} ${result.status}${result.detail ? `: ${result.detail}` : ""}`;
 }

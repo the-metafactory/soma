@@ -46,18 +46,40 @@ source tree:
 
 ```text
 ~/.soma/runtime/
-├── artifacts/<hash>/                # content-addressed frozen source snapshot
-└── <substrate>/
+├── artifacts/<hash>/                # content-addressed frozen runtime snapshot
+│   ├── src/                         # the soma source tree
+│   ├── package.json                 # the manifest the snapshot was built from
+│   └── node_modules/                # the production dependency closure
+└── <target>/                        # cli, claude-code, codex or grok
     ├── current -> ../artifacts/<hash>  # atomic symlink the hook resolves
     └── active.json                  # { active, previous } — active + rollback target
 ```
 
-Installing a guarded substrate stages the snapshot under `artifacts/<hash>`,
-seals its payload files read-only, and atomically repoints
-`<substrate>/current`; `soma runtime rollback --substrate <name>` swaps back to
-the retained predecessor, and `soma runtime status` inspects the active state.
-Symlinked or special files in the staged source are refused, and unreferenced
-artifacts are pruned so the store does not grow without bound.
+Installing stages the snapshot under `artifacts/<hash>`, seals its payload
+files read-only, and atomically repoints `<target>/current`; `soma runtime
+rollback --target <name>` swaps back to the retained predecessor, and `soma
+runtime status --target <name>` inspects the active state. The `cli` target is
+what the arc launcher runs for every non-maintenance verb; the guarded
+substrates run their hooks from their own target.
+
+The snapshot carries its dependencies (node #866). `node_modules/` holds the
+closure of the manifest's `dependencies` as resolved below the checkout:
+`optionalDependencies` and `peerDependencies` travel when the install resolved
+them, `devDependencies` never do. Packages keep the hoisted or nested position
+they had in the checkout, so resolution inside the artifact finds the same
+versions, and a git dependency such as `@the-metafactory/myelin` resolves with
+no network and no Bun auto-install. A checkout whose `node_modules` lacks a
+production dependency is refused at install time, and an artifact that lost
+one reports it as `unloadable` with the dependency's name in `soma runtime
+status` and `soma doctor`.
+
+The content hash covers `src/`, `package.json` and every carried package in
+deterministic path order, so a changed dependency changes the hash while an
+unchanged checkout reinstalls to the same one. Symlinked or special files in
+the staged source are refused; inside a dependency package they are skipped
+(bin shims are not payload), as is any nested `node_modules` that resolution
+did not reach. Unreferenced artifacts are pruned so the store does not grow
+without bound.
 
 Read-only payload permissions are **best-effort hardening, not a tamper-proof
 boundary** — a same-UID actor can `chmod` them back, and no hash runs on the
