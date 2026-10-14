@@ -10,13 +10,13 @@ import { ERRATA_TRIAGE_MODEL } from "../src/errata-classifier";
 const homes: string[] = [];
 afterEach(async () => { await Promise.all(homes.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
-async function setup() {
+async function setup(redactedExcerpt = "The output is wrong. token=secret-value") {
   const home = await mkdtemp(join(tmpdir(), "soma-claude-triage-")); homes.push(home);
   const trace = join(home, "trace.jsonl");
   const transcriptPath = join(home, "transcript.jsonl");
   await writeFile(transcriptPath, JSON.stringify({ type: "assistant", uuid: "U1", timestamp: "2026-10-14T04:01:00Z", sessionId: "S1", message: { content: "Delivered output" } }) + "\n");
   await appendSomaMemoryEvent(home, { id: "feedback-1", timestamp: "2026-10-14T04:02:00Z", kind: "feedback.candidate", substrate: "claude-code", summary: "Feedback", metadata: {
-    actor: "interactive", sessionId: "S1", transcriptPath, redactedExcerpt: "The output is wrong. token=secret-value",
+    actor: "interactive", sessionId: "S1", transcriptPath, redactedExcerpt,
   } });
   const executable = join(home, "claude");
   await writeFile(executable, `#!${process.execPath}
@@ -45,6 +45,18 @@ console.log(JSON.stringify({ type: "result", subtype: mode === "error-result" ? 
   }
   return { home, trace, cli };
 }
+
+test("explicit marker promotes through the CLI even with Claude absent from PATH", async () => {
+  const { home, trace, cli } = await setup("errata: The output is wrong.");
+  const result = await cli("missing", true);
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("1 promoted");
+  expect(await Bun.file(trace).exists()).toBe(false);
+  expect(await readErrata(home)).toHaveLength(1);
+  expect((await readJudgments(home)).records).toMatchObject([{
+    caller: "errata-triage", backend: "explicit-marker", decision: { eventId: "feedback-1", verdict: "promote" },
+  }]);
+});
 
 test("Claude process receives fixed model, schema and redacted stdin in isolation; repeat CLI does not invoke it", async () => {
   const { home, trace, cli } = await setup();

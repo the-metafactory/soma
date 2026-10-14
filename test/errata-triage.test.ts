@@ -6,6 +6,8 @@ import { runErrataTriage, readErrata, type ErrataTriageDeps } from "../src/errat
 import { JUDGE_REGISTRY, hashJudgmentInput, judgeLedgerPath, readJudgments, recordJudgment } from "../src/judge";
 import { appendSomaMemoryEvent, somaMemoryEventsPath } from "../src/memory";
 import { appendEventBatch } from "../src/event-log";
+import { createAlgorithmRun, verifyAlgorithmCriterion } from "../src/algorithm";
+import { writeAlgorithmRun } from "../src/algorithm-store";
 import type { ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
 import type { RunFinishedInput } from "../src/run-ledger";
 import type { SomaMemoryEvent } from "../src/types";
@@ -72,6 +74,33 @@ test("drop records a verdict without linking or appending Errata", async () => {
   expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", dropped: 1, promoted: 0 });
   expect(await readErrata(somaHome)).toEqual([]);
   expect((await readJudgments(somaHome)).records[0].decision.verdict).toBe("drop");
+});
+
+test("triage preserves the same-session Algorithm pass through the default linker and append", async () => {
+  const { somaHome, candidate, deps } = await setup();
+  await writeFile(candidate.metadata!.transcriptPath as string, JSON.stringify({
+    type: "assistant", uuid: "U1", timestamp: "2026-10-14T04:01:00.000Z", sessionId: "S1", cwd: "/repo",
+    message: { content: [{ type: "tool_use", name: "Edit", input: {
+      file_path: "/repo/src/output.ts", old_string: "PRIVATE OLD OUTPUT", new_string: "PRIVATE NEW OUTPUT",
+    } }] },
+  }) + "\n");
+  const run = verifyAlgorithmCriterion(createAlgorithmRun({
+    id: "delivered-output-check", prompt: "test", intent: "test", currentState: "test", goal: "test",
+    criteria: [{ id: "C1", text: "Output verified" }],
+  }), "C1", "passed", "bun test src/output.ts", {
+    timestamp: "2026-10-14T04:00:30.000Z", evidenceKind: "tested", env: { SOMA_SESSION_ID: "S1" },
+  });
+  await writeAlgorithmRun(run, { somaHome });
+
+  expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 1 });
+  const records = await readErrata(somaHome);
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({
+    sessionId: "S1", rejectedTurnUuid: "U1", artifacts: ["src/output.ts"],
+    passedBy: { kind: "algorithm-verify", runId: run.id, criterionId: "C1" },
+  });
+  expect(JSON.stringify(records)).not.toContain("PRIVATE");
+  expect((await readJudgments(somaHome)).records[0].decision.errataId).toBe(records[0].id);
 });
 
 test("explicit errata marker bypasses Claude and records the explicit backend", async () => {
