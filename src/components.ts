@@ -160,6 +160,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/algorithm-vsa-sync",
       "src/lifecycle",
       "src/onboarding",
+      "src/home-bootstrap",
       "src/home-migration",
       "src/install",
       "src/result-capture",

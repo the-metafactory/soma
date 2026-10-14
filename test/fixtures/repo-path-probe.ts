@@ -1,4 +1,4 @@
-import { bootstrapSomaHome } from "../../src/soma-home";
+import { bootstrapSomaHome } from "../../src/home-bootstrap";
 import { prepareSomaInstallSkillContext } from "../../src/install";
 import { SomaInstallExecution } from "../../src/installation-executor";
 import { installCodexHomeProjection, buildGrokHomeProjection } from "../../src/home-projection";

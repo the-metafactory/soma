@@ -14,7 +14,8 @@ import type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-op
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
 import { defaultSomaRepoPath } from "./core/index";
-import { bootstrapSomaHome, loadSomaHome } from "./soma-home";
+import { bootstrapSomaHome } from "./home-bootstrap";
+import { loadSomaHome } from "./soma-home";
 import { createPaths } from "./core/index";
 import { pruneLegacyVsaSkill } from "./legacy-skill-prune";
 import { installBundledSkillsIntoHome } from "./bundled-skills";
