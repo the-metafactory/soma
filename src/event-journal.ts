@@ -1,4 +1,4 @@
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { appendEventBatch } from "./event-log";
 import type { SomaMemoryEvent, SomaMemoryEventInput } from "./types";
 

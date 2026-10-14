@@ -13,17 +13,17 @@ import {
 import type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
-import { defaultSomaRepoPath } from "./repo-path";
+import { defaultSomaRepoPath } from "./core/index";
 import { bootstrapSomaHome } from "./home-bootstrap";
 import { loadSomaHome } from "./soma-home";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { pruneLegacyVsaSkill } from "./legacy-skill-prune";
 import { installBundledSkillsIntoHome } from "./bundled-skills";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
 import { loadMemoryIndexForProjection } from "./memory-index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
-import { isEnoent } from "./fs-errors";
+import { isEnoent } from "./core/index";
 import { isGuardedRuntimeSubstrate, stageRuntimeArtifact } from "./runtime-artifact";
 import { SomaInstallExecution } from "./installation-executor";
 import {
@@ -82,8 +82,8 @@ function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOp
 }
 
 // soma#73 pre-flight is shared with the codex adapter — see
-// `src/bun-probe.ts` for the discovery + remediation logic.
-import { requireBunInPath } from "./bun-probe";
+// `src/core/bun-probe.ts` for the discovery + remediation logic.
+import { requireBunInPath } from "./core/index";
 
 export function planSomaInstall(
   substrate: InstallSubstrate,

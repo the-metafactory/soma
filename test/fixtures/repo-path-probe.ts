@@ -7,7 +7,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { installBundledSkillsIntoHome, listBundledSkills } from "../../src/bundled-skills";
 import { installVsaSkill } from "../../src/vsa-skill-installer";
-import { defaultSomaRepoPath } from "../../src/repo-path";
+import { defaultSomaRepoPath } from "../../src/core/index";
 
 // The compile regression runs this fixture both as source and as a binary.
 const work = process.argv[2] ?? "";

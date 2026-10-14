@@ -14,7 +14,7 @@ import type {
   SubstrateId,
 } from "./types";
 import { ALGORITHM_CAPABILITY_KINDS } from "./types";
-import { isEnoent } from "./fs-errors";
+import { isEnoent } from "./core/index";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { connect } from "node:net";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { parsePrivateJsonl, writePrivateJsonl, type RouterCorpusRow } from "./router-corpus";
 
 /**

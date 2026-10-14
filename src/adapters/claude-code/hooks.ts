@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { resolveBunExecutable } from "../../bun-probe";
-import { isEnoent } from "../../fs-errors";
+import { resolveBunExecutable } from "../../core/index";
+import { isEnoent } from "../../core/index";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { isClaudeCodeInstallOptions } from "./install-options";
 

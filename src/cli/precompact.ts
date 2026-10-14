@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { buildSomaStartupContext, resolveSomaHome } from "../lifecycle";
-import { isEnoent } from "../fs-errors";
+import { isEnoent } from "../core/index";
 import type { SomaLifecycleOptions } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";

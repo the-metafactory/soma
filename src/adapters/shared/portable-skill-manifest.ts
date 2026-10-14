@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readlink, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { isEnoent } from "../../fs-errors";
+import { isEnoent } from "../../core/index";
 
 /**
  * The substrates this manifest serves: ONLY those whose skills land in a SHARED

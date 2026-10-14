@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { open, readFile, realpath } from "node:fs/promises";
-import { isInsidePath } from "./path-utils";
+import { isInsidePath } from "./core/index";
 import type { ProjectedArtifact } from "./lifecycle-registry";
 
 export type { ProjectedArtifact } from "./lifecycle-registry";

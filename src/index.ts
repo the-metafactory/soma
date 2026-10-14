@@ -1,3 +1,4 @@
+export type { SomaPaths, SomaMemoryPromotionStore } from "./core/index";
 export type {
   AlgorithmEffortTier,
   AlgorithmEffortSource,
@@ -54,7 +55,6 @@ export type {
   Projection,
   ProjectionInput,
   SomaMemoryLayout,
-  SomaPaths,
   SomaProfile,
   SomaSkill,
   SomaSnapshotEntry,
@@ -94,7 +94,6 @@ export type {
   SomaMemoryEventInput,
   SomaMemoryPromotionOptions,
   SomaMemoryPromotionResult,
-  SomaMemoryPromotionStore,
   SomaMemoryRecallOptions,
   SomaMemoryRecallResult,
   SomaMemoryRecalledNote,
@@ -379,7 +378,7 @@ export {
 export { writeProjection } from "./projection";
 export { SomaInstallError } from "./installation-execution";
 export type { SomaHomeInstallReceipt, SomaInstallStage, SomaPartialInstallResult, SomaRuntimeArtifactReceipt, SomaSubstrateInstallReceipt } from "./installation-execution";
-export { createPaths, type SomaPathsOptions } from "./paths";
+export { createPaths, type SomaPathsOptions } from "./core/index";
 export {
   advisor,
   inference,
@@ -797,4 +796,4 @@ export {
   type ConfinementDeps,
 } from "./work-graph-attestation";
 
-export { SOMA_VERSION } from "./version";
+export { SOMA_VERSION } from "./core/index";

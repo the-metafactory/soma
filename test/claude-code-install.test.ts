@@ -25,7 +25,7 @@ import type { InstallSubstrate, SkillsDiscoveryMode } from "../src/install-spec"
 import { SOMA_SKILLS_HEADING } from "../src/adapters/shared";
 import { writePortableSkillManifest } from "../src/adapters/shared/portable-skill-manifest";
 import { stripProvenance } from "../src/adapters/shared/provenance";
-import { datePrefixSlug } from "../src/dated-slug";
+import { datePrefixSlug } from "../src/core/index";
 import { expectReprojectPrunesStaleTelos, portableProjectionInput } from "./fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {

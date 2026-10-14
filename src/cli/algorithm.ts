@@ -36,10 +36,10 @@ import { VerificationGateError, getAlgorithmReferences, recordAlgorithmReference
 import { readFile } from "node:fs/promises";
 import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm-capabilities";
-import { defaultSomaHome } from "../paths";
+import { defaultSomaHome } from "../core/index";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
-import { datePrefixSlug } from "../dated-slug";
+import { datePrefixSlug } from "../core/index";
 import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";

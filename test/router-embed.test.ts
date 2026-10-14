@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
-import { createPaths } from "../src/paths";
+import { createPaths } from "../src/core/index";
 import type { RouterCorpusRow } from "../src/router-corpus";
 import {
   type FetchLike,

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { allInstallSpecs } from "./install-spec-registry";
 import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { loadSomaHome } from "./soma-home";
 import type { SomaHomeBootstrapOptions, SomaHomeBootstrapResult } from "./types";
 

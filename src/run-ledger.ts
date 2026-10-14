@@ -28,7 +28,7 @@ import type {
   TransportPublisher,
 } from "@the-metafactory/myelin";
 import { appendSomaMemoryEvent } from "./event-journal";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { RUN_LEDGER_ENV } from "./run-ledger-env";
 import { resolveSubstrateSessionEnv } from "./adapters/session-env";
 import type { SubstrateId } from "./types";

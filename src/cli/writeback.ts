@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
-import { isEnoent } from "../fs-errors";
+import { isEnoent } from "../core/index";
 import { applySomaMemoryEventWritebacks, applySomaWriteback, type SomaWritebackResult } from "../writeback";
 import type { SomaMemoryEventInput } from "../types";
 import { readOption } from "./parse-utils";
