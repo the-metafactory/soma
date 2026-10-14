@@ -4,5 +4,5 @@ import { resolve } from "node:path";
  * See docs/design-skill-packaging.md §Skills bundled with Soma for runtime staging.
  */
 export function defaultSomaRepoPath(): string {
-  return resolve(import.meta.dirname, "..");
+  return resolve(import.meta.dirname, "../..");
 }

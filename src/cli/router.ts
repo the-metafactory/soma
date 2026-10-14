@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createPaths, defaultSomaHome } from "../paths";
+import { createPaths, defaultSomaHome } from "../core/index";
 import { type CombinerExample, crossValidateCombiner, trainCombiner } from "../router-combiner";
 import {
   ROUTER_CORPUS_DEFAULT_SAMPLE,

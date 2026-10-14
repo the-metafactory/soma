@@ -2,8 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isMap, isNode, isScalar, isSeq, LineCounter, parseAllDocuments, visit } from "yaml";
 import { z } from "zod";
-import { isEnoent } from "./fs-errors";
-import { defaultSomaHome, type SomaPathsOptions } from "./paths";
+import { isEnoent, defaultSomaHome, type SomaPathsOptions } from "./core";
 
 const resourceSchema = z.strictObject({
   name: z.string().regex(/^[a-z][a-z0-9_-]*$/),

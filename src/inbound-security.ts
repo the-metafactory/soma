@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
-import { createPaths } from "./paths";
-import { appendSomaMemoryEvent } from "./memory";
+import { createPaths } from "./core/index";
+import { appendSomaMemoryEvent } from "./event-journal";
 import type {
   InboundContentDecision,
   InboundContentScanOptions,

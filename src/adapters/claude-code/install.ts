@@ -1,6 +1,6 @@
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
-import { defaultSomaHome } from "../../paths";
+import { defaultSomaHome } from "../../core/index";
 import { removePortableSkillProjection } from "../shared/portable-skill-manifest";
 import { removeProjectedSkillLinks } from "../../projected-skill-links";
 import { CLAUDE_CODE_PROJECTED_RULES_FILES, CLAUDE_CODE_SKILLS_DISCOVERY } from "../claude-code";

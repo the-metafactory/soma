@@ -1,8 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isEnoent } from "./fs-errors";
-import { comparePaths, toPosixRelative, walkFilesAsync } from "./fs-walk";
-import { defaultSomaRepoPath } from "./repo-path";
+import { isEnoent } from "./core/index";
+import { comparePaths, toPosixRelative, walkFilesAsync } from "./core/index";
+import { defaultSomaRepoPath } from "./core/index";
 
 /**
  * The one reader for skill content bundled under `src/skills` (orienteer node #612).

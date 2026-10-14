@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import {
   SOMA_FEEDBACK_EVENT_SCHEMA_VERSION,
   SOMA_FEEDBACK_HOOK_TRIGGER_PATTERN_SOURCE,
@@ -36,11 +36,16 @@ function nonEmpty(value: string | undefined): value is string {
 
 function redactedFeedbackExcerpt(text: string): { text: string; truncated: boolean } {
   const normalized = text.trim().replace(/\s+/g, " ");
-  const redacted = SECRET_EXCERPT_PATTERNS.reduce((value, pattern) => value.replace(pattern, "[redacted]"), normalized);
+  const redacted = redactSomaFeedbackText(normalized);
   if (redacted.length <= FEEDBACK_EXCERPT_MAX_LENGTH) {
     return { text: redacted, truncated: false };
   }
   return { text: `${redacted.slice(0, FEEDBACK_EXCERPT_MAX_LENGTH)}...`, truncated: true };
+}
+
+/** Shared best-effort redaction for feedback excerpts and private Errata complaints. */
+export function redactSomaFeedbackText(text: string): string {
+  return SECRET_EXCERPT_PATTERNS.reduce((value, pattern) => value.replace(pattern, "[redacted]"), text);
 }
 
 export function classifySomaFeedback(text: string): SomaFeedbackClassification {

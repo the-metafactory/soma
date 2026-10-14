@@ -26,7 +26,7 @@ import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest
 import { parsePaiReflections } from "../algorithm-reflection-import";
 import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm-capabilities";
 import { runSomaLifecycleAlgorithmUpdated } from "../lifecycle";
-import { appendSomaMemoryEvent } from "../memory";
+import { appendSomaMemoryEvent } from "../event-journal";
 import type { BridgedNodeReport } from "../work-graph";
 // VerificationGateError is a CLI-only classification detail — imported straight
 // from its defining module, deliberately NOT re-exported through the public
@@ -36,10 +36,10 @@ import { VerificationGateError, getAlgorithmReferences, recordAlgorithmReference
 import { readFile } from "node:fs/promises";
 import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
 import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm-capabilities";
-import { defaultSomaHome } from "../paths";
+import { defaultSomaHome } from "../core/index";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
-import { datePrefixSlug } from "../dated-slug";
+import { datePrefixSlug } from "../core/index";
 import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa-accessors";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";

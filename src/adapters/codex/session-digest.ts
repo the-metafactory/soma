@@ -3,7 +3,7 @@ import { lstat, open, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { registerSessionEndTranscriptHandler } from "../../lifecycle";
+import { registerSessionEndTranscriptHandler } from "../../lifecycle-registry";
 import { hasSessionDigest, writeSessionDigest } from "../../memory-episodic";
 import type { SomaMemoryDigestResult, SubstrateId } from "../../types";
 

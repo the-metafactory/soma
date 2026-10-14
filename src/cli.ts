@@ -7,6 +7,7 @@ import {
   type ParsedAlgorithmArgs,
 } from "./cli/algorithm";
 import { SomaCliError } from "./cli/errors";
+import { ERRATA_COMMAND_HELP, parseErrataArgs, runErrataCli, type ParsedErrataArgs } from "./cli/errata";
 import { GOAL_COMMAND_HELP, parseGoalArgs, runGoalCli, type ParsedGoalArgs } from "./cli/goal";
 import {
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
@@ -180,6 +181,7 @@ type ParsedArgs =
   | ParsedMemoryArgs
   | ParsedTelemetryArgs
   | ParsedFeedbackArgs
+  | ParsedErrataArgs
   | ParsedJudgeArgs
   | ParsedRouterArgs
   | ParsedRedactArgs
@@ -199,6 +201,7 @@ const TOP_LEVEL_COMMANDS = [
   "daemon",
   "doctor",
   "export",
+  "errata",
   "feedback",
   "graph",
   "goal",
@@ -245,6 +248,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   telemetry: TELEMETRY_COMMAND_HELP,
   stats: STATS_COMMAND_HELP,
   feedback: FEEDBACK_COMMAND_HELP,
+  errata: ERRATA_COMMAND_HELP,
   judge: JUDGE_COMMAND_HELP,
   router: ROUTER_COMMAND_HELP,
   redact: REDACT_COMMAND_HELP,
@@ -325,6 +329,8 @@ function parseArgs(args: string[]): ParsedArgs {
   if (args[0] === "feedback") {
     return parseFeedbackArgs(args);
   }
+
+  if (args[0] === "errata") return parseErrataArgs(args);
 
   if (args[0] === "judge") {
     return parseJudgeArgs(args);
@@ -600,6 +606,8 @@ export async function runSomaCli(args: string[]): Promise<string> {
   if (parsed.command === "feedback") {
     return runFeedbackCli(parsed);
   }
+
+  if (parsed.command === "errata") return runErrataCli(parsed);
 
   if (parsed.command === "judge") {
     return runJudgeCli(parsed);

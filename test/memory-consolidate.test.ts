@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, spyOn, test } from "bun:test";
 import { appendSomaMemoryEvent, consolidateMemory, parseMemoryNote, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
 import { memoryIndexPath } from "../src/memory-index";
-import { createPaths } from "../src/paths";
+import { createPaths } from "../src/core/index";
 // Plan/apply internals are module-private (not public index API) — import direct,
 // for the #412 plan-immutability acceptance test.
 import { applyConsolidationPlan, planConsolidation, type ConsolidationPlan } from "../src/memory-consolidate";

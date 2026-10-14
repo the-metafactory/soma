@@ -1,3 +1,7 @@
+import type { SomaMemoryPromotionStore } from "./core/index";
+export type { SomaPaths, SomaMemoryPromotionStore } from "./core/index";
+export { SOMA_MEMORY_PROMOTION_STORE_DIRS, SOMA_MEMORY_PROMOTION_STORES } from "./core/index";
+
 import type { InferenceBackend, InferenceLevel } from "./tools/inference/types";
 import type { BehaviorPolicy } from "./policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
@@ -284,6 +288,31 @@ export interface AlgorithmPlanStep {
    */
   nodeId?: string;
 }
+
+/** Principal rejection of a delivered output; never stores assistant output content. */
+export type ErrataPassedBy =
+  | { kind: "algorithm-verify"; runId: string; criterionId: string }
+  | { kind: "close-receipt"; repo: string; nodeId: string; receiptCommentId: string };
+
+export interface ErrataInput {
+  sessionId: string;
+  rejectedTurnUuid: string;
+  rejectedAt: string;
+  complaintAt: string;
+  complaint: string;
+  artifacts: string[];
+  passedBy: ErrataPassedBy | null;
+}
+
+export interface ErrataRecord extends ErrataInput {
+  id: string;
+  status: "active" | "dropped";
+  createdAt: string;
+}
+
+export type ErrataEvent =
+  | { kind: "created"; record: ErrataRecord }
+  | { kind: "dropped"; id: string; at: string };
 
 export interface AlgorithmLogEntry {
   timestamp: string;
@@ -657,31 +686,6 @@ export interface SomaMemoryLayout {
   learning: string;
   relationship: string;
   state: string;
-}
-
-export interface SomaPaths {
-  root(): string;
-  identity(): string;
-  memory(): string;
-  profile(): string;
-  skills(): string;
-  learning(): string;
-  knowledge(): string;
-  signals(): string;
-  wisdom(): string;
-  relationship(): string;
-  state(...segments: string[]): string;
-  work(): string;
-  semantic(): string;
-  procedural(): string;
-  episodic(kind: "sessions" | "actions" | "digests", ...segments: string[]): string;
-  promoted(store: SomaMemoryPromotionStore): string;
-  archive(...segments: string[]): string;
-  ratings(): string;
-  opinions(): string;
-  story(): string;
-  events(): string;
-  resolve(...segments: string[]): string;
 }
 
 export interface SomaSnapshotOptions {
@@ -1798,22 +1802,6 @@ export interface SomaResultSearchResult {
   somaHome: string;
   matches: SomaResultSearchMatch[];
 }
-
-// Single source of truth for the promotion-store enumeration AND its on-disk
-// dir mapping: `promoted()` (src/paths.ts) keys this map, and the CLI's
-// `--store` validator (src/cli/memory.ts) checks against the derived array —
-// neither re-lists the literals independently (soma#419 review: the dir map
-// used to be re-declared in paths.ts, a second source list).
-export const SOMA_MEMORY_PROMOTION_STORE_DIRS = {
-  learning: "LEARNING",
-  knowledge: "KNOWLEDGE",
-  relationship: "RELATIONSHIP",
-  work: "WORK",
-} as const;
-export type SomaMemoryPromotionStore = keyof typeof SOMA_MEMORY_PROMOTION_STORE_DIRS;
-export const SOMA_MEMORY_PROMOTION_STORES = Object.keys(
-  SOMA_MEMORY_PROMOTION_STORE_DIRS,
-) as SomaMemoryPromotionStore[];
 
 export interface SomaMemoryPromotionOptions {
   homeDir?: string;

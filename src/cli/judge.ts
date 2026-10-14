@@ -1,5 +1,5 @@
 import { JUDGE_REGISTRY, judgeLedgerPath, readJudgments, summarizeJudgments } from "../judge";
-import { defaultSomaHome } from "../paths";
+import { defaultSomaHome } from "../core/index";
 import { readOption } from "./parse-utils";
 
 type JudgeCliAction = "stats" | "registry";

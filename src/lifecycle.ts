@@ -6,9 +6,10 @@ import { promisify } from "node:util";
 import { listAlgorithmRunSummaries, listAlgorithmRuns, listStartupAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { buildLearningReadback } from "./learning-readback";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
-import { repairProjectedArtifacts, type ProjectedArtifact } from "./projection-self-repair";
+import { repairProjectedArtifacts } from "./projection-self-repair";
+import { getProjectionRepairProvider, getSessionEndTranscriptHandler } from "./lifecycle-registry";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
@@ -806,57 +807,6 @@ function normalizeLifecycleArtifactPaths(somaHome: string, artifactPaths: string
 }
 
 /**
- * A substrate-registered SessionEnd transcript-digest handler. Dependency INVERSION:
- * core lifecycle owns this neutral hook point; a substrate adapter (e.g. claude-code)
- * registers its transcript→digest fallback, so core never imports an adapter. The
- * transcript FORMAT stays entirely inside the adapter.
- */
-export type SessionEndTranscriptHandler = (input: {
-  homeDir?: string;
-  somaHome: string;
-  now: Date;
-  substrate: SubstrateId;
-  sessionId: string;
-  transcriptPath: string;
-  subagentId?: string;
-  subagentType?: string;
-  forcePrimary?: boolean;
-  forceSubagent?: boolean;
-}) => Promise<{ outcome: string; path?: string }>;
-
-const sessionEndTranscriptHandlers = new Map<SubstrateId, SessionEndTranscriptHandler>();
-
-/** Register a transcript-digest fallback; returns a disposer restoring the previous handler. */
-export function registerSessionEndTranscriptHandler(substrate: SubstrateId, handler: SessionEndTranscriptHandler): () => void {
-  const previous = sessionEndTranscriptHandlers.get(substrate);
-  sessionEndTranscriptHandlers.set(substrate, handler);
-  return () => {
-    if (sessionEndTranscriptHandlers.get(substrate) !== handler) return;
-    if (previous === undefined) sessionEndTranscriptHandlers.delete(substrate);
-    else sessionEndTranscriptHandlers.set(substrate, previous);
-  };
-}
-
-/**
- * A substrate-registered projection self-repair provider (soma#460). Same
- * dependency INVERSION as the transcript handler above: core owns the neutral
- * SessionStart repair step and looks the provider up by substrate, so core never
- * imports an adapter. The provider resolves its own substrate home and returns
- * the artifact descriptors to repair.
- */
-export type ProjectionRepairProvider = (input: {
-  homeDir?: string;
-  somaHome: string;
-}) => { substrateHome: string; artifacts: readonly ProjectedArtifact[] };
-
-const projectionRepairProviders = new Map<SubstrateId, ProjectionRepairProvider>();
-
-/** Register a substrate's projection self-repair provider (see the type doc). */
-export function registerProjectionRepairProvider(substrate: SubstrateId, provider: ProjectionRepairProvider): void {
-  projectionRepairProviders.set(substrate, provider);
-}
-
-/**
  * The #460 projection self-repair step, extracted from runSomaLifecycleSessionStart.
  * Best-effort and non-blocking: look up the substrate's repair provider
  * (dependency-inverted; core imports no adapter), repair, and return the healed
@@ -867,7 +817,7 @@ async function repairProjectionAtSessionStart(
   startup: SomaStartupContext,
   homeDir: string | undefined,
 ): Promise<string[]> {
-  const repairProvider = projectionRepairProviders.get(startup.substrate);
+  const repairProvider = getProjectionRepairProvider(startup.substrate);
   if (!repairProvider) return [];
   try {
     const { substrateHome, artifacts } = repairProvider({ homeDir, somaHome: startup.somaHome });
@@ -965,7 +915,7 @@ export async function runSomaLifecycleSessionEnd(options: SomaLifecycleOptions =
   // session-end path (the dedup-before-read keeps the common no-op path cheap).
   let digestNote = "";
   let digestPath: string | undefined;
-  const transcriptHandler = sessionEndTranscriptHandlers.get(substrate(options));
+  const transcriptHandler = getSessionEndTranscriptHandler(substrate(options));
   if (options.transcriptPath && options.sessionId && transcriptHandler) {
     try {
       const fallback = await transcriptHandler({

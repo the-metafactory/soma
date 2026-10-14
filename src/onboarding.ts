@@ -4,9 +4,9 @@ import { join, resolve } from "node:path";
 import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift, isDoctorSubstrate } from "./adapters/doctor";
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForDsh, installSomaForGrok, installSomaForPiDev } from "./install";
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
-import { bootstrapSomaHome } from "./soma-home";
+import { bootstrapSomaHome } from "./home-bootstrap";
 import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate } from "./runtime-artifact";
-import { isEnoent, pathExists } from "./fs-utils";
+import { isFsUtilsEnoent as isEnoent, pathExists } from "./core/index";
 import type {
   SomaDoctorDiagnosis,
   SomaDoctorFinding,

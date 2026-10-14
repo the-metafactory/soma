@@ -35,7 +35,7 @@ import { open, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { listRecentAlgorithmRuns } from "./algorithm-store";
 import { buildReflectionDigest, type ReflectionForDigest } from "./algorithm-reflection-digest";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { parseRatingsJsonl } from "./tools/learning/pattern-synthesis";
 import type { Rating } from "./tools/learning/types";
 

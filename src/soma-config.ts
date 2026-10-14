@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isEnoent } from "./fs-errors";
-import { defaultSomaHome, type SomaPathsOptions } from "./paths";
+import { isEnoent } from "./core/index";
+import { defaultSomaHome, type SomaPathsOptions } from "./core/index";
 
 export interface SomaConfig {
   goals?: { activations_dir?: string };

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { createPaths } from "../../paths";
+import { createPaths } from "../../core/index";
 import type {
   AdvisorStateOptions,
   InferenceLevel,

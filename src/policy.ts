@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { evaluatePathGuard, SOMA_DEFAULT_PROTECTED_PATHS, SOMA_HOME_ALLOWED_MODIFY_SUBPATHS } from "./policy-path-guard";
 import { hasSomaPolicyPrivateMarker } from "./policy-marker";
-import { isInsidePath } from "./path-utils";
+import { isInsidePath } from "./core/index";
 import type { SomaPolicyBatchCheckOptions, SomaPolicyBatchCheckResult, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult, SomaPolicyFinding, SomaProtectedPath } from "./types";
 
 function resolveSomaHome(options: Pick<SomaPolicyCheckOptions, "homeDir" | "somaHome"> = {}): string {
