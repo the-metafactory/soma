@@ -6,12 +6,14 @@ import {
   advanceAlgorithmRunUntil,
   advanceAlgorithmRun,
   algorithmPhaseOrder,
+  algorithmSessionId,
   createAlgorithmRun,
   recordAlgorithmChange,
   recordAlgorithmDecision,
   recordAlgorithmMetaReflection,
   recordAlgorithmObservation,
   recordAlgorithmLearning,
+  recordAlgorithmSession,
   requirePlanStep,
   setAlgorithmPlan,
   syncBridgedPlanStep,
@@ -44,6 +46,7 @@ import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import { readNodeForBridge } from "../work-graph-bridge";
 import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../run-ledger";
+import { resolveSubstrateSessionEnv } from "../adapters/session-env";
 import { hashJudgmentInput, recordJudgment, regexClassifierVersion } from "../judge";
 import type {
   AlgorithmBatchOperation,
@@ -890,7 +893,9 @@ export async function appendVerificationGateViolationEvent(
   runId: string,
   error: VerificationGateError,
   runSubstrate?: AlgorithmRun["substrate"],
+  env: RunLedgerDeps["env"] = process.env,
 ): Promise<void> {
+  const sessionId = algorithmSessionId(resolveSubstrateSessionEnv(env));
   try {
     await appendSomaMemoryEvent(defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome }), {
       // Attribute to the run's own substrate when the CLI flag is absent — a
@@ -904,6 +909,7 @@ export async function appendVerificationGateViolationEvent(
         criterionId: error.criterionId,
         reason: error.reason,
         evidenceKind: error.evidenceKind ?? null,
+        ...(sessionId === undefined ? {} : { sessionId }),
       },
     });
   } catch {
@@ -938,6 +944,7 @@ export async function updateAndReportAlgorithmRun(
   update: (run: AlgorithmRun) => AlgorithmRun,
   registration: { registerCapabilities?: boolean; batch?: boolean } = {},
 ): Promise<string> {
+  const env = resolveSubstrateSessionEnv(deps.env ?? process.env);
   const id = requireAlgorithmId(options);
   const { run } = await readAlgorithmRunById(id, {
     homeDir: options.homeDir,
@@ -962,11 +969,11 @@ export async function updateAndReportAlgorithmRun(
     // funnels through this CLI, so the emission is substrate-neutral by
     // construction. Best-effort: a telemetry failure must never mask the gate.
     if (error instanceof VerificationGateError) {
-      await appendVerificationGateViolationEvent(options, id, error, run.substrate);
+      await appendVerificationGateViolationEvent(options, id, error, run.substrate, env);
     }
     throw registration.batch ? batchRefusal(error) : error;
   }
-  const written = await writeAlgorithmRun(updated, {
+  const written = await writeAlgorithmRun(recordAlgorithmSession(updated, env), {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
   });
@@ -987,7 +994,7 @@ export async function updateAndReportAlgorithmRun(
       {
         somaHome: defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome }),
         substrate: options.substrate ?? written.run.substrate ?? "custom",
-        env: deps.env,
+        env,
         publish: deps.publishRunFinished,
       },
     );
@@ -1067,6 +1074,7 @@ export async function runAlgorithmCli(
 ): Promise<string> {
   const options = parsed.options;
   const deps: AlgorithmCliDeps = { readNode: async (nodeId, opts) => await readNodeForBridge(nodeId, opts), ...overrides };
+  const env = resolveSubstrateSessionEnv(deps.env ?? process.env);
 
   if (parsed.action === "classify") {
     if (!options.prompt) throw new Error("--prompt is required.");
@@ -1075,7 +1083,7 @@ export async function runAlgorithmCli(
 
   if (parsed.action === "new") {
     const input = requireAlgorithmRunInput(options);
-    const run = await registerSomaHomeAlgorithmCapabilities(createAlgorithmRun(input), {
+    const run = await registerSomaHomeAlgorithmCapabilities(createAlgorithmRun(input, env), {
       homeDir: options.homeDir,
       somaHome: options.somaHome,
       substrate: input.substrate,
@@ -1261,7 +1269,9 @@ export async function runAlgorithmCli(
     // does not verify the probe actually happened.
     const evidenceKind = defaultEvidenceKind(options.evidenceKind, criterionStatus);
     return updateAndReportAlgorithmRun(options, deps, (run) =>
-      verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, undefined, { substrate: options.substrate }, evidenceKind),
+      verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, {
+        provenance: { substrate: options.substrate }, evidenceKind, env,
+      }),
     );
   }
 
@@ -1320,7 +1330,7 @@ export async function runAlgorithmCli(
 
   if (parsed.action === "batch") {
     const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, deps, (run) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }), {
+    return updateAndReportAlgorithmRun(options, deps, (run) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }, env), {
       registerCapabilities: true,
       batch: true,
     });
@@ -1336,6 +1346,7 @@ export async function runAlgorithmCli(
       somaHome: options.somaHome,
       promoteOnComplete: options.promoteOnComplete === true,
       principalAuthority: options.principalAuthority === true,
+      env,
     });
     return formatSyncResult(result);
   }
