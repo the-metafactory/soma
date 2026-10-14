@@ -1,25 +1,26 @@
 import { defaultSomaHome } from "../paths";
-import { dropErrata, readErrata } from "../errata";
+import { dropErrata, readErrata, runErrataTriage, type ErrataTriageDeps } from "../errata";
 import { readOption } from "./parse-utils";
 
 export interface ParsedErrataArgs {
   command: "errata";
-  action: "list" | "drop";
+  action: "list" | "drop" | "triage";
   id?: string;
   options: { somaHome?: string; homeDir?: string; all?: boolean; json?: boolean };
 }
 
 export const ERRATA_COMMAND_HELP = {
-  usage: "Usage: soma errata <list|drop> [--soma-home <path>]",
+  usage: "Usage: soma errata <list|drop|triage> [--soma-home <path>]",
   subcommands: {
     list: "Usage: soma errata list [--all] [--json] [--soma-home <path>] [--home-dir <path>]",
     drop: "Usage: soma errata drop E<n> [--soma-home <path>] [--home-dir <path>]",
+    triage: "Usage: soma errata triage [--soma-home <path>] [--home-dir <path>]",
   },
 };
 
 export function parseErrataArgs(args: string[]): ParsedErrataArgs {
   const [command, action, ...rest] = args;
-  if (command !== "errata" || (action !== "list" && action !== "drop")) throw new Error(ERRATA_COMMAND_HELP.usage);
+  if (command !== "errata" || (action !== "list" && action !== "drop" && action !== "triage")) throw new Error(ERRATA_COMMAND_HELP.usage);
   const options: ParsedErrataArgs["options"] = {};
   let id: string | undefined;
   for (let index = 0; index < rest.length; index++) {
@@ -36,8 +37,14 @@ export function parseErrataArgs(args: string[]): ParsedErrataArgs {
   return { command, action, id, options };
 }
 
-export async function runErrataCli(parsed: ParsedErrataArgs): Promise<string> {
+export async function runErrataCli(parsed: ParsedErrataArgs, deps: Omit<ErrataTriageDeps, "somaHome"> = {}): Promise<string> {
   const somaHome = defaultSomaHome(parsed.options);
+  if (parsed.action === "triage") {
+    const result = await runErrataTriage({ ...deps, somaHome });
+    const counts = `${result.promoted} promoted, ${result.dropped} dropped, ${result.skipped} skipped, ${result.unlinkable} unlinkable`;
+    if (result.outcome === "failed") throw new Error(`Errata triage failed: ${counts}. Unjudged candidates will be retried.`);
+    return `Errata triage: ${counts}.`;
+  }
   if (parsed.action === "drop") {
     if (parsed.id === undefined) throw new Error(ERRATA_COMMAND_HELP.subcommands.drop);
     await dropErrata(somaHome, parsed.id);

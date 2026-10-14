@@ -1,8 +1,14 @@
-import { mkdir, open, readFile, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join, normalize, relative, isAbsolute } from "node:path";
 import { listAlgorithmRuns } from "./algorithm-store";
 import { redactSomaFeedbackText } from "./feedback";
-import type { AlgorithmRun, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord } from "./types";
+import type { AlgorithmRun, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord, SomaMemoryEvent } from "./types";
+import { parseTelemetryEventLine, streamEventLines } from "./event-log";
+import { somaMemoryEventsPath } from "./memory";
+import { hashJudgmentInput, readJudgments, recordJudgment, type JudgmentRecord } from "./judge-ledger";
+import { classifyErrataWithClaude, validateErrataVerdict, type ErrataTriageVerdict } from "./errata-classifier";
+import { publishRunFinished, type RunFinishedInput, type RunLedgerDeps } from "./run-ledger";
 
 function stringField(data: Record<string, unknown>, key: string, allowEmpty = false): string {
   const value = data[key];
@@ -57,10 +63,10 @@ export function errataLedgerPath(somaHome: string): string {
   return join(somaHome, "memory", "STATE", "errata", "ledger.jsonl");
 }
 
-async function withLedgerLock<T>(somaHome: string, action: () => Promise<T>): Promise<T> {
+async function withLedgerLock<T>(somaHome: string, action: () => Promise<T>, name = ".lock"): Promise<T> {
   const dir = join(somaHome, "memory", "STATE", "errata");
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  const lock = join(dir, ".lock");
+  const lock = join(dir, name);
   const deadline = Date.now() + 10_000;
   for (;;) {
     try { await mkdir(lock, { mode: 0o700 }); break; }
@@ -272,4 +278,121 @@ export async function linkErrataCandidate(deps: ErrataLinkDeps): Promise<ErrataL
       artifacts, passedBy: passes[0]?.passedBy ?? null,
     },
   };
+}
+
+export interface ErrataTriageDeps extends RunLedgerDeps {
+  somaHome: string;
+  now?: () => Date;
+  readEvents?: () => Promise<readonly SomaMemoryEvent[]>;
+  classify?: (redactedText: string) => Promise<ErrataTriageVerdict>;
+  link?: (candidate: ErrataCandidate) => Promise<ErrataLinkResult>;
+  readCloseReceipts?: ErrataLinkDeps["readCloseReceipts"];
+  append?: (input: ErrataInput) => Promise<ErrataRecord>;
+  readJudgments?: () => Promise<{ records: JudgmentRecord[]; malformed: number }>;
+  recordJudgment?: (record: JudgmentRecord) => Promise<boolean>;
+  publishRun?: (input: RunFinishedInput) => Promise<unknown>;
+}
+
+export interface ErrataTriageResult {
+  outcome: "succeeded" | "failed";
+  promoted: number;
+  dropped: number;
+  skipped: number;
+  unlinkable: number;
+  detailRef: string;
+}
+
+async function readFeedbackCandidates(somaHome: string): Promise<SomaMemoryEvent[]> {
+  const events: SomaMemoryEvent[] = [];
+  // Include rotated segments; a narrow recent-events limit would silently lose candidates.
+  for await (const line of streamEventLines(somaMemoryEventsPath(somaHome))) {
+    const event = parseTelemetryEventLine(line);
+    if (event?.kind === "feedback.candidate") events.push(event);
+  }
+  return events;
+}
+
+/** One autonomous job. Classifier failure commits no verdicts, including explicit markers. */
+export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTriageResult> {
+  const now = deps.now ?? (() => new Date());
+  const startedAt = now().toISOString();
+  const runId = randomUUID();
+  const detailRef = join(deps.somaHome, "memory", "STATE", "errata", "triage-runs", `${runId}.json`);
+  const result: ErrataTriageResult = { outcome: "succeeded", promoted: 0, dropped: 0, skipped: 0, unlinkable: 0, detailRef };
+  try {
+    await withLedgerLock(deps.somaHome, async () => {
+      const ledger = await (deps.readJudgments ?? (() => readJudgments(deps.somaHome, { caller: "errata-triage" })))();
+      if (ledger.malformed !== 0) throw new Error("Errata judgment ledger is malformed.");
+      const seen = new Set(ledger.records.filter((record) => record.caller === "errata-triage")
+        .map((record) => record.decision.eventId));
+      const staged: { event: SomaMemoryEvent; text: string; verdict: ErrataTriageVerdict; backend: string; latencyMs: number }[] = [];
+      for (const event of await (deps.readEvents ?? (() => readFeedbackCandidates(deps.somaHome)))()) {
+        if (event.kind !== "feedback.candidate" || seen.has(event.id)) continue;
+        seen.add(event.id);
+        const metadata = event.metadata ?? {};
+        if (metadata.actor !== "interactive" || typeof metadata.redactedExcerpt !== "string" || !metadata.redactedExcerpt.trim()) {
+          result.skipped++;
+          continue;
+        }
+        const text = redactSomaFeedbackText(metadata.redactedExcerpt).trim();
+        const explicit = text.startsWith("errata:");
+        const before = now().getTime();
+        const verdict = explicit
+          ? { verdict: "promote" as const, reason: "Explicit Errata marker.", backendVersion: "1" }
+          : await (deps.classify ?? classifyErrataWithClaude)(text);
+        validateErrataVerdict(verdict);
+        staged.push({ event, text, verdict, backend: explicit ? "explicit-marker" : "claude-p", latencyMs: Math.max(0, now().getTime() - before) });
+      }
+      for (const { event, text, verdict, backend, latencyMs } of staged) {
+        let status: "promoted" | "dropped" | "unlinkable" = "dropped";
+        let errataId: string | undefined;
+        if (verdict.verdict === "promote") {
+          const metadata = event.metadata ?? {};
+          if (typeof metadata.sessionId !== "string" || !metadata.sessionId.trim()
+            || typeof metadata.transcriptPath !== "string" || !metadata.transcriptPath.trim()) {
+            status = "unlinkable";
+          } else {
+            const candidate = { sessionId: metadata.sessionId, transcriptPath: metadata.transcriptPath, timestamp: event.timestamp, complaint: text };
+            const linked = await (deps.link ?? ((candidate) => linkErrataCandidate({
+              candidate, somaHome: deps.somaHome,
+              // A local batch cannot establish graph-receipt session attribution.
+              readCloseReceipts: deps.readCloseReceipts ?? (() => Promise.resolve(null)),
+            })))(candidate);
+            if (linked.status === "unlinkable") status = "unlinkable";
+            else {
+              // Recover an append whose judgment write failed, without duplicating the rejection.
+              const existing = deps.append ? undefined : (await readErrata(deps.somaHome, { all: true })).find((record) =>
+                record.sessionId === linked.errata.sessionId && record.rejectedTurnUuid === linked.errata.rejectedTurnUuid
+                && record.complaintAt === linked.errata.complaintAt && record.complaint === linked.errata.complaint);
+              const record = existing ?? await (deps.append ?? ((input) => appendErrata(deps.somaHome, input)))(linked.errata);
+              errataId = record.id;
+              status = "promoted";
+            }
+          }
+        }
+        result[status === "promoted" ? "promoted" : status === "dropped" ? "dropped" : "unlinkable"]++;
+        const recorded = await (deps.recordJudgment ?? ((record) => recordJudgment(deps.somaHome, record)))({
+          v: 1, ts: now().toISOString(), caller: "errata-triage", substrate: event.substrate,
+          inputSha256: hashJudgmentInput(text), backend, backendVersion: verdict.backendVersion,
+          decision: { verdict: verdict.verdict, reason: redactSomaFeedbackText(verdict.reason), eventId: event.id, status,
+            ...(errataId ? { errataId } : {}) },
+          latencyMs,
+        });
+        if (!recorded) throw new Error("Errata judgment could not be recorded.");
+      }
+    }, ".triage-lock");
+  } catch {
+    // Neither subprocess output nor complaint text belongs in CLI logs or the run report.
+    result.outcome = "failed";
+  }
+  const endedAt = now().toISOString();
+  try {
+    await mkdir(join(deps.somaHome, "memory", "STATE", "errata", "triage-runs"), { recursive: true, mode: 0o700 });
+    await writeFile(detailRef, `${JSON.stringify({ ...result, runId, startedAt, endedAt })}\n`, { mode: 0o600 });
+  } catch { result.outcome = "failed"; }
+  const report: RunFinishedInput = { kind: "job", ref: "errata-triage", runId, startedAt, endedAt, outcome: result.outcome, detailRef };
+  await (deps.publishRun ?? ((input) => publishRunFinished(input, {
+    somaHome: deps.somaHome, substrate: "custom", env: deps.env, publish: deps.publishRunFinished,
+  })))(report);
+  return result;
 }

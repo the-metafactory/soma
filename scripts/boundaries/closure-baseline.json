@@ -1,19 +1,19 @@
 {
-  "core": 4594,
+  "core": 4713,
   "events": 5532,
   "memory": 10568,
   "purpose": 4128,
   "vsa": 7475,
   "tools": 7817,
   "policy": 9596,
-  "home": 23777,
+  "home": 23789,
   "algorithm": 9420,
-  "router": 5189,
+  "router": 5201,
   "graph": 9658,
   "execution": 4836,
-  "substrates": 37323,
-  "migrate": 15682,
-  "flows": 44354,
-  "cli": 70189,
-  "legacy": 56328
+  "substrates": 37335,
+  "migrate": 15694,
+  "flows": 44567,
+  "cli": 70409,
+  "legacy": 56340
 }

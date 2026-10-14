@@ -49,6 +49,10 @@ test("Errata reads and vetoes from a standalone installed runtime without node_m
 
 test("Errata help and argument validation", async () => {
   expect((await cli(["errata", "--help"])).stdout).toContain("list|drop");
+  expect((await cli(["errata", "triage", "--help"])).stdout).toContain("soma errata triage");
+  expect(parseErrataArgs(["errata", "triage", "--home-dir", "/tmp/test-home"]).action).toBe("triage");
+  expect(() => parseErrataArgs(["errata", "triage", "--all"])).toThrow();
+  expect(() => parseErrataArgs(["errata", "triage", "E1"])).toThrow();
   expect((await cli(["errata", "drop", "--help"])).stdout).toContain("E<n>");
   expect(() => parseErrataArgs(["errata", "drop", "../E2"])).toThrow();
   expect(() => parseErrataArgs(["errata", "drop", "E2", "--all"])).toThrow();
