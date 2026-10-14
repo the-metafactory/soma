@@ -131,6 +131,30 @@ describe("weekly goal outline", () => {
     expect(text).not.toContain("## Share drafts");
   });
 
+  for (const [label, outline] of [
+    ["protected heading", "## Share drafts\nUntrusted recommendation"],
+    ["unclosed backtick fence", "```markdown\nUntrusted recommendation"],
+    ["unclosed tilde fence", "~~~markdown\nUntrusted recommendation"],
+    ["long fences and headings", "``````markdown\n## Share drafts\nUntrusted recommendation\n``````\n~~~"],
+  ]) for (const curated of [false, true]) test(`inferred ${label} cannot alter Share drafts (curated: ${curated})`, async () => {
+    const f = await fixture();
+    const share = curated ? "## Share drafts\r\n\r\n- Curated choice  \r\n### Notes\r\n```md\r\n## Example\r\n```\r\n" : "";
+    await mkdir(join(f.deps.somaHome, "outputs"), { recursive: true });
+    await writeFile(f.output, `## Outline\nPrevious\n${share}`);
+    f.deps.inference = async () => outline;
+    expect((await runGoalOutline(f.deps)).exitCode).toBe(0);
+    const first = await readFile(f.output, "utf8");
+    expect(first).toContain(outline);
+    if (curated) expect(first.endsWith(share)).toBe(true);
+    f.deps.inference = async () => "Replacement recommendation";
+    expect((await runGoalOutline(f.deps)).exitCode).toBe(0);
+    const second = await readFile(f.output, "utf8");
+    expect(second).toContain("Replacement recommendation");
+    expect(second).not.toContain("Untrusted recommendation");
+    if (curated) expect(second.endsWith(share)).toBe(true);
+    else expect(second).not.toContain("## Share drafts");
+  });
+
   for (const mode of ["rejects", "times out"] as const) test(`inference ${mode}: retain sources, fail once without result_ref`, async () => {
     const f = await fixture();
     await writeFile(join(f.deps.draftsDir, "draft.md"), "---\ndraft: true\n---\nRetained draft");
@@ -211,6 +235,14 @@ test("outline CLI parses required options and rejects invalid inputs without ech
   expect(await runGoalCli(parsed, { outline: f.deps })).toBe("soma:outputs/G5-2026-W42.md");
   for (const invalid of [["--days", "0"], ["--days", "1.5"], ["--goal", "../../secret"], ["private-unknown-argument"]]) {
     expect(() => parseGoalArgs([...args, ...invalid])).toThrow();
+    let failure: unknown;
+    try { parseGoalArgs([...args, "--tana-tag", "private-tag", ...invalid]); }
+    catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    for (const privateText of ["../../secret", "private-unknown-argument", "private-tag", f.deps.draftsDir, f.deps.somaHome]) {
+      expect(message).not.toContain(privateText);
+    }
   }
   expect(() => parseGoalArgs(["goal", "outline", "--goal", "G5"])).toThrow("--tana-tag is required");
   f.deps.inference = async () => { throw new Error("unavailable"); };

@@ -101,11 +101,25 @@ export async function readSupertagCaptures(query: CaptureQuery): Promise<Outline
 
 interface OpenDraft { path: string; text: string }
 
-function draftBlock(draft: OpenDraft): string {
-  // Source headings must not masquerade as the output's protected Share drafts section.
-  const length = [...draft.text.matchAll(/`+/g)].reduce((max, match) => Math.max(max, match[0].length + 1), 3);
+/** Contain source and model headings and fences outside the protected output structure. */
+function markdownBlock(text: string): string {
+  const length = [...text.matchAll(/`+/g)].reduce((max, match) => Math.max(max, match[0].length + 1), 3);
   const fence = "`".repeat(length);
-  return `### ${draft.path.replace(/[\r\n]/g, " ")}\n\n${fence}markdown\n${draft.text.trim()}\n${fence}`;
+  return `${fence}markdown\n${text.trim()}\n${fence}`;
+}
+
+function draftBlock(draft: OpenDraft): string {
+  return `### ${draft.path.replace(/[\r\n]/g, " ")}\n\n${markdownBlock(draft.text)}`;
+}
+
+function renderOutlineMarkdown(
+  goal: string, week: string, captures: OutlineCapture[], drafts: OpenDraft[], outline: string, share: string,
+): string {
+  return `# ${goal} — ${week}\n\n## Captures\n\n`
+    + (captures.length ? captures.map((capture) => `- ${capture.name} (${capture.id})`.replace(/[\r\n]/g, " ")).join("\n") : "Nothing was captured.")
+    + "\n\n## Open drafts\n\n"
+    + (drafts.length ? drafts.map(draftBlock).join("\n\n") : "No open drafts.")
+    + `\n\n## Outline\n\n${outline}\n` + (share ? `\n${share}` : "");
 }
 
 async function readOpenDrafts(root: string): Promise<OpenDraft[]> {
@@ -211,17 +225,13 @@ export async function runGoalOutline(deps: GoalOutlineDeps): Promise<GoalOutline
     const share = shareDraftsSection(existing);
     let outline = "Nothing was captured and there are no open drafts.";
     if (captures.length || drafts.length) {
-      try { outline = await generateOutline(deps, captures, drafts); }
+      try { outline = markdownBlock(await generateOutline(deps, captures, drafts)); }
       catch {
         error = "soma goal outline: inference failed or timed out";
         outline = "Outline generation failed or timed out. Captures and open drafts are retained above for review.";
       }
     }
-    const body = `# ${deps.goal} — ${zurichIsoWeek(started)}\n\n## Captures\n\n`
-      + (captures.length ? captures.map((capture) => `- ${capture.name} (${capture.id})`.replace(/[\r\n]/g, " ")).join("\n") : "Nothing was captured.")
-      + "\n\n## Open drafts\n\n"
-      + (drafts.length ? drafts.map(draftBlock).join("\n\n") : "No open drafts.")
-      + `\n\n## Outline\n\n${outline}\n` + (share ? `\n${share}` : "");
+    const body = renderOutlineMarkdown(deps.goal, zurichIsoWeek(started), captures, drafts, outline, share);
     stage = "output writer";
     await mkdir(join(deps.somaHome, "outputs"), { recursive: true, mode: 0o700 });
     const temporary = `${outputPath}.${randomUUID()}.tmp`;

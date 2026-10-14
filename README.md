@@ -508,7 +508,9 @@ inputs, it records that nothing was captured and skips inference.
 The private output is `<soma-home>/outputs/G1-YYYY-Www.md`, using the current
 ISO week in Europe/Zurich. It has Captures, Open drafts and Outline sections.
 Re-running replaces it while preserving an existing `## Share drafts` section
-verbatim. This command only recommends; it does not share or schedule anything.
+verbatim. Generated outlines are fenced as Markdown source so their headings
+and code fences cannot interfere with that section. This command only
+recommends; it does not share or schedule anything.
 
 One job run (`goal-outline/G1`, serving `G1`) finishes through the run-ledger
 funnel. Success carries `result_ref: soma:outputs/G1-YYYY-Www.md`, without a

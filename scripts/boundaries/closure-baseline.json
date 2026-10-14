@@ -13,7 +13,7 @@
   "execution": 4804,
   "substrates": 37266,
   "migrate": 15650,
-  "flows": 44430,
-  "cli": 70012,
+  "flows": 44440,
+  "cli": 70022,
   "legacy": 56202
 }
