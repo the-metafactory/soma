@@ -6,7 +6,5 @@
   "src/policy-audit.ts -> src/memory.ts",
   "src/projection-private-roots.ts -> src/install-spec.ts",
   "src/runtime-policy.ts -> src/memory.ts",
-  "src/soma-home.ts -> src/home-migration.ts",
-  "src/soma-home.ts -> src/install-spec-registry.ts",
   "src/tools/learning/index.ts -> src/tools/learning/session-harvester.ts"
 ]
