@@ -490,6 +490,14 @@ can identify a session should update:
 - `<soma-home>/memory/STATE/current-work-<safe-session-token>-<session-id-hash>.json`
 - `<soma-home>/memory/WORK/<slug>/` artifacts when they produce durable work
 
+Algorithm library mutations read the neutral `SOMA_SESSION_ID` contract. CLI,
+VSA sync and run-ledger boundaries resolve native session variables through
+`src/adapters/session-env.ts`; currently only Claude Code's
+`CLAUDE_CODE_SESSION_ID` has a resolver. An explicit nonempty `SOMA_SESSION_ID`
+takes precedence. Algorithm `sessionIds` and verification `sessionId` retain
+the raw ID; the run ledger uses it when `MF_CORRELATION_ID` is unset or empty.
+No session ID is invented for substrates that provide none.
+
 Adapters should treat `somaWorkRegistryPaths(..., sessionId).currentWork` as the
 canonical resolver for the current-work pointer. The safe token is bounded and
 human-readable; the hash suffix is part of the filesystem contract so distinct
