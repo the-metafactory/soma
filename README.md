@@ -293,7 +293,8 @@ and the ledger result; with `SOMA_PRINCIPAL` unset nothing is published and the
 exit code is 0 (1 on a failed fetch).
 
 `soma goal kinds --json` lists the goal-kind catalog for inference; without
-`--json` it prints a compact ID, role and description list. Each kind lives in
+`--json` it prints a compact ID, role and description list. The registry lives
+in `src/goal-kinds/registry.ts`. Each kind lives in
 `src/goal-kinds/<kind>.ts` and declares a strict Zod parameter object, public
 parameters, private parameter resource types, its existing command and argv
 mapping, a Cortex Reflex target, and a fixed default schedule. Sensors own a

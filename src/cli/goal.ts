@@ -121,7 +121,7 @@ export async function runGoalCli(
   switch (action) {
     case "kinds": {
       // Keep catalog/Zod loading off the other goal commands' startup path.
-      const { listGoalKinds } = await import("../goal-kinds");
+      const { listGoalKinds } = await import("../goal-kinds/registry");
       const kinds = listGoalKinds();
       return options.json ? JSON.stringify(kinds, null, 2)
         : kinds.map((kind) => `${kind.id}\t${kind.role}\t${kind.description}`).join("\n");

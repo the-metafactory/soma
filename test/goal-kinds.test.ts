@@ -1,9 +1,18 @@
 import { expect, test } from "bun:test";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { runSomaCli } from "../src/cli";
-import { feedKind, goalKinds, listGoalKinds } from "../src/goal-kinds";
+import { feedKind } from "../src/goal-kinds/feed";
+import { goalKinds, listGoalKinds } from "../src/goal-kinds/registry";
+import * as goalKindsExports from "../src/goal-kinds";
 
 const params = { goal: "G5", url: "<resource:blog>", window_days: 7, min: 1 };
+
+test("directory exports preserve the registry and feed API", () => {
+  expect(goalKindsExports.goalKinds).toBe(goalKinds);
+  expect(goalKindsExports.listGoalKinds).toBe(listGoalKinds);
+  expect(goalKindsExports.feedKind).toBe(feedKind);
+  expect(goalKindsExports.feedParams).toBe(feedKind.params);
+});
 
 test("feed kind owns its schema, runner, schedule and state rule", () => {
   expect(Object.keys(goalKinds)).toEqual(["feed"]);
