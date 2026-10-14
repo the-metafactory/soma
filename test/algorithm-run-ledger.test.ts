@@ -403,6 +403,27 @@ test("MF_CORRELATION_ID passes through as-is; unset or empty lets the builder ge
   }
 });
 
+test("Algorithm terminal transitions default correlation to the host session with explicit override", async () => {
+  for (const phase of ["complete", "abandoned"] as const) {
+    for (const override of [undefined, "", "X"]) {
+      const somaHome = await homeWith(fixtureRun("learn"));
+      const captured = capture({ SOMA_PRINCIPAL: "jc", CLAUDE_CODE_SESSION_ID: "S1", MF_CORRELATION_ID: override });
+      if (phase === "complete") {
+        await cli(somaHome, ["advance"], captured.deps);
+      } else {
+        await updateAndReportAlgorithmRun(
+          parseAlgorithmArgs(["algorithm", "advance", "--id", RUN_ID, "--soma-home", somaHome]).options,
+          captured.deps,
+          (run) => abandonAlgorithmRun(run, "Cancelled by the principal."),
+        );
+      }
+      expect(captured.events).toHaveLength(1);
+      expect(captured.events[0].input.payload.correlation_id).toBe(override === "X" ? "X" : "S1");
+      expect((await readAlgorithmRunById(RUN_ID, { somaHome })).run.sessionIds).toEqual(["S1"]);
+    }
+  }
+});
+
 test("SOMA_PRINCIPAL unset builds and publishes nothing and touches no spool", async () => {
   for (const env of [{}, { SOMA_PRINCIPAL: "" }]) {
     const somaHome = await homeWith(fixtureRun("learn"));

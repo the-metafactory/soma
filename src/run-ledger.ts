@@ -135,7 +135,7 @@ function readRunLedgerConfig(env: RunLedgerEnv): RunLedgerConfig | undefined {
     stack: setting(env, RUN_LEDGER_ENV.stack) ?? DEFAULT_STACK,
     natsUrl: setting(env, RUN_LEDGER_ENV.natsUrl) ?? DEFAULT_NATS_URL,
     natsCreds: setting(env, RUN_LEDGER_ENV.natsCreds),
-    correlationId: setting(env, RUN_LEDGER_ENV.correlationId),
+    correlationId: setting(env, RUN_LEDGER_ENV.correlationId) ?? setting(env, "CLAUDE_CODE_SESSION_ID"),
     serves,
   };
 }

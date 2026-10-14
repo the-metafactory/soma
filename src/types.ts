@@ -289,6 +289,11 @@ export interface AlgorithmLogEntry {
   timestamp: string;
   phase: AlgorithmPhase;
   text: string;
+  /** Structured verification fields; absent on older prose-only entries. */
+  criterionId?: string;
+  outcome?: "passed" | "failed" | "dropped" | "deferred-probe";
+  /** Host session that asserted this verification, when available. */
+  sessionId?: string;
 }
 
 /** What happened to a reference the principal addressed by code. */
@@ -504,6 +509,8 @@ export interface AlgorithmRun {
   id: string;
   createdAt: string;
   updatedAt: string;
+  /** Host sessions that mutated this run, unique in first-seen order. Optional on older runs. */
+  sessionIds?: string[];
   substrate?: SubstrateId;
   prompt: string;
   intent: string;

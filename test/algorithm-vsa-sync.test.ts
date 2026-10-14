@@ -62,6 +62,34 @@ ${criteriaLines}${decisionBlock}
 `;
 }
 
+test("sync mutations track host sessions and attribute reconstructed verification", async () => {
+  await withSomaHome(async (somaHome, dir) => {
+    const input = {
+      slug: "session-sync",
+      phase: "observe",
+      goal: "Track sync sessions",
+      criteria: [{ id: "C3", text: "Keep verification provenance", done: false }],
+    };
+    const vsaPath = await writeVsaFile(dir, input.slug, vsaMarkdown(input));
+    const options = { vsaPath, somaHome, substrate: "claude-code" as const, timestamp: "2026-10-14T10:00:00.000Z" };
+    const first = await syncAlgorithmRunFromVsa({ ...options, env: { CLAUDE_CODE_SESSION_ID: "S1" } });
+    expect(first.created).toBe(true);
+    if (first.runId === null) throw new Error("Expected a sync run");
+    expect((await readAlgorithmRunById(first.runId, { somaHome })).run.sessionIds).toEqual(["S1"]);
+    // An unchanged sync is a read, so a later host must not be added yet.
+    const unchanged = await syncAlgorithmRunFromVsa({ ...options, env: { CLAUDE_CODE_SESSION_ID: "S2" } });
+    expect(unchanged.noop).toBe(true);
+    expect((await readAlgorithmRunById(first.runId, { somaHome })).run.sessionIds).toEqual(["S1"]);
+    await writeFile(vsaPath, vsaMarkdown({ ...input, criteria: [{ ...input.criteria[0], done: true }] }));
+    await syncAlgorithmRunFromVsa({ ...options, env: { CLAUDE_CODE_SESSION_ID: "S2" } });
+    const { run } = await readAlgorithmRunById(first.runId, { somaHome });
+    expect(run.sessionIds).toEqual(["S1", "S2"]);
+    expect(run.verification.at(-1)).toMatchObject({ criterionId: "C3", outcome: "passed", sessionId: "S2" });
+    await syncAlgorithmRunFromVsa({ ...options, env: {} });
+    expect((await readAlgorithmRunById(first.runId, { somaHome })).run.sessionIds).toEqual(["S1", "S2"]);
+  });
+});
+
 test("creates a soma run from an VSA, keyed by slug, mapping goal + criteria", async () => {
   await withSomaHome(async (somaHome, dir) => {
     const vsaPath = await writeVsaFile(

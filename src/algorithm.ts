@@ -126,7 +126,22 @@ function logEntry(phase: AlgorithmPhase, text: string, timestamp = new Date().to
   };
 }
 
-export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
+export type AlgorithmSessionEnv = Readonly<Record<string, string | undefined>>;
+
+/** Resolve the host's session key without inventing one for unsupported hosts. */
+export function algorithmSessionId(env: AlgorithmSessionEnv): string | undefined {
+  const sessionId = env.CLAUDE_CODE_SESSION_ID;
+  return sessionId === "" ? undefined : sessionId;
+}
+
+/** Pure mutation helper; IO callers supply their environment at the write boundary. */
+export function recordAlgorithmSession(run: AlgorithmRun, env: AlgorithmSessionEnv): AlgorithmRun {
+  const sessionId = algorithmSessionId(env);
+  if (sessionId === undefined || run.sessionIds?.includes(sessionId)) return run;
+  return { ...run, sessionIds: [...(run.sessionIds ?? []), sessionId] };
+}
+
+export function createAlgorithmRun(input: AlgorithmRunInput, env: AlgorithmSessionEnv = {}): AlgorithmRun {
   assertNonEmpty(input.prompt, "prompt");
   assertNonEmpty(input.intent, "intent");
   assertNonEmpty(input.currentState, "current state");
@@ -153,6 +168,7 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     id: input.id ?? createRunId(timestamp),
     createdAt: timestamp,
     updatedAt: timestamp,
+    sessionIds: [],
     substrate: input.substrate,
     prompt: input.prompt,
     intent: input.intent,
@@ -184,14 +200,15 @@ export function createAlgorithmRun(input: AlgorithmRunInput): AlgorithmRun {
     metaReflection: [],
     provenance: [],
   };
+  const touched = recordAlgorithmSession(run, env);
   return input.substrate
-    ? appendAlgorithmProvenance(run, {
+    ? appendAlgorithmProvenance(touched, {
         timestamp,
         operation: "run.created",
         substrate: input.substrate,
         phase: "observe",
       })
-    : run;
+    : touched;
 }
 
 export function nextAlgorithmPhase(phase: AlgorithmPhase): AlgorithmPhase | undefined {
@@ -561,6 +578,7 @@ export function verifyAlgorithmCriterion(
   // caught by the audit-time LEARN gate (layer b) — the strictness belongs on
   // the assertion surface, not on mirroring on-disk state.
   enforceGate = true,
+  env: AlgorithmSessionEnv = {},
 ): AlgorithmRun {
   assertNonEmpty(evidence, "verification evidence");
 
@@ -586,7 +604,13 @@ export function verifyAlgorithmCriterion(
     evidence,
     evidenceKind,
   );
-  const entry = logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp);
+  const sessionId = algorithmSessionId(env);
+  const entry: AlgorithmLogEntry = {
+    ...logEntry(getRunPhase(run), `${criterionId}: ${status}. ${evidence}`, timestamp),
+    criterionId,
+    outcome: status,
+    ...(sessionId === undefined ? {} : { sessionId }),
+  };
   const vsaWithRecompute: VerificationStateArtifact = {
     ...vsaWithSection,
     frontmatter: {
@@ -603,7 +627,7 @@ export function verifyAlgorithmCriterion(
     vsa: vsaWithRecompute,
     verification: [...run.verification, entry],
   };
-  return appendAlgorithmProvenance(next, {
+  return appendAlgorithmProvenance(recordAlgorithmSession(next, env), {
     timestamp: entry.timestamp,
     phase: entry.phase,
     operation: "criterion.verify",
@@ -901,6 +925,7 @@ export function applyAlgorithmBatch(
   operations: AlgorithmBatchOperation[],
   timestamp = new Date().toISOString(),
   provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
+  env: AlgorithmSessionEnv = {},
 ): AlgorithmRun {
   if (operations.length === 0) {
     throw new Error("Algorithm batch requires at least one operation.");
@@ -936,6 +961,8 @@ export function applyAlgorithmBatch(
           timestamp,
           provenance,
           defaultEvidenceKind(operation.evidenceKind, operation.status),
+          true,
+          env,
         );
       case "capability":
         return selectAlgorithmCapability(current, {
