@@ -618,7 +618,8 @@ export {
   type ToolCallPolicyGuardResult,
   type ToolCallPolicyGuardDecision,
 } from "./tool-policy-guard";
-export { bootstrapSomaHome, loadSomaHome, loadSomaProfile } from "./soma-home";
+export { bootstrapSomaHome } from "./home-bootstrap";
+export { loadSomaHome, loadSomaProfile } from "./soma-home";
 // Algorithm ↔ VSA bridge (#39) — advisory, non-blocking.
 export {
   markVsaVerifiedFromCriteria,

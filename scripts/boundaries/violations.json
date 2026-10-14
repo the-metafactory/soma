@@ -2,7 +2,5 @@
   "src/adapters/private-roots.ts -> src/install-spec.ts",
   "src/experimental/anthropic-cowork.ts -> src/install.ts",
   "src/projection-private-roots.ts -> src/install-spec.ts",
-  "src/soma-home.ts -> src/home-migration.ts",
-  "src/soma-home.ts -> src/install-spec-registry.ts",
   "src/tools/learning/index.ts -> src/tools/learning/session-harvester.ts"
 ]
