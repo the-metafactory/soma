@@ -11,9 +11,9 @@
   "router": 5753,
   "graph": 10220,
   "execution": 5398,
-  "substrates": 37165,
+  "substrates": 37307,
   "migrate": 15848,
-  "flows": 44176,
-  "cli": 70242,
-  "legacy": 56415
+  "flows": 44332,
+  "cli": 70400,
+  "legacy": 56571
 }
