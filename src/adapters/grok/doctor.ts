@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { isEnoent, pathExists } from "../../fs-utils";
+import { isFsUtilsEnoent as isEnoent, pathExists } from "../../core/index";
 import type { SomaDoctorFinding } from "../../types";
 import { GROK_AGENTS_BLOCK_BEGIN } from "./config-patch";
 import { GROK_HOOK_FILE_MARKERS, GROK_PROJECTED_SKILL_NAMES } from "./install";

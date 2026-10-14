@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { selectMarkdownSections } from "../src/markdown-sections";
+import { selectMarkdownSections } from "../../src/core/markdown-sections";
 
 test("H1 ends H2, closing hashes and CRLF normalize, fences stay content", () => {
   const body = "## Constraints ##\r\none\r\n~~~md\r\n## Notes\r\n~~~\r\n# New document\r\nexcluded\r\n## Notes\r\ntwo";

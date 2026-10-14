@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { pathExists } from "../fs-utils";
+import { pathExists } from "../core/index";
 import { installSpecFor } from "../install-spec-registry";
 import { SKILL_MD } from "../skill-frontmatter";
 import type { SomaDoctorFinding } from "../types";

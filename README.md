@@ -292,6 +292,45 @@ never followed and entities never resolved. stdout prints the value, the count
 and the ledger result; with `SOMA_PRINCIPAL` unset nothing is published and the
 exit code is 0 (1 on a failed fetch).
 
+`soma goal kinds --json` lists the goal-kind catalog for inference; without
+`--json` it prints a compact ID, role and description list. The registry lives
+in `src/goal-kinds/registry.ts`. Each kind lives in
+`src/goal-kinds/<kind>.ts` and declares a strict Zod parameter object, public
+parameters, private parameter resource types, its existing command and argv
+mapping, a Cortex Reflex target, and a fixed default schedule. Sensors own a
+state rule rendered from their threshold parameters. Unknown fields and missing
+required fields fail `params.safeParse`; JSON output uses JSON Schema for public
+parameters and only `{resourceType: "feed"}` for the private `url` parameter.
+Catalog listing never reads private resources. There is no `soma goal run`.
+
+The first kind is `feed`: `goal` and `url` are required; `window_days` defaults
+to 7 and `min` to 1, both positive integers. Its argv maps to `--goal`, `--url`,
+`--window-days` and `--min` on `soma goal sense feed`. Its default schedule is
+`30 6 * * *`, timezone `Europe/Zurich`; the proposer must keep it. The declared
+target `@jc/goal-sense-feed` uses Cortex's existing `process` handler. Binding
+that target to a process spec on the personal stack belongs to goal activation
+setup; listing a kind does not install a route or activation.
+
+Private resources live only at `<soma-home>/profile/resources.yaml`, as one
+YAML sequence of entries. For example, using a generic placeholder URL:
+
+```yaml
+- name: blog
+  type: feed
+  value: https://example.org/feed.xml
+```
+
+`loadGoalResources({somaHome})` returns the entries;
+`resolveGoalResource(resources, "blog", "feed")` returns that pair's value or
+`undefined` if absent or differently typed. Names and types are lowercase slugs
+starting with a letter; values are JSON-compatible scalars, arrays or objects,
+validated against the kind's parameters after resolution. Feed parameters accept
+`<resource:blog>` before local resolution and an HTTPS URL afterwards. The loader
+does not substitute references or stage activations. A missing file returns an
+empty list. Malformed YAML, invalid entries, unknown fields, duplicate name/type
+pairs and aliases fail with the file and source line, never resource values.
+Keep this file private; inference receives names and types only.
+
 Now run one Algorithm-backed task to see the working method, not just the
 context:
 

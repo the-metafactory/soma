@@ -1,7 +1,10 @@
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { open, readFile, realpath } from "node:fs/promises";
-import { isInsidePath } from "./path-utils";
+import { isInsidePath } from "./core/index";
+import type { ProjectedArtifact } from "./lifecycle-registry";
+
+export type { ProjectedArtifact } from "./lifecycle-registry";
 
 /**
  * Deterministic (no-LLM, no-network) self-repair for projected substrate
@@ -23,24 +26,6 @@ import { isInsidePath } from "./path-utils";
  * A healthy projection produces an empty result (no healed/drifted/skipped, no
  * findings).
  */
-
-/** A projected artifact the self-repair pass can heal (exec bit) and drift-check. */
-export interface ProjectedArtifact {
-  /** Absolute path of the projected file under the substrate home. */
-  path: string;
-  /**
-   * True when the substrate execs the file directly via its shebang (a script
-   * registered as a command), so a lost exec bit silently breaks it. False for
-   * bun-invoked hooks, whose exec bit the runtime ignores.
-   */
-  directExec: boolean;
-  /**
-   * Fresh in-memory projection of the file's expected bytes, when the artifact is a
-   * pure function of its projection inputs. Present ⇒ eligible for drift
-   * detection; absent ⇒ exec-bit repair only.
-   */
-  expected?: string;
-}
 
 export type ProjectionRepairFindingKind = "exec-bit-restored" | "content-drift" | "containment-skip";
 

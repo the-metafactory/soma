@@ -1,4 +1,4 @@
-import { defaultSomaHome } from "../paths";
+import { defaultSomaHome } from "../core/index";
 import { dropErrata, readErrata, runErrataTriage, type ErrataTriageDeps } from "../errata";
 import { readOption } from "./parse-utils";
 

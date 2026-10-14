@@ -1,5 +1,5 @@
-import { createPaths } from "../../paths";
-import type { SomaPaths } from "../../types";
+import { createPaths } from "../../core/index";
+import type { SomaPaths } from "../../core/index";
 import type { WisdomToolOptions } from "./types";
 
 export function pathsForWisdomOptions(options: WisdomToolOptions = {}): SomaPaths {

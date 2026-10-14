@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { comparePaths, toPosixRelative, walkFiles as walk } from "../src/fs-walk";
+import { comparePaths, toPosixRelative, walkFiles as walk } from "../src/core/index";
 
 /** Regression for node #612: compiled skill consumers use embedded content.
  * For the independent runtime-staging limitation, see

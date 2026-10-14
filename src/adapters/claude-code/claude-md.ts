@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { isEnoent } from "../../fs-utils";
+import { isFsUtilsEnoent as isEnoent } from "../../core/index";
 import { loadSomaHome } from "../../soma-home";
 import type { InstallPostProjectionContext } from "../../install-spec";
 import type { ProjectionInput } from "../../types";

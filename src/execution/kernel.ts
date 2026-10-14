@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
-import { isInsidePath } from "../path-utils";
+import { isInsidePath } from "../core/index";
 import type {
   ExecutionCapabilities,
   SomaExecutionEvent,

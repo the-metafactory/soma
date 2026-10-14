@@ -54,7 +54,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { kebabSlug } from "./skill-content-slug";
 import { normalizeSkillContent } from "./skill-content-normalizer";
 import { EDITOR_CONFIG_DIRS } from "./skill-content-noise";
-import { runBoundedConcurrent } from "./internal-concurrency";
+import { runBoundedConcurrent } from "./core/index";
 import { verifySubstrateProjection } from "./claude-skills-substrate-verify";
 import type {
   ClaudeSkillAuditEntry,

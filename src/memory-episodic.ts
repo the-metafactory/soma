@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile, unlink, readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { createPaths } from "./paths";
-import { isEnoent } from "./fs-utils";
-import { appendSomaMemoryEvent } from "./memory";
+import { createPaths } from "./core/index";
+import { isFsUtilsEnoent as isEnoent } from "./core/index";
+import { appendSomaMemoryEvent } from "./event-journal";
 import {
   serializeMemoryNote,
   parseMemoryNote,

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { isEnoent, pathExists } from "../../fs-utils";
+import { isFsUtilsEnoent as isEnoent, pathExists } from "../../core/index";
 import type { SomaDoctorFinding } from "../../types";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,

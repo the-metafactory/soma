@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isEnoent } from "../../fs-errors";
+import { isEnoent } from "../../core/index";
 import { isBelowVersionFloor, parseVersion } from "../shared/version-floor";
 
 /**

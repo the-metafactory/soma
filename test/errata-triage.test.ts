@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runErrataTriage, readErrata, type ErrataTriageDeps } from "../src/errata";
 import { JUDGE_REGISTRY, hashJudgmentInput, judgeLedgerPath, readJudgments, recordJudgment } from "../src/judge";
-import { appendSomaMemoryEvent, somaMemoryEventsPath } from "../src/memory";
+import { appendSomaMemoryEvent, somaMemoryEventsPath } from "../src/event-journal";
 import { appendEventBatch } from "../src/event-log";
 import { createAlgorithmRun, verifyAlgorithmCriterion } from "../src/algorithm";
 import { writeAlgorithmRun } from "../src/algorithm-store";

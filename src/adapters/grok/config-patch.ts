@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { findMarkerBlock } from "../shared/marker-block";
 import { dirname, join } from "node:path";
-import { isEnoent } from "../../fs-errors";
+import { isEnoent } from "../../core/index";
 
 /**
  * Marker-guarded patches for the two user-owned files in the Grok home:

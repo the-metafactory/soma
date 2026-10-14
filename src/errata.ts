@@ -5,8 +5,8 @@ import { listAlgorithmRuns } from "./algorithm-store";
 import { redactSomaFeedbackText } from "./feedback";
 import type { AlgorithmRun, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord, SomaMemoryEvent } from "./types";
 import { parseTelemetryEventLine, streamEventLines } from "./event-log";
-import { somaMemoryEventsPath } from "./memory";
-import { hashJudgmentInput, readJudgments, recordJudgment, type JudgmentRecord } from "./judge-ledger";
+import { somaMemoryEventsPath } from "./event-journal";
+import { hashJudgmentInput, readJudgments, recordJudgment, type JudgmentRecord } from "./core/index";
 import { classifyErrataWithClaude, validateErrataVerdict, type ErrataTriageVerdict } from "./errata-classifier";
 import { publishRunFinished, type RunFinishedInput, type RunLedgerDeps } from "./run-ledger";
 

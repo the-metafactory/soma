@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
-import { resolveBunExecutable } from "../../bun-probe";
+import { resolveBunExecutable } from "../../core/index";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
@@ -15,7 +15,7 @@ import {
   GROK_ROLE_MARKER,
   GROK_STARTUP_CONTEXT_PATH,
 } from "./projection-constants";
-import { defaultSomaRepoPath } from "../../repo-path";
+import { defaultSomaRepoPath } from "../../core/index";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import {
   buildPortableSkillFiles,

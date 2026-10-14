@@ -58,26 +58,12 @@ function substrateUnit(name: string): ComponentUnit {
 
 export const components: ComponentManifest<ComponentName> = {
   core: {
-    files: [
-      "src/paths",
-      "src/path-utils",
-      "src/fs-utils",
-      "src/fs-errors",
-      "src/fs-walk",
-      "src/repo-path",
-      "src/dated-slug",
-      "src/version",
-      "src/internal-concurrency",
-      "src/bun-probe",
-      "src/markdown-sections",
-      "src/text-imports",
-      "src/components",
-      "src/judge-ledger",
-    ],
+    files: ["src/core/**", "src/components"],
     mayImport: ["legacy"],
+    publicEntries: ["src/core/index.ts"],
   },
   events: {
-    files: ["src/event-log", "src/observability", "src/feedback-contract"],
+    files: ["src/event-log", "src/event-journal", "src/observability", "src/feedback-contract"],
     mayImport: ["core", "legacy"],
   },
   memory: {
@@ -115,7 +101,7 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "events", "tools", "legacy"],
   },
   home: {
-    files: ["src/soma-home", "src/soma-config", "src/snapshots", "src/work-registry", "src/communication-contract"],
+    files: ["src/soma-home", "src/soma-config", "src/goal-resources", "src/snapshots", "src/work-registry", "src/communication-contract", "src/lifecycle-registry"],
     mayImport: ["core", "events", "memory", "purpose", "policy", "legacy"],
   },
   algorithm: {
@@ -174,6 +160,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/algorithm-vsa-sync",
       "src/lifecycle",
       "src/onboarding",
+      "src/home-bootstrap",
       "src/home-migration",
       "src/install",
       "src/result-capture",
@@ -183,6 +170,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/run-ledger",
       "src/run-ledger-env",
       "src/goal-sense",
+      "src/goal-kinds/**",
       "src/tools/learning/session-harvester",
       "src/execution/algorithm-loop-executor",
     ],
