@@ -211,6 +211,7 @@ function graphOf(nodes: Record<string, { author: string; parent?: string }>): (r
       ref: { id: ref.id },
       node: { id: ref.id, title: `node ${ref.id}`, autonomy: "approve" },
       status: "open",
+      updatedAt: "2026-10-14T10:00:00Z",
       assignees: [],
       blockedBy: [],
       author: entry.author,
