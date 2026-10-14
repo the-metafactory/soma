@@ -5,12 +5,13 @@ import {
   type AddGoalOptions, type InactiveGoalStatus,
 } from "../goal-records";
 import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../goal-sense";
+import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from "../goal-outline";
 import { defaultSomaHome, type SomaPathsOptions } from "../paths";
 import { loadSomaConfig } from "../soma-config";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-type GoalAction = "add" | "activate" | "set-status" | "list" | "sense";
+type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline";
 
 export interface ParsedGoalArgs {
   command: "goal";
@@ -21,21 +22,48 @@ export interface ParsedGoalArgs {
     add: AddGoalOptions;
     includeWording: boolean;
     feed?: FeedSensorOptions;
+    outline?: GoalOutlineOptions;
   };
 }
 
 const ACTIVATIONS_DIRECTORY_HELP = "(REFLEX_ACTIVATIONS_DIR overrides goals.activations_dir in <soma-home>/config.yaml; default: ~/.config/reflex/personal-activations)";
 
 export const GOAL_COMMAND_HELP = {
-  usage: `Usage: soma goal <add|activate|set-status|list|sense> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
+  usage: `Usage: soma goal <add|activate|set-status|list|sense|outline> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
   subcommands: {
     add: "Usage: soma goal add --wording <text> [--supports M<n>...] [--sensor <activation-id>] [--review-by YYYY-MM-DD] [--home-dir <dir>] [--soma-home <dir>]",
     activate: `Usage: soma goal activate G<n> [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
     "set-status": "Usage: soma goal set-status G<n> <paused|achieved|dropped|draft> [--home-dir <dir>] [--soma-home <dir>]",
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
     sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
+    outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
   },
 };
+
+function parseOutlineArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
+  const usage = (reason: string) => new SomaCliError(`soma goal outline: ${reason}. ${GOAL_COMMAND_HELP.subcommands.outline}`, 2);
+  const outline: Partial<GoalOutlineOptions> = { days: 7 };
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index];
+    const value = rest[index + 1];
+    if (!["--goal", "--tana-tag", "--drafts-dir", "--days", "--home-dir", "--soma-home"].includes(arg)) throw usage("unsupported argument");
+    if (!value || value.startsWith("--")) throw usage(`${arg} requires a value`);
+    index++;
+    if (arg === "--goal") outline.goal = value;
+    if (arg === "--tana-tag") outline.tanaTag = value;
+    if (arg === "--drafts-dir") outline.draftsDir = value;
+    if (arg === "--days") outline.days = Number(value);
+    if (arg === "--home-dir") options.homeDir = value;
+    if (arg === "--soma-home") options.somaHome = value;
+  }
+  const { goal, tanaTag, draftsDir, days = 7 } = outline;
+  if (!goal?.trim()) throw usage("--goal is required");
+  if (!tanaTag?.trim()) throw usage("--tana-tag is required");
+  if (!draftsDir?.trim()) throw usage("--drafts-dir is required");
+  if (!/^G\d+$/.test(goal)) throw usage("--goal must match G<n>");
+  if (!Number.isSafeInteger(days) || days < 1) throw usage("--days must be a positive integer");
+  options.outline = { goal, tanaTag, draftsDir, days };
+}
 
 /** Usage errors exit 2, like the sensor's own refusals. */
 function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
@@ -66,10 +94,14 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
 
 export function parseGoalArgs(args: string[]): ParsedGoalArgs {
   const [command, action, ...rest] = args;
-  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense"].includes(action)) {
+  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "outline"].includes(action)) {
     throw new Error(GOAL_COMMAND_HELP.usage);
   }
   const options: ParsedGoalArgs["options"] = { add: { wording: "", supports: [] }, includeWording: false };
+  if (action === "outline") {
+    parseOutlineArgs(rest, options);
+    return { command: "goal", action, options };
+  }
   if (action === "sense") {
     parseSenseArgs(rest, options);
     return { command: "goal", action, options };
@@ -110,11 +142,23 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
 
 export async function runGoalCli(
   parsed: ParsedGoalArgs,
-  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps> } = {},
+  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; outline?: Partial<GoalOutlineDeps> } = {},
 ): Promise<string> {
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
   switch (action) {
+    case "outline": {
+      if (!options.outline) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.outline, 2);
+      const lines: string[] = [];
+      const result = await runGoalOutline({
+        ...options.outline, somaHome: defaultSomaHome(options), env: dependencies.env,
+        ...dependencies.outline, stdout: (line) => lines.push(line),
+        // The executable CLI reports SomaCliError to stderr once.
+        stderr: dependencies.outline?.stderr ?? (() => undefined),
+      });
+      if (result.exitCode !== 0) throw new SomaCliError(result.error ?? "soma goal outline failed", result.exitCode);
+      return lines.join("\n");
+    }
     case "sense": {
       if (!options.feed) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.sense, 2);
       const lines: string[] = [];

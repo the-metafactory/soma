@@ -493,6 +493,31 @@ alive a few seconds after the verb has printed.
 > `run_ledger.publish_failed` event. `bun run soma` from a source checkout
 > loads myelin and publishes.
 
+### Weekly goal outline
+
+```bash
+soma goal outline --goal G1 --tana-tag capture --drafts-dir /path/to/drafts --days 7
+```
+
+Reads recent captures from the local `supertag` index (`search --tag ...
+--created-after ... --json --offline --limit -1`) and recursively reads files
+whose YAML frontmatter has `draft: true`. Symlinks are skipped. With inputs,
+one `soma inference` call at level `standard` recommends an outline. With no
+inputs, it records that nothing was captured and skips inference.
+
+The private output is `<soma-home>/outputs/G1-YYYY-Www.md`, using the current
+ISO week in Europe/Zurich. It has Captures, Open drafts and Outline sections.
+Re-running replaces it while preserving an existing `## Share drafts` section
+verbatim. This command only recommends; it does not share or schedule anything.
+
+One job run (`goal-outline/G1`, serving `G1`) finishes through the run-ledger
+funnel. Success carries `result_ref: soma:outputs/G1-YYYY-Www.md`, without a
+state or source text. With `SOMA_PRINCIPAL` unset, nothing is published.
+Missing or failing `supertag` exits 1 without writing an output. Inference
+failure or its 30-second timeout exits 1 after writing the sources and a
+failure message in Outline. Failed runs carry no `result_ref`. Usage errors
+exit 2. Ledger delivery retains the fail-open behavior documented above.
+
 ### VSA
 
 An Verification State Artifact is the definition of done for a project, task, or work

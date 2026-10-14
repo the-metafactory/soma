@@ -76,7 +76,8 @@ async function pointHookAtRecorder(homeDir: string): Promise<{ hookPath: string;
   const configPath = join(hookDir, "soma-claude-code-hook.config.json");
   const recordPath = join(homeDir, "recorded-args.txt");
   const recorder = join(homeDir, "recorder.sh");
-  await writeFile(recorder, `#!/bin/sh\nprintf '%s\\n' "$@" > '${recordPath}'\n`, "utf8");
+  // Publish the complete argument list: a detached printf can be read between writes.
+  await writeFile(recorder, `#!/bin/sh\nprintf '%s\\n' "$@" > '${recordPath}.tmp'\nmv '${recordPath}.tmp' '${recordPath}'\n`, "utf8");
   await chmod(recorder, 0o755);
   const config = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
   await writeFile(configPath, `${JSON.stringify({ ...config, bunPath: recorder }, null, 2)}\n`, "utf8");
