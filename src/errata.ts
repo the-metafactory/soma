@@ -427,7 +427,7 @@ function snapshotClusters(events: readonly ErrataEvent[], now: () => Date) {
   // Connected groups over shared paths, so E1=[a], E2=[b], E3=[a,b] land in one cluster.
   const parent = new Map(unlinked.map((record) => [record.id, record.id]));
   const find = (id: string): string => {
-    const root = parent.get(id)!;
+    const root = parent.get(id) ?? id;
     return root === id ? id : find(root);
   };
   const union = (a: string, b: string) => { parent.set(find(a), find(b)); };
@@ -445,12 +445,16 @@ function snapshotClusters(events: readonly ErrataEvent[], now: () => Date) {
   }
   const themed: ErrataRecord[] = [];
   for (const group of groups.values()) {
-    const existing = group.flatMap((record) => record.artifacts.flatMap((path) => byArtifact.has(path) ? [byArtifact.get(path)!] : []))
-      .sort((a, b) => clusterNumber(a) - clusterNumber(b))[0];
+    const existing = group.flatMap((record) => record.artifacts.flatMap((path) => {
+      const clusterId = byArtifact.get(path);
+      return clusterId === undefined ? [] : [clusterId];
+    })).sort((a, b) => clusterNumber(a) - clusterNumber(b)).at(0);
     if (existing !== undefined) { for (const record of group) assign(record, existing); continue; }
-    if (group.length === 1) { themed.push(group[0]); continue; }
+    const [first, ...rest] = group;
+    if (rest.length === 0) { themed.push(first); continue; }
     // Keyed by the first path of the earliest member that another member shares.
-    const path = group[0].artifacts.find((path) => group.slice(1).some((other) => other.artifacts.includes(path)))!;
+    const path = first.artifacts.find((path) => rest.some((other) => other.artifacts.includes(path)));
+    if (path === undefined) throw new Error(`Errata group ${first.id} has no shared artifact path`);
     const id = newCluster({ kind: "artifact", path });
     for (const record of group) assign(record, id);
   }
