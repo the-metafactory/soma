@@ -285,6 +285,31 @@ export interface AlgorithmPlanStep {
   nodeId?: string;
 }
 
+/** Principal rejection of a delivered output; never stores assistant output content. */
+export type ErrataPassedBy =
+  | { kind: "algorithm-verify"; runId: string; criterionId: string }
+  | { kind: "close-receipt"; repo: string; nodeId: string; receiptCommentId: string };
+
+export interface ErrataInput {
+  sessionId: string;
+  rejectedTurnUuid: string;
+  rejectedAt: string;
+  complaintAt: string;
+  complaint: string;
+  artifacts: string[];
+  passedBy: ErrataPassedBy | null;
+}
+
+export interface ErrataRecord extends ErrataInput {
+  id: string;
+  status: "active" | "dropped";
+  createdAt: string;
+}
+
+export type ErrataEvent =
+  | { kind: "created"; record: ErrataRecord }
+  | { kind: "dropped"; id: string; at: string };
+
 export interface AlgorithmLogEntry {
   timestamp: string;
   phase: AlgorithmPhase;
