@@ -1,7 +1,4 @@
 [
-  "src/adapters/claude-code/projection-self-repair.ts -> src/lifecycle.ts",
-  "src/adapters/claude-code/session-digest.ts -> src/lifecycle.ts",
-  "src/adapters/codex/session-digest.ts -> src/lifecycle.ts",
   "src/adapters/private-roots.ts -> src/install-spec.ts",
   "src/experimental/anthropic-cowork.ts -> src/install.ts",
   "src/projection-private-roots.ts -> src/install-spec.ts",
