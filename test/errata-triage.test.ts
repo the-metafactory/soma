@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runErrataTriage, readErrata, type ErrataTriageDeps } from "../src/errata";
+import { runErrataTriage, readErrata, readErrataClusters, type ErrataTriageDeps } from "../src/errata";
 import { JUDGE_REGISTRY, hashJudgmentInput, judgeLedgerPath, readJudgments, recordJudgment } from "../src/judge";
 import { appendSomaMemoryEvent, somaMemoryEventsPath } from "../src/event-journal";
 import { appendEventBatch } from "../src/event-log";
@@ -31,6 +31,7 @@ async function setup() {
   const deps: ErrataTriageDeps = {
     somaHome, now: () => new Date(at), readEvents: async () => [candidate],
     classify: async () => ({ verdict: "promote", reason: "Rejects delivered output.", backendVersion: "test-cli-1" }),
+    classifyTheme: async () => ({ theme: "Unverified claim", reason: "Asserted without a probe.", backendVersion: "test-cli-1" }),
     publishRun: async (report) => { reports.push(report); },
   };
   return { somaHome, candidate, reports, deps };
@@ -47,22 +48,24 @@ test("only interactive feedback is classified; promotion uses the linker and eve
   deps.readEvents = async () => events;
   deps.classify = async (text) => { inputs.push(text); return { verdict: "promote", reason: "Rejection.", backendVersion: "2.1.296" }; };
   const result = await runErrataTriage(deps);
-  expect(result).toMatchObject({ outcome: "succeeded", promoted: 1, dropped: 0, skipped: 2, unlinkable: 0 });
+  expect(result).toMatchObject({ outcome: "succeeded", promoted: 1, dropped: 0, skipped: 2, unlinkable: 0, clustered: 1, ripe: 0 });
   expect(inputs).toEqual([candidate.metadata!.redactedExcerpt as string]);
-  expect(await readErrata(somaHome)).toMatchObject([{ id: "E1", sessionId: "S1", rejectedTurnUuid: "U1", passedBy: null }]);
+  expect(await readErrata(somaHome)).toMatchObject([{ id: "E1", sessionId: "S1", rejectedTurnUuid: "U1", passedBy: null, clusterId: "EC1" }]);
+  expect(await readErrataClusters(somaHome)).toMatchObject([{ id: "EC1", key: { kind: "theme", label: "Unverified claim" }, errataIds: ["E1"], status: "open" }]);
   const { records } = await readJudgments(somaHome);
-  expect(records).toHaveLength(1);
+  expect(records).toHaveLength(2);
   expect(records[0]).toMatchObject({ caller: "errata-triage", backend: "claude-p", backendVersion: "2.1.296",
     ts: at, inputSha256: hashJudgmentInput(inputs[0]), decision: { verdict: "promote", eventId: candidate.id, errataId: "E1" } });
+  expect(records[1]).toMatchObject({ caller: "errata-triage", backend: "claude-p", decision: { verdict: "theme", errataId: "E1", clusterId: "EC1", theme: "Unverified claim" } });
   expect(reports).toHaveLength(1);
   expect(reports[0]).toMatchObject({ kind: "job", ref: "errata-triage", outcome: "succeeded", startedAt: at, endedAt: at, detailRef: result.detailRef });
   const detail = await readFile(result.detailRef, "utf8");
   expect(JSON.parse(detail)).toMatchObject({ promoted: 1, dropped: 0, skipped: 2, unlinkable: 0 });
   expect(detail + JSON.stringify(reports) + JSON.stringify(records)).not.toContain(inputs[0]);
   const repeated = await runErrataTriage(deps);
-  expect(repeated.promoted).toBe(0);
+  expect(repeated).toMatchObject({ promoted: 0, clustered: 0 });
   expect(inputs).toHaveLength(1);
-  expect((await readJudgments(somaHome)).records).toHaveLength(1);
+  expect((await readJudgments(somaHome)).records).toHaveLength(2);
   expect(reports).toHaveLength(2);
   expect(reports[0].runId).not.toBe(reports[1].runId);
 });
@@ -92,13 +95,15 @@ test("triage preserves the same-session Algorithm pass through the default linke
   });
   await writeAlgorithmRun(run, { somaHome });
 
-  expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 1 });
+  deps.classifyTheme = async () => { throw new Error("A linked pass needs no theme."); };
+  expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 1, clustered: 1, ripe: 1 });
   const records = await readErrata(somaHome);
   expect(records).toHaveLength(1);
   expect(records[0]).toMatchObject({
-    sessionId: "S1", rejectedTurnUuid: "U1", artifacts: ["src/output.ts"],
+    sessionId: "S1", rejectedTurnUuid: "U1", artifacts: ["src/output.ts"], clusterId: "EC1",
     passedBy: { kind: "algorithm-verify", runId: run.id, criterionId: "C1" },
   });
+  expect(await readErrataClusters(somaHome)).toMatchObject([{ id: "EC1", status: "ripe", key: { kind: "check", passedBy: records[0].passedBy } }]);
   expect(JSON.stringify(records)).not.toContain("PRIVATE");
   expect((await readJudgments(somaHome)).records[0].decision.errataId).toBe(records[0].id);
 });
@@ -107,7 +112,7 @@ test("explicit errata marker bypasses Claude and records the explicit backend", 
   const { somaHome, candidate, deps } = await setup();
   candidate.metadata!.redactedExcerpt = "errata: The delivered output is wrong.";
   deps.classify = async () => { throw new Error("Must not classify an explicit marker."); };
-  expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 1 });
+  expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 1, clustered: 1 });
   expect((await readJudgments(somaHome)).records[0]).toMatchObject({ backend: "explicit-marker", backendVersion: "1", decision: { verdict: "promote" } });
   expect(JUDGE_REGISTRY.find((caller) => caller.id === "errata-triage")).toMatchObject({ state: "shadow", measuredOn: null });
 });
@@ -130,8 +135,8 @@ test("classifier failure after successful verdicts leaves the entire batch retry
   expect(reports[0].outcome).toBe("failed");
   expect(await readFile(reports[0].detailRef!, "utf8")).not.toContain("PRIVATE");
   deps.classify = async () => ({ verdict: "drop", reason: "New request.", backendVersion: "test-cli-1" });
-  expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 1, dropped: 2 });
-  expect((await readJudgments(somaHome)).records).toHaveLength(3);
+  expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 1, dropped: 2, clustered: 1 });
+  expect((await readJudgments(somaHome)).records.map((record) => record.decision.verdict)).toEqual(["promote", "drop", "drop", "theme"]);
 });
 
 test("event identity, rather than equal feedback text, owns deduplication", async () => {
@@ -163,10 +168,17 @@ test("classification receives redacted feedback only, never goal or delivered te
   deps.classify = async (text) => {
     expect(text).toBe("That is wrong. [redacted]");
     expect(text).not.toContain("PRIVATE");
-    return { verdict: "drop", reason: "Request.", backendVersion: "test-cli-1" };
+    return { verdict: "promote", reason: "Rejection.", backendVersion: "test-cli-1" };
+  };
+  deps.classifyTheme = async (input) => {
+    expect(input).toEqual({ complaint: "That is wrong. [redacted]", themes: [] });
+    return { theme: "Unverified claim", reason: "Asserted without a probe. token=secret-value", backendVersion: "test-cli-1" };
   };
   expect((await runErrataTriage(deps)).outcome).toBe("succeeded");
-  expect(await readFile(judgeLedgerPath(somaHome), "utf8")).not.toContain("secret-value");
+  const judgments = await readFile(judgeLedgerPath(somaHome), "utf8");
+  expect(judgments).not.toContain("secret-value");
+  expect(judgments).not.toContain("PRIVATE");
+  expect(judgments).not.toContain("That is wrong");
 });
 
 test("judgment write failure fails the job; retry recovers the Errata append without duplicating it", async () => {
@@ -176,9 +188,9 @@ test("judgment write failure fails the job; retry recovers the Errata append wit
   expect(await readErrata(somaHome)).toHaveLength(1);
   expect((await readJudgments(somaHome)).records).toHaveLength(0);
   deps.recordJudgment = undefined;
-  expect((await runErrataTriage(deps)).outcome).toBe("succeeded");
+  expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", clustered: 1 });
   expect(await readErrata(somaHome)).toHaveLength(1);
-  expect((await readJudgments(somaHome)).records).toHaveLength(1);
+  expect((await readJudgments(somaHome)).records.map((record) => record.decision.verdict)).toEqual(["promote", "theme"]);
 });
 
 test("overlapping triage jobs serialize judgment and promotion by event id", async () => {
@@ -187,7 +199,8 @@ test("overlapping triage jobs serialize judgment and promotion by event id", asy
   expect(results.map((result) => result.outcome)).toEqual(["succeeded", "succeeded"]);
   expect(results.reduce((sum, result) => sum + result.promoted, 0)).toBe(1);
   expect(await readErrata(somaHome)).toHaveLength(1);
-  expect((await readJudgments(somaHome)).records).toHaveLength(1);
+  expect((await readJudgments(somaHome)).records).toHaveLength(2);
+  expect(await readErrataClusters(somaHome)).toHaveLength(1);
   expect(reports).toHaveLength(2);
 });
 
@@ -231,7 +244,7 @@ test("success, empty and failed jobs each publish exactly one real run-ledger en
   }
   expect(JSON.stringify(events)).not.toContain(candidate.metadata!.redactedExcerpt as string);
   expect(JSON.stringify(events)).not.toContain("PRIVATE");
-  expect((await readJudgments(somaHome)).records).toHaveLength(1);
+  expect((await readJudgments(somaHome)).records).toHaveLength(2);
 });
 
 test("a corrupt judgment ledger fails rather than re-promoting an uncertain event", async () => {

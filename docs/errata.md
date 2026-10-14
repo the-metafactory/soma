@@ -79,6 +79,54 @@ and promoted/dropped/skipped/unlinkable counts, never complaints or reasons.
 The usual run-ledger configuration and outbox semantics apply. A failed triage
 exits nonzero after reporting. Scheduling the daily invocation is operator work.
 
-`runErrataTriage(deps)` accepts an injected clock, event reader, classifier,
+## Clusters
+
+After a triage batch promotes, `clusterErrata` assigns every active, unclustered
+Errata to a cluster (soma#785 Q15), appending one `clustered` event per Errata
+to the same ledger. The cluster id is `EC<n>`; an Errata's `clusterId` never
+changes afterwards. Keys, in order:
+
+1. `check`: the same `passedBy` check and criterion (Algorithm run plus
+   criterion, or close receipt).
+2. `artifact`: a `passedBy: null` Errata sharing an artifact path with another
+   null-link Errata, whether already clustered (in any cluster kind) or promoted
+   in the same batch. Pending null-link Errata are grouped as connected sets
+   over shared paths first, so three Errata on `a`, `b` and `a, b` form one
+   cluster; a group touching an existing cluster joins it whole (the earliest
+   cluster when it touches several). No judge is called. A linked Errata's paths
+   never key a cluster.
+3. `theme`: a null-link Errata nothing shares is given a theme by headless
+   `claude -p` (same model and isolation as the verdict call). The judge sees the
+   redacted complaint and the theme labels already in use; it reuses one or
+   coins a new one. A label is at most 60 characters, one line, in Ivy's words.
+   A label that quotes the complaint (the whole label, or any three consecutive
+   words of it) is refused locally. Every theme verdict is recorded under caller
+   `errata-triage` with `decision.verdict: "theme"`, the Errata and cluster ids
+   and the label, before the `clustered` event is written. Labels match
+   case-insensitively.
+
+Clustering takes the ledger lock twice. First it applies and writes the
+deterministic keys and lists the Errata nothing shares; then it releases the lock
+while every one of those is judged, so readers never wait on a Claude call; then,
+under the lock again, it re-reads the ledger and commits each verdict whose
+Errata is still unshared (recording the judgment first). A verdict whose Errata
+was dropped or keyed deterministically meanwhile is discarded. All themes of a
+batch are judged before any theme is written. A judge failure, a refused label or
+a judgment that cannot be recorded fails the triage run; the deterministic
+assignments, already written, stand, and the themes are retried on the next run.
+An explicit `errata:` marker therefore still promotes without Claude, but the run
+reports failure until its theme is judged.
+
+Ripeness (soma#785 Q16) is derived on read, never stored: a cluster is `ripe`
+with one member whose `passedBy` is not null, or with two members whose
+`complaintAt` dates, as Europe/Zurich calendar days, lie at most 30 days apart.
+Dropped Errata are never clustered, drop out of their cluster's members and count
+toward no threshold; a cluster with no active member is not reported.
+`readErrataClusters(somaHome)` returns the folded clusters; the triage report and
+`soma errata triage` output add `clustered` and `ripe` counts. Turning a ripe
+cluster into a Vigil proposal is a later node.
+
+`clusterErrata(deps)` accepts an injected clock, ledger reader and appender,
+theme judge and judgment writer. `runErrataTriage(deps)` accepts an injected clock, event reader, classifier,
 linker, Errata append, judge reader/writer and run publisher for deterministic
 testing. Classifier input is only the redacted feedback string.

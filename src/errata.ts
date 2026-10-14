@@ -3,11 +3,16 @@ import { randomUUID } from "node:crypto";
 import { join, normalize, relative, isAbsolute } from "node:path";
 import { listAlgorithmRuns } from "./algorithm-store";
 import { redactSomaFeedbackText } from "./feedback";
-import type { AlgorithmRun, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord, SomaMemoryEvent } from "./types";
+import type {
+  AlgorithmRun, ErrataCluster, ErrataClusterKey, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord, SomaMemoryEvent,
+} from "./types";
 import { parseTelemetryEventLine, streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./event-journal";
 import { hashJudgmentInput, readJudgments, recordJudgment, type JudgmentRecord } from "./core/index";
-import { classifyErrataWithClaude, validateErrataVerdict, type ErrataTriageVerdict } from "./errata-classifier";
+import {
+  classifyErrataThemeWithClaude, classifyErrataWithClaude, validateErrataTheme, validateErrataVerdict,
+  type ErrataThemeInput, type ErrataThemeVerdict, type ErrataTriageVerdict,
+} from "./errata-classifier";
 import { publishRunFinished, type RunFinishedInput, type RunLedgerDeps } from "./run-ledger";
 
 function stringField(data: Record<string, unknown>, key: string, allowEmpty = false): string {
@@ -28,15 +33,30 @@ function idField(data: Record<string, unknown>): string {
   return id;
 }
 
+function parsePassedBy(raw: unknown): ErrataPassedBy {
+  const pass = object(raw);
+  if (pass.kind === "algorithm-verify") return { kind: pass.kind, runId: stringField(pass, "runId"), criterionId: stringField(pass, "criterionId") };
+  if (pass.kind === "close-receipt") return { kind: pass.kind, repo: stringField(pass, "repo"), nodeId: stringField(pass, "nodeId"), receiptCommentId: stringField(pass, "receiptCommentId") };
+  throw new Error("Invalid Errata passedBy.");
+}
+
+function parseClusterKey(raw: unknown): ErrataClusterKey {
+  const key = object(raw);
+  if (key.kind === "check") return { kind: key.kind, passedBy: parsePassedBy(key.passedBy) };
+  if (key.kind === "artifact") return { kind: key.kind, path: stringField(key, "path") };
+  if (key.kind === "theme") return { kind: key.kind, label: stringField(key, "label") };
+  throw new Error("Invalid Errata cluster key.");
+}
+
+function clusterIdField(data: Record<string, unknown>): string {
+  const id = stringField(data, "clusterId");
+  if (!/^EC[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id.slice(2)))) throw new Error("Invalid Errata cluster id.");
+  return id;
+}
+
 function parseInput(raw: unknown): ErrataInput {
   const data = object(raw);
-  let passedBy: ErrataPassedBy | null = null;
-  if (data.passedBy !== null) {
-    const pass = object(data.passedBy);
-    if (pass.kind === "algorithm-verify") passedBy = { kind: pass.kind, runId: stringField(pass, "runId"), criterionId: stringField(pass, "criterionId") };
-    else if (pass.kind === "close-receipt") passedBy = { kind: pass.kind, repo: stringField(pass, "repo"), nodeId: stringField(pass, "nodeId"), receiptCommentId: stringField(pass, "receiptCommentId") };
-    else throw new Error("Invalid Errata passedBy.");
-  }
+  const passedBy = data.passedBy === null ? null : parsePassedBy(data.passedBy);
   if (!Array.isArray(data.artifacts)) throw new Error("Invalid Errata artifacts.");
   const artifacts = (data.artifacts as unknown[]).map((path) => {
     if (typeof path !== "string" || !path.trim()) throw new Error("Invalid Errata artifact path.");
@@ -52,6 +72,9 @@ function parseInput(raw: unknown): ErrataInput {
 function parseEvent(raw: unknown): ErrataEvent {
   const data = object(raw);
   if (data.kind === "dropped") return { kind: data.kind, id: idField(data), at: timestampField(data, "at") };
+  if (data.kind === "clustered") {
+    return { kind: data.kind, id: idField(data), clusterId: clusterIdField(data), key: parseClusterKey(data.key), at: timestampField(data, "at") };
+  }
   if (data.kind !== "created") throw new Error("Invalid Errata event kind.");
   const record = object(data.record);
   if (record.status !== "active") throw new Error("Errata creation must be active.");
@@ -93,19 +116,63 @@ async function readEvents(somaHome: string): Promise<ErrataEvent[]> {
   return text.split("\n").filter(Boolean).map((line) => parseEvent(JSON.parse(line)));
 }
 
-function foldEvents(events: ErrataEvent[]): ErrataRecord[] {
+interface FoldedCluster { id: string; key: ErrataClusterKey; memberIds: string[]; createdAt: string }
+interface FoldedLedger { records: ErrataRecord[]; clusters: FoldedCluster[] }
+
+function foldLedger(events: readonly ErrataEvent[]): FoldedLedger {
   const records = new Map<string, ErrataRecord>();
+  const clusters = new Map<string, FoldedCluster>();
   for (const event of events) {
     if (event.kind === "created") {
       if (records.has(event.record.id)) throw new Error(`Duplicate Errata id: ${event.record.id}`);
       records.set(event.record.id, event.record);
-    } else {
-      const record = records.get(event.id);
-      if (!record) throw new Error(`Unknown Errata id in ledger: ${event.id}`);
-      records.set(event.id, { ...record, status: "dropped" });
+      continue;
     }
+    const record = records.get(event.id);
+    if (!record) throw new Error(`Unknown Errata id in ledger: ${event.id}`);
+    if (event.kind === "dropped") { records.set(event.id, { ...record, status: "dropped" }); continue; }
+    if (record.clusterId !== undefined) throw new Error(`Errata already clustered: ${event.id}`);
+    records.set(event.id, { ...record, clusterId: event.clusterId });
+    const cluster = clusters.get(event.clusterId) ?? { id: event.clusterId, key: event.key, memberIds: [], createdAt: event.at };
+    cluster.memberIds.push(event.id);
+    clusters.set(event.clusterId, cluster);
   }
-  return [...records.values()];
+  return { records: [...records.values()], clusters: [...clusters.values()] };
+}
+
+function foldEvents(events: readonly ErrataEvent[]): ErrataRecord[] {
+  return foldLedger(events).records;
+}
+
+/** Zurich calendar day as a day count, so "within 30 days" is counted in the principal's dates. */
+function zurichDay(iso: string): number {
+  const parts = new Intl.DateTimeFormat("en", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(new Date(iso));
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value);
+  return Math.round(Date.UTC(part("year"), part("month") - 1, part("day")) / 86_400_000);
+}
+
+export const ERRATA_CLUSTER_WINDOW_DAYS = 30;
+
+/** soma#785 Q16: ripe on one rejected pass, or on two or more Errata within 30 days. Dropped members never count. */
+function isRipe(members: readonly ErrataRecord[]): boolean {
+  if (members.some((record) => record.passedBy !== null)) return true;
+  const days = members.map((record) => zurichDay(record.complaintAt)).sort((a, b) => a - b);
+  return days.some((day, index) => index > 0 && day - days[index - 1] <= ERRATA_CLUSTER_WINDOW_DAYS);
+}
+
+/** Clusters with at least one active member; a cluster whose members were all dropped is not reported. */
+function activeClusters(ledger: FoldedLedger): ErrataCluster[] {
+  const records = new Map(ledger.records.map((record) => [record.id, record]));
+  return ledger.clusters.flatMap((cluster) => {
+    const members = cluster.memberIds.map((id) => records.get(id)).filter((record): record is ErrataRecord => record?.status === "active");
+    if (members.length === 0) return [];
+    return [{ id: cluster.id, key: cluster.key, errataIds: members.map((record) => record.id), status: isRipe(members) ? "ripe" : "open", createdAt: cluster.createdAt }];
+  });
+}
+
+export async function readErrataClusters(somaHome: string): Promise<ErrataCluster[]> {
+  return withLedgerLock(somaHome, async () => activeClusters(foldLedger(await readEvents(somaHome))));
 }
 
 async function writeEvent(somaHome: string, event: ErrataEvent): Promise<void> {
@@ -280,11 +347,198 @@ export async function linkErrataCandidate(deps: ErrataLinkDeps): Promise<ErrataL
   };
 }
 
+export interface ErrataClusterDeps {
+  somaHome: string;
+  now?: () => Date;
+  /** Ledger seam: read every event, append one. Defaults to the private file ledger under its lock. */
+  readLedger?: () => Promise<readonly ErrataEvent[]>;
+  appendEvent?: (event: ErrataEvent) => Promise<void>;
+  classifyTheme?: (input: ErrataThemeInput) => Promise<ErrataThemeVerdict>;
+  recordJudgment?: (record: JudgmentRecord) => Promise<boolean>;
+}
+
+export interface ErrataClusterResult {
+  /** Errata assigned by this call. */
+  clustered: number;
+  clusters: ErrataCluster[];
+}
+
+function passedByKey(passedBy: ErrataPassedBy): string {
+  return passedBy.kind === "algorithm-verify"
+    ? `${passedBy.kind}:${passedBy.runId}:${passedBy.criterionId}`
+    : `${passedBy.kind}:${passedBy.repo}:${passedBy.nodeId}:${passedBy.receiptCommentId}`;
+}
+
+const errataNumber = (id: string) => Number(id.slice(1));
+const themeKey = (label: string) => label.trim().toLowerCase();
+
+const clusterNumber = (id: string) => Number(id.slice(2));
+
+interface ErrataAssignment { record: ErrataRecord; clusterId: string; key: ErrataClusterKey }
+
+/**
+ * One ledger snapshot with the deterministic keys applied (soma#785 Q15). Every pending
+ * linked Errata joins its `passedBy` check cluster. Pending null-link Errata form connected
+ * groups over shared artifact paths; a group any of whose paths a null-link member of an
+ * existing cluster already holds joins the earliest such cluster, any other group of two or
+ * more opens an `artifact` cluster, and a lone Errata nothing shares is left in `themed`.
+ * A linked member's paths never key a cluster.
+ */
+function snapshotClusters(events: readonly ErrataEvent[], now: () => Date) {
+  const ledger = foldLedger(events);
+  const records = new Map(ledger.records.map((record) => [record.id, record]));
+  let nextCluster = ledger.clusters.reduce((max, cluster) => Math.max(max, clusterNumber(cluster.id)), 0) + 1;
+  const byCheck = new Map<string, string>();
+  const byTheme = new Map<string, string>();
+  // Null-link members' artifact paths, earliest cluster first.
+  const byArtifact = new Map<string, string>();
+  for (const cluster of ledger.clusters) {
+    if (cluster.key.kind === "check") byCheck.set(passedByKey(cluster.key.passedBy), cluster.id);
+    if (cluster.key.kind === "theme") byTheme.set(themeKey(cluster.key.label), cluster.id);
+    for (const id of cluster.memberIds) {
+      const member = records.get(id);
+      if (member?.status !== "active" || member.passedBy !== null) continue;
+      for (const path of member.artifacts) if (!byArtifact.has(path)) byArtifact.set(path, cluster.id);
+    }
+  }
+  const assignments: ErrataAssignment[] = [];
+  const newCluster = (key: ErrataClusterKey): string => {
+    const id = `EC${nextCluster++}`;
+    if (key.kind === "check") byCheck.set(passedByKey(key.passedBy), id);
+    if (key.kind === "theme") byTheme.set(themeKey(key.label), id);
+    ledger.clusters.push({ id, key, memberIds: [], createdAt: now().toISOString() });
+    return id;
+  };
+  const assign = (record: ErrataRecord, clusterId: string): ErrataAssignment => {
+    const cluster = ledger.clusters.find((cluster) => cluster.id === clusterId);
+    if (!cluster) throw new Error(`Unknown Errata cluster: ${clusterId}`);
+    const assignment = { record, clusterId, key: cluster.key };
+    assignments.push(assignment);
+    return assignment;
+  };
+  const pending = ledger.records.filter((record) => record.status === "active" && record.clusterId === undefined)
+    .sort((a, b) => errataNumber(a.id) - errataNumber(b.id));
+  const unlinked: ErrataRecord[] = [];
+  for (const record of pending) {
+    if (record.passedBy === null) { unlinked.push(record); continue; }
+    const key = passedByKey(record.passedBy);
+    assign(record, byCheck.get(key) ?? newCluster({ kind: "check", passedBy: record.passedBy }));
+  }
+  // Connected groups over shared paths, so E1=[a], E2=[b], E3=[a,b] land in one cluster.
+  const parent = new Map(unlinked.map((record) => [record.id, record.id]));
+  const find = (id: string): string => {
+    const root = parent.get(id) ?? id;
+    return root === id ? id : find(root);
+  };
+  const union = (a: string, b: string) => { parent.set(find(a), find(b)); };
+  const holders = new Map<string, string>();
+  for (const record of unlinked) {
+    for (const path of record.artifacts) {
+      const holder = holders.get(path);
+      if (holder === undefined) holders.set(path, record.id); else union(record.id, holder);
+    }
+  }
+  const groups = new Map<string, ErrataRecord[]>();
+  for (const record of unlinked) {
+    const root = find(record.id);
+    groups.set(root, [...groups.get(root) ?? [], record]);
+  }
+  const themed: ErrataRecord[] = [];
+  for (const group of groups.values()) {
+    const existing = group.flatMap((record) => record.artifacts.flatMap((path) => {
+      const clusterId = byArtifact.get(path);
+      return clusterId === undefined ? [] : [clusterId];
+    })).sort((a, b) => clusterNumber(a) - clusterNumber(b)).at(0);
+    if (existing !== undefined) { for (const record of group) assign(record, existing); continue; }
+    const [first, ...rest] = group;
+    if (rest.length === 0) { themed.push(first); continue; }
+    // Keyed by the first path of the earliest member that another member shares.
+    const path = first.artifacts.find((path) => rest.some((other) => other.artifacts.includes(path)));
+    if (path === undefined) throw new Error(`Errata group ${first.id} has no shared artifact path`);
+    const id = newCluster({ kind: "artifact", path });
+    for (const record of group) assign(record, id);
+  }
+  return {
+    assignments, themed,
+    /** Theme labels in use, including those coined on this snapshot. */
+    themeLabels: () => ledger.clusters.flatMap((cluster) => cluster.key.kind === "theme" ? [cluster.key.label] : []),
+    assignTheme: (record: ErrataRecord, label: string) => assign(record, byTheme.get(themeKey(label)) ?? newCluster({ kind: "theme", label })),
+  };
+}
+
+/**
+ * Assign every active, unclustered Errata to a cluster (soma#785 Q15). Under the ledger
+ * lock, the deterministic keys (check, then shared artifact path) are applied and written;
+ * the Errata nothing shares are listed. The lock is released while every one of them is
+ * judged for a theme, so readers never wait on a Claude call. Then, under the lock again,
+ * the ledger is re-read: each verdict whose Errata is still unshared is recorded under
+ * `errata-triage` and its `clustered` event appended; a verdict whose Errata was dropped or
+ * keyed deterministically meanwhile is discarded. Ripeness is derived from the folded ledger,
+ * never stored. Dropped Errata are never clustered.
+ */
+export async function clusterErrata(deps: ErrataClusterDeps): Promise<ErrataClusterResult> {
+  const now = deps.now ?? (() => new Date());
+  const read = deps.readLedger ?? (() => readEvents(deps.somaHome));
+  const append = deps.appendEvent ?? ((event: ErrataEvent) => writeEvent(deps.somaHome, event));
+  const writeJudgment = deps.recordJudgment ?? ((judgment: JudgmentRecord) => recordJudgment(deps.somaHome, judgment));
+  const classify = deps.classifyTheme ?? classifyErrataThemeWithClaude;
+  const commit = async (events: ErrataEvent[], assignment: ErrataAssignment) => {
+    const event: ErrataEvent = { kind: "clustered", id: assignment.record.id, clusterId: assignment.clusterId, key: assignment.key, at: now().toISOString() };
+    await append(event);
+    events.push(event);
+  };
+  const first = await withLedgerLock(deps.somaHome, async () => {
+    const events = [...await read()];
+    const snapshot = snapshotClusters(events, now);
+    for (const assignment of snapshot.assignments) await commit(events, assignment);
+    return { events, written: snapshot.assignments.length, themed: snapshot.themed, themes: snapshot.themeLabels() };
+  });
+  if (first.themed.length === 0) return { clustered: first.written, clusters: activeClusters(foldLedger(first.events)) };
+
+  // Every theme is judged before any theme write; a judge failure leaves the whole remainder for the next run.
+  const themes = [...first.themes];
+  const verdicts: { record: ErrataRecord; verdict: ErrataThemeVerdict; input: ErrataThemeInput; latencyMs: number }[] = [];
+  for (const record of first.themed) {
+    const input: ErrataThemeInput = { complaint: redactSomaFeedbackText(record.complaint), themes: [...themes] };
+    const before = now().getTime();
+    const verdict = await classify(input);
+    validateErrataTheme(verdict, input);
+    const label = verdict.theme.trim();
+    if (!themes.some((theme) => themeKey(theme) === themeKey(label))) themes.push(label);
+    verdicts.push({ record, verdict, input, latencyMs: Math.max(0, now().getTime() - before) });
+  }
+
+  return withLedgerLock(deps.somaHome, async () => {
+    const events = [...await read()];
+    const snapshot = snapshotClusters(events, now);
+    let written = first.written;
+    // Errata promoted meanwhile take a deterministic key now; a theme for them waits for the next run.
+    for (const assignment of snapshot.assignments) { await commit(events, assignment); written++; }
+    const unshared = new Set(snapshot.themed.map((record) => record.id));
+    for (const { record, verdict, input, latencyMs } of verdicts) {
+      if (!unshared.has(record.id)) continue;
+      const assignment = snapshot.assignTheme(record, verdict.theme.trim());
+      const recorded = await writeJudgment({
+        v: 1, ts: now().toISOString(), caller: "errata-triage", backend: "claude-p", backendVersion: verdict.backendVersion,
+        inputSha256: hashJudgmentInput(JSON.stringify(input)),
+        decision: { verdict: "theme", theme: verdict.theme.trim(),
+          reason: redactSomaFeedbackText(verdict.reason), errataId: record.id, clusterId: assignment.clusterId, status: "clustered" },
+        latencyMs,
+      });
+      if (!recorded) throw new Error("Errata theme judgment could not be recorded.");
+      await commit(events, assignment);
+      written++;
+    }
+    return { clustered: written, clusters: activeClusters(foldLedger(events)) };
+  });
+}
+
 export interface ErrataTriageDeps extends RunLedgerDeps {
   somaHome: string;
   now?: () => Date;
   readEvents?: () => Promise<readonly SomaMemoryEvent[]>;
   classify?: (redactedText: string) => Promise<ErrataTriageVerdict>;
+  classifyTheme?: ErrataClusterDeps["classifyTheme"];
   link?: (candidate: ErrataCandidate) => Promise<ErrataLinkResult>;
   readCloseReceipts?: ErrataLinkDeps["readCloseReceipts"];
   append?: (input: ErrataInput) => Promise<ErrataRecord>;
@@ -299,6 +553,9 @@ export interface ErrataTriageResult {
   dropped: number;
   skipped: number;
   unlinkable: number;
+  /** Errata assigned a cluster by this run, and ripe clusters after it (soma#785 Q15/Q16). */
+  clustered: number;
+  ripe: number;
   detailRef: string;
 }
 
@@ -318,7 +575,7 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
   const startedAt = now().toISOString();
   const runId = randomUUID();
   const detailRef = join(deps.somaHome, "memory", "STATE", "errata", "triage-runs", `${runId}.json`);
-  const result: ErrataTriageResult = { outcome: "succeeded", promoted: 0, dropped: 0, skipped: 0, unlinkable: 0, detailRef };
+  const result: ErrataTriageResult = { outcome: "succeeded", promoted: 0, dropped: 0, skipped: 0, unlinkable: 0, clustered: 0, ripe: 0, detailRef };
   try {
     await withLedgerLock(deps.somaHome, async () => {
       const ledger = await (deps.readJudgments ?? (() => readJudgments(deps.somaHome, { caller: "errata-triage" })))();
@@ -380,6 +637,10 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
         });
         if (!recorded) throw new Error("Errata judgment could not be recorded.");
       }
+      // Clustering runs after every promotion of this batch so a pair promoted together shares a key without a judge.
+      const clustered = await clusterErrata({ somaHome: deps.somaHome, now, classifyTheme: deps.classifyTheme, recordJudgment: deps.recordJudgment });
+      result.clustered = clustered.clustered;
+      result.ripe = clustered.clusters.filter((cluster) => cluster.status === "ripe").length;
     }, ".triage-lock");
   } catch {
     // Neither subprocess output nor complaint text belongs in CLI logs or the run report.
