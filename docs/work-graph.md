@@ -738,6 +738,9 @@ soma graph decisions <root>        # the map's decision index, DERIVED from clos
                                    # --write splices it into the map body between
                                    # <!-- soma:decisions:begin/end --> markers and
                                    # refuses when they are absent
+soma graph file-proposal <proposal_ref>
+                                   # file the node a soma-home proposal file
+                                   # describes; idempotent by a body marker
 ```
 
 `soma graph chart ... --serves G5` links the map to a goal by writing
@@ -773,6 +776,38 @@ Without a scope, all existing findings remain. GitHub receipt scans read up to
 20 nodes' comments per request, with at most four batches in flight, following
 each node's pagination to completion. Stores without batch reads retain bounded
 individual reads; GitHub also falls back to these when GraphQL quota is exhausted.
+
+`soma graph file-proposal <proposal_ref>` files the follow-up node a producer
+(Errata first) proposed and the principal approved (soma#903 D6, D9). cortex
+runs it on approve and never parses the file; the schema lives only in
+`src/proposal-file.ts`. The ref is `soma:proposals/<ref>.md`, the run
+envelope's form, or a bare `<ref>`; both read `<soma-home>/proposals/<ref>.md`
+(`SOMA_HOME`, otherwise `~/.soma`). The ref is percent-decoded first, and a
+path that leaves `proposals/`, lexically or after realpath (a symlink out),
+is refused. The front-matter is strict:
+
+```yaml
+---
+proposal_kind: deterministic-check # | reviewer-standard | navigation-pointer | information-access | rule-memory
+landing: the-metafactory/soma      # owner/repo; the verb trusts it as written
+map_root: 787                      # positive integer
+title: One line
+checkpoint: errata-<cluster-key>
+cites: [E3, E7]                    # non-empty, Errata ids
+---
+The node body.
+```
+
+A `deterministic-check` is filed as `kind: build, autonomy: propose` and its
+body must pass the `build-brief-not-ready` check; every other kind is filed as
+`kind: grilling, autonomy: approve` and only the `[NEEDS CLARIFICATION]` marker
+refuses it. The verb appends `<!-- soma:proposal-ref: <ref> -->` to the body
+and refuses a body that already carries one. Before filing it reads the whole
+map, closed nodes included: a node carrying the marker is returned and nothing
+is filed (exit 0). The create goes through the same `WorkGraph.createNode` as
+`add`, so a refused write or an unreadable map exits 1 with the forge's
+reason. It prints the node ref (`owner/repo#N`); `--json` prints
+`{ "ref": "owner/repo#N", "created": true|false }`.
 
 `close` enforcement lives in the **installed** soma binary, never the dev tree
 (#483 clause 5). Bypass via raw `gh` remains visible-but-unprevented in
