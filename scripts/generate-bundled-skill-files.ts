@@ -14,7 +14,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { toPosixRelative, walkFiles } from "../src/fs-walk";
+import { toPosixRelative, walkFiles } from "../src/core/index";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 export const BUNDLED_SKILL_FILES_MODULE = join(REPO_ROOT, "src", "bundled-skill-files.generated.ts");

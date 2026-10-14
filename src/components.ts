@@ -58,22 +58,9 @@ function substrateUnit(name: string): ComponentUnit {
 
 export const components: ComponentManifest<ComponentName> = {
   core: {
-    files: [
-      "src/paths",
-      "src/path-utils",
-      "src/fs-utils",
-      "src/fs-errors",
-      "src/fs-walk",
-      "src/repo-path",
-      "src/dated-slug",
-      "src/version",
-      "src/internal-concurrency",
-      "src/bun-probe",
-      "src/markdown-sections",
-      "src/text-imports",
-      "src/components",
-    ],
+    files: ["src/core/**", "src/components"],
     mayImport: ["legacy"],
+    publicEntries: ["src/core/index.ts"],
   },
   events: {
     files: ["src/event-log", "src/observability", "src/feedback-contract"],

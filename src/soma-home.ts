@@ -4,7 +4,7 @@ import { allInstallSpecs } from "./install-spec-registry";
 import { loadGoalRecords } from "./goal-records";
 import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory-readmes";
-import { createPaths } from "./paths";
+import { createPaths } from "./core/index";
 import { parseBehaviorPolicy } from "./policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
 import type { GoalRecordWarning } from "./goal-records";

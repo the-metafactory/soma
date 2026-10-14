@@ -1,6 +1,6 @@
 import { readdir, readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { isEnoent } from "./fs-errors";
+import { isEnoent } from "./core/index";
 
 // The on-disk name the Soma VSA skill was projected/stored under before the
 // #329 rename to "VSA". Matched EXACTLY against the real readdir entry name —

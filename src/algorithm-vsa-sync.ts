@@ -38,7 +38,7 @@ import {
   selectAlgorithmCapability,
 } from "./algorithm-capabilities";
 import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
-import { datePrefixSlug } from "./dated-slug";
+import { datePrefixSlug } from "./core/index";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { parseVsa, serializeVsa } from "./vsa-parse";
 import { getCriteria, getDecisions, getGoal, isClosedCriterion } from "./vsa-accessors";

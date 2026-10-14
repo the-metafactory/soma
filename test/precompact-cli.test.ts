@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, createAlgorithmRun, writeAlgorithmRun } from "../src/index";
 import { parsePreCompactArgs, preCompactHandoverPath, runPreCompactCli } from "../src/cli/precompact";
-import { isEnoent } from "../src/fs-errors";
+import { isEnoent } from "../src/core/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-precompact-"));

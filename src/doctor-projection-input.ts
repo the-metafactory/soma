@@ -1,6 +1,6 @@
 import { listBundledSkills } from "./bundled-skills";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
-import { isEnoent } from "./fs-utils";
+import { isFsUtilsEnoent as isEnoent } from "./core/index";
 import { loadMemoryIndexForProjection } from "./memory-index";
 import { loadSomaHome } from "./soma-home";
 import type { ProjectionInput } from "./types";

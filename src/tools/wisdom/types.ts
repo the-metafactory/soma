@@ -1,4 +1,4 @@
-import type { SomaPathsOptions } from "../../paths";
+import type { SomaPathsOptions } from "../../core/index";
 
 export type WisdomObservationType = "principle" | "contextual-rule" | "prediction" | "anti-pattern" | "evolution";
 export type FrameHealthStatus = "growing" | "stable" | "stale";

@@ -8,7 +8,7 @@ import {
   requireBunInPath,
   resolveBunExecutable,
   resolveValidatedBunPath,
-} from "../src/bun-probe";
+} from "../../src/core/bun-probe";
 
 // Hermetic probe fixture: a tiny in-memory filesystem + spawn table so
 // every platform/normalization/validation branch runs without touching

@@ -5,7 +5,7 @@ import {
   type AddGoalOptions, type InactiveGoalStatus,
 } from "../goal-records";
 import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../goal-sense";
-import { defaultSomaHome, type SomaPathsOptions } from "../paths";
+import { defaultSomaHome, type SomaPathsOptions } from "../core/index";
 import { loadSomaConfig } from "../soma-config";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";

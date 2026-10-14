@@ -38,7 +38,7 @@ import {
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
 import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
-import { invocationCwd } from "../path-utils";
+import { invocationCwd } from "../core/index";
 import { isGuardedRuntimeSubstrate } from "../runtime-artifact";
 import { loadSomaHome } from "../soma-home";
 import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";

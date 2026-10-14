@@ -19,7 +19,7 @@ import {
   withProvenance,
 } from "../shared";
 import { activeVsaBundleFile } from "../../adapter-active-vsa";
-import { SOMA_VERSION } from "../../version";
+import { SOMA_VERSION } from "../../core/index";
 import { regexClassifierVersion } from "../../judge";
 import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 

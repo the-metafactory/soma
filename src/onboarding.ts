@@ -6,7 +6,7 @@ import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, in
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./soma-home";
 import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate } from "./runtime-artifact";
-import { isEnoent, pathExists } from "./fs-utils";
+import { isFsUtilsEnoent as isEnoent, pathExists } from "./core/index";
 import type {
   SomaDoctorDiagnosis,
   SomaDoctorFinding,

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isEnoent } from "../../fs-errors";
+import { isEnoent } from "../../core/index";
 import { skillsLoaderUnder, type SubstrateInstallSpec, type UninstallContext } from "../../install-spec";
 import { projectVsaSkillBundleFiles } from "../../vsa-skill-installer";
 import { anthropicCoworkProjectionPrivateRoots } from "../private-roots";

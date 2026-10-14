@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { createPaths } from "../../paths";
+import { createPaths } from "../../core/index";
 import { addOpinion, addOpinionEvidence, adjustOpinionConfidence, listOpinions } from "../learning";
 import type { EvidenceType } from "../learning";
 import type { RelationshipMilestone, RelationshipNote, RelationshipReflectOptions, RelationshipReflectResult } from "./types";
