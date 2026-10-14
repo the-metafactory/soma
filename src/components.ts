@@ -63,7 +63,7 @@ export const components: ComponentManifest<ComponentName> = {
     publicEntries: ["src/core/index.ts"],
   },
   events: {
-    files: ["src/event-log", "src/observability", "src/feedback-contract"],
+    files: ["src/event-log", "src/event-journal", "src/observability", "src/feedback-contract"],
     mayImport: ["core", "legacy"],
   },
   memory: {

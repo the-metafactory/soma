@@ -4,7 +4,7 @@ import { createPaths } from "./core/index";
 import { buildSubstrateHomeProjection } from "./home-projection";
 import { isRegisteredInstallSubstrate } from "./install-spec-registry";
 import { loadMemoryIndexForProjection, reindexMemoryIfStale } from "./memory-index";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { loadSomaHome } from "./soma-home";
 import type { ProjectionInput, SubstrateId } from "./types";
 

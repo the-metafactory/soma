@@ -537,7 +537,8 @@ export type {
   ProjectionRepairResult,
 } from "./projection-self-repair";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
-export { appendSomaMemoryEvent, searchSomaMemory, somaMemoryEventsPath } from "./memory";
+export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./event-journal";
+export { searchSomaMemory } from "./memory";
 export { streamEventLines, streamEventRecords } from "./event-log";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
 // Public write surface only. Path/dedup helpers (memoryNotePath,

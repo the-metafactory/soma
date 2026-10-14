@@ -3,7 +3,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { createPaths } from "./core/index";
 import { noteIdSlugSegment, toNoteIdSlug } from "./memory-note";
 import { writeMemoryNote } from "./memory-write";

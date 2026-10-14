@@ -1,10 +1,6 @@
 [
   "src/adapters/private-roots.ts -> src/install-spec.ts",
   "src/experimental/anthropic-cowork.ts -> src/install.ts",
-  "src/inbound-security.ts -> src/memory.ts",
-  "src/observability.ts -> src/memory.ts",
-  "src/policy-audit.ts -> src/memory.ts",
   "src/projection-private-roots.ts -> src/install-spec.ts",
-  "src/runtime-policy.ts -> src/memory.ts",
   "src/tools/learning/index.ts -> src/tools/learning/session-harvester.ts"
 ]

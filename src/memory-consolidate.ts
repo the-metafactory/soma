@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { createPaths } from "./core/index";
 import { isFsUtilsEnoent as isEnoent } from "./core/index";
 import { listMemoryNotes } from "./memory-fs";
-import { appendSomaMemoryEvent } from "./memory";
+import { appendSomaMemoryEvent } from "./event-journal";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, NOTE_ID_PATTERN, NOTE_ID_MAX_LEN } from "./memory-note";
 import { renderDigestPointer } from "./episodic-digest";
 import { collectDurableNotes, mergeAndCloseAssistantPair } from "./memory-write";
