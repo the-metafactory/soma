@@ -6,14 +6,14 @@
   "vsa": 7475,
   "tools": 7817,
   "policy": 9596,
-  "home": 6511,
+  "home": 6591,
   "algorithm": 9420,
   "router": 5189,
   "graph": 9658,
   "execution": 4836,
-  "substrates": 37329,
+  "substrates": 37344,
   "migrate": 15682,
-  "flows": 44360,
-  "cli": 70196,
-  "legacy": 56335
+  "flows": 44375,
+  "cli": 70213,
+  "legacy": 56352
 }
