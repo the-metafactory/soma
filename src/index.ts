@@ -525,6 +525,8 @@ export {
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
 } from "./lifecycle";
+export { registerSessionEndTranscriptHandler, registerProjectionRepairProvider } from "./lifecycle-registry";
+export type { SessionEndTranscriptHandler, ProjectionRepairProvider } from "./lifecycle-registry";
 export { buildLearningReadback } from "./learning-readback";
 export type { LearningReadbackOptions } from "./learning-readback";
 export { repairProjectedArtifacts } from "./projection-self-repair";

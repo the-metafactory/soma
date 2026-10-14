@@ -71,7 +71,7 @@ describe("appendVerificationGateViolationEvent", () => {
       message: "specification-only evidence",
       evidenceKind: "specified",
     });
-    await appendVerificationGateViolationEvent({ somaHome }, "run-42", error);
+    await appendVerificationGateViolationEvent({ somaHome }, "run-42", error, undefined, {});
 
     const lines = readFileSync(somaMemoryEventsPath(somaHome), "utf8").trim().split("\n");
     expect(lines).toHaveLength(1);
