@@ -23,6 +23,7 @@ import type { Readable } from "node:stream";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { streamEventLines } from "../src/event-log";
+import type { ErrataPassedBy } from "../src/types";
 
 // ---------------------------------------------------------------------------
 // Data model (duck-typed against the run-corpus schema versions in the wild:
@@ -56,6 +57,8 @@ export interface EventDoc {
 export interface HarnessData {
   runs: RunDoc[];
   events: EventDoc[];
+  /** Errata ledger lines; absent or null when the ledger is missing or unreadable. */
+  errata?: ErrataLedgerLine[] | null;
   /** "now" for window math — injectable so tests and replays are deterministic. */
   now: Date;
   windowDays: number;
@@ -437,35 +440,6 @@ export const METRICS: MetricSpec[] = [
     },
   },
   {
-    id: "feedback_closure_rate",
-    name: "Feedback closure rate",
-    unit: "%",
-    direction: "higher",
-    minSample: 5,
-    tolerance: 5,
-    goodhart:
-      "Suppress feedback capture (fewer candidates) so the closure ratio improves without any learning happening.",
-    countermeasure:
-      "The gate also fails if candidate volume collapses to zero while sessions continue — silence is not closure (see check logic: feedback_candidate_volume guard).",
-    compute(data) {
-      const captured = data.events.filter(
-        (e) => e.kind === "feedback.candidate" && inWindow(data, e.timestamp),
-      ).length;
-      const consumed = data.events.filter(
-        (e) =>
-          (e.kind === "memory.promotion" ||
-            e.kind === "memory.write.create" ||
-            e.kind === "memory.write.merge") &&
-          inWindow(data, e.timestamp),
-      ).length;
-      return {
-        numerator: Math.min(consumed, captured),
-        denominator: captured,
-        detail: `${captured} feedback candidates captured in window; ${consumed} downstream memory writes/promotions (closure proxy until feedback events carry consumption links)`,
-      };
-    },
-  },
-  {
     id: "memory_loop_closure",
     name: "Memory loop closure (reads per write)",
     unit: "ratio",
@@ -549,6 +523,147 @@ export function computeMetrics(data: HarnessData): MetricResult[] {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Errata metrics (soma#785 Q18) — derived from the private Errata ledger only.
+// Reported, not gated: they have no baseline yet, and alerts on them are out of
+// scope (proposals already spend the attention budget).
+// ---------------------------------------------------------------------------
+
+/**
+ * One raw ledger line, duck-typed: the harness counts, it never reads complaint
+ * text. `created` and `dropped` come from `soma errata triage` (src/errata.ts).
+ * The cluster lifecycle the closure metric reads is appended downstream:
+ * `proposed` when a ripe cluster goes out as a Vigil proposal (node #852),
+ * `answered` with the principal's `answer: "yes" | "no"`, and `node-closed` when
+ * the node a yes filed closes. Unknown kinds are skipped, so a new ledger event
+ * never breaks the eval.
+ */
+export interface ErrataLedgerLine {
+  kind?: string;
+  id?: string;
+  clusterId?: string;
+  at?: string;
+  answer?: string;
+  record?: { id?: string; complaintAt?: string; passedBy?: ErrataPassedBy | null };
+}
+
+/** The ledger `soma errata` writes (src/errata.ts `errataLedgerPath`). */
+export function errataLedgerFile(somaHome: string): string {
+  return join(somaHome, "memory", "STATE", "errata", "ledger.jsonl");
+}
+
+/** null when the ledger is missing or unreadable, so its metrics read n/a rather than zero. */
+export function loadErrataLedger(ledgerPath: string): ErrataLedgerLine[] | null {
+  let text: string;
+  try {
+    text = readFileSync(ledgerPath, "utf8");
+  } catch {
+    return null;
+  }
+  const lines: ErrataLedgerLine[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (typeof parsed === "object" && parsed !== null) lines.push(parsed);
+    } catch {
+      // skip torn lines
+    }
+  }
+  return lines;
+}
+
+/** The check that passed a rejected output: `<run>/<criterion>` or `<repo>#<node>/<receipt>`. */
+export function errataCheckKey(passedBy: ErrataPassedBy): string {
+  return passedBy.kind === "algorithm-verify"
+    ? `${passedBy.runId}/${passedBy.criterionId}`
+    : `${passedBy.repo}#${passedBy.nodeId}/${passedBy.receiptCommentId}`;
+}
+
+export interface ErrataReport {
+  rejected_passes: { check: string; count: number }[] | "n/a";
+  errata_unlinked: number | "n/a";
+  errata_fix_closure: { value: number; fixed: number; proposed: number; detail: string } | "n/a";
+}
+
+export const ERRATA_METRICS: Pick<MetricSpec, "id" | "name" | "direction" | "goodhart" | "countermeasure">[] = [
+  {
+    id: "rejected_passes",
+    name: "Rejected passes per check (plus unlinked Errata)",
+    direction: "lower",
+    goodhart:
+      "Rejections stop reaching the ledger: capture goes quiet, triage drops real complaints, or the linker stops naming the check so rejected passes fall into errata_unlinked.",
+    countermeasure:
+      "--check fails when feedback candidates stop while sessions continue (feedback_candidate_volume guard); errata_unlinked is reported beside the rows so lost links show as a rising unlinked count; every triage drop is a recorded errata-triage judgment open to audit.",
+  },
+  {
+    id: "errata_fix_closure",
+    name: "Errata fix closure (proposed clusters fixed)",
+    direction: "higher",
+    goodhart:
+      "Answer yes and close the filed node without fixing the check, or let only easy clusters reach a proposal.",
+    countermeasure:
+      "A check that still passes rejected output earns a new Errata on the same check key, so its rejected_passes row grows back; proposals follow the deterministic ripeness rule (soma#785 Q16), not a choice of which cluster to propose.",
+  },
+];
+
+/**
+ * Rejected passes: active (not dropped) Errata whose complaint falls in the window,
+ * counted per check that passed them; `passedBy: null` counts as unlinked. Closure:
+ * clusters proposed in the window, fixed when a `yes` answer was followed by the
+ * filed node closing. Missing ledger or no data in window reads "n/a", never zero.
+ */
+export function computeErrataMetrics(data: HarnessData): ErrataReport {
+  const records = new Map<string, { complaintAt?: string; passedBy: ErrataPassedBy | null }>();
+  const dropped = new Set<string>();
+  const clusters = new Map<string, { proposed: boolean; yes: boolean; closed: boolean }>();
+  for (const line of data.errata ?? []) {
+    if (line.kind === "created" && line.record?.id) {
+      records.set(line.record.id, { complaintAt: line.record.complaintAt, passedBy: line.record.passedBy ?? null });
+    } else if (line.kind === "dropped" && line.id) {
+      dropped.add(line.id);
+    } else if (line.clusterId && (line.kind === "proposed" || line.kind === "answered" || line.kind === "node-closed")) {
+      const cluster = clusters.get(line.clusterId) ?? { proposed: false, yes: false, closed: false };
+      if (line.kind === "proposed" && inWindow(data, line.at)) cluster.proposed = true;
+      if (line.kind === "answered" && line.answer === "yes") cluster.yes = true;
+      // A close counts only for a node a yes filed.
+      if (line.kind === "node-closed" && cluster.yes) cluster.closed = true;
+      clusters.set(line.clusterId, cluster);
+    }
+  }
+
+  const active = [...records].filter(([id, record]) => !dropped.has(id) && inWindow(data, record.complaintAt));
+  let rejected: ErrataReport["rejected_passes"] = "n/a";
+  let unlinked: ErrataReport["errata_unlinked"] = "n/a";
+  if (active.length > 0) {
+    const counts = new Map<string, number>();
+    unlinked = 0;
+    for (const [, record] of active) {
+      if (record.passedBy === null) unlinked++;
+      else {
+        const check = errataCheckKey(record.passedBy);
+        counts.set(check, (counts.get(check) ?? 0) + 1);
+      }
+    }
+    rejected = [...counts]
+      .map(([check, count]) => ({ check, count }))
+      .sort((a, b) => b.count - a.count || a.check.localeCompare(b.check));
+  }
+
+  const proposed = [...clusters.values()].filter((c) => c.proposed);
+  const fixed = proposed.filter((c) => c.yes && c.closed).length;
+  const closure: ErrataReport["errata_fix_closure"] =
+    proposed.length === 0
+      ? "n/a"
+      : {
+          value: Math.round((fixed / proposed.length) * 10000) / 100,
+          fixed,
+          proposed: proposed.length,
+          detail: `${fixed}/${proposed.length} Errata clusters fixed`,
+        };
+  return { rejected_passes: rejected, errata_unlinked: unlinked, errata_fix_closure: closure };
+}
+
 export interface Baseline {
   capturedAt: string;
   windowDays: number;
@@ -564,18 +679,33 @@ export interface Regression {
   message: string;
 }
 
+/** In-window `feedback.candidate` events: the input Errata triage promotes from. */
+export function countFeedbackCandidates(data: HarnessData): number {
+  return data.events.filter((e) => e.kind === "feedback.candidate" && inWindow(data, e.timestamp)).length;
+}
+
+export interface CaptureActivity {
+  /** In-window feedback candidates (`countFeedbackCandidates`). */
+  feedbackCandidates: number;
+  /**
+   * Real harness activity, from in-window `lifecycle.session_start` events. When
+   * omitted (unit tests), the guard falls back to the run-creation heuristic. The
+   * CLI passes it because "runs created in window" undercounts activity: a session
+   * that only touches existing runs is still active and should still be producing
+   * feedback candidates.
+   */
+  sessionStarts?: number;
+}
+
 /**
- * `sessionStartsInWindow` — real harness activity for the silent-capture guard,
- * from in-window `lifecycle.session_start` events. When omitted (older callers,
- * unit tests), the guard falls back to the run-creation heuristic. It is passed
- * explicitly by the CLI because "runs created in window" undercounts activity:
- * a session that only touches existing runs is still active and should still be
- * producing feedback candidates.
+ * `activity` feeds the silent-capture guard: rejected passes and Errata closure
+ * must not "improve" because capture went quiet, since every Errata starts as a
+ * feedback candidate.
  */
 export function checkAgainstBaseline(
   results: MetricResult[],
   baseline: Baseline,
-  sessionStartsInWindow?: number,
+  activity: CaptureActivity,
 ): Regression[] {
   const regressions: Regression[] = [];
   for (const result of results) {
@@ -598,16 +728,15 @@ export function checkAgainstBaseline(
       });
     }
   }
-  // Anti-gaming guard for feedback_closure_rate: closure must not "improve"
-  // by capture going silent while the harness is clearly still in use. "In use"
+  // Anti-gaming guard for the Errata metrics: fewer rejected passes must not come
+  // from capture going silent while the harness is clearly still in use. "In use"
   // is measured by real session activity when the caller supplies it; otherwise
   // it falls back to the run-creation proxy (true_finish_rate's denominator).
-  const closure = results.find((r) => r.id === "feedback_closure_rate");
   const harnessInUse =
-    sessionStartsInWindow !== undefined
-      ? sessionStartsInWindow > 0
+    activity.sessionStarts !== undefined
+      ? activity.sessionStarts > 0
       : (results.find((r) => r.id === "true_finish_rate")?.denominator ?? 0) > 0;
-  if (closure?.denominator === 0 && harnessInUse) {
+  if (activity.feedbackCandidates === 0 && harnessInUse) {
     regressions.push({
       id: "feedback_candidate_volume",
       baseline: 1,
@@ -630,6 +759,31 @@ const BASELINE_PATH = join(import.meta.dir, "harness-eval-baseline.json");
 function formatValue(result: MetricResult): string {
   if (result.value === null) return "n/a (no data in window)";
   return result.unit === "%" ? `${result.value}%` : result.value.toFixed(2);
+}
+
+function printErrata(report: ErrataReport, explain: boolean): void {
+  const lines: Record<string, string[]> = {
+    rejected_passes:
+      report.rejected_passes === "n/a"
+        ? ["n/a (no Errata in window)"]
+        : [
+            ...report.rejected_passes.map((row) => `${row.check}: ${row.count}`),
+            `unlinked Errata: ${report.errata_unlinked}`,
+          ],
+    errata_fix_closure: [
+      report.errata_fix_closure === "n/a"
+        ? "n/a (no Errata cluster proposed in window)"
+        : `${report.errata_fix_closure.value}% — ${report.errata_fix_closure.detail}`,
+    ],
+  };
+  for (const spec of ERRATA_METRICS) {
+    console.log(`  ${spec.name} [${spec.direction} is better]`);
+    for (const line of lines[spec.id] ?? []) console.log(`    ${line}`);
+    if (explain) {
+      console.log(`    goodhart: ${spec.goodhart}`);
+      console.log(`    countermeasure: ${spec.countermeasure}`);
+    }
+  }
 }
 
 async function main(): Promise<void> {
@@ -669,14 +823,16 @@ async function main(): Promise<void> {
   const data: HarnessData = {
     runs: loadRuns(join(somaHome, "memory", "WORK", "algorithm-runs")),
     events: loaded.events,
+    errata: loadErrataLedger(errataLedgerFile(somaHome)),
     now,
     windowDays,
   };
   const results = computeMetrics(data);
+  const errata = computeErrataMetrics(data);
 
   if (flag("--check") || flag("--write-baseline")) {
     if (!coverageComplete) {
-      if (flag("--json")) console.log(JSON.stringify({ windowDays, coverage, results }, null, 2));
+      if (flag("--json")) console.log(JSON.stringify({ windowDays, coverage, results, errata }, null, 2));
       else console.error(coverageLine);
       console.error(
         loaded.readError
@@ -703,7 +859,7 @@ async function main(): Promise<void> {
   }
 
   if (flag("--json")) {
-    console.log(JSON.stringify({ windowDays, coverage, results }, null, 2));
+    console.log(JSON.stringify({ windowDays, coverage, results, errata }, null, 2));
   } else {
     console.log(`Harness eval — trailing ${windowDays}d window (${data.runs.length} runs, ${data.events.length} events in window)\n`);
     console.log(`${coverageLine}\n`);
@@ -716,6 +872,7 @@ async function main(): Promise<void> {
         console.log(`    countermeasure: ${spec.countermeasure}`);
       }
     }
+    printErrata(errata, flag("--explain"));
   }
 
   if (flag("--check")) {
@@ -742,7 +899,10 @@ async function main(): Promise<void> {
     const sessionStarts = data.events.filter(
       (e) => e.kind === "lifecycle.session_start" && inWindow(data, e.timestamp),
     ).length;
-    const regressions = checkAgainstBaseline(results, baseline, sessionStarts);
+    const regressions = checkAgainstBaseline(results, baseline, {
+      feedbackCandidates: countFeedbackCandidates(data),
+      sessionStarts,
+    });
     if (regressions.length > 0) {
       console.error(`\nREGRESSION: ${regressions.length} metric(s) degraded past tolerance vs baseline (${baseline.capturedAt}):`);
       for (const regression of regressions) console.error(`  ✗ ${regression.message}`);

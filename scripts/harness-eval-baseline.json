@@ -22,10 +22,6 @@
       "value": 67.79,
       "denominator": 208
     },
-    "feedback_closure_rate": {
-      "value": 7.52,
-      "denominator": 838
-    },
     "memory_loop_closure": {
       "value": 0.06,
       "denominator": 84
