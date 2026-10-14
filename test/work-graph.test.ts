@@ -453,6 +453,7 @@ class FakeStore implements GraphStore {
         ref: { id },
         node,
         status: "open",
+        updatedAt: "2026-10-14T10:00:00Z",
         assignees: [],
         blockedBy: [],
         author: "jcfischer",
@@ -496,6 +497,17 @@ class FakeStore implements GraphStore {
       ...entry.state,
       blockedBy: entry.blockers.map((id) => ({ id, status: this.nodes.get(id)?.state.status ?? "open" })),
     };
+  }
+
+  async listOpenRoots(serves: string): Promise<NodeState[]> {
+    const roots: NodeState[] = [];
+    for (const { state } of this.nodes.values()) {
+      const current = await this.readNode(state.ref);
+      if (current.status === "open" && current.parent === undefined && current.typed && current.node.serves === serves) {
+        roots.push(current);
+      }
+    }
+    return roots;
   }
 
   /** Depth-first pre-order over the membership subtree, each node already confirmed (#576). */
@@ -543,6 +555,20 @@ class FakeStore implements GraphStore {
     if (entry) entry.state = { ...entry.state, status: "closed" };
   }
 }
+
+test("the injectable fake discovers only open goal roots and preserves subtree update times", async () => {
+  const store = new FakeStore();
+  const serves = (id: string, goal = "G5"): WorkGraphNode => ({ id, title: id, autonomy: "approve", serves: goal });
+  store.add("A", { node: serves("A") });
+  store.add("B", { node: serves("B"), status: "closed" });
+  store.add("C", { node: serves("C", "G6") });
+  store.add("D", { node: serves("D"), updatedAt: "2026-10-14T11:00:00Z" });
+  await store.attachToParent({ id: "D" }, { id: "A" });
+  const roots = await store.listOpenRoots("G5");
+  expect(roots.map((state) => state.ref.id)).toEqual(["A"]);
+  expect((await store.readNode({ id: "A" })).updatedAt).toBe("2026-10-14T10:00:00Z");
+  expect((await store.readSubtree({ id: "A" })).map((state) => state.updatedAt)).toEqual(["2026-10-14T11:00:00Z"]);
+});
 
 test("createNode validates before the store is ever touched", async () => {
   const store = new FakeStore();

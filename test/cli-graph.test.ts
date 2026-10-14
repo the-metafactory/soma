@@ -203,6 +203,7 @@ class FakeStore implements GraphStore {
       assignees: seed.assignees ?? [],
       blockedBy: seed.blockedBy ?? [],
       author: seed.author ?? "jcfischer",
+      updatedAt: "2026-10-14T10:00:00Z",
       typed: seed.typed ?? true,
       ...(seed.body === undefined ? {} : { body: seed.body }),
       ...(seed.parent === undefined ? {} : { parent: { id: seed.parent } }),
