@@ -164,6 +164,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/install",
       "src/result-capture",
       "src/feedback",
+      "src/errata",
       "src/run-ledger",
       "src/run-ledger-env",
       "src/goal-sense",
