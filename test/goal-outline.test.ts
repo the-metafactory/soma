@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
-import { runGoalOutline, zurichIsoWeek, type GoalOutlineDeps } from "../src/goal-outline";
+import { runGoalOutline, zurichIsoWeek, type CalendarRunResult, type GoalOutlineDeps } from "../src/goal-outline";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { buildRunFinishedEnvelope } from "../src/run-ledger";
 
@@ -323,4 +323,129 @@ for (const fails of [false, true]) test(`real CLI consumes soma inference once a
   expect(text).toContain("Integration capture");
   expect(text).toContain(fails ? "Outline generation failed" : "An integration recommendation.");
   expect(result.stderr.toString()).not.toContain("Private provider response");
+});
+
+describe("proposed slot (node #840)", () => {
+  const FLAGS = ["--next", "7", "--duration", "60", "--hours", "08:00-18:00", "--exclude-weekends", "--format", "json"];
+  const MACOS = ["availability", ...FLAGS];
+  const EXCHANGE = ["exchange", "availability", ...FLAGS];
+  type Slots = [date: string, start: string, end: string][];
+  const availability = (slots: Slots, timezone = "Europe/Zurich") => JSON.stringify({
+    availableSlots: slots.map(([date, startTime, endTime]) => ({ date, startTime, endTime, duration: 0 })),
+    parameters: { requestedDuration: 60, workingHours: { start: "08:00", end: "18:00" }, timezone, excludeWeekends: true },
+    metadata: { calendarsChecked: [], dateRange: { start: "2026-10-14", end: "2026-10-21" } },
+  });
+
+  async function slotFixture(macos: CalendarRunResult | Error, exchange: CalendarRunResult | Error, slotMinutes = 60) {
+    const f = await fixture();
+    const calls: string[][] = [];
+    f.deps.slotMinutes = slotMinutes;
+    f.deps.runCalendar = async (argv) => {
+      calls.push(argv);
+      const result = argv[0] === "exchange" ? exchange : macos;
+      if (result instanceof Error) throw result;
+      return result;
+    };
+    const run = async () => {
+      const result = await runGoalOutline(f.deps);
+      const text = await readFile(f.output, "utf8");
+      // Only the two read commands are ever spawned: no `ical create`, no Exchange write.
+      for (const argv of calls) {
+        expect([JSON.stringify(MACOS.map((arg) => arg === "60" ? String(slotMinutes) : arg)),
+          JSON.stringify(EXCHANGE.map((arg) => arg === "60" ? String(slotMinutes) : arg))]).toContain(JSON.stringify(argv));
+        expect(argv).not.toContain("create");
+      }
+      return { result, text, section: text.split("## Proposed slot\n\n")[1]?.trim() };
+    };
+    return { ...f, calls, run };
+  }
+  const ok = (slots: Slots, timezone?: string): CalendarRunResult => ({ exitCode: 0, stdout: availability(slots, timezone) });
+
+  test("the earliest 60-minute window in both calendars is proposed in Europe/Zurich, and nothing reaches the envelope", async () => {
+    const f = await slotFixture(
+      ok([["2026-10-14", "08:00", "10:00"], ["2026-10-14", "14:00", "18:00"]]),
+      // Exchange in UTC: 07:00-09:00Z is 09:00-11:00 in Zurich (CEST).
+      ok([["2026-10-14", "07:00", "09:00"], ["2026-10-14", "13:30", "16:00"]], "UTC"),
+    );
+    const { result, text, section } = await f.run();
+    expect(result).toMatchObject({ exitCode: 0, ledger: "published" });
+    expect(f.calls).toEqual([MACOS, EXCHANGE]);
+    expect(section).toBe("Wednesday 2026-10-14, 09:00–10:00 (Europe/Zurich), free in both the macOS calendar and Exchange. "
+      + "This is a proposal; nothing was written to any calendar.");
+    expect(text.indexOf("## Outline")).toBeLessThan(text.indexOf("## Proposed slot"));
+    const wire = JSON.stringify(await buildRunFinishedEnvelope(f.events[0]));
+    for (const privateText of ["Proposed slot", "09:00", "10:00", "Wednesday", "macOS"]) expect(wire).not.toContain(privateText);
+    expect(f.stdout).toEqual(["soma:outputs/G5-2026-W42.md"]);
+  });
+
+  test("a longer slot skips a window too short for it, and a slot never starts before now", async () => {
+    const both = ok([["2026-10-14", "08:00", "09:30"], ["2026-10-15", "10:00", "12:00"]]);
+    const long = await slotFixture(both, both, 90);
+    expect((await long.run()).section).toStartWith("Thursday 2026-10-15, 10:00–11:30 (Europe/Zurich)");
+    // NOW is 08:30 in Zurich on Wednesday.
+    const short = await slotFixture(both, both, 60);
+    expect((await short.run()).section).toStartWith("Wednesday 2026-10-14, 08:30–09:30 (Europe/Zurich)");
+  });
+
+  test("no common window of that length says no free slot was found", async () => {
+    const f = await slotFixture(ok([["2026-10-14", "09:00", "10:00"]]), ok([["2026-10-14", "09:30", "11:00"]]));
+    const { result, section } = await f.run();
+    expect(result.exitCode).toBe(0);
+    expect(section).toBe("No free 60-minute slot was found in the next 5 weekdays (08:00–18:00 Europe/Zurich).");
+  });
+
+  const good = ok([["2026-10-14", "09:00", "10:00"]]);
+  for (const [label, macos, exchange, expected] of [
+    ["macOS exits non-zero", { exitCode: 1, stdout: "" }, good, "The macOS calendar could not be read"],
+    ["Exchange returns unparseable JSON", good, { exitCode: 0, stdout: "Fetching events..." }, "Exchange could not be read"],
+    ["Exchange slots lack a time zone", good, { exitCode: 0, stdout: JSON.stringify({ availableSlots: [] }) }, "Exchange could not be read"],
+    ["the runner throws for macOS", new Error("spawn failed"), good, "The macOS calendar could not be read"],
+    ["both reads fail", { exitCode: 127, stdout: "" }, { exitCode: 1, stdout: "" }, "Neither the macOS calendar nor Exchange could be read"],
+  ] as const) test(`${label}: the section names it, proposes nothing, and the outline still succeeds`, async () => {
+    const f = await slotFixture(macos, exchange);
+    const { result, section } = await f.run();
+    expect(result.exitCode).toBe(0);
+    expect(section).toBe(`${expected}, so no slot is proposed.`);
+    expect(f.events[0].input.payload).toMatchObject({ outcome: "succeeded", result_ref: "soma:outputs/G5-2026-W42.md" });
+    expect(f.stderr).toEqual([]);
+  });
+
+  test("a macOS read with every working hour of the 5 weekdays free may be a denied read and proposes nothing", async () => {
+    const days = ["2026-10-14", "2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21"];
+    const f = await slotFixture(ok(days.map((day) => [day, "08:00", "18:00"])), good);
+    const { result, section } = await f.run();
+    expect(result.exitCode).toBe(0);
+    expect(section).toBe("The macOS calendar returned every working hour of the next 5 weekdays as free; "
+      + "calendar access may have been denied, so no slot is proposed.");
+    // One busy hour on one day is a real calendar, so a slot is proposed.
+    const busy = await slotFixture(ok([["2026-10-14", "08:00", "12:00"], ["2026-10-14", "13:00", "18:00"],
+      ...days.slice(1).map((day): [string, string, string] => [day, "08:00", "18:00"])]), good);
+    expect((await busy.run()).section).toStartWith("Wednesday 2026-10-14, 09:00–10:00");
+  });
+
+  test("without --slot-minutes no calendar is read and there is no Proposed slot section", async () => {
+    const f = await slotFixture(good, good);
+    delete f.deps.slotMinutes;
+    const { text } = await f.run();
+    expect(f.calls).toEqual([]);
+    expect(text).not.toContain("## Proposed slot");
+  });
+
+  test("the slot section sits before a preserved Share drafts section and is replaced on rerun", async () => {
+    const f = await slotFixture(good, good);
+    await mkdir(join(f.deps.somaHome, "outputs"), { recursive: true });
+    const share = "## Share drafts\n\n- Keep\n";
+    await writeFile(f.output, `## Outline\nOld\n## Proposed slot\n\nOld slot\n${share}`);
+    const { text } = await f.run();
+    expect(text.endsWith(`## Proposed slot\n\nWednesday 2026-10-14, 09:00–10:00 (Europe/Zurich), free in both the macOS calendar and Exchange. `
+      + `This is a proposal; nothing was written to any calendar.\n\n${share}`)).toBe(true);
+    expect(text).not.toContain("Old slot");
+  });
+
+  test("CLI parses --slot-minutes and refuses non-positive or fractional values", () => {
+    const args = ["goal", "outline", "--goal", "G5", "--tana-tag", "capture", "--drafts-dir", "/tmp/drafts"];
+    expect(parseGoalArgs([...args, "--slot-minutes", "60"]).options.outline).toEqual(
+      { goal: "G5", tanaTag: "capture", draftsDir: "/tmp/drafts", days: 7, slotMinutes: 60 });
+    for (const invalid of ["0", "1.5", "-5", "x"]) expect(() => parseGoalArgs([...args, "--slot-minutes", invalid])).toThrow("--slot-minutes");
+  });
 });

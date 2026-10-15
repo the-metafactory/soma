@@ -38,7 +38,7 @@ export const GOAL_COMMAND_HELP = {
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
     kinds: "Usage: soma goal kinds [--json] [--home-dir <dir>] [--soma-home <dir>]",
     sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
-    outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
+    outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--slot-minutes <n>] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
   },
 };
 
@@ -48,23 +48,29 @@ function parseOutlineArgs(rest: string[], options: ParsedGoalArgs["options"]): v
   for (let index = 0; index < rest.length; index++) {
     const arg = rest[index];
     const value = rest[index + 1];
-    if (!["--goal", "--tana-tag", "--drafts-dir", "--days", "--home-dir", "--soma-home"].includes(arg)) throw usage("unsupported argument");
+    if (!["--goal", "--tana-tag", "--drafts-dir", "--days", "--slot-minutes", "--home-dir", "--soma-home"].includes(arg)) {
+      throw usage("unsupported argument");
+    }
     if (!value || value.startsWith("--")) throw usage(`${arg} requires a value`);
     index++;
     if (arg === "--goal") outline.goal = value;
     if (arg === "--tana-tag") outline.tanaTag = value;
     if (arg === "--drafts-dir") outline.draftsDir = value;
     if (arg === "--days") outline.days = Number(value);
+    if (arg === "--slot-minutes") outline.slotMinutes = Number(value);
     if (arg === "--home-dir") options.homeDir = value;
     if (arg === "--soma-home") options.somaHome = value;
   }
-  const { goal, tanaTag, draftsDir, days = 7 } = outline;
+  const { goal, tanaTag, draftsDir, days = 7, slotMinutes } = outline;
   if (!goal?.trim()) throw usage("--goal is required");
   if (!tanaTag?.trim()) throw usage("--tana-tag is required");
   if (!draftsDir?.trim()) throw usage("--drafts-dir is required");
   if (!/^G\d+$/.test(goal)) throw usage("--goal must match G<n>");
   if (!Number.isSafeInteger(days) || days < 1) throw usage("--days must be a positive integer");
-  options.outline = { goal, tanaTag, draftsDir, days };
+  if (slotMinutes !== undefined && (!Number.isSafeInteger(slotMinutes) || slotMinutes < 1)) {
+    throw usage("--slot-minutes must be a positive integer");
+  }
+  options.outline = { goal, tanaTag, draftsDir, days, ...(slotMinutes === undefined ? {} : { slotMinutes }) };
 }
 
 /** Usage errors exit 2, like the sensor's own refusals. */

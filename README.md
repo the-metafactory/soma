@@ -535,7 +535,7 @@ that change holds no `node_modules`; its emits fail at stage `load`, and
 ### Weekly goal outline
 
 ```bash
-soma goal outline --goal G1 --tana-tag capture --drafts-dir /path/to/drafts --days 7
+soma goal outline --goal G1 --tana-tag capture --drafts-dir /path/to/drafts --days 7 [--slot-minutes 60]
 ```
 
 Reads recent captures from the local `supertag` index (`search --tag ...
@@ -550,6 +550,20 @@ Re-running replaces it while preserving an existing `## Share drafts` section
 verbatim. Generated outlines are fenced as Markdown source so their headings
 and code fences cannot interfere with that section. This command only
 recommends; it does not share or schedule anything.
+
+With `--slot-minutes <n>`, the outline also gets a `## Proposed slot` section
+(before `## Share drafts`): the first window of `n` minutes in the next 5
+weekdays, 08:00–18:00 Europe/Zurich, free in both the macOS calendars and
+Exchange. It reads `ical availability` and `ical exchange availability`, each
+with `--next 7 --duration <n> --hours 08:00-18:00 --exclude-weekends --format
+json`, intersects their slots and starts no earlier than the next quarter hour.
+It never runs `ical create` or any Exchange write. If either read fails
+(non-zero exit or unparseable JSON), the section names the calendar and
+proposes nothing. If the macOS read returns every working hour of all 5
+weekdays as free, the section warns that calendar access may have been denied
+(macOS returns an empty calendar with exit 0 when access is refused) and
+proposes nothing. Neither case changes the run's outcome, and the slot never
+reaches the run envelope. Without the flag, no calendar is read.
 
 One job run (`goal-outline/G1`, serving `G1`) finishes through the run-ledger
 funnel. Success carries `result_ref: soma:outputs/G1-YYYY-Www.md`, without a
