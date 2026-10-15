@@ -16,6 +16,7 @@ import {
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/projection-private-roots";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 import { expectPlanCoversApplyModuloBundledSkills, expectReprojectPrunesStaleTelos } from "./fixtures";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 const {
   installSomaForAnthropicCowork,
@@ -184,7 +185,7 @@ function runRawCodexPreToolUseHook(hook: string, homeDir: string, input: string)
 
 test("installs soma source home and codex home projection", async () => {
   await withTempHome(async (homeDir) => {
-    const result = await installSomaForCodex({ homeDir });
+    const result = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
@@ -240,7 +241,7 @@ test("a failed lifecycle projection reports completed projection evidence and co
     const blockedStartupContext = join(homeDir, ".codex/memories/soma/startup-context.md");
     await mkdir(blockedStartupContext, { recursive: true });
 
-    const failure = await installSomaForCodex({ homeDir }).catch((error: unknown) => error);
+    const failure = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir }).catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(SomaInstallError);
     expect(failure).toMatchObject({
@@ -254,9 +255,9 @@ test("a failed lifecycle projection reports completed projection evidence and co
     expect(Object.keys(receipt ?? {})).toEqual(["filesWritten"]);
 
     await rm(blockedStartupContext, { recursive: true, force: true });
-    const recovered = await installSomaForCodex({ homeDir });
+    const recovered = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const recoveredSnapshot = await readProjectionSnapshot(recovered.substrateHome.rootDir, recovered.substrateHome.files);
-    const converged = await installSomaForCodex({ homeDir });
+    const converged = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect([...converged.substrateHome.files].sort()).toEqual([...recovered.substrateHome.files].sort());
     expect(await readProjectionSnapshot(converged.substrateHome.rootDir, converged.substrateHome.files)).toEqual(recoveredSnapshot);
@@ -268,8 +269,8 @@ test("codex install appends AGENTS imports idempotently", async () => {
     await mkdir(join(homeDir, ".codex"), { recursive: true });
     await writeFile(join(homeDir, ".codex/AGENTS.md"), "# User rules\n\nKeep this line.\n", "utf8");
 
-    await installSomaForCodex({ homeDir });
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const agents = await readFile(join(homeDir, ".codex/AGENTS.md"), "utf8");
     expect(agents.startsWith("# User rules\n\nKeep this line.\n")).toBe(true);
@@ -307,7 +308,7 @@ test("codex AGENTS import follows the contract: appended when projected, omitted
 test("codex install dry-run lists every substrate file apply reports", async () => {
   await withTempHome(async (homeDir) => {
     const plan = planSomaForCodexInstall({ homeDir });
-    const result = await installSomaForCodex({ homeDir });
+    const result = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect(plan.substrateHome).toBe(join(homeDir, codexInstallSpec.defaultHome));
     expect(plan.substrateFiles).toEqual(codexInstallSpec.homeFiles.map((path) => join(homeDir, ".codex", path)));
@@ -324,7 +325,7 @@ test("codex install dry-run lists every substrate file apply reports", async () 
 test("anthropic-cowork install writes a standalone Soma projection folder", async () => {
   await withTempHome(async (homeDir) => {
     const plan = planSomaForAnthropicCoworkInstall({ homeDir });
-    const result = await installSomaForAnthropicCowork({ homeDir });
+    const result = await installSomaForAnthropicCowork({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect(result.substrate).toBe("anthropic-cowork");
     expect(plan.substrateHome).toBe(coworkPath(homeDir));
@@ -377,7 +378,7 @@ test("soma#329: cursor reproject removes a stale .cursor/rules/soma/TELOS.md", a
   await withTempHome(async (homeDir) => {
     await expectReprojectPrunesStaleTelos(
       join(homeDir, ".cursor/rules/soma"),
-      () => installSomaForCursor({ homeDir }),
+      () => installSomaForCursor({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir }),
     );
   });
 });
@@ -468,7 +469,7 @@ test("projection private roots aggregate adapter specs", () => {
 
 test("anthropic-cowork uninstall removes marker-owned projection files and the managed VSA skill", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForAnthropicCowork({ homeDir });
+    await installSomaForAnthropicCowork({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await writeFile(coworkPath(homeDir, "user-notes.md"), "keep me\n", "utf8");
     await writeFile(coworkPath(homeDir, "soma/active-vsa.md"), "user active VSA\n", "utf8");
     await writeFile(coworkPath(homeDir, "capture/candidate.md"), "candidate memory\n", "utf8");
@@ -501,7 +502,7 @@ test("anthropic-cowork uninstall preserves user-authored SOMA.md without Cowork 
 test("anthropic-cowork uninstall removes marker-owned active VSA files", async () => {
   await withTempHome(async (homeDir) => {
     const activeVsa = coworkPath(homeDir, "soma/active-vsa.md");
-    await installSomaForAnthropicCowork({ homeDir });
+    await installSomaForAnthropicCowork({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await writeFile(activeVsa, `${ANTHROPIC_COWORK_ACTIVE_VSA_MARKER}\n---\neffort: E1\nphase: VERIFY\nupdated: now\n---\n\n## Goal\n\nGenerated.\n`, "utf8");
 
     const result = await uninstallSomaForAnthropicCowork({ homeDir });
@@ -514,7 +515,7 @@ test("anthropic-cowork uninstall removes marker-owned active VSA files", async (
 test("anthropic-cowork uninstall preserves locally modified VSA skill files", async () => {
   await withTempHome(async (homeDir) => {
     const skill = coworkPath(homeDir, "skills/VSA/SKILL.md");
-    await installSomaForAnthropicCowork({ homeDir });
+    await installSomaForAnthropicCowork({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await writeFile(skill, "---\nname: VSA\npack-id: soma-vsa-v1.0.0\n---\n\n# Local VSA edits\n", "utf8");
 
     const result = await uninstallSomaForAnthropicCowork({ homeDir });
@@ -543,11 +544,11 @@ test("anthropic-cowork uninstall preserves nested marker-like files without a ge
 
 test("anthropic-cowork reinstall preserves capture inbox candidates", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForAnthropicCowork({ homeDir });
+    await installSomaForAnthropicCowork({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const capture = join(homeDir, ".anthropic-cowork/capture/candidate.md");
     await writeFile(capture, "candidate memory\n", "utf8");
 
-    await installSomaForAnthropicCowork({ homeDir });
+    await installSomaForAnthropicCowork({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     await expect(readFile(capture, "utf8")).resolves.toBe("candidate memory\n");
   });
@@ -556,7 +557,7 @@ test("anthropic-cowork reinstall preserves capture inbox candidates", async () =
 test("pi.dev install dry-run lists every substrate file apply reports", async () => {
   await withTempHome(async (homeDir) => {
     const plan = planSomaForPiDevInstall({ homeDir });
-    const result = await installSomaForPiDev({ homeDir });
+    const result = await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect(plan.substrateFiles).toContain(join(homeDir, ".pi/agent/soma/soma-repo.txt"));
     await expectPlanCoversApplyModuloBundledSkills(plan.substrateFiles, result.substrateHome.files);
@@ -565,10 +566,10 @@ test("pi.dev install dry-run lists every substrate file apply reports", async ()
 
 test("install migrates deprecated codex hooks feature flag", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await writeFile(join(homeDir, ".codex/config.toml"), "[features]\ncodex_hooks = true\n", "utf8");
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
     expect(config).toContain("[features]");
@@ -587,7 +588,7 @@ test("install preserves existing codex writable roots", async () => {
       "utf8",
     );
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
     expect(config).toContain('sandbox_mode = "workspace-write"');
@@ -598,7 +599,7 @@ test("install preserves existing codex writable roots", async () => {
 
 test("reproject reconciles an owned subtree: a stale file is pruned, shared dirs untouched", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const startupPath = join(homeDir, ".codex/memories/soma/startup-context.md");
     const projectedBefore = await readFile(startupPath, "utf8"); // a genuine projected file
     expect(projectedBefore.trim().length).toBeGreaterThan(0);
@@ -608,7 +609,7 @@ test("reproject reconciles an owned subtree: a stale file is pruned, shared dirs
     const sharedSentinel = join(homeDir, ".codex/hooks/user-custom.mjs");
     await writeFile(sharedSentinel, "user hook\n", "utf8");
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     await expect(stat(ownedStale)).rejects.toThrow(); // pruned by owned-subtree reconcile
     expect(await readFile(startupPath, "utf8")).toBe(projectedBefore); // desired file survives intact
@@ -675,7 +676,7 @@ test("install preserves single-quoted codex writable roots", async () => {
     await mkdir(join(homeDir, ".codex"), { recursive: true });
     await writeFile(join(homeDir, ".codex/config.toml"), "[sandbox_workspace_write]\nwritable_roots = ['/tmp/existing']\n", "utf8");
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
     expect(config).toContain(`writable_roots = ["/tmp/existing", "${join(homeDir, ".soma")}"]`);
@@ -704,7 +705,7 @@ test("install handles section-scoped hooks and multiline writable roots", async 
       "utf8",
     );
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
     expect(config.startsWith("[projects.\"/tmp/example\"]")).toBe(true);
@@ -724,7 +725,7 @@ test("install treats toml array tables as section boundaries", async () => {
       "utf8",
     );
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
     expect(config).toContain("[features]\nhooks = true\n\n[[hooks]]\nhooks = false");
@@ -738,7 +739,7 @@ test("install handles header-only codex config sections", async () => {
     await mkdir(join(homeDir, ".codex"), { recursive: true });
     await writeFile(join(homeDir, ".codex/config.toml"), "[features]\n\n[sandbox_workspace_write]", "utf8");
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const config = await readFile(join(homeDir, ".codex/config.toml"), "utf8");
     expect(config).toContain("hooks = true\n[sandbox_workspace_write]");
@@ -750,10 +751,10 @@ test("install handles header-only codex config sections", async () => {
 
 test("install preserves existing soma profile edits before projecting to codex", async () => {
   await withTempHome(async (homeDir) => {
-    const first = await installSomaForCodex({ homeDir });
+    const first = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await writeFile(join(first.somaHome.somaHome, "profile/principal.md"), "# Principal\n\nName: jc\nPreferred name: JC\n", "utf8");
 
-    const second = await installSomaForCodex({ homeDir });
+    const second = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const projectedProfile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
 
     expect(second.somaHome.context.profile.principal.name).toBe("jc");
@@ -770,7 +771,7 @@ test("first install already converges: skills.md lists VSA and the file set matc
     // first run — not render "No Soma skills were declared." and only
     // converge on the second install (the context was previously snapshotted
     // before the VSA baseline existed).
-    const first = await installSomaForCodex({ homeDir });
+    const first = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const afterFirst = await readFile(skillsPath, "utf8");
     // soma#371: compact registry entry (`- **VSA** — ...`), not a `## <name>` heading.
     expect(afterFirst).toContain("**VSA**");
@@ -789,7 +790,7 @@ test("first install already converges: skills.md lists VSA and the file set matc
     // Already converged: a second install reproduces the EXACT same file set
     // — identical paths AND byte-identical content for every file, not just
     // an equal count or a single skills.md spot-check. install #1 == install #2.
-    const second = await installSomaForCodex({ homeDir });
+    const second = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     expect([...second.substrateHome.files].sort()).toEqual([...first.substrateHome.files].sort());
     expect(await readAll(second.substrateHome.rootDir, second.substrateHome.files)).toEqual(firstBytes);
   });
@@ -1733,7 +1734,7 @@ test("install supports explicit soma and substrate homes", async () => {
   await withTempHome(async (homeDir) => {
     const somaHome = join(homeDir, "portable-home");
     const substrateHome = join(homeDir, "codex-home");
-    const result = await installSomaForCodex({ somaHome, substrateHome });
+    const result = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, somaHome, substrateHome });
 
     expect(result.somaHome.somaHome).toBe(somaHome);
     expect(result.substrateHome.rootDir).toBe(substrateHome);
@@ -1745,7 +1746,7 @@ test("install supports explicit soma and substrate homes", async () => {
 
 test("installs soma source home and pi.dev home projection", async () => {
   await withTempHome(async (homeDir) => {
-    const result = await installSomaForPiDev({ homeDir });
+    const result = await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect(result.substrate).toBe("pi-dev");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
@@ -1793,7 +1794,7 @@ test("#85: pi.dev install refuses explicitly unsupported runtime versions", asyn
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "0.0.1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+    await expect(installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir })).rejects.toMatchObject({
       name: "SomaInstallError",
       operation: "validate-substrate",
       stage: "substrate",
@@ -1808,7 +1809,7 @@ test("#85: pi.dev install refuses prerelease versions at the stable minimum", as
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "0.10.0-beta.1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+    await expect(installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir })).rejects.toMatchObject({
       name: "SomaInstallError",
       operation: "validate-substrate",
       stage: "substrate",
@@ -1823,7 +1824,7 @@ test("#85: pi.dev install refuses malformed runtime versions as invalid metadata
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "banana" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+    await expect(installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir })).rejects.toMatchObject({
       name: "SomaInstallError",
       operation: "validate-substrate",
       stage: "substrate",
@@ -1838,7 +1839,7 @@ test("#85: pi.dev install refuses partial runtime versions as invalid metadata",
     await mkdir(agentDir, { recursive: true });
     await writeFile(join(agentDir, "package.json"), JSON.stringify({ version: "1" }), "utf8");
 
-    await expect(installSomaForPiDev({ homeDir })).rejects.toMatchObject({
+    await expect(installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir })).rejects.toMatchObject({
       name: "SomaInstallError",
       operation: "validate-substrate",
       stage: "substrate",
@@ -1855,7 +1856,7 @@ test("#85: pi.dev install refuses partial runtime versions as invalid metadata",
 // (README per category, PAI-bound categories self-declare provenance).
 test("#88 AC-1: codex install bootstraps the full PAI v5.0.0 memory taxonomy", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const somaHome = join(homeDir, ".soma");
 
     for (const category of SOMA_CANONICAL_MEMORY_DIRS) {
@@ -1869,7 +1870,7 @@ test("#88 AC-1: codex install bootstraps the full PAI v5.0.0 memory taxonomy", a
 
 test("#88 AC-4: pi.dev install bootstraps the full PAI v5.0.0 memory taxonomy", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForPiDev({ homeDir });
+    await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const somaHome = join(homeDir, ".soma");
 
     for (const category of SOMA_CANONICAL_MEMORY_DIRS) {
@@ -1881,7 +1882,7 @@ test("#88 AC-4: pi.dev install bootstraps the full PAI v5.0.0 memory taxonomy", 
 
 test("#88 AC-2: PAI-bound category READMEs self-declare substrate provenance", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const somaHome = join(homeDir, ".soma");
 
     for (const category of SOMA_PAI_BOUND_MEMORY_DIRS) {
@@ -1896,12 +1897,12 @@ test("#88 AC-2: PAI-bound category READMEs self-declare substrate provenance", a
 
 test("#88 AC-3: bootstrap is idempotent — re-running install does not overwrite edited READMEs", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const somaHome = join(homeDir, ".soma");
     const readmePath = join(somaHome, "memory/OBSERVABILITY/README.md");
     await writeFile(readmePath, "# OBSERVABILITY (user-edited)\n\nCustom notes.\n", "utf8");
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const second = await readFile(readmePath, "utf8");
     expect(second).toBe("# OBSERVABILITY (user-edited)\n\nCustom notes.\n");
@@ -1914,13 +1915,13 @@ test("code-only codex install skips skill projection and preserves existing proj
     // A full install projects the bundled skills (Memory here); a code-only
     // install must skip ALL skill projection yet leave the already-projected
     // skill on disk and still prune stale owned files.
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const projectedSkill = join(homeDir, ".codex", "skills", "Memory", "SKILL.md");
     expect(await readFile(projectedSkill, "utf8")).toContain("name: Memory");
     const staleOwnedFile = join(homeDir, ".codex", "memories", "soma", "stale.md");
     await writeFile(staleOwnedFile, "stale generated projection\n", "utf8");
 
-    const result = await installSomaForCodex({ homeDir, codeOnly: true });
+    const result = await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, codeOnly: true });
 
     expect(result.substrateHome.files.some((file) => file.includes("/skills/"))).toBe(false);
     expect(await readFile(projectedSkill, "utf8")).toContain("name: Memory");
@@ -1930,11 +1931,11 @@ test("code-only codex install skips skill projection and preserves existing proj
 
 test("code-only anthropic-cowork install skips skill projection and preserves existing VSA skill", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForAnthropicCowork({ homeDir });
+    await installSomaForAnthropicCowork({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const projectedSkill = join(homeDir, ".anthropic-cowork", "skills", "VSA", "SKILL.md");
     expect(await readFile(projectedSkill, "utf8")).toContain("name: VSA");
 
-    const result = await installSomaForAnthropicCowork({ homeDir, codeOnly: true });
+    const result = await installSomaForAnthropicCowork({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, codeOnly: true });
 
     expect(result.substrateHome.files.some((file) => file.includes("/skills/"))).toBe(false);
     expect(await readFile(projectedSkill, "utf8")).toContain("name: VSA");

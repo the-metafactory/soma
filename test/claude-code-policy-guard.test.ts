@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "bun:test";
 import { installSomaForClaudeCode, planSomaForClaudeCodeInstall, uninstallSomaForClaudeCode } from "../src/index";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const GUARD_REL = ".claude/hooks/soma/soma-policy-guard.mjs";
@@ -62,8 +63,8 @@ test("soma#369: policy guard fail-closed files are default-on in the plan, opt-o
 
 test("policy guard: install is idempotent and patches PreToolUse + UserPromptSubmit once each", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, policyGuard: true });
-    await installSomaForClaudeCode({ homeDir, policyGuard: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, policyGuard: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, policyGuard: true });
 
     const hookInfo = await stat(join(homeDir, GUARD_REL));
     expect((hookInfo.mode & 0o100) !== 0).toBe(true); // executable
@@ -117,7 +118,7 @@ test("policy guard: fails CLOSED (deny) when its config is missing", async () =>
 
 test("policy guard: uninstall removes the settings entry even if its bun path drifted", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, policyGuard: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, policyGuard: true });
     const settingsPath = join(homeDir, ".claude/settings.json");
 
     // Simulate a settings entry written with a different bun path than the one

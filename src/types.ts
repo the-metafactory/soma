@@ -866,6 +866,14 @@ export interface SomaInstallOptions {
   somaHome?: string;
   substrateHome?: string;
   somaRepoPath?: string;
+  /**
+   * @internal Test seam (node #914): the source the runtime artifacts are
+   * staged from. Omitted → `somaRepoPath`. It moves the staged runtime only;
+   * bundled skills and projections still read `somaRepoPath`. Tests that do
+   * not exercise the staged runtime pass a stub so each install does not
+   * stage the whole soma tree.
+   */
+  runtimeSourceRoot?: string;
   codeOnly?: boolean;
   /**
    * Narrow the registry→loader projection to these skill names (soma#638).

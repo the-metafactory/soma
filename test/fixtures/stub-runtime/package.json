@@ -1,0 +1,9 @@
+{
+  "name": "soma-stub-runtime",
+  "private": true,
+  "version": "0.0.0-stub",
+  "description": "Test fixture (node #914): a minimal runtime source for installs that do not test runtime staging.",
+  "scripts": {
+    "soma": "bun src/cli.ts"
+  }
+}

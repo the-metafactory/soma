@@ -5,6 +5,7 @@ import { expect, test } from "bun:test";
 import { pruneLegacyVsaSkill } from "../src/legacy-skill-prune";
 import { installSomaForClaudeCode, installSomaForCodex } from "../src/index";
 import { createPaths } from "../src/core/index";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-prune-"));
@@ -133,7 +134,7 @@ test("codex install prunes a sibling ISA skill but preserves projected VSA and u
     // A user dir literally named ISA-like but non-soma must also survive.
     const userIsaMd = ["---", "name: ISA", 'description: "Not a soma skill at all."', "---", "", "# ISA", ""].join("\n");
 
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     await expect(stat(join(codexSkills, "ISA"))).rejects.toThrow(); // soma ISA pruned
     expect(await readFile(join(codexSkills, "VSA", "SKILL.md"), "utf8")).toContain("name: VSA"); // VSA projected
@@ -141,7 +142,7 @@ test("codex install prunes a sibling ISA skill but preserves projected VSA and u
 
     // Now reproject with a non-soma ISA dir present: it must be preserved.
     const userIsaDir = await plantSkill(codexSkills, "ISA", userIsaMd);
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     expect(await readFile(join(userIsaDir, "SKILL.md"), "utf8")).toBe(userIsaMd);
   });
 });
@@ -153,7 +154,7 @@ test("claude-code install prunes a sibling ISA skill but preserves projected VSA
     const userSkillMd = ["---", "name: my-skill", 'description: "A user skill."', "---", "", "# my-skill", ""].join("\n");
     await plantSkill(claudeSkills, "my-skill", userSkillMd);
 
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     await expect(stat(join(claudeSkills, "ISA"))).rejects.toThrow(); // soma ISA pruned
     expect(await readFile(join(claudeSkills, "VSA", "SKILL.md"), "utf8")).toContain("name: VSA"); // VSA projected
@@ -165,14 +166,14 @@ test("install prunes the SOURCE-home ISA so it stops propagating, preserving use
   await withTempHome(async (homeDir) => {
     // Bootstrap the soma home first (via a real install), then plant a stale ISA
     // alongside the canonical VSA + a genuine user skill in the SOURCE home.
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const somaSkills = createPaths({ homeDir }).skills();
     await plantSkill(somaSkills, "ISA", SOMA_ISA_SKILL_MD);
     const userSkillMd = ["---", "name: user-source-skill", 'description: "A user source skill."', "---", "", "# x", ""].join("\n");
     await plantSkill(somaSkills, "user-source-skill", userSkillMd);
 
     // Re-install: source-home prune must remove ISA before loadSomaSkills runs.
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     await expect(stat(join(somaSkills, "ISA"))).rejects.toThrow(); // source ISA pruned
     expect(await readFile(join(somaSkills, "VSA", "SKILL.md"), "utf8")).toContain("name: VSA"); // canonical VSA survives

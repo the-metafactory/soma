@@ -461,7 +461,16 @@ export function parseDaemonArgs(args: string[]): ParsedDaemonArgs {
   return { command: "daemon" };
 }
 
-export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleArgs): Promise<string> {
+/**
+ * @internal Test seams for an in-process CLI run (node #914). Never read from
+ * argv: a shell user cannot reach them.
+ */
+export interface SubstrateLifecycleCliInternals {
+  /** Stage the runtime artifacts from this source instead of the soma repo; see `SomaInstallOptions.runtimeSourceRoot`. */
+  runtimeSourceRoot?: string;
+}
+
+export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleArgs, internals: SubstrateLifecycleCliInternals = {}): Promise<string> {
   if (parsed.command === "daemon") {
     throw new SomaCliError("soma daemon is not yet implemented (placeholder reserves the runtime mode).", 1);
   }
@@ -486,7 +495,7 @@ export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleA
     // left the loader stale would silently do nothing about the one change the
     // principal ran it for. The install layer does the linking; this only renders
     // what it reports.
-    return formatInstallWithSkills(await runInstall(parsed.substrate, parsed.options));
+    return formatInstallWithSkills(await runInstall(parsed.substrate, parsed.options, internals));
   }
 
   if (!parsed.apply) {
@@ -502,7 +511,7 @@ export async function runSubstrateLifecycleCli(parsed: ParsedSubstrateLifecycleA
   }
 
   return formatInstallWithSkills(
-    await runInstall(parsed.substrate, { ...parsed.options, skills: parsed.skills }),
+    await runInstall(parsed.substrate, { ...parsed.options, skills: parsed.skills }, internals),
   );
 }
 
@@ -563,8 +572,8 @@ function planInstall(substrate: InstallSubstrate, options: SomaInstallOptions): 
   return installPlanners[substrate](options);
 }
 
-async function runInstall(substrate: InstallSubstrate, options: SomaInstallOptions): Promise<SomaInstallResult> {
-  return installers[substrate](options);
+async function runInstall(substrate: InstallSubstrate, options: SomaInstallOptions, internals: SubstrateLifecycleCliInternals): Promise<SomaInstallResult> {
+  return installers[substrate](internals.runtimeSourceRoot === undefined ? options : { ...options, runtimeSourceRoot: internals.runtimeSourceRoot });
 }
 
 async function runUninstall(parsed: ParsedUninstallArgs): Promise<string> {

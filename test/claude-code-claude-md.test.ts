@@ -8,6 +8,7 @@ import { expect, test } from "bun:test";
 import { installSomaForClaudeCode } from "../src/index";
 import { resolveClaudeMdOverlay } from "../src/adapters/claude-code/claude-md";
 import { OVERLAY_BEGIN, OVERLAY_END, hasProvenanceHeader, withProvenance } from "../src/adapters/shared";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-368-"));
@@ -22,7 +23,7 @@ const claudeMdPath = (homeDir: string) => join(homeDir, ".claude/CLAUDE.md");
 
 test("default install does NOT create CLAUDE.md (opt-in only)", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     let existed = true;
     try {
       await readFile(claudeMdPath(homeDir), "utf8");
@@ -35,7 +36,7 @@ test("default install does NOT create CLAUDE.md (opt-in only)", async () => {
 
 test("--claude-md generates CLAUDE.md with provenance header, pointer, and overlay markers", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, claudeMd: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, claudeMd: true });
     const content = await readFile(claudeMdPath(homeDir), "utf8");
     expect(hasProvenanceHeader(content)).toBe(true);
     expect(content).toContain("rules/soma/CONTEXT.md");
@@ -49,9 +50,9 @@ test("--claude-md generates CLAUDE.md with provenance header, pointer, and overl
 
 test("CLAUDE.md projection is byte-idempotent across reinstalls", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, claudeMd: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, claudeMd: true });
     const first = await readFile(claudeMdPath(homeDir), "utf8");
-    await installSomaForClaudeCode({ homeDir, claudeMd: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, claudeMd: true });
     const second = await readFile(claudeMdPath(homeDir), "utf8");
     expect(second).toBe(first);
   });
@@ -59,7 +60,7 @@ test("CLAUDE.md projection is byte-idempotent across reinstalls", async () => {
 
 test("a hand edit inside the overlay survives reprojection", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, claudeMd: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, claudeMd: true });
     const before = await readFile(claudeMdPath(homeDir), "utf8");
     const edited = before.replace(
       OVERLAY_END,
@@ -67,7 +68,7 @@ test("a hand edit inside the overlay survives reprojection", async () => {
     );
     await writeFile(claudeMdPath(homeDir), edited, "utf8");
 
-    await installSomaForClaudeCode({ homeDir, claudeMd: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, claudeMd: true });
     const after = await readFile(claudeMdPath(homeDir), "utf8");
     expect(after).toContain("my machine-local note");
     // Still exactly one overlay block (no marker duplication).
@@ -81,7 +82,7 @@ test("a pre-existing hand-maintained CLAUDE.md is preserved into the overlay (lo
     await mkdir(join(homeDir, ".claude"), { recursive: true });
     await writeFile(claudeMdPath(homeDir), "# My old CLAUDE.md\n\nimportant hand-written rules\n", "utf8");
 
-    await installSomaForClaudeCode({ homeDir, claudeMd: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, claudeMd: true });
     const content = await readFile(claudeMdPath(homeDir), "utf8");
     expect(hasProvenanceHeader(content)).toBe(true);
     expect(content).toContain("important hand-written rules");
