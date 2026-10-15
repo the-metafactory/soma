@@ -152,7 +152,7 @@ function parseAvailability(stdout: string): Interval[] | undefined {
     const timeZone = parsed?.parameters?.timezone;
     if (!Array.isArray(parsed?.availableSlots) || typeof timeZone !== "string") return undefined;
     const intervals: Interval[] = [];
-    for (const slot of parsed.availableSlots as { date?: unknown; startTime?: unknown; endTime?: unknown }[]) {
+    for (const slot of parsed.availableSlots as ({ date?: unknown; startTime?: unknown; endTime?: unknown } | null)[]) {
       if (typeof slot?.date !== "string" || typeof slot.startTime !== "string" || typeof slot.endTime !== "string") return undefined;
       const start = wallTimeToInstant(slot.date, slot.startTime, timeZone);
       const end = wallTimeToInstant(slot.date, slot.endTime, timeZone);
