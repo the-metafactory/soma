@@ -10,7 +10,7 @@
 
 **The unit is the thing being articulated, not the task.** A thing with persistent identity (an application, a CLI, a library, this Algorithm) keeps its ISA in its repo at `<project>/VSA.md`: read it at OBSERVE, extend it during BUILD/EXECUTE, commit refinements at LEARN. Ad-hoc work keeps a task ISA at `<soma-home>/memory/WORK/{slug}/VSA.md`, archived at `phase: complete`. Same format for both.
 
-**The ISA is a living articulation.** Through pursuit the Goal sharpens and ISCs split or merge; refinements are logged in `## Decisions` with a `refined:` prefix, structural learnings in `## Changelog`. The twelve sections, the guardrail taxonomy, the tier completeness gate, the project-ISA E3 override, the ID-stability rule and ephemeral feature files are owned by the `VSA` skill (`references/format.md` there) — invoke it by name.
+**The ISA is a living articulation.** Through pursuit the Goal sharpens and ISCs split or merge; refinements are logged in `## Decisions` with a `refined:` prefix, structural learnings in `## Changelog`. The twelve sections, the guardrail taxonomy, the tier completeness gate, the project-ISA E3 override, the ID-stability rule and ephemeral feature files are owned by the `VSA` skill (its format reference) — invoke it by name.
 
 **The experiential metric is euphoric surprise** — an answer that clicks in a way the principal couldn't have predicted but instantly recognizes as true. For experiential goals (art, design, anything that has to *land*), it is the falsification test.
 

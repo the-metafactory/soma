@@ -14,20 +14,6 @@
 7. Rerun the original reproduction on the same surface. Wrong surface or "inconclusive" is not a pass.
 8. Run the suites the change can reach, then open the change for review.
 
-## Reproduction by symptom
-
-Step 1 is done when one of these is captured, and no read or grep has targeted the suspect code path before it:
-
-| Symptom | Reproduction |
-| --- | --- |
-| Web or UI bug | a browser screenshot or network trace |
-| HTTP endpoint failure | `curl -i` showing the broken response |
-| CLI tool failure | the actual stdout and stderr |
-| Deploy or build failure | the error message from the log |
-| Test failure | the failing test output with its assertion |
-| Data inconsistency | a `SELECT` showing the wrong row or value |
-| Agent or hook misbehavior | synthetic input through `bun run` showing the broken behavior |
-
 ## Criteria
 
 Seed `algorithm new` with these, rewritten for the bug:
