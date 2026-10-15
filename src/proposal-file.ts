@@ -162,7 +162,7 @@ export function hasProposalMarker(body: string | undefined, ref: string): boolea
 export function proposalNodeSpec(proposal: Pick<ProposalFile, "ref" | "frontMatter" | "body">): ProposalNodeSpec {
   const kind = proposalNodeKind(proposal.frontMatter.proposal_kind);
   return {
-    title: proposal.frontMatter.title.trim(),
+    title: proposal.frontMatter.title,
     kind,
     autonomy: kind === "build" ? "propose" : "approve",
     checkpointId: proposal.frontMatter.checkpoint,

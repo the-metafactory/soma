@@ -1773,15 +1773,41 @@ function landingNodeRef(landing: string, id: string): string {
   return /^\d+$/u.test(id) ? `${landing}#${id}` : id;
 }
 
+/** A body marker is untrusted text; only the authenticated filer's API author can bind it. */
+async function authenticatedProposalMatch(store: GraphStore, matches: NodeState[], proposalRef: string): Promise<NodeState | undefined> {
+  if (matches.length === 0) return undefined;
+  const filer = await store.actingIdentity();
+  if (filer.length === 0) throw new Error("cannot verify proposal authorship: authenticated filer is missing");
+  for (const match of matches) {
+    // GitHub logins are case-insensitive. Missing/deleted authors never match.
+    if (match.author.length === 0 || match.author.toLowerCase() !== filer.toLowerCase()) {
+      throw new Error(`node ${match.ref.id} carries proposal ${proposalRef}'s marker but its author ${JSON.stringify(match.author)} is not authenticated filer ${JSON.stringify(filer)}; refusing to use it`);
+    }
+  }
+  if (matches.length > 1) throw new Error(`multiple nodes carry proposal ${proposalRef}'s marker; refusing another create`);
+  return matches[0];
+}
+
+/** Recover a failed membership write from live forge state, after verifying who filed it. */
+async function recoverPartialProposalNode(store: GraphStore, graph: WorkGraph, proposal: ProposalFile, mapRoot: number): Promise<NodeRef | undefined> {
+  if (store.findNodesByBodyMarker === undefined) throw new Error("store cannot discover unattached proposal nodes");
+  const matches = await store.findNodesByBodyMarker(proposalMarker(proposal.ref));
+  const partial = await authenticatedProposalMatch(store, matches, proposal.ref);
+  if (partial === undefined) return undefined;
+  await graph.attach(partial.ref, { id: String(mapRoot) });
+  return partial.ref;
+}
+
 /**
  * File the node a proposal describes (soma#903 D6, D9). Everything the file can
  * get wrong is refused before the store is opened; the marker search reads the
  * whole map, closed nodes included, so a re-run after the node closed still
  * returns it rather than filing a second. A repo-wide live marker lookup also
  * finds a creation whose membership write failed; retries attach that node.
- * The create goes through
- * {@link WorkGraph.createNode} — `soma graph add`'s one validation barrier — so
- * a refused or partial write is reported, never retried around.
+ * Matches must be authored by the authenticated filer before they are used.
+ * The create goes through {@link WorkGraph.createNode} — `soma graph add`'s
+ * one validation barrier. A refused or partial write is reported; a later
+ * invocation can recover a partial creation without creating another node.
  */
 async function runFileProposal(parsed: ParsedGraphFileProposalArgs, deps: GraphCliDeps): Promise<string> {
   let proposal: ProposalFile;
@@ -1806,20 +1832,11 @@ async function runFileProposal(parsed: ParsedGraphFileProposalArgs, deps: GraphC
   } catch (error) {
     throw new SomaCliError(`soma graph file-proposal: map ${mapRef} is unreadable, nothing filed: ${errorMessage(error)}`, 1);
   }
-  const existing = subtree.find((state) => hasProposalMarker(state.body, proposal.ref));
-  if (existing !== undefined) return render(landingNodeRef(landing, existing.ref.id), false);
-
-  // A failed membership POST can leave an issue outside every subtree, even
-  // when createNode throws. Discover it from the forge, not process-local state.
   try {
-    if (store.findNodesByBodyMarker === undefined) throw new Error("store cannot discover unattached proposal nodes");
-    const matches = await store.findNodesByBodyMarker(proposalMarker(proposal.ref));
-    if (matches.length > 1) throw new Error(`multiple nodes carry proposal ${proposal.ref}'s marker; refusing another create`);
-    const [partial] = matches;
-    if (partial !== undefined) {
-      await graph.attach(partial.ref, { id: String(mapRoot) });
-      return render(landingNodeRef(landing, partial.ref.id), false);
-    }
+    const existing = await authenticatedProposalMatch(store, subtree.filter((state) => hasProposalMarker(state.body, proposal.ref)), proposal.ref);
+    if (existing !== undefined) return render(landingNodeRef(landing, existing.ref.id), false);
+    const partial = await recoverPartialProposalNode(store, graph, proposal, mapRoot);
+    if (partial !== undefined) return render(landingNodeRef(landing, partial.id), false);
   } catch (error) {
     throw new SomaCliError(`soma graph file-proposal: retry discovery or attachment under ${mapRef} failed, nothing created: ${errorMessage(error)}`, 1);
   }

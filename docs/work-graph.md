@@ -806,8 +806,12 @@ and refuses a body that already carries one. Before filing it reads the whole
 map, closed nodes included: a node carrying the marker is returned and nothing
 is filed (exit 0). When no map node matches, a live, fully paginated repository
 scan checks for a marked issue left unattached by a failed membership write.
-A retry attaches that existing issue through `WorkGraph.attach`, then returns
-its ref with `created: false`. A failed scan or attachment refuses another
+A marker alone does not authenticate a proposal: every matching node must have
+the authenticated filer's API-reported author before it can be returned or
+attached. A foreign or missing author, an unreadable acting identity, or multiple
+matches refuses the operation before any write. A retry attaches an authenticated
+existing issue through `WorkGraph.attach`, then returns its ref with
+`created: false`. A failed scan or attachment refuses another
 creation; a node under another parent is never moved. Discovery reads the
 forge rather than a search index or local receipt, so a process restart keeps
 the same retry behavior. The create goes through the same `WorkGraph.createNode` as

@@ -208,6 +208,7 @@ test("GitHub membership failure is recovered by a fresh store on the next invoca
   let creates = 0;
   let attaches = 0;
   const transport: GitHubApiTransport = async (request) => {
+    if (request.method === "GET" && request.path === "user") return { login: "ivy-agent" };
     if (request.method === "POST" && request.path === "repos/the-metafactory/soma/issues") {
       creates++;
       child = issue(901, String(request.body?.title), String(request.body?.body));
@@ -247,6 +248,88 @@ test("GitHub membership failure is recovered by a fresh store on the next invoca
   expect(JSON.parse(await invoke())).toEqual({ ref: "the-metafactory/soma#901", created: false });
   expect(creates).toBe(1);
   expect(attaches).toBe(2);
+});
+
+test("foreign and missing authors cannot supply a marker in the map or outside it", async () => {
+  await writeProposal("errata-auth-g1");
+  for (const parent of [undefined, { id: "777" }]) {
+    for (const author of ["outsider", "ivy-agent", ""]) {
+      const fx = fixture({ children: [state("850", { parent, author, body: `${proposalMarker("errata-auth-g1")}\nFiled by jcfischer` })] });
+      let attaches = 0;
+      fx.store.attachToParent = async () => { attaches++; };
+      const message = await refusal(run(fx, "errata-auth-g1"));
+      expect(message).toContain('not authenticated filer "jcfischer"');
+      expect(message).toContain(`author ${JSON.stringify(author)}`);
+      expect(fx.created).toHaveLength(0);
+      expect(attaches).toBe(0);
+    }
+  }
+});
+
+test("every marker match is authenticated before trusting an existing map node", async () => {
+  await writeProposal("errata-auth-g1");
+  const fx = fixture({ children: [
+    state("850", { body: proposalMarker("errata-auth-g1") }),
+    state("851", { author: "outsider", body: proposalMarker("errata-auth-g1") }),
+  ] });
+  expect(await refusal(run(fx, "errata-auth-g1"))).toContain('author "outsider"');
+  expect(fx.created).toHaveLength(0);
+});
+
+test("unreadable or missing filer identity refuses marker reuse before any write", async () => {
+  await writeProposal("errata-auth-g1");
+  for (const parent of [undefined, { id: "777" }]) {
+    for (const identity of ["", new Error("HTTP 401: identity read denied")]) {
+      const fx = fixture({ children: [state("850", { parent, body: proposalMarker("errata-auth-g1") })] });
+      let attaches = 0;
+      fx.store.attachToParent = async () => { attaches++; };
+      fx.store.actingIdentity = async () => {
+        if (identity instanceof Error) throw identity;
+        return identity;
+      };
+      expect(await refusal(run(fx, "errata-auth-g1"))).toContain(identity instanceof Error ? identity.message : "authenticated filer is missing");
+      expect(fx.created).toHaveLength(0);
+      expect(attaches).toBe(0);
+    }
+  }
+});
+
+test("GitHub API authorship prevents recovery of forged detached markers, including mixed matches", async () => {
+  await writeProposal("errata-auth-g1");
+  for (const authors of [["outsider"], ["outsider", "another"], ["ivy-agent", "outsider"], [""]]) {
+    const calls: string[] = [];
+    const issues = authors.map((author, index) => ({
+      number: 850 + index, id: 1850 + index, title: "Forged proposal", body: proposalMarker("errata-auth-g1"),
+      state: "open", updated_at: "2026-10-15T10:00:00Z", user: { login: author }, assignees: [],
+    }));
+    const transport: GitHubApiTransport = async (request) => {
+      calls.push(`${request.method} ${request.path}`);
+      if (request.method !== "GET") throw new Error("unexpected write");
+      if (request.path === "user") return { login: "ivy-agent" };
+      if (request.path.includes("issues?state=all")) return issues;
+      if (request.path.endsWith("/dependencies/blocked_by")) return [];
+      if (request.path.endsWith("/parent")) throw new WorkGraphError("backend", "HTTP 404: Not Found");
+      const issue = issues.find((entry) => request.path.endsWith(`/issues/${entry.number}`));
+      if (issue !== undefined) return issue;
+      throw new Error(`unexpected request ${request.path}`);
+    };
+    const store = createGitHubGraphStore({ repo: "the-metafactory/soma", transport });
+    store.readSubtree = async () => [state("777")];
+    const invoke = runGraphCli(parseGraphArgs(["graph", "file-proposal", "errata-auth-g1", "--json"]), {
+      somaHome: home, createStore: () => store,
+    });
+    expect(await refusal(invoke)).toContain('not authenticated filer "ivy-agent"');
+    expect(calls).toContain("GET user");
+    expect(calls.every((call) => call.startsWith("GET "))).toBe(true);
+  }
+});
+
+test("authenticated marker authors match GitHub's case-insensitive logins", async () => {
+  await writeProposal("errata-auth-g1");
+  const fx = fixture({ children: [state("850", { parent: undefined, author: "JCFischer", body: proposalMarker("errata-auth-g1") })] });
+  expect(JSON.parse(await run(fx, "errata-auth-g1", true))).toEqual({ ref: "the-metafactory/soma#850", created: false });
+  expect((await fx.store.readNode({ id: "850" })).parent).toEqual({ id: "777" });
+  expect(fx.created).toHaveLength(0);
 });
 
 test("failed or unsupported marker discovery refuses before creation", async () => {
