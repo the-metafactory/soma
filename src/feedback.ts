@@ -1,13 +1,14 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSomaMemoryEvent } from "./event-journal";
+import { appendSomaMemoryEvent } from "./events/index";
 import {
   SOMA_FEEDBACK_EVENT_SCHEMA_VERSION,
   SOMA_FEEDBACK_HOOK_TRIGGER_PATTERN_SOURCE,
   SOMA_FEEDBACK_PATTERN_SPECS,
   isSomaFeedbackMachinePrompt,
-} from "./feedback-contract";
-import type { SomaFeedbackCaptureOptions, SomaFeedbackCaptureResult, SomaFeedbackClassification } from "./types";
+} from "./events/index";
+import type { SomaFeedbackClassification } from "./events/index";
+import type { SomaFeedbackCaptureOptions, SomaFeedbackCaptureResult } from "./types";
 
 const FEEDBACK_PATTERNS = SOMA_FEEDBACK_PATTERN_SPECS.map((spec) => ({
   ...spec,

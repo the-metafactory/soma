@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { appendSomaMemoryEvent } from "./event-journal";
+import { appendSomaMemoryEvent } from "./events/index";
 import { createPaths } from "./core/index";
 import { hasSomaPolicyPrivateMarker, somaPolicyPrivateMarkers } from "./policy";
 import { inference } from "./tools/inference";

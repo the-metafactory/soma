@@ -3,7 +3,7 @@ import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { isEnoent } from "../core/index";
 import { applySomaMemoryEventWritebacks, applySomaWriteback, type SomaWritebackResult } from "../writeback";
-import type { SomaMemoryEventInput } from "../types";
+import type { SomaMemoryEventInput } from "../events/index";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 

@@ -22,7 +22,7 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { streamEventLines } from "../src/event-log";
+import { streamEventLines } from "../src/events/index";
 
 // ---------------------------------------------------------------------------
 // Data model (duck-typed against the run-corpus schema versions in the wild:

@@ -3,11 +3,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import { loadEventsWithCoverage } from "../scripts/harness-eval";
-import { appendEventBatch } from "../src/event-log";
+import { loadEventsWithCoverage } from "../../scripts/harness-eval";
+import { appendEventBatch } from "../../src/events/event-log";
 
 const homes: string[] = [];
-const script = join(import.meta.dir, "../scripts/harness-eval.ts");
+const script = join(import.meta.dir, "../../scripts/harness-eval.ts");
 const dayMs = 24 * 60 * 60 * 1000;
 
 afterEach(async () => {
@@ -49,7 +49,7 @@ async function runEval(eventTimes: string[], args: string[] = []): Promise<{ exi
     eventTimes.map((timestamp) => JSON.stringify({ timestamp, kind: "memory.recall" })).join("\n") + "\n",
   );
   const proc = Bun.spawnSync(["bun", script, ...args], {
-    cwd: join(import.meta.dir, ".."),
+    cwd: join(import.meta.dir, "../.."),
     env: { ...process.env, SOMA_HOME: home },
     stdout: "pipe",
     stderr: "pipe",

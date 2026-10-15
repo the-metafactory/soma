@@ -537,9 +537,9 @@ export type {
   ProjectionRepairResult,
 } from "./projection-self-repair";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
-export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./event-journal";
+export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./events/index";
 export { searchSomaMemory } from "./memory";
-export { streamEventLines, streamEventRecords } from "./event-log";
+export { streamEventLines, streamEventRecords } from "./events/index";
 export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
 // Public write surface only. Path/dedup helpers (memoryNotePath,
 // findDuplicateCandidates, MEMORY_DEDUP_JACCARD_THRESHOLD) stay module-private so
@@ -569,7 +569,7 @@ export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memor
 export { consolidateMemory } from "./memory-consolidate";
 export { auditMemory } from "./memory-audit";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
-export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
+export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./events/index";
 export {
   listSomaWorkRegistryEntries,
   readSomaWorkRegistry,

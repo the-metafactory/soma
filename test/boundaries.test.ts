@@ -35,6 +35,35 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("another component may import events' public entry, but not its value or type implementation files", async () => {
+    await withTempHome(async (root) => {
+      await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
+      await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+      const importer = join(root, "src/cli/events-entry-fixture.ts");
+      await mkdir(join(root, "src/cli"), { recursive: true });
+      for (const [declaration, target] of [
+        ['import { appendSomaMemoryEvent } from "../events/event-journal";\n', "src/events/event-journal.ts"],
+        ['import type { SomaMemoryEvent } from "../events/types";\n', "src/events/types.ts"],
+      ]) {
+        await writeFile(importer, declaration);
+        const internal = checkBoundaries({ root, updateBaseline: true });
+        expect(internal.ok).toBe(false);
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/events-entry-fixture.ts",
+          to: target,
+          fromComponent: "cli",
+          toComponent: "events",
+          rule: "public-entry",
+        }));
+      }
+
+      await writeFile(importer, 'import { appendSomaMemoryEvent, type SomaMemoryEvent } from "../events/index";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.ok).toBe(true);
+    }, "soma-boundaries-events-");
+  }, { timeout: 30_000 });
+
   test("another component may import core's public entry, but not a core implementation file", async () => {
     await withTempHome(async (root) => {
       await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });

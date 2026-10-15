@@ -6,25 +6,13 @@ import { createPaths } from "./core/index";
 import { isFsUtilsEnoent as isEnoent } from "./core/index";
 import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./core/index";
-import { appendSomaMemoryEvent } from "./event-journal";
+import { appendSomaMemoryEvent } from "./events/index";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, isValidNoteId, NOTE_ID_MAX_LEN } from "./memory-note";
 import { memoryTermSet } from "./memory-terms";
 import { jaccard, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
 import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRIGGER_TRUST } from "./types";
-import type {
-  SomaMemoryDuplicateCandidate,
-  SomaMemoryEvent,
-  SomaMemoryNote,
-  SomaMemoryNoteType,
-  SomaMemoryResurfaceOptions,
-  SomaMemoryResurfaceResult,
-  SomaMemoryTrust,
-  SomaMemoryVerifyOptions,
-  SomaMemoryVerifyResult,
-  SomaMemoryWriteOptions,
-  SomaMemoryWriteResult,
-  SomaMemoryWriteTrigger,
-} from "./types";
+import type { SomaMemoryEvent } from "./events/index";
+import type { SomaMemoryDuplicateCandidate, SomaMemoryNote, SomaMemoryNoteType, SomaMemoryResurfaceOptions, SomaMemoryResurfaceResult, SomaMemoryTrust, SomaMemoryVerifyOptions, SomaMemoryVerifyResult, SomaMemoryWriteOptions, SomaMemoryWriteResult, SomaMemoryWriteTrigger } from "./types";
 
 /**
  * Memory write + verify (subsystem M1). Plan v2 §M1 (do not redesign the
