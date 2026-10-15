@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { recallMemory, serializeMemoryNote, somaMemoryEventsPath, type SomaMemoryEvent, type SomaMemoryNote } from "../src/index";
-import { memoryNotePath, type WritableType } from "../src/memory-write";
+import { memoryNotePath, type WritableType } from "../src/memory/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-11T10:00:00.000Z");

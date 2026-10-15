@@ -1,5 +1,4 @@
-import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./types";
-import type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
+import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS, type SomaMemoryNote, type SomaMemoryNoteType, type SomaMemoryTrust } from "./types";
 
 /**
  * File-native memory note parser + serializer (memory subsystem M0).

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { memoryTerms, memoryTermSet, MEMORY_TERM_MIN_LEN } from "../src/memory-terms";
+import { memoryTerms, memoryTermSet, MEMORY_TERM_MIN_LEN } from "../../src/memory/memory-terms";
 
 test("memoryTerms lowercases, drops sub-3-char tokens, and de-dups in first-occurrence order", () => {
   expect(memoryTerms("Gateway RETRIES gateway a to the")).toEqual(["gateway", "retries", "the"]);

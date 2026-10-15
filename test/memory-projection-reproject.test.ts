@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, reprojectSubstrateMemoryProjection, runSomaLifecycleSessionStart, serializeMemoryNote, somaMemoryEventsPath, type SomaMemoryNote } from "../src/index";
-import { memoryIndexPath } from "../src/memory-index";
-import { memoryNotePath, type WritableType } from "../src/memory-write";
+import { memoryIndexPath } from "../src/memory/index";
+import { memoryNotePath, type WritableType } from "../src/memory/index";
 
 async function readEvents(somaHome: string): Promise<Record<string, unknown>[]> {
   const raw = await readFile(somaMemoryEventsPath(somaHome), "utf8").catch(() => "");

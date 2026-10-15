@@ -22,7 +22,7 @@ import {
   resolveMutationGovernance,
   writeNotesAtomically,
   type AtomicNoteWrite,
-} from "../src/memory-write";
+} from "../src/memory/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-03T10:00:00.000Z");

@@ -10,10 +10,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { auditMemory } from "../src/index";
-import { planMemoryBackfill, runMemoryBackfill } from "../src/memory-backfill";
-import { parseMemoryNote } from "../src/memory-note";
+import { planMemoryBackfill, runMemoryBackfill } from "../src/memory/index";
+import { parseMemoryNote } from "../src/memory/index";
 import { parseMemoryArgs } from "../src/cli/memory";
-import type { SomaMemoryNote } from "../src/types";
+import type { SomaMemoryNote } from "../src/memory/index";
 
 async function withTempSoma<T>(fn: (somaHome: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "soma-backfill-"));

@@ -13,7 +13,7 @@ import { constants as FS } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { listMemoryNotes, MemoryTraversalError } from "../src/memory-fs";
+import { listMemoryNotes, MemoryTraversalError } from "../../src/memory/memory-fs";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "soma-memory-fs-"));

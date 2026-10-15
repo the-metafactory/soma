@@ -1,11 +1,11 @@
-import { createPaths } from "./core/index";
+import { createPaths } from "../core/index";
 import { collectDurableNotes } from "./memory-write";
 import type { ScannedNote } from "./memory-write";
 import { memoryTerms } from "./memory-terms";
 // Aliased: `toRecalledNote` below binds a local `ageDays` (the field name on
 // SomaMemoryRecalledNote), so the imported function keeps a distinct name.
 import { noteDateMs, ageDays as ageDaysSince } from "./memory-corpus";
-import { appendSomaMemoryEvent } from "./events/index";
+import { appendSomaMemoryEvent } from "../events/index";
 import type {
   SomaMemoryNote,
   SomaMemoryRecallOptions,

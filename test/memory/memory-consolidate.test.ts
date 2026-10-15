@@ -2,15 +2,18 @@ import { access, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, spyOn, test } from "bun:test";
-import { appendSomaMemoryEvent, consolidateMemory, parseMemoryNote, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
-import { memoryIndexPath } from "../src/memory-index";
-import { createPaths } from "../src/core/index";
+import { appendSomaMemoryEvent } from "../../src/events/index";
+import { consolidateMemory } from "../../src/memory/memory-consolidate";
+import { parseMemoryNote, serializeMemoryNote } from "../../src/memory/memory-note";
+import { type SomaMemoryNote } from "../../src/memory/types";
+import { memoryIndexPath } from "../../src/memory/memory-index";
+import { createPaths } from "../../src/core/index";
 // Plan/apply internals are module-private (not public index API) — import direct,
 // for the #412 plan-immutability acceptance test.
-import { applyConsolidationPlan, planConsolidation, type ConsolidationPlan } from "../src/memory-consolidate";
+import { applyConsolidationPlan, planConsolidation, type ConsolidationPlan } from "../../src/memory/memory-consolidate";
 // The neutral journal read-model — spied on to prove the #428-R2 perf gate skips
 // the O(events) journal scan when no assistant-trust pair is eligible.
-import * as journal from "../src/memory-journal";
+import * as journal from "../../src/memory/memory-journal";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 

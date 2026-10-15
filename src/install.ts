@@ -12,7 +12,7 @@ import {
 } from "./home-projection";
 import type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
-import { SOMA_MEMORY_CATEGORIES } from "./memory-readmes";
+import { SOMA_MEMORY_CATEGORIES } from "./memory/index";
 import { defaultSomaRepoPath } from "./core/index";
 import { bootstrapSomaHome } from "./home-bootstrap";
 import { loadSomaHome } from "./soma-home";
@@ -21,7 +21,7 @@ import { pruneLegacyVsaSkill } from "./legacy-skill-prune";
 import { installBundledSkillsIntoHome } from "./bundled-skills";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./adapter-active-vsa";
-import { loadMemoryIndexForProjection } from "./memory-index";
+import { loadMemoryIndexForProjection } from "./memory/index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./core/index";
 import { isGuardedRuntimeSubstrate, stageRuntimeArtifact } from "./runtime-artifact";

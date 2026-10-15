@@ -1,8 +1,7 @@
 import { lstat, readdir } from "node:fs/promises";
 import type { Dirent, Stats } from "node:fs";
 import { join } from "node:path";
-import { isFsUtilsEnoent as isEnoent } from "./core/index";
-import { runBoundedConcurrent } from "./core/index";
+import { isFsUtilsEnoent as isEnoent, runBoundedConcurrent } from "../core/index";
 
 /**
  * The one symlink-safe directory walk for the Memory compartment (#408).

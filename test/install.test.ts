@@ -12,7 +12,7 @@ import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skil
 import {
   SOMA_MEMORY_CATEGORIES,
   SOMA_PAI_BOUND_MEMORY_CATEGORIES,
-} from "../src/memory-readmes";
+} from "../src/memory/index";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/projection-private-roots";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 import { expectPlanCoversApplyModuloBundledSkills, expectReprojectPrunesStaleTelos } from "./fixtures";

@@ -5,19 +5,22 @@ import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { appendAlgorithmProvenance } from "./algorithm-provenance";
 import { appendSomaMemoryEvent } from "./events/index";
 import { createPaths } from "./core/index";
-import { noteIdSlugSegment, toNoteIdSlug } from "./memory-note";
-import { writeMemoryNote } from "./memory-write";
+import { noteIdSlugSegment, toNoteIdSlug } from "./memory/index";
+import { writeMemoryNote } from "./memory/index";
 import { getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
-import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./types";
+import { SOMA_MEMORY_BACKFILL_TYPE_MAP } from "./memory/index";
 import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./core/index";
 import type {
   AlgorithmRun,
   SomaMemoryPromotionOptions,
   SomaMemoryPromotionResult,
   SubstrateId,
-  WritableNoteType,
 } from "./types";
+import type {
+  WritableNoteType,
+} from "./memory/index";
+
 import type { SomaMemoryPromotionStore } from "./core/index";
 
 /**

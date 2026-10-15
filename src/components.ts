@@ -68,9 +68,9 @@ export const components: ComponentManifest<ComponentName> = {
     publicEntries: ["src/events/index.ts"],
   },
   memory: {
-    files: ["src/memory", "src/memory-*", "src/episodic-digest"],
-    exclude: ["src/memory-promotion", "src/memory-projection-reproject"],
+    files: ["src/memory/**"],
     mayImport: ["core", "events", "legacy"],
+    publicEntries: ["src/memory/index.ts"],
   },
   // Typed goal records (soma#784): Soma owns Purpose (docs/boundaries.md).
   purpose: {
