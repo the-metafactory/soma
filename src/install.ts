@@ -24,7 +24,7 @@ import { loadActiveVsaForBundle } from "./adapter-active-vsa";
 import { loadMemoryIndexForProjection } from "./memory-index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./core/index";
-import { isGuardedRuntimeSubstrate, prepareRuntimeSource, stageRuntimeArtifacts } from "./runtime-artifact";
+import { isGuardedRuntimeSubstrate, prepareRuntimeSource, type RuntimeArtifactTarget, stageRuntimeArtifacts } from "./runtime-artifact";
 import { SomaInstallExecution } from "./installation-executor";
 import {
   type ImplementedUninstallSpec,
@@ -222,13 +222,15 @@ async function installSomaForSubstrate(
   // Guarded substrates execute only the immutable artifact, never this editable
   // checkout. Both targets activate one artifact, prepared and verified once (node #929).
   const guarded = isGuardedRuntimeSubstrate(substrate);
+  const targets: RuntimeArtifactTarget[] = guarded ? ["cli", substrate] : ["cli"];
   const staged = await execution.run("stage-runtime-artifacts", async () => stageRuntimeArtifacts({
     somaHome: somaHome.somaHome,
-    targets: guarded ? ["cli", substrate] : ["cli"],
+    targets,
     source: await prepareRuntimeSource(runtimeSourceRoot),
   }));
-  const [cliRuntime] = staged;
-  const guardedRuntime = guarded ? staged[1] : undefined;
+  // Results follow `targets`' order.
+  const cliRuntime = staged[targets.indexOf("cli")];
+  const guardedRuntime = guarded ? staged[targets.indexOf(substrate)] : undefined;
   execution.record({ runtimeArtifact: guardedRuntime ?? cliRuntime });
   const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;
   const { projectionContext, bundledSkillNames } = await prepareSomaInstallSkillContext(execution, somaHome, options, somaRepoPath);

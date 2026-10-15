@@ -343,19 +343,20 @@ export async function stageRuntimeArtifact(input: { somaHome: string; target: Ru
 
 /**
  * Verifies or stages `source`'s artifact once, then activates it for each
- * target in order. An existing artifact is reused only when its payload still
- * hashes to the source's hash; anything else is re-staged.
+ * target, returning one result per target in the order given. An existing
+ * artifact is reused only when its payload still hashes to the source's hash;
+ * anything else is re-staged.
  */
 export async function stageRuntimeArtifacts(input: { somaHome: string; targets: readonly RuntimeArtifactTarget[]; source: RuntimeSource }): Promise<StagedRuntimeArtifact[]> {
   const { hash } = input.source;
   const store = runtimeArtifactStoreRoot(input.somaHome);
-  const target = join(store, hash);
+  const artifactPath = join(store, hash);
   await mkdir(store, { recursive: true });
   // Only installation mutates the shared artifact store. Hooks never hash it.
   await chmod(store, 0o755);
   try {
-    const targetExists = await assertArtifactTargetRoot(target);
-    const existingHash = targetExists ? await sourceHash(target).catch(() => undefined) : undefined;
+    const targetExists = await assertArtifactTargetRoot(artifactPath);
+    const existingHash = targetExists ? await sourceHash(artifactPath).catch(() => undefined) : undefined;
     if (existingHash !== hash) {
       const staging = join(store, ".staging-" + hash);
       const displaced = join(store, ".replaced-" + hash);
@@ -365,23 +366,23 @@ export async function stageRuntimeArtifacts(input: { somaHome: string; targets: 
       if (await sourceHash(staging) !== hash) throw new Error("runtime artifact staging hash mismatch");
       if (!(await loadArtifact(staging))) throw new Error("runtime artifact load check failed");
       await sealArtifact(staging);
-      if (targetExists) await rename(target, displaced);
+      if (targetExists) await rename(artifactPath, displaced);
       try {
-        await rename(staging, target);
+        await rename(staging, artifactPath);
       } catch (error) {
-        if (targetExists) await rename(displaced, target).catch(() => undefined);
+        if (targetExists) await rename(displaced, artifactPath).catch(() => undefined);
         throw error;
       }
       await rm(displaced, { recursive: true, force: true });
     }
     const staged: StagedRuntimeArtifact[] = [];
-    for (const substrate of input.targets) {
-      const current = await readRuntimeArtifactState(input.somaHome, substrate);
+    for (const target of input.targets) {
+      const current = await readRuntimeArtifactState(input.somaHome, target);
       const previous = current?.active === hash ? current.previous : current?.active;
       const state: RuntimeArtifactState = { active: hash, ...(previous ? { previous } : {}) };
-      await activateRuntimeArtifact(input.somaHome, substrate, hash);
-      await writeRuntimeArtifactState(input.somaHome, substrate, state);
-      staged.push({ path: runtimeArtifactActivePath(input.somaHome, substrate), hash, ...(state.previous ? { previous: state.previous } : {}) });
+      await activateRuntimeArtifact(input.somaHome, target, hash);
+      await writeRuntimeArtifactState(input.somaHome, target, state);
+      staged.push({ path: runtimeArtifactActivePath(input.somaHome, target), hash, ...(state.previous ? { previous: state.previous } : {}) });
     }
     // Every target's state is written before pruning, so each one's active and
     // predecessor artifacts are retained.
