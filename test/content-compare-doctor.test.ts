@@ -16,13 +16,17 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { PROJECTION_LIFECYCLE_SUBSTRATES, type InstallSubstrate } from "../src/cli/substrate-lifecycle";
-import { installSomaForCursor, installSomaForPiDev } from "../src/index";
+import { installSomaForCursor as installSomaForCursorUnshared, installSomaForPiDev as installSomaForPiDevUnshared } from "../src/index";
 import { diagnoseContentCompareDrift } from "../src/adapters/content-compare-doctor";
 import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../src/doctor-projection-input";
 import { defaultSomaRepoPath } from "../src/core/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { sharingStagedRuntime } from "./fixtures/shared-runtime";
+
+const installSomaForCursor = sharingStagedRuntime(installSomaForCursorUnshared);
+const installSomaForPiDev = sharingStagedRuntime(installSomaForPiDevUnshared);
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-content-compare-doctor-");

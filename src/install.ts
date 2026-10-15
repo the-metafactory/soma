@@ -24,7 +24,7 @@ import { loadActiveVsaForBundle } from "./adapter-active-vsa";
 import { loadMemoryIndexForProjection } from "./memory-index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./core/index";
-import { isGuardedRuntimeSubstrate, stageRuntimeArtifact } from "./runtime-artifact";
+import { isGuardedRuntimeSubstrate, prepareRuntimeSource, stageRuntimeArtifacts } from "./runtime-artifact";
 import { SomaInstallExecution } from "./installation-executor";
 import {
   type ImplementedUninstallSpec,
@@ -217,13 +217,18 @@ async function installSomaForSubstrate(
   // The runtime source is somaRepoPath unless a test stages a stub (node #914);
   // bundled skills below always read somaRepoPath.
   const runtimeSourceRoot = options.runtimeSourceRoot ?? somaRepoPath;
-  // Arc's PATH shim uses this separately activated snapshot for graph writes.
-  // Stage it for every substrate so a Pi.dev-only install has the same gate.
-  const cliRuntime = await execution.run("stage-cli-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: "cli", sourceRoot: runtimeSourceRoot }));
-  // Guarded substrates execute only the immutable artifact, never this editable checkout.
-  const guardedRuntime = isGuardedRuntimeSubstrate(substrate)
-    ? await execution.run("stage-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: substrate, sourceRoot: runtimeSourceRoot }))
-    : undefined;
+  // Arc's PATH shim uses the separately activated CLI snapshot for graph writes;
+  // stage it for every substrate so a Pi.dev-only install has the same gate.
+  // Guarded substrates execute only the immutable artifact, never this editable
+  // checkout. Both targets activate one artifact, prepared and verified once (node #929).
+  const guarded = isGuardedRuntimeSubstrate(substrate);
+  const staged = await execution.run("stage-runtime-artifacts", async () => stageRuntimeArtifacts({
+    somaHome: somaHome.somaHome,
+    targets: guarded ? ["cli", substrate] : ["cli"],
+    source: await prepareRuntimeSource(runtimeSourceRoot),
+  }));
+  const [cliRuntime] = staged;
+  const guardedRuntime = guarded ? staged[1] : undefined;
   execution.record({ runtimeArtifact: guardedRuntime ?? cliRuntime });
   const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;
   const { projectionContext, bundledSkillNames } = await prepareSomaInstallSkillContext(execution, somaHome, options, somaRepoPath);

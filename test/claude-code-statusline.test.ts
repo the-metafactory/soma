@@ -14,11 +14,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
-  installSomaForClaudeCode,
+  installSomaForClaudeCode as installSomaForClaudeCodeUnshared,
   planSomaForClaudeCodeInstall,
   uninstallSomaForClaudeCode,
 } from "../src/index";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { sharingStagedRuntime } from "./fixtures/shared-runtime";
+
+const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
 
 const SCRIPT_REL = ".claude/hooks/soma/soma-statusline.sh";
 

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { bootstrapSomaHome, installSomaForGrok, uninstallSomaForGrok, projectGrok } from "../src/index";
+import { bootstrapSomaHome, installSomaForGrok as installSomaForGrokUnshared, uninstallSomaForGrok, projectGrok } from "../src/index";
 import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import {
   GROK_AGENTS_BLOCK_BEGIN,
@@ -15,6 +15,9 @@ import {
 import { writeProjection } from "../src/projection";
 import { runSomaCli } from "../src/cli";
 import { portableProjectionInput } from "./fixtures";
+import { sharingStagedRuntime } from "./fixtures/shared-runtime";
+
+const installSomaForGrok = sharingStagedRuntime(installSomaForGrokUnshared);
 
 async function withTempDir<T>(prefix: string, fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), prefix));

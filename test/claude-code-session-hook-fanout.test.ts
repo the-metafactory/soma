@@ -20,7 +20,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
-import { installSomaForClaudeCode } from "../src/index";
+import { installSomaForClaudeCode as installSomaForClaudeCodeUnshared } from "../src/index";
 import {
   patchClaudeCodeFeedbackCaptureSettings,
   patchClaudeCodeModeClassifierSettings,
@@ -28,6 +28,9 @@ import {
   patchClaudeCodePreCompactSettings,
   patchClaudeCodeSomaHookSettings,
 } from "../src/adapters/claude-code/hooks";
+import { sharingStagedRuntime } from "./fixtures/shared-runtime";
+
+const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-fanout-"));

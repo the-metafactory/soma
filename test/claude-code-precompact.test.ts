@@ -17,12 +17,15 @@ import { expect, test } from "bun:test";
 import {
   bootstrapSomaHome,
   createAlgorithmRun,
-  installSomaForClaudeCode,
+  installSomaForClaudeCode as installSomaForClaudeCodeUnshared,
   planSomaForClaudeCodeInstall,
   uninstallSomaForClaudeCode,
   writeAlgorithmRun,
 } from "../src/index";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { sharingStagedRuntime } from "./fixtures/shared-runtime";
+
+const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const HOOK_REL = ".claude/hooks/soma/soma-precompact.mjs";

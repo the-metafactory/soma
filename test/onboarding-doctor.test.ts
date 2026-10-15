@@ -5,9 +5,13 @@ import { PAI_MIGRATION_REMOVED_NOTICE, planSomaInit, diagnoseSomaDoctor } from "
 import { withProvenance } from "../src/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
 import { DOCTOR_SUPPORTED_SUBSTRATES, isDoctorSubstrate } from "../src/adapters/doctor";
-import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex } from "../src/index";
+import { bootstrapSomaHome, installSomaForClaudeCode as installSomaForClaudeCodeUnshared, installSomaForCodex as installSomaForCodexUnshared } from "../src/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
+import { sharingStagedRuntime } from "./fixtures/shared-runtime";
+
+const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
+const installSomaForCodex = sharingStagedRuntime(installSomaForCodexUnshared);
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-onboarding-");
@@ -536,7 +540,8 @@ test("DOCTOR_SUPPORTED_SUBSTRATES / isDoctorSubstrate still gate a genuinely unk
 
 test("soma doctor reports a dependency missing from the active CLI runtime artifact (node #866)", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+    // Unshared: this test removes a dependency from the staged payload.
+    await installSomaForCodexUnshared({ homeDir });
     const somaHome = join(homeDir, ".soma");
     const intact = await diagnoseSomaDoctor({ homeDir });
     expect(intact.findings.map((finding) => finding.id)).not.toContain("runtime-artifact-unloadable");

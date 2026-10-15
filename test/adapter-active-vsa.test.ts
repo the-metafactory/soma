@@ -15,11 +15,11 @@ import {
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
   installPiDevHomeProjection,
-  installSomaForClaudeCode,
-  installSomaForCodex,
-  installSomaForCursor,
-  installSomaForGrok,
-  installSomaForPiDev,
+  installSomaForClaudeCode as installSomaForClaudeCodeUnshared,
+  installSomaForCodex as installSomaForCodexUnshared,
+  installSomaForCursor as installSomaForCursorUnshared,
+  installSomaForGrok as installSomaForGrokUnshared,
+  installSomaForPiDev as installSomaForPiDevUnshared,
   loadActiveVsaForBundle,
   renderActiveVsaFile,
   scaffoldVsa,
@@ -27,6 +27,13 @@ import {
 } from "../src/index";
 import { portableProjectionInput } from "./fixtures";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { sharingStagedRuntime } from "./fixtures/shared-runtime";
+
+const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
+const installSomaForCodex = sharingStagedRuntime(installSomaForCodexUnshared);
+const installSomaForCursor = sharingStagedRuntime(installSomaForCursorUnshared);
+const installSomaForGrok = sharingStagedRuntime(installSomaForGrokUnshared);
+const installSomaForPiDev = sharingStagedRuntime(installSomaForPiDevUnshared);
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-37-"));

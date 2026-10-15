@@ -205,7 +205,7 @@ test("the real compiled CLI install fails loudly at source-runtime staging, befo
   // Runtime deployment is a separate contract from embedded skill content.
   expect(result.error).toBeUndefined();
   expect(result.status).toBe(1);
-  expect(result.stderr).toContain("stage-cli-runtime-artifact");
+  expect(result.stderr).toContain("stage-runtime-artifacts");
   expect(result.stdout).not.toContain("Soma install applied");
 }, 120_000);
 
