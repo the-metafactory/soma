@@ -573,6 +573,35 @@ failure or its 30-second timeout exits 1 after writing the sources and a
 failure message in Outline. Failed runs carry no `result_ref`. Usage errors
 exit 2. Ledger delivery retains the fail-open behavior documented above.
 
+### Goal announcement drafts
+
+```bash
+soma goal announce --goal G5 --url https://example.org/feed.xml --channels linkedin,mastodon
+```
+
+Fetches the RSS or Atom feed through the feed sensor's bounded reader. On the
+first run, records every current item link in the private JSON string array
+`<soma-home>/memory/STATE/goal-announce/G5.json` and drafts nothing. Later runs
+draft one short announcement per channel for each unseen link, using `soma
+inference` at level `standard` through its tool-free Claude Code backend (no
+HTTP API fallback). Item links are never fetched and nothing is posted.
+
+Drafts are added under `## Share drafts` in
+`<soma-home>/outputs/G5-YYYY-Www.md`, creating the file if needed. The ISO week
+uses Europe/Zurich, like `goal outline`. Existing sections are retained;
+generated text is fenced as Markdown source. Links join the seen-set only
+after all their channel drafts are saved. Duplicate links and channel names
+are collapsed; items without HTTP(S) links are skipped. With no unseen items,
+inference is skipped and the output and seen-set are untouched.
+
+Feed failure leaves both files untouched and exits 1. Inference failure or a
+30-second timeout leaves that item unseen for retry, saves other successful
+items and exits 1. Usage errors exit 2. Each run reports one `goal-announce/G5`
+job serving `G5`, without state, URLs, titles or draft text. Only a succeeded
+run that added drafts carries `result_ref: soma:outputs/G5-YYYY-Www.md`.
+With `SOMA_PRINCIPAL` unset no ledger envelope is published; delivery otherwise
+uses the existing fail-open ledger funnel.
+
 ### VSA
 
 An Verification State Artifact is the definition of done for a project, task, or work

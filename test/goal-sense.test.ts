@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
-import { FEED_FETCH_TIMEOUT_MS, FEED_MAX_BYTES, FEED_MAX_REDIRECTS, runFeedSensor, type FeedFetch, type FeedSensorDeps, type FeedSensorOptions } from "../src/goal-sense";
+import { FEED_FETCH_TIMEOUT_MS, FEED_MAX_BYTES, FEED_MAX_REDIRECTS, runFeedSensor, scanFeed, type FeedFetch, type FeedSensorDeps, type FeedSensorOptions } from "../src/goal-sense";
 import { buildRunFinishedEnvelope, type RunLedgerEnv } from "../src/run-ledger";
 
 // `soma goal sense feed` (node #838): count one feed's items in a rolling
@@ -84,6 +84,30 @@ async function harness(
 const DEFAULTS: FeedSensorOptions = { goal: "G5", url: URL, windowDays: 7, min: 1 };
 
 describe("soma goal sense feed", () => {
+  test("the shared scanner exposes RSS links, titles and dates, decoding XML text without resolving external entities", () => {
+    const scan = scanFeed(`<rss><channel><item><title><![CDATA[Private & title]]></title>
+      <link>https://example.test/post?a=1&amp;b=&#50;</link><pubDate>2026-10-14</pubDate></item>
+      <item><title>&external;</title><description><![CDATA[<link>https://fake.test</link>]]></description></item>
+      </channel></rss>`)!;
+    expect(scan.items).toEqual([
+      { link: "https://example.test/post?a=1&b=2", title: "Private & title", date: "2026-10-14" },
+      { link: undefined, title: "&external;", date: undefined },
+    ]);
+    expect(scan.dates).toEqual(["2026-10-14", undefined]);
+  });
+
+  test("Atom uses the alternate href, supports prefixes and quotes, and retains updated date fallback", () => {
+    const scan = scanFeed(`<a:feed><a:entry><a:title>A &lt; B</a:title>
+      <a:link rel="self" href="https://feed.test"/><a:link rel='enclosure' href='https://media.test'/>
+      <a:link href='https://example.test/post?a=1&amp;b=2' rel='alternate'/><a:updated>2026-10-14</a:updated></a:entry>
+      <a:entry><a:link href="/relative"/><a:published>2026-10-13</a:published></a:entry></a:feed>`)!;
+    expect(scan.items).toEqual([
+      { link: "https://example.test/post?a=1&b=2", title: "A < B", date: "2026-10-14" },
+      { link: "/relative", title: undefined, date: "2026-10-13" },
+    ]);
+    expect(scan.dates).toEqual(["2026-10-14", "2026-10-13"]);
+  });
+
   test("an RSS 2.0 item dated 3 days ago is on-track: one job envelope serving the goal", async () => {
     const h = await harness(await fixture("rss.xml"));
 
