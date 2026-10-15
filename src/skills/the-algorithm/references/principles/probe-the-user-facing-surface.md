@@ -16,6 +16,6 @@
 | Deploy | the deployed version string, not a successful push |
 
 - "Should work", "should be", "expected to", "looks fine", "tests pass", and "done" or "no errors" with no output behind them are not evidence.
-- A probe that is impossible right now: mark the criterion `deferred-probe` with a follow-up task id. It is not `passed` until that probe runs.
+- A probe that is impossible right now: mark the criterion `[DEFERRED-VERIFY]` in the VSA (harness status `deferred-probe`) with a follow-up task id. It is not `[x]` until that probe runs.
 
 You skipped this when the evidence for a user-facing criterion is a unit test or a sentence.

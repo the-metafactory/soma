@@ -81,7 +81,7 @@ It returns `mode` (`minimal`, `native`, `algorithm`), `effort`, `source` and a o
 
 At Algorithm entry print `"Entering the Algorithm"`; at every transition print the `━━━ PHASE ━━━ N/7` line as the first output of the phase. A substrate may also announce through a notification, voice or status surface; the header alone satisfies this, and a subagent never announces for the primary.
 
-**Phase tracking is single-source: the harness run.** Each phase's first action after its header is `<prefix> algorithm advance --id <run-id>`, the deterministic gate; then mirror `phase:` and `updated:` into the VSA frontmatter, which is for human readers and does not drive state. The refusals are the gate's own messages (`assertGate`, `src/algorithm.ts`); record through the verbs until it passes.
+**Phase tracking is single-source: the harness run.** Each phase's first action after its header is `<prefix> algorithm advance --id <run-id>`, the deterministic gate; then mirror `phase:` and `updated:` into the VSA frontmatter, which is for human readers and does not drive state. A refusal is what `algorithm advance` prints; record through the verbs until it passes.
 
 Read the gate for what it does NOT check. **The tier floors are not gated:** PLAN needs one capability at any tier, nothing counts thinking versus delegation, and nothing checks the changelog's content. A single-capability run can reach COMPLETE at E5. The floors are stated as hard precisely because no gate will catch you.
 
