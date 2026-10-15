@@ -13,7 +13,7 @@ A playbook card is the step list for one task shape. Route in this order:
 | `references/playbooks/feature.md` | new behavior, a new command or surface |
 | `references/playbooks/refactor.md` | the structure changes, the behavior does not |
 | `references/playbooks/session-pickup.md` | resuming what a prior session or handoff left |
-| `references/playbooks/pause-safely.md` | an explicit stop, or context about to run out |
+| `references/playbooks/pause-safely.md` | the principal says stop, or the substrate signals the context is about to run out |
 | `references/playbooks/autonomous-run.md` | work the principal walks away from |
 | `references/playbooks/authoring-a-skill.md` | creating or changing a skill or doctrine file |
 | `references/playbooks/eval.md` | testing whether a variant changes behavior |

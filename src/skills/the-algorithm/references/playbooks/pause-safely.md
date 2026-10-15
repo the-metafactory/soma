@@ -1,6 +1,6 @@
 # Playbook: Pause safely
 
-**Task shape:** the principal asks you to stop, or the context is about to run out. Only on an explicit stop; "keep going" never pauses.
+**Task shape:** one of two triggers: the principal explicitly asks you to stop, or the substrate signals the context is about to be compacted or run out. Nothing else pauses; "keep going" never does.
 **You own:** a clean stop that a cold-start session can resume from.
 
 ## Steps

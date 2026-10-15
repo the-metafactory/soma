@@ -60,7 +60,7 @@ Nothing rejects a phantom on your behalf at selection time — this gate is a se
 
 ### Playbooks and Principles
 
-Under the tier sit two text layers. **Playbooks** (`references/playbooks.md`) route a run by task shape, once mode and tier are set, to one card of numbered steps, criteria templates and a reply line; the index says how a card is used. **Principles** (`references/principles.md`) are a closed, locally overridable vocabulary of engineering rules.
+Under the tier sit two text layers. **Playbooks** (`references/playbooks.md`) route a run by task shape, once mode and tier are set, to one card of numbered steps, criteria templates and a reply line; the index says how a card is used. **Algorithm principles** (`references/principles.md`) are a closed, locally overridable vocabulary of engineering rules, subordinate to the principal's behavioral policy.
 
 Two reply rules bind every run that used them:
 
