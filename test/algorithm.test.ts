@@ -70,6 +70,7 @@ async function writeAlgorithmCapabilitiesReference(homeDir: string, somaHome = "
       '| MissingSkill | THINK | Missing target | `Skill("MissingSkill")` | E2+ |',
       '| ReReadCheck | VERIFY->LEARN | Final check | *(inline doctrine step - no external tool)* | E1+ |',
       '| Forge (code producer) | EXECUTE | Code production | `Agent(subagent_type="Forge", prompt="...")` | E3+ |',
+      '| Advisor | PLAN | Second opinion | `Agent(subagent_type="general-purpose", model="sonnet")` | E2+ |',
       "",
       "| Capability | When | Invoke |",
       "|------------|------|--------|",
@@ -366,6 +367,14 @@ test("loads migrated PAI Algorithm skill capabilities from Soma home", async () 
       kind: "agent",
       phases: ["execute"],
       invoke: { contract: "agent", target: "Forge" },
+    });
+    // An agent row without model="…" carries no model role at all.
+    expect(registry.definitions.find((definition) => definition.name === "Forge")?.invoke.model).toBeUndefined();
+    expect(registry.definitions.find((definition) => definition.name === "Advisor")).toMatchObject({
+      name: "Advisor",
+      kind: "agent",
+      phases: ["plan"],
+      invoke: { contract: "agent", target: "general-purpose", model: "sonnet" },
     });
     expect(registry.definitions.find((definition) => definition.name === "ReReadCheck")).toMatchObject({
       name: "ReReadCheck",

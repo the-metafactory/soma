@@ -507,6 +507,13 @@ export interface AlgorithmCapabilityDefinition {
   invoke: {
     contract: AlgorithmCapabilityContract;
     target: string;
+    /**
+     * The model role an `Agent(…, model="…")` row names (soma#921, O6). The
+     * registry carries it so a second opinion or cross-family audit can say
+     * which family answers; the substrate decides what to do with the slug.
+     * Absent on every other kind.
+     */
+    model?: string;
   };
   /**
    * Who put this definition on the run (soma#574). A home refresh REPLACES the
@@ -541,6 +548,8 @@ export interface AlgorithmCapabilityInvocation {
   substrate: SubstrateId;
   contract: AlgorithmCapabilityInvocationContract;
   target: string;
+  /** Copied from the definition at invocation time so the run records which model role answered. */
+  model?: string;
   evidence: string;
 }
 
