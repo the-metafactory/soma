@@ -508,10 +508,11 @@ export interface AlgorithmCapabilityDefinition {
     contract: AlgorithmCapabilityContract;
     target: string;
     /**
-     * The model role an `Agent(…, model="…")` row names (soma#921, O6). The
-     * registry carries it so a second opinion or cross-family audit can say
-     * which family answers; the substrate decides what to do with the slug.
-     * Absent on every other kind.
+     * The model slug an `Agent(…, model="…")` row asks for (soma#921, O6).
+     * The registry carries it so a second-opinion or cross-family-audit
+     * binding can name the family it wants; Soma never validates the slug and
+     * the substrate decides whether it can route to it. Absent on every other
+     * kind.
      */
     model?: string;
   };
@@ -548,7 +549,11 @@ export interface AlgorithmCapabilityInvocation {
   substrate: SubstrateId;
   contract: AlgorithmCapabilityInvocationContract;
   target: string;
-  /** Copied from the definition at invocation time so the run records which model role answered. */
+  /**
+   * Copied from the definition at invocation time: the slug the binding asked
+   * for, not evidence of which model answered. `algorithm invoke` does not run
+   * the target, so what actually ran belongs in `evidence`.
+   */
   model?: string;
   evidence: string;
 }
