@@ -14,7 +14,7 @@ export const noDiscardedError = {
     schema: [],
     messages: {
       discarded:
-        "This catch discards its error, so any failure reads as the fallback (fail-open). Bind the error and handle only the case you expect, e.g. `if (isEnoent(error)) return …; throw error;` (isEnoent from src/core/index.ts), or rethrow with `{ cause: error }`. A deliberate swallow takes `// eslint-disable-next-line soma/no-discarded-error -- <reason> (expires YYYY-MM-DD, approved by the principal)`. See AGENTS.md \"Enforced rules\".",
+        "This catch discards its error, so any failure reads as the fallback (fail-open). Bind the error and handle only the case you expect, e.g. `if (isEnoent(error)) return …; throw error;` (isEnoent from src/core/index.ts), or rethrow with `{ cause: error }`. A deliberate swallow is the principal's call: an inline disable or a new suppression fails `bun run check:suppressions` until the principal accepts it. See AGENTS.md \"Enforced rules\".",
     },
   },
   create(context) {

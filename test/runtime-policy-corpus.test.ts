@@ -64,6 +64,8 @@ test("the prompt rules deny exactly the corpus rows marked denied", async () => 
     expect(mismatches).toEqual([]);
     expect(rows.length).toBeGreaterThan(300);
     expect(rows.filter((row) => row.denied && typeof row.mustFire !== "boolean")).toEqual([]);
+    // An attack row cannot be marked allowed: clearing it is a regression, not a row edit.
+    expect(rows.filter((row) => !row.denied && row.mustFire !== undefined)).toEqual([]);
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }
