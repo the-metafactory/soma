@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `bun run harness-eval` reports rejected passes per check (with `errata_unlinked`) and Errata fix closure (proposed clusters fixed), both derived from the Errata ledger and `n/a` when it holds nothing in the window. The `feedback_closure_rate` proxy is retired from the metrics, the baseline and `docs/harness-objective-function.md`; the silent-capture guard in `--check` now counts `feedback.candidate` events directly. (node #853)
+
 ### Fixed
 
 - The frozen runtime artifact carries the production dependency closure under `node_modules/`, so the arc-installed `soma` resolves `@the-metafactory/myelin` and its own dependencies with no network and a run-ledger emit from it reaches the bus instead of failing at stage `load`. The artifact hash covers the carried packages; a checkout missing a production dependency is refused at install, and `soma runtime status` and `soma doctor` name a dependency missing from the active artifact. (node #866)
