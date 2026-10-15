@@ -4,7 +4,7 @@ import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile 
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, locateRuntimeArtifact, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
+import { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, locateRuntimeArtifact, prepareRuntimeSource, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact, stageRuntimeArtifacts } from "../src/runtime-artifact";
 import { runRuntimeCli } from "../src/cli/runtime";
 
 const roots: string[] = [];
@@ -112,6 +112,27 @@ test("keeps guarded substrate activations independent", async () => {
   expect((await readRuntimeArtifactState(home, "claude-code"))?.active).toBe(claude.hash);
   await expect(rollbackRuntimeArtifact(home, "claude-code")).rejects.toThrow("No previous runtime artifact");
   expect((await readRuntimeArtifactState(home, "codex"))?.active).toBe(codex.hash);
+});
+test("one staging activates several targets, each keeping its own predecessor (node #929)", async () => {
+  const { source, home } = await fixture();
+  const first = await stageRuntimeArtifact({ somaHome: home, target: "codex", sourceRoot: source });
+  await writeFile(join(source, "src", "cli.ts"), "export const cli = false;\n");
+  const [cli, codex] = await stageRuntimeArtifacts({ somaHome: home, targets: ["cli", "codex"], source: await prepareRuntimeSource(source) });
+  expect(cli.hash).toBe(codex.hash);
+  expect(cli.hash).not.toBe(first.hash);
+  expect(cli.previous).toBeUndefined();
+  expect(codex.previous).toBe(first.hash);
+  expect(await readFile(join(home, "runtime/cli/current/src/cli.ts"), "utf8")).toContain("cli = false");
+  expect(await readFile(join(home, "runtime/codex/current/src/cli.ts"), "utf8")).toContain("cli = false");
+  // Codex's predecessor stays retained alongside the new artifact.
+  expect((await readdir(join(home, "runtime/artifacts"))).filter((name) => !name.startsWith(".")).sort()).toEqual([first.hash, cli.hash].sort());
+});
+test("a prepared source that changed before staging fails the staging hash check", async () => {
+  const { source, home } = await fixture();
+  const prepared = await prepareRuntimeSource(source);
+  await writeFile(join(source, "src", "cli.ts"), "export const cli = false;\n");
+  await expect(stageRuntimeArtifacts({ somaHome: home, targets: ["codex"], source: prepared })).rejects.toThrow("runtime artifact staging hash mismatch");
+  expect(await readRuntimeArtifactState(home, "codex")).toBeUndefined();
 });
 test("reports missing and unloadable active artifacts", async () => {
   const { source, home } = await fixture();
