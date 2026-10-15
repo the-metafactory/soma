@@ -282,14 +282,12 @@ function parsePlanStep(value: string): AlgorithmPlanStep {
   };
 }
 
-const REFERENCE_VERDICTS = ALGORITHM_REFERENCE_VERDICTS;
-
 function parseReferenceVerdict(value: string): AlgorithmReferenceVerdict {
   const normalized = value.trim().toLowerCase();
-  if ((REFERENCE_VERDICTS as readonly string[]).includes(normalized)) {
+  if ((ALGORITHM_REFERENCE_VERDICTS as readonly string[]).includes(normalized)) {
     return normalized as AlgorithmReferenceVerdict;
   }
-  throw new Error(`--verdict must be one of ${REFERENCE_VERDICTS.join("|")}, got: ${value}`);
+  throw new Error(`--verdict must be one of ${ALGORITHM_REFERENCE_VERDICTS.join("|")}, got: ${value}`);
 }
 
 function parseBatchOperation(value: string): AlgorithmBatchOperation {

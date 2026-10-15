@@ -50,6 +50,17 @@ export function repositoryBaseRevision(root: string): string {
   }).trim();
 }
 
+/** A repo file's JSON at the Git base, or null when the base has no such file (first landing). */
+export function readJsonAtBase(root: string, path: string): unknown {
+  try {
+    const text = execFileSync("git", ["show", `${repositoryBaseRevision(root)}:${path}`], { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return JSON.parse(text) as unknown;
+  } catch (error) {
+    if (error instanceof Error && /does not exist|exists on disk, but not in/.test(error.message)) return null;
+    throw error;
+  }
+}
+
 export type EdgeKind = "import" | "type-import" | "re-export" | "dynamic-import";
 export type ViolationRule = "direction" | "public-entry" | "unit" | "test-index" | "test-public-entry";
 

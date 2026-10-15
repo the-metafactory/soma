@@ -1,6 +1,7 @@
 {
   "127.0.0.1|::1|[::1]|localhost": 2,
   "actions|digests|sessions": 2,
+  "alert|allow|ask ~ alert|allow|ask|deny": 3,
   "alert|allow|ask|deny": 2,
   "all|deny|none": 4,
   "apply|plan|status": 2,
@@ -8,12 +9,18 @@
   "approval-required|artifact-escape|capability-unsupported|internal|invalid-request|malformed-output|policy-denied|projection-stale|substrate-exit|substrate-unavailable|substrate-version-unsupported|timeout|writeback-failed": 2,
   "cancelled|completed|failed": 2,
   "checkpointId|closedAt|closer|gatedNodeHash|receiptCommentId": 2,
+  "claude-code|codex|cursor|dsh|grok|pi-dev ~ anthropic-cowork|claude-code|codex|cursor|dsh|grok|pi-dev": 2,
   "consolidation|conversation|import": 2,
   "deferred-probe|dropped|failed|passed": 7,
+  "deferred-probe|dropped|failed|passed ~ deferred-probe|dropped|failed|open|passed": 8,
+  "deferred-probe|dropped|passed ~ deferred-probe|dropped|failed|passed": 8,
   "duplicate|refused|skipped|suppressed|unreadable|written": 2,
   "Epic|Issue|Task": 2,
   "EPIC|ISSUE|TASK": 2,
   "error|feature|master|merged": 3,
   "fast|smart|standard": 2,
-  "feature|master|merged": 2
+  "feature|master|merged": 2,
+  "feature|master|merged ~ error|feature|master|merged": 5,
+  "high|low|medium ~ critical|high|low|medium": 2,
+  "learning|metrics|opinion|relationship|session|wisdom ~ inference|learning|metrics|opinion|relationship|session|wisdom": 2
 }

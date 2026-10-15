@@ -6,8 +6,10 @@
  * `as const` array (or two unions, or two arrays) spelling the same members
  * by hand, which then drift (GoalStatus vs GOAL_STATUSES, #856; the forge list
  * in #695; the substrate set re-typed per command). This check parses
- * `src/**\/*.ts` and fails when a change adds a hand-written list that carries
- * the same set of three or more string literals as another.
+ * `src/**\/*.ts` and fails when a change adds a hand-written list of three or
+ * more string literals that carries the same set as another list, or the same
+ * set with one member added or dropped (a copy that has started to drift).
+ * A copy that drifted further, or one with a renamed member, is not caught.
  *
  * Counted lists:
  * - a union type whose members are all string literals (also inside
@@ -32,12 +34,11 @@
  *
  * Usage: bun scripts/check-literal-sets.ts [root] [--write-baseline]
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
 import ts from "typescript";
-import { repositoryBaseRevision } from "./check-boundaries";
+import { readJsonAtBase } from "./check-boundaries";
 
 export interface LiteralList {
   file: string;
@@ -126,44 +127,65 @@ export function collectLiteralLists(file: string, text: string): LiteralList[] {
   return lists;
 }
 
-export function findDuplicateSets(lists: LiteralList[]): LiteralList[][] {
-  const bySet = new Map<string, LiteralList[]>();
-  for (const list of lists) {
-    const key = JSON.stringify(list.members);
-    bySet.set(key, [...(bySet.get(key) ?? []), list]);
-  }
-  return [...bySet.values()].filter((group) => group.length > 1);
+/** Lists that copy each other: the same members, or one member added or dropped. */
+export interface CopyGroup {
+  /** `a|b|c` for an exact copy; `a|b|c ~ a|b|c|d` for a near copy. */
+  key: string;
+  lists: LiteralList[];
 }
 
-export async function checkLiteralSets(root: string): Promise<LiteralList[][]> {
+/**
+ * Exact copies share a member set. A near copy is one member short of another
+ * list (the pre-dsh `"codex" | … | "grok"` beside the six shipped substrates):
+ * drift is what makes copies stop matching, so an exact-only check would miss
+ * the copies that already went wrong.
+ */
+export function findCopies(lists: LiteralList[]): CopyGroup[] {
+  const bySet = new Map<string, LiteralList[]>();
+  for (const list of lists) {
+    const key = list.members.join("|");
+    bySet.set(key, [...(bySet.get(key) ?? []), list]);
+  }
+  const groups: CopyGroup[] = [...bySet].filter(([, group]) => group.length > 1).map(([key, group]) => ({ key, lists: group }));
+  const sets = [...bySet].map(([key, group]) => ({ key, group, members: new Set(group[0]?.members ?? []) }));
+  for (const small of sets) {
+    for (const large of sets) {
+      if (large.members.size !== small.members.size + 1) continue;
+      if (![...small.members].every((member) => large.members.has(member))) continue;
+      groups.push({ key: `${small.key} ~ ${large.key}`, lists: [...small.group, ...large.group] });
+    }
+  }
+  return groups.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+export async function checkLiteralSets(root: string): Promise<CopyGroup[]> {
   const lists: LiteralList[] = [];
   for await (const path of new Glob("src/**/*.ts").scan({ cwd: root })) {
     const absolute = resolve(root, path);
     lists.push(...collectLiteralLists(relative(root, absolute), readFileSync(absolute, "utf8")));
   }
-  return findDuplicateSets(lists);
+  return findCopies(lists);
 }
 
-/** Known copies: member set (joined by `|`) → how many hand-written lists carry it. */
+/** Known copies: group key → how many hand-written lists it holds. */
 export type LiteralSetBaseline = Record<string, number>;
 
-export function baselineOf(duplicates: LiteralList[][]): LiteralSetBaseline {
-  const entries = duplicates.map((group) => [group[0]?.members.join("|") ?? "", group.length] as const);
-  return Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b)));
+export function baselineOf(copies: CopyGroup[]): LiteralSetBaseline {
+  return Object.fromEntries(copies.map((group) => [group.key, group.lists.length] as const));
 }
 
 export interface LiteralSetFindings {
-  /** A set with more copies than the baseline allows. */
-  added: LiteralList[][];
+  /** A group with more lists than the baseline allows. */
+  added: CopyGroup[];
   /** A baseline entry whose copies were removed; the baseline must shrink with them. */
   stale: string[];
   /** A baseline entry raised above the base revision's. */
   raised: string[];
 }
 
-export function compareWithBaseline(duplicates: LiteralList[][], baseline: LiteralSetBaseline, base: LiteralSetBaseline | null): LiteralSetFindings {
-  const current = baselineOf(duplicates);
-  const added = duplicates.filter((group) => group.length > (baseline[group[0]?.members.join("|") ?? ""] ?? 0));
+export function compareWithBaseline(copies: CopyGroup[], baseline: LiteralSetBaseline, base: LiteralSetBaseline | null): LiteralSetFindings {
+  const current = baselineOf(copies);
+  const added = copies.filter((group) => group.lists.length > (baseline[group.key] ?? 0));
   const stale = Object.keys(baseline).filter((key) => (current[key] ?? 0) < (baseline[key] ?? 0));
   const raised = base === null ? [] : Object.keys(baseline).filter((key) => (baseline[key] ?? 0) > (base[key] ?? 0));
   return { added, stale, raised };
@@ -174,35 +196,24 @@ function readBaseline(root: string): LiteralSetBaseline {
   return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as LiteralSetBaseline) : {};
 }
 
-/** The baseline at the Git base, or null on first landing (no baseline there yet). */
-function readBaseBaseline(root: string): LiteralSetBaseline | null {
-  try {
-    const text = execFileSync("git", ["show", `${repositoryBaseRevision(root)}:${BASELINE_PATH}`], { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-    return JSON.parse(text) as LiteralSetBaseline;
-  } catch (error) {
-    if (error instanceof Error && /does not exist|exists on disk, but not in/.test(error.message)) return null;
-    throw error;
-  }
-}
-
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const root = resolve(args.find((arg) => !arg.startsWith("--")) ?? ".");
-  const duplicates = await checkLiteralSets(root);
+  const copies = await checkLiteralSets(root);
   if (args.includes("--write-baseline")) {
     mkdirSync(dirname(join(root, BASELINE_PATH)), { recursive: true });
-    writeFileSync(join(root, BASELINE_PATH), `${JSON.stringify(baselineOf(duplicates), null, 2)}\n`);
-    console.log(`literal sets: wrote ${BASELINE_PATH} (${String(duplicates.length)} known copies)`);
+    writeFileSync(join(root, BASELINE_PATH), `${JSON.stringify(baselineOf(copies), null, 2)}\n`);
+    console.log(`literal sets: wrote ${BASELINE_PATH} (${String(copies.length)} known copies)`);
     process.exit(0);
   }
-  const { added, stale, raised } = compareWithBaseline(duplicates, readBaseline(root), readBaseBaseline(root));
+  const { added, stale, raised } = compareWithBaseline(copies, readBaseline(root), readJsonAtBase(root, BASELINE_PATH) as LiteralSetBaseline | null);
   for (const group of added) {
-    console.error(`new copy of literal set {${group[0]?.members.join(", ") ?? ""}}:`);
-    for (const list of group) console.error(`  ${list.file}:${String(list.line)} (${list.kind})`);
+    console.error(`new copy of literal set {${group.key}}:`);
+    for (const list of group.lists) console.error(`  ${list.file}:${String(list.line)} (${list.kind})`);
   }
   if (added.length > 0) {
     console.error(
-      `\nA hand-written list repeats one that already exists. Keep one \`as const\` array and derive the others:\n` +
+      `\nA hand-written list repeats, or is one member off, a list that already exists. Keep one \`as const\` array and derive the others:\n` +
         "  type X = (typeof XS)[number];   Extract<X, ...> of that type;   XS.filter(...)\n" +
         `A deliberate coincidence takes \`// ${ALLOW_MARKER} <reason>\` above one list. See AGENTS.md "Enforced rules".`,
     );
@@ -210,5 +221,5 @@ if (import.meta.main) {
   for (const key of stale) console.error(`stale baseline entry {${key}}: copies were removed; run \`bun scripts/check-literal-sets.ts --write-baseline\` to shrink ${BASELINE_PATH}`);
   for (const key of raised) console.error(`baseline entry {${key}} grew against the base revision; ${BASELINE_PATH} may only shrink`);
   if (added.length + stale.length + raised.length > 0) process.exit(1);
-  console.log(`literal sets: no new copies (${String(duplicates.length)} known, baselined)`);
+  console.log(`literal sets: no new copies (${String(copies.length)} known, baselined)`);
 }
