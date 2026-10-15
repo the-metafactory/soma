@@ -7,6 +7,8 @@ import { parseGraphArgs, runGraphCli } from "../src/cli/graph";
 import { SomaCliError } from "../src/cli/errors";
 import type { CreateNodeSpec, GraphStore, NodeState } from "../src/work-graph";
 import { hasProposalMarker, proposalMarker } from "../src/proposal-file";
+import { createGitHubGraphStore, type GitHubApiTransport } from "../src/work-graph-github";
+import { WorkGraphError } from "../src/work-graph";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const BRIEF = "## Deliverable\nA check that refuses the bad output.\n\n## Acceptance criteria\n- The check fails on the cited case.\n";
@@ -59,10 +61,15 @@ interface Fixture {
   repos: string[];
 }
 
-function fixture(options: { children?: NodeState[]; createError?: Error; readError?: Error } = {}): Fixture {
+function fixture(options: { children?: NodeState[]; createError?: Error; readError?: Error; attachFailures?: number; markerError?: Error } = {}): Fixture {
   const nodes = new Map<string, NodeState>([["777", state("777")]]);
   for (const child of options.children ?? []) nodes.set(child.ref.id, { parent: { id: "777" }, ...child });
   const created: CreateNodeSpec[] = [];
+  let attachFailures = options.attachFailures ?? 0;
+  const attach = (child: string, parent: NodeState["parent"]): void => {
+    if (attachFailures-- > 0) throw new Error("HTTP 403: sub-issue attachment refused");
+    lookup(child).parent = parent;
+  };
   const lookup = (id: string): NodeState => {
     const node = nodes.get(id);
     if (node === undefined) throw new Error(`No fixture node ${id}`);
@@ -77,12 +84,17 @@ function fixture(options: { children?: NodeState[]; createError?: Error; readErr
       if (options.createError !== undefined) throw options.createError;
       created.push(spec);
       const id = String(900 + created.length);
-      nodes.set(id, state(id, { node: { ...spec, id } as NodeState["node"], body: spec.body, ...(spec.parent === undefined ? {} : { parent: spec.parent }) }));
+      nodes.set(id, state(id, { node: { ...spec, id } as NodeState["node"], body: spec.body }));
+      if (spec.parent !== undefined) attach(id, spec.parent);
       return { id };
     },
-    attachToParent: unsupported,
+    attachToParent: async (child, parent) => { attach(child.id, parent); },
     addBlockingEdge: unsupported,
     readNode: async (ref) => lookup(ref.id),
+    findNodesByBodyMarker: async (marker) => {
+      if (options.markerError !== undefined) throw options.markerError;
+      return [...nodes.values()].filter((node) => node.body?.includes(marker));
+    },
     readSubtree: async (root) => {
       if (options.readError !== undefined) throw options.readError;
       return await walkFakeSubtree(
@@ -168,6 +180,96 @@ test("a second run finds the marker under the map and files nothing, even once t
   });
   expect(await run(fx, "errata-x-g1")).toContain("already filed as the-metafactory/soma#851");
   expect(JSON.parse(await run(fx, "errata-x-g1", true))).toEqual({ ref: "the-metafactory/soma#851", created: false });
+  expect(fx.created).toHaveLength(0);
+});
+
+test("a partial creation is recovered across retries without creating another node", async () => {
+  await writeProposal("errata-partial-g1");
+  const fx = fixture({ attachFailures: 2 });
+  expect(await refusal(run(fx, "errata-partial-g1"))).toContain("HTTP 403: sub-issue attachment refused");
+  expect(fx.created).toHaveLength(1);
+  expect(await refusal(run(fx, "errata-partial-g1"))).toContain("HTTP 403: sub-issue attachment refused");
+  expect(fx.created).toHaveLength(1);
+  expect(JSON.parse(await run(fx, "soma:proposals/errata-partial-g1.md", true))).toEqual({ ref: "the-metafactory/soma#901", created: false });
+  expect((await fx.store.readSubtree({ id: "777" })).map((node) => node.ref.id)).toContain("901");
+  expect(await run(fx, "errata-partial-g1")).toContain("already filed as the-metafactory/soma#901");
+  expect(fx.created).toHaveLength(1);
+});
+
+test("GitHub membership failure is recovered by a fresh store on the next invocation", async () => {
+  await writeProposal("errata-restart-g1");
+  const issue = (number: number, title: string, body: string) => ({
+    number, id: number + 1000, title, body, state: "open",
+    updated_at: "2026-10-15T10:00:00Z", user: { login: "ivy-agent" }, assignees: [],
+  });
+  const root = issue(777, "Map", "");
+  let child: ReturnType<typeof issue> | undefined;
+  let attached = false;
+  let creates = 0;
+  let attaches = 0;
+  const transport: GitHubApiTransport = async (request) => {
+    if (request.method === "POST" && request.path === "repos/the-metafactory/soma/issues") {
+      creates++;
+      child = issue(901, String(request.body?.title), String(request.body?.body));
+      return child;
+    }
+    if (request.path.endsWith("/777/sub_issues")) {
+      expect(request.body?.sub_issue_id).toBe(1901);
+      if (++attaches === 1) throw new Error("HTTP 403: attachment refused");
+      attached = true;
+      return {};
+    }
+    if (request.path.includes("issues?state=all")) return [root, ...(child ? [child] : [])];
+    if (request.path.endsWith("/dependencies/blocked_by")) return [];
+    if (request.path.endsWith("/parent")) {
+      if (attached && request.path.includes("/901/")) return root;
+      throw new WorkGraphError("backend", "HTTP 404: Not Found");
+    }
+    if (request.path.endsWith("/777")) return root;
+    if (request.path.endsWith("/901") && child) return child;
+    throw new Error(`unexpected request ${request.method} ${request.path}`);
+  };
+  const invoke = () => runGraphCli(parseGraphArgs(["graph", "file-proposal", "errata-restart-g1", "--json"]), {
+    somaHome: home,
+    createStore: () => {
+      // Only map traversal is stubbed. Create, marker discovery, parent reads
+      // and attachment all use the GitHub adapter, with no retained store cache.
+      const store = createGitHubGraphStore({ repo: "the-metafactory/soma", transport });
+      store.readSubtree = async () => Promise.all((attached ? ["777", "901"] : ["777"]).map((id) => store.readNode({ id })));
+      return store;
+    },
+  });
+  expect(await refusal(invoke())).toContain("HTTP 403: attachment refused");
+  expect(creates).toBe(1);
+  expect(attached).toBe(false);
+  expect(JSON.parse(await invoke())).toEqual({ ref: "the-metafactory/soma#901", created: false });
+  expect(attached).toBe(true);
+  expect(JSON.parse(await invoke())).toEqual({ ref: "the-metafactory/soma#901", created: false });
+  expect(creates).toBe(1);
+  expect(attaches).toBe(2);
+});
+
+test("failed or unsupported marker discovery refuses before creation", async () => {
+  await writeProposal("errata-x-g1");
+  const fx = fixture({ markerError: new Error("HTTP 403: issues read denied") });
+  expect(await refusal(run(fx, "errata-x-g1"))).toContain("HTTP 403: issues read denied");
+  expect(fx.created).toHaveLength(0);
+  delete fx.store.findNodesByBodyMarker;
+  expect(await refusal(run(fx, "errata-x-g1"))).toContain("cannot discover unattached proposal nodes");
+  expect(fx.created).toHaveLength(0);
+});
+
+test("a marker outside the target map never reparents a node or creates another", async () => {
+  await writeProposal("errata-x-g1");
+  const fx = fixture({ children: [state("850", { parent: { id: "888" }, body: proposalMarker("errata-x-g1") })] });
+  expect(await refusal(run(fx, "errata-x-g1"))).toContain("already attached to 888");
+  expect(fx.created).toHaveLength(0);
+});
+
+test("ambiguous markers outside the map refuse another create", async () => {
+  await writeProposal("errata-x-g1");
+  const fx = fixture({ children: ["850", "851"].map((id) => state(id, { parent: undefined, body: proposalMarker("errata-x-g1") })) });
+  expect(await refusal(run(fx, "errata-x-g1"))).toContain("multiple nodes carry");
   expect(fx.created).toHaveLength(0);
 });
 

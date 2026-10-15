@@ -70,7 +70,7 @@ import {
 } from "../work-graph";
 import { deriveAttestation, findGraphRoot } from "../work-graph-attestation";
 import { GITHUB_DOTCOM, displayRepo, formatRepoRef, parseLocatedNodeId, type RepoRef } from "../work-graph-ref";
-import { ProposalFileError, hasProposalMarker, proposalNodeSpec, readProposalFile, type ProposalFile } from "../proposal-file";
+import { ProposalFileError, hasProposalMarker, proposalMarker, proposalNodeSpec, readProposalFile, type ProposalFile } from "../proposal-file";
 import {
   isProbeRefusal,
   loadProbeRegistry as defaultLoadProbeRegistry,
@@ -1777,7 +1777,9 @@ function landingNodeRef(landing: string, id: string): string {
  * File the node a proposal describes (soma#903 D6, D9). Everything the file can
  * get wrong is refused before the store is opened; the marker search reads the
  * whole map, closed nodes included, so a re-run after the node closed still
- * returns it rather than filing a second. The create goes through
+ * returns it rather than filing a second. A repo-wide live marker lookup also
+ * finds a creation whose membership write failed; retries attach that node.
+ * The create goes through
  * {@link WorkGraph.createNode} — `soma graph add`'s one validation barrier — so
  * a refused or partial write is reported, never retried around.
  */
@@ -1792,7 +1794,8 @@ async function runFileProposal(parsed: ParsedGraphFileProposalArgs, deps: GraphC
 
   const { landing, map_root: mapRoot } = proposal.frontMatter;
   const mapRef = `${landing}#${mapRoot}`;
-  const graph = new WorkGraph(deps.createStore({ forge: "github", host: GITHUB_DOTCOM, path: landing }));
+  const store = deps.createStore({ forge: "github", host: GITHUB_DOTCOM, path: landing });
+  const graph = new WorkGraph(store);
   const render = (ref: string, created: boolean): string => parsed.options.json === true
     ? JSON.stringify({ ref, created }, null, 2)
     : created ? `Filed ${ref} under ${mapRef} for proposal ${proposal.ref}.` : `Proposal ${proposal.ref} was already filed as ${ref}.`;
@@ -1805,6 +1808,21 @@ async function runFileProposal(parsed: ParsedGraphFileProposalArgs, deps: GraphC
   }
   const existing = subtree.find((state) => hasProposalMarker(state.body, proposal.ref));
   if (existing !== undefined) return render(landingNodeRef(landing, existing.ref.id), false);
+
+  // A failed membership POST can leave an issue outside every subtree, even
+  // when createNode throws. Discover it from the forge, not process-local state.
+  try {
+    if (store.findNodesByBodyMarker === undefined) throw new Error("store cannot discover unattached proposal nodes");
+    const matches = await store.findNodesByBodyMarker(proposalMarker(proposal.ref));
+    if (matches.length > 1) throw new Error(`multiple nodes carry proposal ${proposal.ref}'s marker; refusing another create`);
+    const [partial] = matches;
+    if (partial !== undefined) {
+      await graph.attach(partial.ref, { id: String(mapRoot) });
+      return render(landingNodeRef(landing, partial.ref.id), false);
+    }
+  } catch (error) {
+    throw new SomaCliError(`soma graph file-proposal: retry discovery or attachment under ${mapRef} failed, nothing created: ${errorMessage(error)}`, 1);
+  }
 
   const spec = proposalNodeSpec(proposal);
   let created: CreatedNode;

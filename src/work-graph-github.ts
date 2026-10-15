@@ -824,6 +824,35 @@ class GitHubGraphStore implements GraphStore {
     return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref, issue, state.node.completion) };
   }
 
+  async findNodesByBodyMarker(marker: string): Promise<NodeState[]> {
+    const context = `findNodesByBodyMarker in ${this.repo}`;
+    if (marker.length === 0) throw new WorkGraphError("invalid-node", `${context}: marker must not be empty`);
+    try {
+      // The live issues endpoint has no search-index lag. The transport follows
+      // every page; state=all includes a closed or detached partial creation.
+      const issues = asArray(await this.transport({
+        method: "GET",
+        path: `repos/${this.repo}/issues?state=all&sort=created&direction=asc&per_page=100`,
+        paginate: true,
+      }), context);
+      const matches: NodeState[] = [];
+      for (const entry of issues) {
+        const issue = asRecord(entry, context);
+        if (issue.pull_request !== undefined) continue;
+        if (issue.body !== null && typeof issue.body !== "string") {
+          throw new WorkGraphError("backend", `${context}: missing issue body`);
+        }
+        if (typeof issue.body !== "string" || !issue.body.includes(marker)) continue;
+        const number = readNumber(issue, "number", context);
+        const state = await this.readNode({ id: String(number) }, { includeCurrentCloseReceipt: false });
+        if (state.body?.includes(marker)) matches.push(state);
+      }
+      return matches;
+    } catch (error) {
+      throw new WorkGraphError("backend", `${context}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async listOpenRoots(serves: string): Promise<NodeState[]> {
     if (!/^G\d+$/u.test(serves)) {
       throw new WorkGraphError("invalid-node", `listOpenRoots in ${this.repo}: serves must be a G<n> goal ID`);

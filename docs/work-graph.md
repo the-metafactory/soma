@@ -804,7 +804,13 @@ body must pass the `build-brief-not-ready` check; every other kind is filed as
 refuses it. The verb appends `<!-- soma:proposal-ref: <ref> -->` to the body
 and refuses a body that already carries one. Before filing it reads the whole
 map, closed nodes included: a node carrying the marker is returned and nothing
-is filed (exit 0). The create goes through the same `WorkGraph.createNode` as
+is filed (exit 0). When no map node matches, a live, fully paginated repository
+scan checks for a marked issue left unattached by a failed membership write.
+A retry attaches that existing issue through `WorkGraph.attach`, then returns
+its ref with `created: false`. A failed scan or attachment refuses another
+creation; a node under another parent is never moved. Discovery reads the
+forge rather than a search index or local receipt, so a process restart keeps
+the same retry behavior. The create goes through the same `WorkGraph.createNode` as
 `add`, so a refused write or an unreadable map exits 1 with the forge's
 reason. It prints the node ref (`owner/repo#N`); `--json` prints
 `{ "ref": "owner/repo#N", "created": true|false }`.
