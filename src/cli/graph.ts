@@ -69,7 +69,8 @@ import {
   type WorkGraphEvidenceKind,
 } from "../work-graph";
 import { deriveAttestation, findGraphRoot } from "../work-graph-attestation";
-import { displayRepo, formatRepoRef, parseLocatedNodeId, type RepoRef } from "../work-graph-ref";
+import { GITHUB_DOTCOM, displayRepo, formatRepoRef, parseLocatedNodeId, type RepoRef } from "../work-graph-ref";
+import { ProposalFileError, hasProposalMarker, proposalMarker, proposalNodeSpec, readProposalFile, type ProposalFile } from "../proposal-file";
 import {
   isProbeRefusal,
   loadProbeRegistry as defaultLoadProbeRegistry,
@@ -93,13 +94,13 @@ import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 import { GOAL_ID_PATTERN, readGoalStatus, warnServes, type ServesOptions } from "../goal-reference";
 
-const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "add", "link", "chart", "close", "audit", "decisions"] as const;
+const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "add", "link", "chart", "close", "audit", "decisions", "file-proposal"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|edit|claim|release|add|link|chart|close|audit|decisions> ...",
+  usage: "Usage: soma graph <frontier|node|edit|claim|release|add|link|chart|close|audit|decisions|file-proposal> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--json]",
     node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--json]",
@@ -114,6 +115,8 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <forge>:<host>/<path>]",
     audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--json] — scoped audits omit unchecked findings",
     decisions: "Usage: soma graph decisions <root> [--write] [--repo <forge>:<host>/<path>] [--json]",
+    "file-proposal":
+      "Usage: soma graph file-proposal <proposal_ref> [--json] — file the node a <soma-home>/proposals/<ref>.md proposal describes under its landing map; a second run returns the node already filed",
   },
 };
 
@@ -219,7 +222,16 @@ export interface ParsedGraphDecisionsArgs {
   };
 }
 
+export interface ParsedGraphFileProposalArgs {
+  command: "graph";
+  action: "file-proposal";
+  target: string;
+  /** No `--repo`: the proposal's `landing` names the store. */
+  options: { json?: boolean };
+}
+
 export type ParsedGraphArgs =
+  | ParsedGraphFileProposalArgs
   | ParsedGraphFrontierArgs
   | ParsedGraphNodeArgs
   | ParsedGraphEditArgs
@@ -542,6 +554,11 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   if (action === "add") return parseAddArgs(resolvedTarget, rest);
   if (action === "link") return parseLinkArgs(resolvedTarget, rest);
   if (action === "close") return parseCloseArgs(resolvedTarget, rest);
+  if (action === "file-proposal") {
+    const unknown = rest.find((arg) => arg !== "--json");
+    if (unknown !== undefined) throw new Error(`Unknown option: ${unknown}`);
+    return { command, action, target: resolvedTarget, options: rest.length > 0 ? { json: true } : {} };
+  }
 
   const options: GraphSharedOptions & { identity?: string; title?: string; bodyFile?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready" } = {};
   for (let index = 0; index < rest.length; index += 1) {
@@ -596,7 +613,8 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
 // Dependencies
 // ---------------------------------------------------------------------------
 
-export interface GraphCliDeps extends Pick<ServesOptions, "goalStatus" | "warn"> {
+/** `somaHome` is where `file-proposal` reads `proposals/` (and serves checks read goals); unset means `SOMA_HOME`, otherwise `~/.soma`. */
+export interface GraphCliDeps extends Pick<ServesOptions, "goalStatus" | "warn" | "somaHome"> {
   /** The store for a resolved ref (#535 D1) — the ref's forge decides the backend. */
   createStore: (repo: RepoRef) => GraphStore;
   /** `explicit` is `--repo` as typed; see {@link resolveGraphRepo} for the order. */
@@ -1750,6 +1768,93 @@ async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, 
   return [`Decisions — root ${parsed.target} (${repo}), derived from close receipts`, "", rendered].join("\n");
 }
 
+/** `owner/repo#N` for a node of the landing store; a foreign node's id already carries its repo. */
+function landingNodeRef(landing: string, id: string): string {
+  return /^\d+$/u.test(id) ? `${landing}#${id}` : id;
+}
+
+/** A body marker is untrusted text; only the authenticated filer's API author can bind it. */
+async function authenticatedProposalMatch(store: GraphStore, matches: NodeState[], proposalRef: string): Promise<NodeState | undefined> {
+  if (matches.length === 0) return undefined;
+  const filer = await store.actingIdentity();
+  if (filer.length === 0) throw new Error("cannot verify proposal authorship: authenticated filer is missing");
+  for (const match of matches) {
+    // GitHub logins are case-insensitive. Missing/deleted authors never match.
+    if (match.author.length === 0 || match.author.toLowerCase() !== filer.toLowerCase()) {
+      throw new Error(`node ${match.ref.id} carries proposal ${proposalRef}'s marker but its author ${JSON.stringify(match.author)} is not authenticated filer ${JSON.stringify(filer)}; refusing to use it`);
+    }
+  }
+  if (matches.length > 1) throw new Error(`multiple nodes carry proposal ${proposalRef}'s marker; refusing another create`);
+  return matches[0];
+}
+
+/** Recover a failed membership write from live forge state, after verifying who filed it. */
+async function recoverPartialProposalNode(store: GraphStore, graph: WorkGraph, proposal: ProposalFile, mapRoot: number): Promise<NodeRef | undefined> {
+  if (store.findNodesByBodyMarker === undefined) throw new Error("store cannot discover unattached proposal nodes");
+  const matches = await store.findNodesByBodyMarker(proposalMarker(proposal.ref));
+  const partial = await authenticatedProposalMatch(store, matches, proposal.ref);
+  if (partial === undefined) return undefined;
+  await graph.attach(partial.ref, { id: String(mapRoot) });
+  return partial.ref;
+}
+
+/**
+ * File the node a proposal describes (soma#903 D6, D9). Everything the file can
+ * get wrong is refused before the store is opened; the marker search reads the
+ * whole map, closed nodes included, so a re-run after the node closed still
+ * returns it rather than filing a second. A repo-wide live marker lookup also
+ * finds a creation whose membership write failed; retries attach that node.
+ * Matches must be authored by the authenticated filer before they are used.
+ * The create goes through {@link WorkGraph.createNode} — `soma graph add`'s
+ * one validation barrier. A refused or partial write is reported; a later
+ * invocation can recover a partial creation without creating another node.
+ */
+async function runFileProposal(parsed: ParsedGraphFileProposalArgs, deps: GraphCliDeps): Promise<string> {
+  let proposal: ProposalFile;
+  try {
+    proposal = await readProposalFile(deps.somaHome ?? resolve(process.env.SOMA_HOME ?? `${homedir()}/.soma`), parsed.target);
+  } catch (error) {
+    if (error instanceof ProposalFileError) throw new SomaCliError(`soma graph file-proposal refused: ${error.message}`, 1);
+    throw error;
+  }
+
+  const { landing, map_root: mapRoot } = proposal.frontMatter;
+  const mapRef = `${landing}#${mapRoot}`;
+  const store = deps.createStore({ forge: "github", host: GITHUB_DOTCOM, path: landing });
+  const graph = new WorkGraph(store);
+  const render = (ref: string, created: boolean): string => parsed.options.json === true
+    ? JSON.stringify({ ref, created }, null, 2)
+    : created ? `Filed ${ref} under ${mapRef} for proposal ${proposal.ref}.` : `Proposal ${proposal.ref} was already filed as ${ref}.`;
+
+  let subtree: NodeState[];
+  try {
+    subtree = await graph.readSubtree({ id: String(mapRoot) }, { includeCurrentCloseReceipt: false });
+  } catch (error) {
+    throw new SomaCliError(`soma graph file-proposal: map ${mapRef} is unreadable, nothing filed: ${errorMessage(error)}`, 1);
+  }
+  try {
+    const existing = await authenticatedProposalMatch(store, subtree.filter((state) => hasProposalMarker(state.body, proposal.ref)), proposal.ref);
+    if (existing !== undefined) return render(landingNodeRef(landing, existing.ref.id), false);
+    const partial = await recoverPartialProposalNode(store, graph, proposal, mapRoot);
+    if (partial !== undefined) return render(landingNodeRef(landing, partial.id), false);
+  } catch (error) {
+    throw new SomaCliError(`soma graph file-proposal: retry discovery or attachment under ${mapRef} failed, nothing created: ${errorMessage(error)}`, 1);
+  }
+
+  const spec = proposalNodeSpec(proposal);
+  let created: CreatedNode;
+  try {
+    created = await graph.createNode({ ...spec, parent: { id: String(mapRoot) } });
+  } catch (error) {
+    throw new SomaCliError(`soma graph file-proposal: the forge refused the node under ${mapRef}: ${errorMessage(error)}`, 1);
+  }
+  const ref = landingNodeRef(landing, created.id);
+  if (!created.attached) {
+    throw new SomaCliError(`soma graph file-proposal: created ${ref} but attaching it to ${mapRef} failed: ${created.attachError ?? "unknown error"}. Finish wiring: soma graph link ${shellWord(created.id)} --parent ${mapRoot} --repo ${landing}`, 1);
+  }
+  return render(ref, true);
+}
+
 /**
  * Which store the verb opens, and the target and edge ids as that store reads
  * them — through the bridge's {@link resolveNodeTarget}, so a verb and a
@@ -1757,9 +1862,9 @@ async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, 
  * edge refuses as a usage error.
  */
 async function resolveGraphTarget(
-  parsed: ParsedGraphArgs,
+  parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs>,
   deps: GraphCliDeps,
-): Promise<{ repo: RepoRef; parsed: ParsedGraphArgs }> {
+): Promise<{ repo: RepoRef; parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs> }> {
   try {
     if (parsed.action === "chart") return { repo: await deps.resolveRepo(parsed.options.repo), parsed };
     const { repo, id: target } = await resolveNodeTarget(parsed.target, parsed.options.repo, deps.resolveRepo);
@@ -1781,6 +1886,7 @@ function withBlockers<T extends ParsedGraphAddArgs | ParsedGraphLinkArgs>(parsed
 
 export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
   const deps: GraphCliDeps = { ...defaultDeps(), ...overrides };
+  if (input.action === "file-proposal") return await runFileProposal(input, deps);
   const { repo: repoRef, parsed } = await resolveGraphTarget(input, deps);
   const store = deps.createStore(repoRef);
   const graph = new WorkGraph(store);

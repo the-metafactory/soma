@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `soma graph file-proposal <proposal_ref>` files the node a `<soma-home>/proposals/<ref>.md` proposal describes under its `landing#map_root`: a `deterministic-check` as `kind: build, autonomy: propose`, every other kind as `kind: grilling, autonomy: approve`. It refuses a ref outside `proposals/` (after realpath and percent-decoding), a missing file, front-matter that fails the schema and a body `build-brief-not-ready` would flag, and files nothing. The node body carries a `<!-- soma:proposal-ref: <ref> -->` marker, so a second run returns the node already filed. `--json` prints `{ "ref", "created" }`. (node #908)
+
 ### Changed
 
 - `bun run harness-eval` reports rejected passes per check (with `errata_unlinked`) and Errata fix closure (proposed clusters fixed), both derived from the Errata ledger and `n/a` when it holds nothing in the window. The `feedback_closure_rate` proxy is retired from the metrics, the baseline and `docs/harness-objective-function.md`; the silent-capture guard in `--check` now counts `feedback.candidate` events directly. (node #853)

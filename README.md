@@ -638,6 +638,7 @@ soma graph link <id> [--blocked-by <ref>]... [--parent <id>]  # wire a blocker l
 soma graph close <id> --resolution-file <path>
 soma graph audit <root>      # what the gates cannot see
 soma graph decisions <root>  # the map's resolutions, collected
+soma graph file-proposal <proposal_ref>  # file an approved soma-home proposal; a re-run returns the same node
 ```
 
 The store is a seam with GitHub and GitLab backends. On GitLab, a typed map root

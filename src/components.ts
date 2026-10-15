@@ -115,7 +115,7 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "algorithm", "legacy"],
   },
   graph: {
-    files: ["src/work-graph", "src/work-graph-*", "src/build-brief"],
+    files: ["src/work-graph", "src/work-graph-*", "src/build-brief", "src/proposal-file"],
     mayImport: ["core", "legacy"],
   },
   execution: {

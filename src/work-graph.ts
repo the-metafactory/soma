@@ -735,6 +735,13 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
    */
   listOpenRoots?(serves: string): Promise<NodeState[]>;
   /**
+   * Find bodies containing an exact marker anywhere in this repo, including
+   * closed and unattached nodes. Read live, paginate completely, and reject on
+   * any failed read: a false negative could make a retry create a duplicate.
+   * Absence means unsupported, never an empty result.
+   */
+  findNodesByBodyMarker?(marker: string): Promise<NodeState[]>;
+  /**
    * Every node in the root's membership **subtree**, at any depth, in
    * depth-first pre-order, each reported at its **current** state.
    *
