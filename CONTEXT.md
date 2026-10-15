@@ -568,6 +568,14 @@ A Soma capability [[compartment]] entry. Portable folder containing `SKILL.md`, 
 
 **Soma's canonical, unqualified term.** Whenever `skill` appears in Soma docs or code without a qualifier, it means a Soma skill.
 
+### playbook card (always qualified)
+
+A step list for one task shape under the Algorithm's effort tier, shipped in the-algorithm's `references/playbooks/` (soma#922). Its steps are copied verbatim into the run's todo list. **Not** a procedural memory note (`memory/procedural/<id>.md`, "playbooks / how-to" in docs/architecture.md): that is principal-learned memory, recalled by trigger; a playbook card is shipped doctrine, picked by task shape.
+
+### Algorithm principle (always qualified)
+
+An engineering heuristic in the-algorithm's closed vocabulary (`references/principles/`, soma#922), named in a reply only next to the decision it changed. **Not** a Purpose principle (the principal's values in `profile/purpose.md`), and subordinate to the [[behavioral policy]]: some leaves restate conduct the policy owns, as advisory doctrine, and the policy wins on conflict. Adopters add or override them in `principles.local.md`, never in the policy.
+
 ### Substrate-native equivalents (always qualified)
 
 A Soma skill projects into a substrate's own capability primitive. Each is a distinct concept and must carry the substrate qualifier:

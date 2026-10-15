@@ -6,7 +6,7 @@ Use this workflow to execute the portable Algorithm inside any substrate.
 
 1. Restate the user's intent in one sentence before planning.
 2. Create a harness run with the installed Soma lifecycle tool or the repo-local CLI, using your substrate's prefix from the Harness CLI section below — e.g. `<prefix> algorithm new ...`. Do not assume a global `soma` binary exists.
-3. Choose the smallest sufficient effort tier: E1, E2, E3, E4, or E5.
+3. Choose the smallest sufficient effort tier: E1, E2, E3, E4, or E5. Then pick the playbook card for the task shape from `references/playbooks.md`, copy its steps into your todo list, and seed criteria from its templates.
 4. Treat the work as a transition from current state to ideal state.
 5. Create or update the VSA that belongs to the thing being articulated.
 6. Write criteria as atomic yes/no claims with nameable probes.

@@ -15,6 +15,7 @@ Prefer the Soma Algorithm harness over freeform execution when it is available. 
 
 - Start with `Workflows/RunAlgorithm.md`.
 - Read `references/algorithm.md` when doctrine detail matters.
+- Pick a card from `references/playbooks.md` by task shape; name principles from `references/principles.md`.
 - Treat Claude-specific hooks, voice curls, and Claude Code sub-agents as source history, not portable requirements.
 
 ## Triggers

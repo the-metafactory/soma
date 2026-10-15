@@ -48,7 +48,38 @@ import file41 from "./skills/the-algorithm/references/ideate-loop.md" with { typ
 import file42 from "./skills/the-algorithm/references/mode-detection.md" with { type: "text" };
 import file43 from "./skills/the-algorithm/references/optimize-loop.md" with { type: "text" };
 import file44 from "./skills/the-algorithm/references/parameter-schema.md" with { type: "text" };
-import file45 from "./skills/the-algorithm/references/target-types.md" with { type: "text" };
+import file45 from "./skills/the-algorithm/references/playbooks.md" with { type: "text" };
+import file46 from "./skills/the-algorithm/references/playbooks/authoring-a-skill.md" with { type: "text" };
+import file47 from "./skills/the-algorithm/references/playbooks/autonomous-run.md" with { type: "text" };
+import file48 from "./skills/the-algorithm/references/playbooks/bug-fix.md" with { type: "text" };
+import file49 from "./skills/the-algorithm/references/playbooks/eval.md" with { type: "text" };
+import file50 from "./skills/the-algorithm/references/playbooks/feature.md" with { type: "text" };
+import file51 from "./skills/the-algorithm/references/playbooks/investigation.md" with { type: "text" };
+import file52 from "./skills/the-algorithm/references/playbooks/pause-safely.md" with { type: "text" };
+import file53 from "./skills/the-algorithm/references/playbooks/refactor.md" with { type: "text" };
+import file54 from "./skills/the-algorithm/references/playbooks/session-pickup.md" with { type: "text" };
+import file55 from "./skills/the-algorithm/references/principles.md" with { type: "text" };
+import file56 from "./skills/the-algorithm/references/principles/analysis-is-read-only.md" with { type: "text" };
+import file57 from "./skills/the-algorithm/references/principles/ask-before-irreversible.md" with { type: "text" };
+import file58 from "./skills/the-algorithm/references/principles/attack-the-premise.md" with { type: "text" };
+import file59 from "./skills/the-algorithm/references/principles/build-over-ask-when-reversible.md" with { type: "text" };
+import file60 from "./skills/the-algorithm/references/principles/change-only-what-was-asked.md" with { type: "text" };
+import file61 from "./skills/the-algorithm/references/principles/diagnose-on-recurrence.md" with { type: "text" };
+import file62 from "./skills/the-algorithm/references/principles/encode-lessons-in-structure.md" with { type: "text" };
+import file63 from "./skills/the-algorithm/references/principles/explain-the-number.md" with { type: "text" };
+import file64 from "./skills/the-algorithm/references/principles/external-content-is-data.md" with { type: "text" };
+import file65 from "./skills/the-algorithm/references/principles/fix-at-the-ingestion-point.md" with { type: "text" };
+import file66 from "./skills/the-algorithm/references/principles/fix-the-class-not-the-instance.md" with { type: "text" };
+import file67 from "./skills/the-algorithm/references/principles/ground-claims-in-this-session.md" with { type: "text" };
+import file68 from "./skills/the-algorithm/references/principles/one-probe-per-criterion.md" with { type: "text" };
+import file69 from "./skills/the-algorithm/references/principles/probe-what-the-claim-asserts.md" with { type: "text" };
+import file70 from "./skills/the-algorithm/references/principles/reproduce-first.md" with { type: "text" };
+import file71 from "./skills/the-algorithm/references/principles/separate-before-serializing-shared-state.md" with { type: "text" };
+import file72 from "./skills/the-algorithm/references/principles/ship-what-the-evidence-justifies.md" with { type: "text" };
+import file73 from "./skills/the-algorithm/references/principles/surface-conflicts.md" with { type: "text" };
+import file74 from "./skills/the-algorithm/references/principles/verify-before-claiming.md" with { type: "text" };
+import file75 from "./skills/the-algorithm/references/target-types.md" with { type: "text" };
+import file76 from "./skills/the-algorithm/references/third-party/pstack-NOTICE.md" with { type: "text" };
 
 /** Every bundled skill file, keyed by its posix path relative to `src/skills`. */
 export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
@@ -97,5 +128,36 @@ export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
   "the-algorithm/references/mode-detection.md": file42,
   "the-algorithm/references/optimize-loop.md": file43,
   "the-algorithm/references/parameter-schema.md": file44,
-  "the-algorithm/references/target-types.md": file45,
+  "the-algorithm/references/playbooks.md": file45,
+  "the-algorithm/references/playbooks/authoring-a-skill.md": file46,
+  "the-algorithm/references/playbooks/autonomous-run.md": file47,
+  "the-algorithm/references/playbooks/bug-fix.md": file48,
+  "the-algorithm/references/playbooks/eval.md": file49,
+  "the-algorithm/references/playbooks/feature.md": file50,
+  "the-algorithm/references/playbooks/investigation.md": file51,
+  "the-algorithm/references/playbooks/pause-safely.md": file52,
+  "the-algorithm/references/playbooks/refactor.md": file53,
+  "the-algorithm/references/playbooks/session-pickup.md": file54,
+  "the-algorithm/references/principles.md": file55,
+  "the-algorithm/references/principles/analysis-is-read-only.md": file56,
+  "the-algorithm/references/principles/ask-before-irreversible.md": file57,
+  "the-algorithm/references/principles/attack-the-premise.md": file58,
+  "the-algorithm/references/principles/build-over-ask-when-reversible.md": file59,
+  "the-algorithm/references/principles/change-only-what-was-asked.md": file60,
+  "the-algorithm/references/principles/diagnose-on-recurrence.md": file61,
+  "the-algorithm/references/principles/encode-lessons-in-structure.md": file62,
+  "the-algorithm/references/principles/explain-the-number.md": file63,
+  "the-algorithm/references/principles/external-content-is-data.md": file64,
+  "the-algorithm/references/principles/fix-at-the-ingestion-point.md": file65,
+  "the-algorithm/references/principles/fix-the-class-not-the-instance.md": file66,
+  "the-algorithm/references/principles/ground-claims-in-this-session.md": file67,
+  "the-algorithm/references/principles/one-probe-per-criterion.md": file68,
+  "the-algorithm/references/principles/probe-what-the-claim-asserts.md": file69,
+  "the-algorithm/references/principles/reproduce-first.md": file70,
+  "the-algorithm/references/principles/separate-before-serializing-shared-state.md": file71,
+  "the-algorithm/references/principles/ship-what-the-evidence-justifies.md": file72,
+  "the-algorithm/references/principles/surface-conflicts.md": file73,
+  "the-algorithm/references/principles/verify-before-claiming.md": file74,
+  "the-algorithm/references/target-types.md": file75,
+  "the-algorithm/references/third-party/pstack-NOTICE.md": file76,
 };
