@@ -71,6 +71,7 @@ function realNodeState(overrides: Partial<NodeState> = {}): NodeState {
     assignees: ["jcfischer"],
     blockedBy: [],
     author: "jcfischer",
+    updatedAt: "2026-10-14T10:00:00Z",
     parent: { id: "495" },
     typed: true,
     ...overrides,

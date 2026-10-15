@@ -1,7 +1,8 @@
 import { constants as fsConstants } from "node:fs";
-import { streamEventLines } from "./event-log";
-import { somaMemoryEventsPath } from "./event-journal";
-import type { SomaMemoryEvent, SomaMemoryRetrievalQuality } from "./types";
+import { streamEventLines } from "./events/index";
+import { somaMemoryEventsPath } from "./events/index";
+import type { SomaMemoryEvent } from "./events/index";
+import type { SomaMemoryRetrievalQuality } from "./types";
 
 /**
  * The NEUTRAL journal read-model. A single place that reads the append-only

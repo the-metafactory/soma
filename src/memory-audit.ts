@@ -6,7 +6,7 @@ import { isFsUtilsEnoent as isEnoent } from "./core/index";
 import { listMemoryNotes } from "./memory-fs";
 import { runBoundedConcurrent } from "./core/index";
 import { memoryIndexPath } from "./memory-index";
-import { somaMemoryEventsPath } from "./event-journal";
+import { somaMemoryEventsPath } from "./events/index";
 // The neutral journal read-model (#425/#428) — audit sources its retrieval-quality
 // stream AND its shared O_NOFOLLOW read flag from here rather than owning them, so
 // M6 consolidation can reuse the same journal fold without depending on the audit.

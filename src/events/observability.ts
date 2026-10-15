@@ -2,15 +2,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseTelemetryEventLine, queryRecentEventRecords, streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./event-journal";
-import type {
-  AlgorithmPhase,
-  SomaMemoryEvent,
-  SomaTelemetryQueryOptions,
-  SomaTelemetryQueryResult,
-  SomaTelemetrySummary,
-  SomaTelemetrySummaryOptions,
-  SubstrateId,
-} from "./types";
+import type { SomaMemoryEvent, SomaTelemetryQueryOptions, SomaTelemetryQueryResult, SomaTelemetrySummary, SomaTelemetrySummaryOptions } from "./types";
+import type { AlgorithmPhase, SubstrateId } from "../types";
 
 const ALGORITHM_PHASES = new Set<AlgorithmPhase>([
   "observe",

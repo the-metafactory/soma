@@ -11,6 +11,7 @@ function state(id: string, body: string | undefined, kind: string | undefined = 
     ref: { id },
     node: { id, title: `Brief ${id}`, autonomy: "propose", checkpointId: `cp-${id}`, ...(kind === undefined ? {} : { kind }) },
     status: "open",
+    updatedAt: "2026-10-14T10:00:00Z",
     assignees: [],
     blockedBy: [],
     author: "ivy-agent",

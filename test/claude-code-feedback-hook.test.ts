@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE } from "../src/feedback-contract";
+import { SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE } from "../src/events/index";
 import {
   SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH,
   SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH,

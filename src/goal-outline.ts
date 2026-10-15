@@ -9,13 +9,19 @@ import { createAutoInferenceBackend } from "./tools/inference/factory";
 
 export const OUTLINE_INFERENCE_TIMEOUT_MS = 30_000;
 export const OUTLINE_CAPTURE_TIMEOUT_MS = 10_000;
+export const OUTLINE_CALENDAR_TIMEOUT_MS = 30_000;
 const DAY_MS = 86_400_000;
+const ZURICH = "Europe/Zurich";
+const SLOT_WEEKDAYS = 5;
+const SLOT_HOURS = { start: "08:00", end: "18:00" } as const;
 
 export interface GoalOutlineOptions {
   goal: string;
   tanaTag: string;
   draftsDir: string;
   days?: number;
+  /** Propose the first free slot of this length from both calendars (node #840). */
+  slotMinutes?: number;
 }
 
 export interface OutlineCapture {
@@ -25,6 +31,9 @@ export interface OutlineCapture {
 }
 
 export interface CaptureQuery { tag: string; createdAfter: string }
+export interface CalendarRunResult { exitCode: number; stdout: string }
+/** Runs one `ical` command; argv excludes the binary. */
+export type CalendarRunner = (argv: string[]) => Promise<CalendarRunResult>;
 export type OutlineInference = (prompt: string, options: { level: "standard"; timeoutMs: number }) => Promise<string>;
 
 export interface GoalOutlineDeps extends GoalOutlineOptions {
@@ -33,6 +42,7 @@ export interface GoalOutlineDeps extends GoalOutlineOptions {
   readCaptures?: (query: CaptureQuery) => Promise<OutlineCapture[]>;
   inference?: OutlineInference;
   inferenceTimeoutMs?: number;
+  runCalendar?: CalendarRunner;
   env?: RunLedgerEnv;
   publish?: RunFinishedPublisher;
   runId?: () => string;
@@ -99,6 +109,137 @@ export async function readSupertagCaptures(query: CaptureQuery): Promise<Outline
   } finally { clearTimeout(timer); }
 }
 
+/** Read-only: only the two `availability` commands are ever spawned, never `ical create`. */
+export async function runIcal(argv: string[]): Promise<CalendarRunResult> {
+  const binary = Bun.which("ical");
+  if (!binary) return { exitCode: 127, stdout: "" };
+  const proc = Bun.spawn([binary, ...argv], { stdout: "pipe", stderr: "pipe" });
+  const state = { timedOut: false };
+  const timer = setTimeout(() => { state.timedOut = true; proc.kill(); }, OUTLINE_CALENDAR_TIMEOUT_MS);
+  try {
+    // Consume stderr to avoid a full pipe, but do not log possibly private calendar text.
+    const [stdout, , code] = await Promise.all([
+      new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited,
+    ]);
+    return { exitCode: state.timedOut ? -1 : code, stdout };
+  } finally { clearTimeout(timer); }
+}
+
+interface Interval { start: number; end: number }
+
+function zoneOffsetMs(instant: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(instant));
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value);
+  return Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second")) - instant;
+}
+
+/** A wall-clock date and HH:MM in an IANA zone, as an instant; undefined if malformed. */
+function wallTimeToInstant(date: string, time: string, timeZone: string): number | undefined {
+  const wall = Date.parse(`${date}T${time}:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time) || Number.isNaN(wall)
+    || new Date(wall).toISOString().slice(0, 16) !== `${date}T${time}`) return undefined;
+  // A second pass settles the offset when the first guess lands across a DST change.
+  return wall - zoneOffsetMs(wall - zoneOffsetMs(wall, timeZone), timeZone);
+}
+
+/** `ical availability --format json` slots are local wall times in `parameters.timezone`. */
+function parseAvailability(stdout: string): Interval[] | undefined {
+  try {
+    const parsed = JSON.parse(stdout) as { availableSlots?: unknown; parameters?: { timezone?: unknown } } | null;
+    const timeZone = parsed?.parameters?.timezone;
+    if (!Array.isArray(parsed?.availableSlots) || typeof timeZone !== "string") return undefined;
+    const intervals: Interval[] = [];
+    for (const slot of parsed.availableSlots as ({ date?: unknown; startTime?: unknown; endTime?: unknown } | null)[]) {
+      if (typeof slot?.date !== "string" || typeof slot.startTime !== "string" || typeof slot.endTime !== "string") return undefined;
+      const start = wallTimeToInstant(slot.date, slot.startTime, timeZone);
+      const end = wallTimeToInstant(slot.date, slot.endTime, timeZone);
+      if (start === undefined || end === undefined || end <= start) return undefined;
+      intervals.push({ start, end });
+    }
+    return intervals;
+  } catch { return undefined; } // Invalid JSON or an unknown time zone.
+}
+
+function merge(intervals: Interval[]): Interval[] {
+  const merged: Interval[] = [];
+  for (const next of [...intervals].sort((a, b) => a.start - b.start)) {
+    const last = merged.at(-1);
+    if (last && next.start <= last.end) last.end = Math.max(last.end, next.end);
+    else merged.push({ ...next });
+  }
+  return merged;
+}
+
+function intersect(a: Interval[], b: Interval[]): Interval[] {
+  const out: Interval[] = [];
+  for (const x of merge(a)) for (const y of merge(b)) {
+    const start = Math.max(x.start, y.start);
+    const end = Math.min(x.end, y.end);
+    if (end > start) out.push({ start, end });
+  }
+  return merge(out);
+}
+
+/** Working hours, Europe/Zurich, of the next five weekdays starting today. */
+function slotWindows(now: Date): Interval[] {
+  const windows: Interval[] = [];
+  for (let day = new Date(`${zurichDate(now)}T12:00:00Z`); windows.length < SLOT_WEEKDAYS; day = new Date(day.getTime() + DAY_MS)) {
+    if (day.getUTCDay() === 0 || day.getUTCDay() === 6) continue;
+    const date = day.toISOString().slice(0, 10);
+    const start = wallTimeToInstant(date, SLOT_HOURS.start, ZURICH);
+    const end = wallTimeToInstant(date, SLOT_HOURS.end, ZURICH);
+    if (start === undefined || end === undefined) throw new Error("Zurich working hours could not be computed");
+    windows.push({ start, end });
+  }
+  return windows;
+}
+
+function zurichSlotText(slot: Interval): string {
+  const format = (instant: number, options: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat("en-GB", { timeZone: ZURICH, ...options }).format(new Date(instant));
+  const time = (instant: number) => format(instant, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  return `${format(slot.start, { weekday: "long" })} ${zurichDate(new Date(slot.start))}, `
+    + `${time(slot.start)}–${time(slot.end)} (${ZURICH})`;
+}
+
+/**
+ * The first window of `minutes` free in both calendars. Never throws, never writes a calendar:
+ * a failed read becomes the section text and leaves the outline's outcome alone.
+ */
+async function proposeSlot(minutes: number, now: Date, run: CalendarRunner): Promise<string> {
+  const flags = ["--next", "7", "--duration", String(minutes), "--hours", `${SLOT_HOURS.start}-${SLOT_HOURS.end}`,
+    "--exclude-weekends", "--format", "json"];
+  const read = async (argv: string[]) => {
+    try {
+      const result = await run(argv);
+      return result.exitCode === 0 ? parseAvailability(result.stdout) : undefined;
+    } catch { return undefined; }
+  };
+  const [macos, exchange] = await Promise.all([read(["availability", ...flags]), read(["exchange", "availability", ...flags])]);
+  if (!macos || !exchange) {
+    return `${!macos && !exchange ? "Neither the macOS calendar nor Exchange could be read"
+      : `${!macos ? "The macOS calendar" : "Exchange"} could not be read`}, so no slot is proposed.`;
+  }
+  const windows = slotWindows(now);
+  const macosFree = merge(macos);
+  if (windows.every((window) => macosFree.some((free) => free.start <= window.start && free.end >= window.end))) {
+    return "The macOS calendar returned every working hour of the next 5 weekdays as free; "
+      + "calendar access may have been denied, so no slot is proposed.";
+  }
+  // Start no earlier than the next quarter hour from now.
+  const earliest = Math.ceil(now.getTime() / 900_000) * 900_000;
+  const length = minutes * 60_000;
+  const free = intersect(intersect(macos, exchange),
+    windows.map((window) => ({ start: Math.max(window.start, earliest), end: window.end })));
+  const found = free.find((interval) => interval.end - interval.start >= length);
+  if (!found) return `No free ${minutes}-minute slot was found in the next 5 weekdays (08:00–18:00 ${ZURICH}).`;
+  return `${zurichSlotText({ start: found.start, end: found.start + length })}, free in both the macOS calendar and Exchange. `
+    + "This is a proposal; nothing was written to any calendar.";
+}
+
 interface OpenDraft { path: string; text: string }
 
 /** Contain source and model headings and fences outside the protected output structure. */
@@ -113,13 +254,15 @@ function draftBlock(draft: OpenDraft): string {
 }
 
 function renderOutlineMarkdown(
-  goal: string, week: string, captures: OutlineCapture[], drafts: OpenDraft[], outline: string, share: string,
+  goal: string, week: string, captures: OutlineCapture[], drafts: OpenDraft[], outline: string, slot: string | undefined,
+  share: string,
 ): string {
   return `# ${goal} — ${week}\n\n## Captures\n\n`
     + (captures.length ? captures.map((capture) => `- ${capture.name} (${capture.id})`.replace(/[\r\n]/g, " ")).join("\n") : "Nothing was captured.")
     + "\n\n## Open drafts\n\n"
     + (drafts.length ? drafts.map(draftBlock).join("\n\n") : "No open drafts.")
-    + `\n\n## Outline\n\n${outline}\n` + (share ? `\n${share}` : "");
+    + `\n\n## Outline\n\n${outline}\n` + (slot === undefined ? "" : `\n## Proposed slot\n\n${slot}\n`)
+    + (share ? `\n${share}` : "");
 }
 
 async function readOpenDrafts(root: string): Promise<OpenDraft[]> {
@@ -201,7 +344,9 @@ export async function runGoalOutline(deps: GoalOutlineDeps): Promise<GoalOutline
   const refused = !/^G\d+$/.test(deps.goal) ? "--goal must match G<n>"
     : !deps.tanaTag.trim() ? "--tana-tag is required"
     : !deps.draftsDir.trim() ? "--drafts-dir is required"
-    : !Number.isSafeInteger(days) || days < 1 ? "--days must be a positive integer" : undefined;
+    : !Number.isSafeInteger(days) || days < 1 ? "--days must be a positive integer"
+    : deps.slotMinutes !== undefined && (!Number.isSafeInteger(deps.slotMinutes) || deps.slotMinutes < 1)
+      ? "--slot-minutes must be a positive integer" : undefined;
   if (refused) return { exitCode: 2, error: `soma goal outline: ${refused}` };
   const now = deps.now ?? (() => new Date());
   const started = now();
@@ -231,7 +376,10 @@ export async function runGoalOutline(deps: GoalOutlineDeps): Promise<GoalOutline
         outline = "Outline generation failed or timed out. Captures and open drafts are retained above for review.";
       }
     }
-    const body = renderOutlineMarkdown(deps.goal, zurichIsoWeek(started), captures, drafts, outline, share);
+    stage = "slot proposal";
+    const slot = deps.slotMinutes === undefined ? undefined
+      : await proposeSlot(deps.slotMinutes, started, deps.runCalendar ?? runIcal);
+    const body = renderOutlineMarkdown(deps.goal, zurichIsoWeek(started), captures, drafts, outline, slot, share);
     stage = "output writer";
     await mkdir(join(deps.somaHome, "outputs"), { recursive: true, mode: 0o700 });
     const temporary = `${outputPath}.${randomUUID()}.tmp`;

@@ -1,16 +1,9 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { streamEventRecords } from "./event-log";
-import { appendSomaMemoryEvent, somaMemoryEventsPath } from "./event-journal";
-import type {
-  SomaMemoryEvent,
-  SomaResultCaptureOptions,
-  SomaResultCaptureResult,
-  SomaResultEventKind,
-  SomaResultMemoryEvent,
-  SomaResultSearchOptions,
-  SomaResultSearchResult,
-} from "./types";
+import { streamEventRecords } from "./events/index";
+import { appendSomaMemoryEvent, somaMemoryEventsPath } from "./events/index";
+import type { SomaMemoryEvent } from "./events/index";
+import type { SomaResultCaptureOptions, SomaResultCaptureResult, SomaResultEventKind, SomaResultMemoryEvent, SomaResultSearchOptions, SomaResultSearchResult } from "./types";
 import { SOMA_RESULT_EVENT_KINDS } from "./types";
 
 const RESULT_EVENT_KIND_SET = new Set<string>(SOMA_RESULT_EVENT_KINDS);

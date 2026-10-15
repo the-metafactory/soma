@@ -1,8 +1,9 @@
 import { join } from "node:path";
 import { applyVsaUpdate, getActiveVsa, vsaPath } from "./vsa";
-import { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "./event-journal";
+import { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "./events/index";
 import { checkSomaPolicy } from "./policy-audit";
-import type { VsaUpdatePayload, SomaMemoryEventInput, SubstrateId } from "./types";
+import type { SomaMemoryEventInput } from "./events/index";
+import type { VsaUpdatePayload, SubstrateId } from "./types";
 
 export type SomaWritebackMergeSemantics = "append-only" | "vsa-log-append";
 

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendSomaMemoryEvent } from "../src/event-journal";
+import { appendSomaMemoryEvent } from "../src/events/index";
 import { readErrata } from "../src/errata";
 import { readJudgments } from "../src/judge";
 import { ERRATA_TRIAGE_MODEL } from "../src/errata-classifier";

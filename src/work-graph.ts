@@ -192,6 +192,8 @@ export interface NodeState {
   /** Store-owned fields that affect close or routing, kept outside the shared node schema. */
   storeFields?: Readonly<Record<string, unknown>>;
   status: NodeStatus;
+  /** ISO 8601 time of the forge's last update, read from its API, never the node body. */
+  updatedAt: string;
   /** False when this node is outside the store's write scope; absent means writable. Not a permission guarantee. */
   writable?: boolean;
   assignees: readonly string[];
@@ -722,6 +724,16 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
   attachToParent(child: NodeRef, parent: NodeRef): Promise<void>;
   addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void>;
   readNode(ref: NodeRef, options?: GraphReadOptions): Promise<NodeState>;
+  /**
+   * All open membership roots in this store's repo whose typed block serves
+   * the goal ID. A root has no membership parent. Every returned state is
+   * current; index-based discovery must re-read candidates (§2.4).
+   *
+   * Complete all pages or reject, never return a partial list. Failed reads
+   * reject with an error naming the repo, rather than reporting no roots.
+   * Absent on backends that cannot discover roots; absence is not an empty list.
+   */
+  listOpenRoots?(serves: string): Promise<NodeState[]>;
   /**
    * Every node in the root's membership **subtree**, at any depth, in
    * depth-first pre-order, each reported at its **current** state.
