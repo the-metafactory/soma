@@ -5,13 +5,10 @@ import { PAI_MIGRATION_REMOVED_NOTICE, planSomaInit, diagnoseSomaDoctor } from "
 import { withProvenance } from "../src/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
 import { DOCTOR_SUPPORTED_SUBSTRATES, isDoctorSubstrate } from "../src/adapters/doctor";
-import { bootstrapSomaHome, installSomaForClaudeCode as installSomaForClaudeCodeUnshared, installSomaForCodex as installSomaForCodexUnshared } from "../src/index";
+import { bootstrapSomaHome, installSomaForCodex as installSomaForCodexUnshared } from "../src/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
-import { sharingStagedRuntime } from "./fixtures/shared-runtime";
-
-const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
-const installSomaForCodex = sharingStagedRuntime(installSomaForCodexUnshared);
+import { installSomaForClaudeCode, installSomaForCodex } from "./fixtures/shared-runtime";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-onboarding-");

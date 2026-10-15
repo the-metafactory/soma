@@ -4,15 +4,13 @@
  * private store, and a tampered shared payload is re-staged, never reused.
  */
 import { afterEach, expect, test } from "bun:test";
-import { chmod, lstat, mkdtemp, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, readlink, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installSomaForCodex as installSomaForCodexUnshared } from "../src/index";
 import { runtimeArtifactActivePath } from "../src/runtime-artifact";
-import { sharingStagedRuntime } from "./fixtures/shared-runtime";
+import { installSomaForCodex } from "./fixtures/shared-runtime";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
-const installSomaForCodex = sharingStagedRuntime(installSomaForCodexUnshared);
 const homes: string[] = [];
 
 afterEach(async () => {
@@ -31,7 +29,10 @@ test("real-runtime installs into fresh homes activate one shared staged artifact
   const first = await freshHome();
   const second = await freshHome();
   await installSomaForCodex({ homeDir: first });
+  const staged = await stat(await realpath(runtimeArtifactActivePath(join(first, ".soma"), "codex")));
   await installSomaForCodex({ homeDir: second });
+  // Re-staging renames a fresh copy into place; the same inode means the second install reused it.
+  expect((await stat(await realpath(runtimeArtifactActivePath(join(second, ".soma"), "codex")))).ino).toBe(staged.ino);
 
   expect((await lstat(storeOf(first))).isSymbolicLink()).toBe(true);
   expect(await readlink(storeOf(first))).toBe(await readlink(storeOf(second)));

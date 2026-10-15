@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode as installSomaForClaudeCodeUnshared, installSomaForCodex as installSomaForCodexUnshared, installSomaForCursor as installSomaForCursorUnshared, installSomaForPiDev as installSomaForPiDevUnshared, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, experimentalAnthropicCowork, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec, configureCodexAgentsImport } from "../src/adapters/codex/install";
 import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/adapters/anthropic-cowork";
 import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
@@ -17,19 +17,12 @@ import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/proje
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 import { expectPlanCoversApplyModuloBundledSkills, expectReprojectPrunesStaleTelos } from "./fixtures";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
-import { sharingStagedRuntime } from "./fixtures/shared-runtime";
-
-const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
-const installSomaForCodex = sharingStagedRuntime(installSomaForCodexUnshared);
-const installSomaForCursor = sharingStagedRuntime(installSomaForCursorUnshared);
-const installSomaForPiDev = sharingStagedRuntime(installSomaForPiDevUnshared);
+import { installSomaForAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev } from "./fixtures/shared-runtime";
 
 const {
-  installSomaForAnthropicCowork: installSomaForAnthropicCoworkUnshared,
   planSomaForAnthropicCoworkInstall,
   uninstallSomaForAnthropicCowork,
 } = experimentalAnthropicCowork;
-const installSomaForAnthropicCowork = sharingStagedRuntime(installSomaForAnthropicCoworkUnshared);
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
 // 2 PAI-bound = 19. Tests consume the production-exported lists from

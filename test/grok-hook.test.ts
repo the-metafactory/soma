@@ -16,14 +16,12 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 // the same cold-start reason (asserted below); give these spawn-bound tests the
 // same headroom. No assertion is relaxed — only the wall-clock ceiling is raised.
 setDefaultTimeout(30_000);
-import { installSomaForGrok as installSomaForGrokUnshared, somaWorkRegistryPaths } from "../src/index";
+import { somaWorkRegistryPaths } from "../src/index";
 import { GROK_ALGORITHM_UPDATED_MATCHER, GROK_PRE_TOOL_USE_MATCHER } from "../src/adapters/grok/adapter";
 import { renderStartupContextSummary } from "../src/adapters/grok/hooks/grok-hook-entry.mjs";
 import { createShellPolicyExtractor } from "../src/adapters/grok/hooks/shell-policy-core.mjs";
 import { GROK_SHELL_POLICY_DESCRIPTOR } from "../src/adapters/grok/hooks/grok-policy-targets.mjs";
-import { sharingStagedRuntime } from "./fixtures/shared-runtime";
-
-const installSomaForGrok = sharingStagedRuntime(installSomaForGrokUnshared);
+import { installSomaForGrok } from "./fixtures/shared-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   // Canonicalize to the long form: on Windows `tmpdir()` is often the 8.3

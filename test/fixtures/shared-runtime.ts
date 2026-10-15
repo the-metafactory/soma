@@ -4,9 +4,10 @@
  * tests that execute the staged runtime (hooks, policy checks, doctors) did
  * that once per test.
  *
- * `sharingStagedRuntime(install)` wraps an installer so that an install of the
- * real runtime into a home without an artifact store first points that home's
- * store at a store shared by the whole process. The first such install stages;
+ * The installers this module exports wrap `../src/index`'s with
+ * `sharingStagedRuntime(install)`: an install of the real runtime into a home
+ * without an artifact store first points that home's store at a store shared
+ * by the whole process. The first such install stages;
  * every later one finds the artifact already there. Each install still hashes
  * the existing artifact before reusing it and re-stages it when the hash does
  * not match, so a test that tampers with the shared payload costs the next
@@ -25,6 +26,14 @@
 import { lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  experimentalAnthropicCowork,
+  installSomaForClaudeCode as installSomaForClaudeCodeUnshared,
+  installSomaForCodex as installSomaForCodexUnshared,
+  installSomaForCursor as installSomaForCursorUnshared,
+  installSomaForGrok as installSomaForGrokUnshared,
+  installSomaForPiDev as installSomaForPiDevUnshared,
+} from "../../src/index";
 import { resolveSomaHome } from "../../src/lifecycle";
 import type { SomaInstallOptions } from "../../src/types";
 
@@ -83,3 +92,12 @@ export function sharingStagedRuntime<O extends SomaInstallOptions, R>(install: (
     return install(options);
   };
 }
+
+// The installers wrapped once; a test imports these in place of `../src/index`'s
+// and imports the unwrapped one only where it must keep a private store.
+export const installSomaForAnthropicCowork = sharingStagedRuntime(experimentalAnthropicCowork.installSomaForAnthropicCowork);
+export const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
+export const installSomaForCodex = sharingStagedRuntime(installSomaForCodexUnshared);
+export const installSomaForCursor = sharingStagedRuntime(installSomaForCursorUnshared);
+export const installSomaForGrok = sharingStagedRuntime(installSomaForGrokUnshared);
+export const installSomaForPiDev = sharingStagedRuntime(installSomaForPiDevUnshared);

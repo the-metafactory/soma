@@ -27,11 +27,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "bun:test";
-import { installSomaForClaudeCode as installSomaForClaudeCodeUnshared } from "../src/index";
 import { runtimeArtifactActivePath } from "../src/runtime-artifact";
-import { sharingStagedRuntime } from "./fixtures/shared-runtime";
-
-const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
+import { installSomaForClaudeCode } from "./fixtures/shared-runtime";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const GUARD_REL = ".claude/hooks/soma/soma-policy-guard.mjs";
