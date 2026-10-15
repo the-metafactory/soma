@@ -25,6 +25,7 @@ rule here is broken and nothing failed, fix the check, not only the code.
 | Rule | Enforced by | Proven on |
 | --- | --- | --- |
 | A list of three or more string literals has one owner; other copies derive from it (`(typeof XS)[number]`). Add a substrate to `SHIPPED_SUBSTRATES` in `src/types.ts`, not per command. | `bun run check:literal-sets` (`scripts/check-literal-sets.ts`, shrink-only `scripts/literal-sets/baseline.json`), CI step "Literal sets" | be80040 (#856, `GoalStatus` copied from `GOAL_STATUSES`) |
+| A `catch` in `src/` reads its error: handle the case you expect (`isEnoent(error)`) and rethrow the rest, or rethrow with `{ cause }`. No `catch {}` and no `.catch(() => fallback)`. | ESLint `soma/no-discarded-error` (`eslint.config.js`), grandfathered in `eslint-suppressions.json`, which `bun run check:suppressions` keeps shrink-only | c2d2f92 (#723, unreadable ledger read as empty) |
 
 ## Substrate Adapters
 

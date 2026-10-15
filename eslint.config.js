@@ -2,6 +2,44 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
+// A catch that never reads its error turns every failure into the fallback
+// value, so a permission error, a corrupt file and a bug all read as "empty".
+// Reviews flagged this fail-open shape in about 25 PRs (#549, #577, #724,
+// #725, #856, …). Copies that predate the rule sit in eslint-suppressions.json,
+// which may only shrink.
+/** @type {import("eslint").Rule.RuleModule} */
+export const noDiscardedError = {
+  meta: {
+    type: "problem",
+    schema: [],
+    messages: {
+      discarded:
+        "This catch discards its error, so any failure reads as the fallback (fail-open). Bind the error and handle only the case you expect, e.g. `if (isEnoent(error)) return …; throw error;` (isEnoent from src/core/index.ts), or rethrow with `{ cause: error }`. A deliberate swallow takes `// eslint-disable-next-line soma/no-discarded-error -- <reason> (expires YYYY-MM-DD, approved by the principal)`. See AGENTS.md \"Enforced rules\".",
+    },
+  },
+  create(context) {
+    /** @param {import("estree").Node} owner @param {import("estree").Pattern | null | undefined} param */
+    const discards = (owner, param) => {
+      if (param == null) return true;
+      if (param.type !== "Identifier") return false;
+      const variable = context.sourceCode.getDeclaredVariables(owner).find((candidate) => candidate.name === param.name);
+      return variable !== undefined && variable.references.length === 0;
+    };
+    return {
+      CatchClause(node) {
+        if (discards(node, node.param)) context.report({ node, messageId: "discarded" });
+      },
+      /** @param {import("estree").CallExpression} node */
+      "CallExpression[callee.type='MemberExpression'][callee.property.name='catch']"(node) {
+        const handler = node.arguments[0];
+        if (handler && (handler.type === "ArrowFunctionExpression" || handler.type === "FunctionExpression") && discards(handler, handler.params[0])) {
+          context.report({ node: handler, messageId: "discarded" });
+        }
+      },
+    };
+  },
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -136,6 +174,14 @@ export default tseslint.config(
           ],
         },
       ],
+    },
+  },
+
+  {
+    files: ["src/**/*.{ts,mjs}"],
+    plugins: { soma: { rules: { "no-discarded-error": noDiscardedError } } },
+    rules: {
+      "soma/no-discarded-error": "error",
     },
   },
 

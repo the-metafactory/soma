@@ -32,6 +32,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Lint suppressions only shrink
+        run: bun run check:suppressions
+
       - name: Component boundaries
         run: bun run check:boundaries
 
