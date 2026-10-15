@@ -59,6 +59,14 @@ describe("check-literal-sets", () => {
     expect(found).toEqual([]);
   });
 
+  test("the allow marker exempts only the declaration it annotates", () => {
+    const found = copies({
+      "a.ts": `type A = "red" | "green" | "blue";`,
+      "b.ts": `// literal-set-allow: traffic colours, unrelated to A\ntype B = "red" | "green" | "blue";\ntype C = "red" | "green" | "blue";`,
+    });
+    expect(found.map((group) => group.lists.map((list) => `${list.file}:${String(list.line)}`))).toEqual([["a.ts:1", "b.ts:3"]]);
+  });
+
   test("the baseline admits known copies, fails a new one, and may only shrink", () => {
     const known = copies({
       "a.ts": `type A = "x" | "y" | "z";`,

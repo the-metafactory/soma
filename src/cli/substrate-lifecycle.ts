@@ -57,7 +57,6 @@ import { readOption } from "./parse-utils";
 export type { InstallSubstrate } from "../types";
 type InstallCliOptions = SomaInstallOptions &
   Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier" | "policyGuard" | "claudeMd" | "feedbackCapture">>;
-type ProjectionLifecycleSubstrate = ShippedSubstrate;
 
 export interface ParsedInstallArgs {
   command: "install";
@@ -78,14 +77,14 @@ export interface ParsedUninstallArgs {
 
 export interface ParsedReprojectArgs {
   command: "reproject";
-  substrate: ProjectionLifecycleSubstrate;
+  substrate: ShippedSubstrate;
   workspace: boolean;
   options: SomaInstallOptions;
 }
 
 export interface ParsedUpgradeArgs {
   command: "upgrade";
-  substrate: ProjectionLifecycleSubstrate;
+  substrate: ShippedSubstrate;
   workspace: boolean;
   options: SomaInstallOptions;
 }
@@ -109,7 +108,7 @@ export type ParsedSubstrateLifecycleArgs =
   | ParsedExportArgs
   | ParsedDaemonArgs;
 
-export const PROJECTION_LIFECYCLE_SUBSTRATES: readonly ProjectionLifecycleSubstrate[] = SHIPPED_SUBSTRATES;
+export const PROJECTION_LIFECYCLE_SUBSTRATES: readonly ShippedSubstrate[] = SHIPPED_SUBSTRATES;
 export const INSTALL_SUBSTRATES = [...PROJECTION_LIFECYCLE_SUBSTRATES, "anthropic-cowork"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
@@ -200,7 +199,7 @@ export function isInstallSubstrate(value: string | undefined): value is InstallS
   return value !== undefined && (INSTALL_SUBSTRATES as readonly string[]).includes(value);
 }
 
-function isProjectionLifecycleSubstrate(value: string | undefined): value is ProjectionLifecycleSubstrate {
+function isShippedSubstrate(value: string | undefined): value is ShippedSubstrate {
   return value !== undefined && (PROJECTION_LIFECYCLE_SUBSTRATES as readonly string[]).includes(value);
 }
 
@@ -383,11 +382,11 @@ function parseLifecycleVerbArgs(
 function parseLifecycleVerbArgs(
   verb: "reproject" | "upgrade",
   args: string[],
-): { substrate: ProjectionLifecycleSubstrate; workspace: boolean; options: SomaInstallOptions };
+): { substrate: ShippedSubstrate; workspace: boolean; options: SomaInstallOptions };
 function parseLifecycleVerbArgs(
   verb: "uninstall" | "reproject" | "upgrade",
   args: string[],
-): { substrate: InstallSubstrate | ProjectionLifecycleSubstrate; workspace: boolean; options: SomaInstallOptions } {
+): { substrate: InstallSubstrate | ShippedSubstrate; workspace: boolean; options: SomaInstallOptions } {
   const [command, substrate, ...rest] = args;
 
   if (command !== verb) {
@@ -396,7 +395,7 @@ function parseLifecycleVerbArgs(
 
   const parsedSubstrate = verb === "uninstall"
     ? (isInstallSubstrate(substrate) ? substrate : undefined)
-    : (isProjectionLifecycleSubstrate(substrate) ? substrate : undefined);
+    : (isShippedSubstrate(substrate) ? substrate : undefined);
   if (parsedSubstrate === undefined) {
     throw new Error(commandUsage(verb));
   }

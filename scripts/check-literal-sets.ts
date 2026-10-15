@@ -29,8 +29,8 @@
  * `XS.filter(…)`. A derived type is not a literal list, so it is not counted.
  *
  * A deliberate coincidence (two unrelated concepts that share members) may
- * stay: put `// literal-set-allow: <reason>` on the line above one of the two
- * lists.
+ * stay: put `// literal-set-allow: <reason>` in the comment directly above the
+ * declaration that holds one of the lists, or on the list's own line.
  *
  * Usage: bun scripts/check-literal-sets.ts [root] [--write-baseline]
  */
@@ -38,7 +38,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
 import ts from "typescript";
-import { readJsonAtBase } from "./check-boundaries";
+import { readJsonAtBase } from "./git-base";
 
 export interface LiteralList {
   file: string;
@@ -94,15 +94,28 @@ function isCountedArray(node: ts.ArrayLiteralExpression): boolean {
   return ts.isNewExpression(parent) && parent.expression.getText() === "Set" && parent.arguments?.[0] === node;
 }
 
+/** The statement or member a list belongs to: its comments are the ones that annotate the list. */
+function owningDeclaration(node: ts.Node): ts.Node {
+  let current = node;
+  while (
+    !ts.isSourceFile(current.parent) &&
+    !ts.isBlock(current.parent) &&
+    !ts.isModuleBlock(current.parent) &&
+    !ts.isClassLike(current.parent) &&
+    !ts.isInterfaceDeclaration(current.parent) &&
+    !ts.isTypeLiteralNode(current.parent)
+  ) {
+    current = current.parent;
+  }
+  return current;
+}
+
+/** The marker sits on the list's own line or in the comments directly before its declaration. */
 function allowed(source: ts.SourceFile, node: ts.Node): boolean {
   const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
-  const lines = source.text.split("\n");
-  // The marker may sit on the list's own line or on any of the three lines above it
-  // (a declaration often starts a line or two before its literal).
-  for (let index = Math.max(0, line - 3); index <= line; index += 1) {
-    if (lines[index]?.includes(ALLOW_MARKER)) return true;
-  }
-  return false;
+  if (source.text.split("\n")[line]?.includes(ALLOW_MARKER)) return true;
+  const comments = ts.getLeadingCommentRanges(source.text, owningDeclaration(node).getFullStart()) ?? [];
+  return comments.some((range) => source.text.slice(range.pos, range.end).includes(ALLOW_MARKER));
 }
 
 export function collectLiteralLists(file: string, text: string): LiteralList[] {

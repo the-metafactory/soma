@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { readJsonAtBase, repositoryBaseRevision } from "./check-boundaries";
+import { readJsonAtBase, repositoryBaseRevision } from "./git-base";
 
 export const SUPPRESSIONS_PATH = "eslint-suppressions.json";
 

@@ -15,19 +15,25 @@ import { bootstrapSomaHome, inspectRuntimePolicy } from "../src/index";
  *
  * The corpus holds 372 passages of this repo's own review comments, commit
  * bodies and docs that put a guarded verb near a guarded noun. Each row
- * records whether the prompt surface denies it today. A rule change that
- * denies one more passage fails here, naming it; one that clears a passage
- * must flip its row in the same change, so a reviewer sees what cleared.
- * Some denied rows quote attack phrasings from review (#738's must-fire
- * shapes); clearing one of those is a regression, not a fix.
+ * records whether the prompt surface denies it today:
  *
- * A witnessed false positive lands here as a row (`"denied": true`) before
+ * - `"denied": false` must stay allowed; a rule change that denies it fails.
+ * - `"denied": true, "mustFire": true` quotes an attack phrasing that review
+ *   or the must-fire tests pin (#738, #791). Clearing it is a regression; the
+ *   test fails and no edit to the row is the fix.
+ * - `"denied": true, "mustFire": false` is a known false positive. A fix that
+ *   clears it flips the row to `"denied": false` in the same change, so a
+ *   reviewer sees what cleared.
+ *
+ * A witnessed false positive lands here as a `"mustFire": false` row before
  * its fix, and the fix flips it.
  */
 
 interface CorpusRow {
   source: string;
   denied: boolean;
+  /** Only on denied rows: true when the row quotes an attack phrasing that must keep firing. */
+  mustFire?: boolean;
   text: string;
 }
 
@@ -50,11 +56,14 @@ test("the prompt rules deny exactly the corpus rows marked denied", async () => 
       mismatches.push(
         denied
           ? `corpus.jsonl:${line} (${row.source}) is now denied: ${result.reason}`
-          : `corpus.jsonl:${line} (${row.source}) no longer denied; set "denied": false if this clears a false positive, keep it if it quotes an attack phrasing`,
+          : row.mustFire === true
+            ? `corpus.jsonl:${line} (${row.source}) quotes an attack phrasing and no longer fires: the rule change regressed`
+            : `corpus.jsonl:${line} (${row.source}) known false positive now cleared: set "denied": false and drop "mustFire"`,
       );
     }
     expect(mismatches).toEqual([]);
     expect(rows.length).toBeGreaterThan(300);
+    expect(rows.filter((row) => row.denied && typeof row.mustFire !== "boolean")).toEqual([]);
   } finally {
     await rm(homeDir, { recursive: true, force: true });
   }

@@ -37,29 +37,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, posix, resolve } from "node:path";
 import ts from "typescript";
 import { components, type ComponentManifest, type ComponentSpec } from "../src/components";
+import { repositoryBaseRevision } from "./git-base";
 
 export const VIOLATIONS_PATH = "scripts/boundaries/violations.json";
 export const BASELINE_PATH = "scripts/boundaries/closure-baseline.json";
-
-/** CI supplies the exact base commit; locally compare the branch with its fork point. */
-export function repositoryBaseRevision(root: string): string {
-  return process.env.SOMA_BOUNDARIES_BASE_REF ?? execFileSync("git", ["merge-base", "HEAD", "origin/main"], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "pipe"],
-  }).trim();
-}
-
-/** A repo file's JSON at the Git base, or null when the base has no such file (first landing). */
-export function readJsonAtBase(root: string, path: string): unknown {
-  try {
-    const text = execFileSync("git", ["show", `${repositoryBaseRevision(root)}:${path}`], { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-    return JSON.parse(text) as unknown;
-  } catch (error) {
-    if (error instanceof Error && /does not exist|exists on disk, but not in/.test(error.message)) return null;
-    throw error;
-  }
-}
 
 export type EdgeKind = "import" | "type-import" | "re-export" | "dynamic-import";
 export type ViolationRule = "direction" | "public-entry" | "unit" | "test-index" | "test-public-entry";

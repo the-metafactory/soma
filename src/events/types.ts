@@ -1,5 +1,4 @@
 import type { AlgorithmPhase, SubstrateId } from "../types";
-import type { SOMA_FEEDBACK_ACTORS } from "./feedback-contract";
 
 export interface SomaMemoryEventInput {
   id?: string;
@@ -85,4 +84,7 @@ export interface SomaFeedbackClassification {
   reason: string;
 }
 
+// soma#785 Q13: who authored the prompt. `automated` = a ranger worker
+// (RANGER_JOURNAL_PATH set), `sdk` = a headless run, `interactive` = a person.
+export const SOMA_FEEDBACK_ACTORS = ["interactive", "sdk", "automated"] as const;
 export type SomaFeedbackActor = (typeof SOMA_FEEDBACK_ACTORS)[number];
