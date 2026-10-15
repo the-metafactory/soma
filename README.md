@@ -524,13 +524,13 @@ creds) is refused before the spool and is not replayed. A timed-out emit is
 abandoned, not cancelled: its bounded connect or publish can keep the process
 alive a few seconds after the verb has printed.
 
-> **Not yet working from the arc-installed CLI.** The installed `soma` runs a
-> frozen runtime artifact (`<soma-home>/runtime/artifacts/<hash>/`) that holds
-> `src` and `package.json` but no `node_modules`, so it cannot load myelin.
-> Until node #866 lands, every emit from the installed CLI fails at stage
-> `load`: nothing is built or spooled, and the run is recorded only as a
-> `run_ledger.publish_failed` event. `bun run soma` from a source checkout
-> loads myelin and publishes.
+The arc-installed `soma` runs a frozen runtime artifact
+(`<soma-home>/runtime/artifacts/<hash>/`) that carries `src`, `package.json`
+and the production dependency closure under `node_modules`, so myelin loads
+from the artifact with no network (node #866). An artifact installed before
+that change holds no `node_modules`; its emits fail at stage `load`, and
+`soma doctor` reports the missing dependency until `soma install <substrate>
+--apply` restages it. See [soma-home-layout.md](docs/soma-home-layout.md).
 
 ### Weekly goal outline
 

@@ -167,6 +167,7 @@ function issuePayload(overrides: Record<string, unknown> = {}): Record<string, u
     title: "GraphStore seam + GitHub backend",
     body: "## Task\n\nimplement the seam",
     state: "open",
+    updated_at: "2026-10-14T10:00:00Z",
     user: { login: "jcfischer" },
     assignees: [],
     html_url: "https://github.com/the-metafactory/soma/issues/497",
@@ -640,6 +641,7 @@ function gql(
   return {
     number,
     state,
+    updatedAt: "2026-10-14T10:00:00Z",
     title: `node ${number}`,
     body: "",
     url: `https://github.com/${REPO}/issues/${number}`,

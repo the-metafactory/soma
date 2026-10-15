@@ -82,7 +82,7 @@ export function createGlabCliTransport(options: GlabCliTransportOptions): GitLab
 export interface GitLabGraphStoreOptions { host: string; transport?: GitLabApiTransport; confinement?: ConfinementDeps; }
 export interface GitLabCreateData extends StoreCreationData { readonly capability: "gitlab"; readonly homeProject?: string; readonly scopeProject?: string; }
 interface Parts { path: string; iid: number; sigil: "#" | "&"; }
-interface Item { id: string; iid: number; path: string; type: string; title: string; rawDescription: string; nodeBlock: ReturnType<typeof decodeNodeBlock>; nodeBlockData?: Record<string, unknown>; nodeBlockError?: string; status: NodeStatus; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
+interface Item { id: string; iid: number; path: string; type: string; title: string; rawDescription: string; nodeBlock: ReturnType<typeof decodeNodeBlock>; nodeBlockData?: Record<string, unknown>; nodeBlockError?: string; status: NodeStatus; updatedAt: string; author: string; assignees: string[]; homeProject?: string; parent?: NodeRef; blockers: BlockingRef[]; children: NodeRef[]; childrenTruncated: boolean; linksTruncated: boolean; }
 const GITLAB_ITEM = Symbol("gitlab-item");
 const GITLAB_REHOME = Symbol("gitlab-rehome");
 type HydratedNodeState = NodeState & { [GITLAB_ITEM]?: Item };
@@ -186,7 +186,7 @@ function itemFrom(value: unknown, context: string, fallbackPath: string): Item {
   const hierarchy = parseHierarchy(widgets, context);
   const linkedItems = parseLinkedItems(widgets, context);
   if (boundHome !== undefined && route.homeProject !== undefined && boundHome !== route.homeProject) throw new WorkGraphError("invalid-node", `GitLab Epic ${path}&${iid} has conflicting typed and route home bindings`);
-  return { id: str(item, "id", context), iid, path, type: typeName(item.workItemType), title, rawDescription, nodeBlock: block, ...(nodeBlockData === undefined ? {} : { nodeBlockData }), ...(nodeBlockError === undefined ? {} : { nodeBlockError }), status: item.state === "CLOSED" ? "closed" : "open", author: username(item.author), assignees: parseAssignees(widgets), ...((boundHome ?? route.homeProject) === undefined ? {} : { homeProject: boundHome ?? route.homeProject }), ...hierarchy, ...linkedItems };
+  return { id: str(item, "id", context), iid, path, type: typeName(item.workItemType), title, rawDescription, nodeBlock: block, ...(nodeBlockData === undefined ? {} : { nodeBlockData }), ...(nodeBlockError === undefined ? {} : { nodeBlockError }), status: item.state === "CLOSED" ? "closed" : "open", updatedAt: str(item, "updatedAt", context), author: username(item.author), assignees: parseAssignees(widgets), ...((boundHome ?? route.homeProject) === undefined ? {} : { homeProject: boundHome ?? route.homeProject }), ...hierarchy, ...linkedItems };
 }
 function withPersistedCompletion(node: WorkGraphNode, value: unknown): WorkGraphNode {
   const completion = rec(value, "node completion"); const fields = ["receiptCommentId", "checkpointId", "closer", "closedAt", "gatedNodeHash"] as const;
@@ -214,14 +214,14 @@ function stateFrom(item: Item): NodeState {
   const ref = nodeId(item.path, item.iid, item.type === "Epic" ? "&" : "#");
   try {
     const { node, typed } = typedNodeFrom(item, ref);
-    return { ref, node, ...(item.type === "Epic" && item.homeProject !== undefined ? { storeFields: { home: item.homeProject } } : {}), typed, status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) };
+    return { ref, node, ...(item.type === "Epic" && item.homeProject !== undefined ? { storeFields: { home: item.homeProject } } : {}), typed, status: item.status, updatedAt: item.updatedAt, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) };
   } catch (error) {
-    return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) };
+    return { ref, node: { id: ref.id, title: item.title, autonomy: "approve" }, typed: false, parseError: error instanceof Error ? error.message : String(error), status: item.status, updatedAt: item.updatedAt, author: item.author, assignees: item.assignees, body: decoded.text, blockedBy: item.blockers, trackerType: item.type, ...(item.parent === undefined ? {} : { parent: item.parent }) };
   }
 }
 
-const ITEM_FIELDS = `id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}`;
-const SUBTREE_ITEM_FIELDS = `id iid title description state workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}} children(first:100){nodes{iid namespace{fullPath} workItemType{name}} pageInfo{hasNextPage}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}`;
+const ITEM_FIELDS = `id iid title description state updatedAt workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}`;
+const SUBTREE_ITEM_FIELDS = `id iid title description state updatedAt workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetAssignees{assignees{nodes{username}}} ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}} children(first:100){nodes{iid namespace{fullPath} workItemType{name}} pageInfo{hasNextPage}}} ... on WorkItemWidgetLinkedItems{linkedItems(first:100){nodes{linkType workItem{iid namespace{fullPath} state workItemType{name}}} pageInfo{hasNextPage}}}}`;
 // GitLab caps an authenticated query at complexity 250; one subtree item costs about 37 (live, 19.4), so six fit in one request.
 // readSubtree splits each level at this size so its concurrency bound spreads the batches; items() splits again for any other caller.
 const GITLAB_BATCH_SIZE = 6;

@@ -239,6 +239,7 @@ interface GitHubIssue {
   title: string;
   body: string;
   status: NodeStatus;
+  updatedAt: string;
   author: string;
   assignees: string[];
   url?: string;
@@ -279,6 +280,15 @@ function readLogin(value: unknown): string {
   if (typeof value !== "object" || value === null) return "";
   const login = (value as Record<string, unknown>).login;
   return typeof login === "string" ? login : "";
+}
+
+function readUpdatedAt(value: unknown, context: string): string {
+  if (typeof value !== "string"
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)
+    || !Number.isFinite(Date.parse(value))) {
+    throw new WorkGraphError("backend", `${context}: missing or invalid API update time`);
+  }
+  return value;
 }
 
 /**
@@ -329,6 +339,7 @@ function readIssue(value: unknown, context: string): GitHubIssue {
     title: typeof record.title === "string" ? record.title : "",
     body: typeof record.body === "string" ? record.body : "",
     status: record.state === "closed" ? "closed" : "open",
+    updatedAt: readUpdatedAt(record.updated_at, context),
     author: readLogin(record.user),
     assignees,
     ...(typeof record.html_url === "string" ? { url: record.html_url } : {}),
@@ -426,7 +437,11 @@ const BLOCKER_PAGE = 20;
  * few frontier nodes. Nothing here establishes where that crosses over — revisit
  * when payload rather than round trips is what a real map is paying.
  */
-const NODE_FIELDS = `number title state body url databaseId repository{nameWithOwner} author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state repository{nameWithOwner}}}`;
+const NODE_FIELDS = `number title state body updatedAt url databaseId repository{nameWithOwner} author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state repository{nameWithOwner}}}`;
+
+// Scan the live repo connection, not search (which has index lag and a result
+// cap). Hydrate only goal candidates; totalCount proves the scan is complete.
+const OPEN_ROOTS_QUERY = `query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){issues(first:100,states:[OPEN],orderBy:{field:CREATED_AT,direction:ASC},after:$after){totalCount pageInfo{hasNextPage endCursor} nodes{number title body}}}}`;
 
 /** A node in the walk: its confirmed state, its children, and what arrived short. */
 interface SubtreeNode {
@@ -516,6 +531,7 @@ function toNodeState(
     ref: { id: localIssueId(storeRepo, issue) },
     node,
     status: issue.status,
+    updatedAt: issue.updatedAt,
     ...(foreign ? { writable: false } : {}),
     assignees: issue.assignees,
     blockedBy,
@@ -544,6 +560,7 @@ function readSubtreeState(storeRepo: string, record: Record<string, unknown>): {
     title: typeof record.title === "string" ? record.title : "",
     body: typeof record.body === "string" ? record.body : "",
     status: readGraphQLStatus(record),
+    updatedAt: readUpdatedAt(record.updatedAt, context),
     author: readLogin(record.author),
     assignees: assignees.entries.map((entry) => readLogin(entry)).filter((login) => login.length > 0),
     ...(typeof record.url === "string" ? { url: record.url } : {}),
@@ -604,11 +621,11 @@ function readComment(value: unknown, context: string): GitHubComment {
  * class with no probes: nothing declared how to check it by machine, so nothing
  * may close it by machine.
  */
-function untypedNode(issue: GitHubIssue): WorkGraphNode {
+function untypedNode(issue: Pick<GitHubIssue, "number" | "title" | "body">): WorkGraphNode {
   return { id: String(issue.number), title: issue.title, autonomy: "approve" };
 }
 
-function nodeFromIssue(issue: GitHubIssue): { node: WorkGraphNode; typed: boolean; parseError?: string; text: string } {
+function nodeFromIssue(issue: Pick<GitHubIssue, "number" | "title" | "body">): { node: WorkGraphNode; typed: boolean; parseError?: string; text: string } {
   const decoded = decodeNodeBlock(issue.body);
   if (decoded.raw === undefined) {
     return { node: untypedNode(issue), typed: false, text: decoded.text };
@@ -805,6 +822,71 @@ class GitHubGraphStore implements GraphStore {
     if (issue.status !== "closed" || options.includeCurrentCloseReceipt === false) return state;
     if (state.node.completion === undefined) return { ...state, currentCloseReceipt: false };
     return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref, issue, state.node.completion) };
+  }
+
+  async listOpenRoots(serves: string): Promise<NodeState[]> {
+    if (!/^G\d+$/u.test(serves)) {
+      throw new WorkGraphError("invalid-node", `listOpenRoots in ${this.repo}: serves must be a G<n> goal ID`);
+    }
+    const context = `listOpenRoots in ${this.repo}`;
+    try {
+      const [owner, name] = this.repo.split("/");
+      const candidates: NodeRef[] = [];
+      const seen = new Set<number>();
+      const cursors = new Set<string>();
+      let after: string | null = null;
+      let totalCount: number | undefined;
+      for (;;) {
+        const response = asRecord(await this.transport({
+          method: "POST", path: "graphql",
+          body: { query: OPEN_ROOTS_QUERY, variables: { owner, name, after } },
+        }), context);
+        if (response.errors !== undefined && asArray(response.errors, context).length > 0) {
+          throw new WorkGraphError("backend", `${context}: GraphQL returned errors`);
+        }
+        const repository = asRecord(asRecord(response.data, context).repository, context);
+        const connection = asRecord(repository.issues, context);
+        const count = readNumber(connection, "totalCount", context);
+        if (!Number.isInteger(count) || count < 0 || (totalCount !== undefined && totalCount !== count)) {
+          throw new WorkGraphError("backend", `${context}: inconsistent issue count while paging`);
+        }
+        totalCount = count;
+        for (const entry of asArray(connection.nodes, context)) {
+          const issue = asRecord(entry, context);
+          const number = readNumber(issue, "number", context);
+          if (!Number.isSafeInteger(number) || number < 1 || seen.has(number)) {
+            throw new WorkGraphError("backend", `${context}: invalid or duplicate issue number`);
+          }
+          seen.add(number);
+          if (typeof issue.title !== "string" || typeof issue.body !== "string") {
+            throw new WorkGraphError("backend", `${context}: missing issue title or body`);
+          }
+          const decoded = nodeFromIssue({ number, title: issue.title, body: issue.body });
+          if (decoded.typed && decoded.node.serves === serves) candidates.push({ id: String(number) });
+        }
+        const pageInfo = asRecord(connection.pageInfo, context);
+        if (pageInfo.hasNextPage === false) break;
+        if (pageInfo.hasNextPage !== true || typeof pageInfo.endCursor !== "string"
+          || pageInfo.endCursor.length === 0 || cursors.has(pageInfo.endCursor)) {
+          throw new WorkGraphError("backend", `${context}: unusable pagination cursor or hasNextPage`);
+        }
+        cursors.add(pageInfo.endCursor);
+        after = pageInfo.endCursor;
+      }
+      if (seen.size !== totalCount) {
+        throw new WorkGraphError("backend", `${context}: reported ${totalCount} issues but paging returned ${seen.size}`);
+      }
+      const roots: NodeState[] = [];
+      for (const candidate of candidates) {
+        const state = await this.readNode(candidate, { includeCurrentCloseReceipt: false });
+        if (state.status === "open" && state.parent === undefined && state.typed && state.node.serves === serves) {
+          roots.push(state);
+        }
+      }
+      return roots;
+    } catch (error) {
+      throw new WorkGraphError("backend", `${context}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**

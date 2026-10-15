@@ -12,7 +12,7 @@ import { parseNodeSpec } from "../src/work-graph";
 const REF = { id: "saca/secacademy#12" };
 const REPO = "saca/secacademy";
 function gitLabEpic(description: string) {
-  return { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  return { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description, state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
 }
 
 test("glab transport pins the host and flattens paginated output", () => {
@@ -51,8 +51,8 @@ test("GitLab exposes Issue as its only Task-parent capability", () => {
 
 test("GitLab re-home reuses the Task and Issue reads for creation", async () => {
   const calls: GitLabApiRequest[] = [];
-  const issue = { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: REPO }, title: "issue", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
-  const task = { id: "gid://gitlab/WorkItem/3", iid: "3", workItemType: "Task", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", parent: { iid: "2", namespace: { fullPath: REPO }, workItemType: { name: "Issue" } }, children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const issue = { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: REPO }, title: "issue", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const task = { id: "gid://gitlab/WorkItem/3", iid: "3", workItemType: "Task", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", parent: { iid: "2", namespace: { fullPath: REPO }, workItemType: { name: "Issue" } }, children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {
     calls.push(request);
     const query = String(request.body?.query);
@@ -68,7 +68,7 @@ test("GitLab re-home reuses the Task and Issue reads for creation", async () => 
 
 test("GitLab writes blocking edges through the linked-item mutation contract", async () => {
   const calls: GitLabApiRequest[] = [];
-  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => { calls.push(request); if (String(request.body?.query).includes("workItemAddLinkedItems")) return { data: { workItemAddLinkedItems: { errors: [] } } }; return { data: { namespace: { workItem: item } } }; } });
   await store.addBlockingEdge({ id: `${REPO}#1` }, { id: `${REPO}#2` });
   const request = calls.find((call) => String(call.body?.query).includes("workItemAddLinkedItems"));
@@ -95,7 +95,7 @@ test("GitLab claim and release refuse an identity other than the authenticated a
 });
 
 test("GitLab release reports the assignees GitLab actually returned", async () => {
-  const issue = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [{ username: "jc" }] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const issue = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [{ username: "jc" }] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {
     if (request.path === "user") return { username: "jc" };
     if (String(request.body?.query).includes("issueSetAssignees")) return { data: { issueSetAssignees: { errors: [] } } };
@@ -107,7 +107,7 @@ test("GitLab release reports the assignees GitLab actually returned", async () =
 
 test("GitLab creates an Issue in an Epic root's declared home project", async () => {
   const calls: GitLabApiRequest[] = [];
-  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(request);
     if (calls.length === 1) return { data: { namespace: { workItem: epic } } };
@@ -124,7 +124,7 @@ test("GitLab creates an Issue in an Epic root's declared home project", async ()
 
 test("GitLab creates a detached Issue without a hierarchy widget and attaches it with a work item update (#740)", async () => {
   const calls: GitLabApiRequest[] = [];
-  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const issue = { ...epic, id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, description: "" };
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(request);
@@ -153,9 +153,9 @@ test("GitLab attachToParent refuses a parent outside the child's home project or
   const route = (home: string) => `<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"${home}"}\n-->`;
   const widgets = [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }];
   const items: Record<string, unknown> = {
-    "saca|1": { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: route("saca/other"), state: "OPEN", author: { username: "jc" }, widgets },
-    "saca/secacademy|2": { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "i", description: "", state: "OPEN", author: { username: "jc" }, widgets },
-    "saca/secacademy|3": { id: "gid://gitlab/WorkItem/3", iid: "3", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "j", description: "", state: "OPEN", author: { username: "jc" }, widgets },
+    "saca|1": { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: route("saca/other"), state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets },
+    "saca/secacademy|2": { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "i", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets },
+    "saca/secacademy|3": { id: "gid://gitlab/WorkItem/3", iid: "3", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "j", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets },
   };
   const calls: GitLabApiRequest[] = [];
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
@@ -254,7 +254,7 @@ test("GitLab refuses malformed typed homes even when a legacy route is valid", a
 
 test("GitLab creates a Task in its Issue parent's project", async () => {
   const calls: GitLabApiRequest[] = [];
-  const issue = { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "route", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const issue = { id: "gid://gitlab/WorkItem/2", iid: "2", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "route", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const transport = async (request: GitLabApiRequest): Promise<unknown> => { calls.push(request); if (calls.length === 1) return { data: { namespace: { workItem: issue } } }; if (String(request.body?.query).includes("workItemTypes")) return { data: { namespace: { workItemTypes: { nodes: [{ id: "gid://gitlab/WorkItems::Type/instance-task", name: "Task" }] } } } }; return { data: { workItemCreate: { workItem: { iid: "3", workItemType: { name: "Task" }, namespace: { fullPath: "saca/secacademy" } }, errors: [] } } }; };
   const ref = await createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport }).createNode(parseNodeSpec({ title: "scaffold", autonomy: "approve", checkpointId: "cp", parent: { id: "saca/secacademy#2" } }));
   expect(ref).toEqual({ id: "saca/secacademy#3" });
@@ -272,7 +272,7 @@ test("GitLab root creation cannot route outside the selected repository", async 
 });
 
 test("GitLab preserves an Epic blocker id, reading link types as GitLab returns them (lowercase)", async () => {
-  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [{ linkType: "is_blocked_by", workItem: { iid: "1", namespace: { fullPath: "saca" }, state: "OPEN", workItemType: { name: "Epic" } } }] } }] };
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [{ linkType: "is_blocked_by", workItem: { iid: "1", namespace: { fullPath: "saca" }, state: "OPEN", workItemType: { name: "Epic" } } }] } }] };
   const calls: GitLabApiRequest[] = [];
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async (request) => { calls.push(request); return { data: { namespace: { workItem: item } } }; } });
   expect((await store.readNode(REF)).blockedBy).toEqual([{ id: "saca&1", status: "open" }]);
@@ -280,8 +280,8 @@ test("GitLab preserves an Epic blocker id, reading link types as GitLab returns 
 });
 
 test("GitLab batches every subtree hierarchy level", async () => {
-  const root = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "root", description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [{ iid: "2", namespace: { fullPath: "saca/p" }, workItemType: { name: "Issue" } }, { iid: "3", namespace: { fullPath: "saca/p" }, workItemType: { name: "Issue" } }] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
-  const child = (iid: string) => ({ id: `gid://gitlab/WorkItem/${iid}`, iid, workItemType: "Issue", namespace: { fullPath: "saca/p" }, title: `child ${iid}`, description: "", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] });
+  const root = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "root", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [{ iid: "2", namespace: { fullPath: "saca/p" }, workItemType: { name: "Issue" } }, { iid: "3", namespace: { fullPath: "saca/p" }, workItemType: { name: "Issue" } }] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const child = (iid: string) => ({ id: `gid://gitlab/WorkItem/${iid}`, iid, workItemType: "Issue", namespace: { fullPath: "saca/p" }, title: `child ${iid}`, description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] });
   const calls: GitLabApiRequest[] = [];
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async (request) => { calls.push(request); return calls.length === 1 ? { data: { namespace: { workItem: root } } } : { data: { item0: { workItem: child("2") }, item1: { workItem: child("3") } } }; } });
   expect((await store.readSubtree({ id: "saca&1" })).map((state) => state.ref.id)).toEqual(["saca/p#2", "saca/p#3"]);
@@ -293,7 +293,7 @@ test("GitLab batches every subtree hierarchy level", async () => {
 test("close writes the receipt note before one description-and-state PUT", async () => {
   const calls: string[] = [];
   let closeBody: Record<string, unknown> | undefined;
-  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "body\n\n<!-- soma:work-graph-node\n{\"autonomy\":\"approve\"}\n-->", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", namespace: { fullPath: "saca/secacademy" }, title: "task", description: "body\n\n<!-- soma:work-graph-node\n{\"autonomy\":\"approve\"}\n-->", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(`${request.method} ${request.path}`);
     if (request.path === "graphql") return { data: { namespace: { workItem: item } } };
@@ -310,7 +310,7 @@ test("close writes the receipt note before one description-and-state PUT", async
 });
 
 test("GitLab route metadata never appears in a node body", async () => {
-  const item = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `Human text\n\n<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const item = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: `Human text\n\n<!-- soma:work-graph-node\n{"autonomy":"approve"}\n-->\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`, state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async () => ({ data: { namespace: { workItem: item } } }) });
   expect((await store.readNode({ id: "saca&1" })).body).toBe("Human text");
   expect((await store.readNode({ id: "saca&1" })).storeFields?.home).toBe("saca/secacademy");
@@ -357,20 +357,20 @@ test("GitLab reads a new Epic's home from the typed node block", async () => {
 
 test("GitLab raw Epic bodies retain route metadata for later writes", async () => {
   const description = `Human text\n\n<!-- soma:gitlab-work-graph-route\n{"homeProject":"saca/secacademy"}\n-->`;
-  const item = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description, state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const item = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description, state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: item } } }) });
   await expect(store.readRawBody({ id: "saca&1" })).resolves.toBe(description);
 });
 
 test("closed GitLab nodes retain their typed completion binding", async () => {
-  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: `<!-- soma:work-graph-node\n{"autonomy":"approve","completion":{"receiptCommentId":"9","checkpointId":"cp","autonomy":"approve","closer":"ivy","closedAt":"2026-09-24T00:00:00.000Z","gatedNodeHash":"hash"}}\n-->`, state: "CLOSED", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: `<!-- soma:work-graph-node\n{"autonomy":"approve","completion":{"receiptCommentId":"9","checkpointId":"cp","autonomy":"approve","closer":"ivy","closedAt":"2026-09-24T00:00:00.000Z","gatedNodeHash":"hash"}}\n-->`, state: "CLOSED", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const state = await createGitLabGraphStore({ host: "gitlab-int.switch.ch",  transport: async () => ({ data: { namespace: { workItem: item } } }) }).readNode(REF);
   expect(state.typed).toBe(true);
   expect(state.node.completion?.receiptCommentId).toBe("9");
 });
 
 test("GitLab rejects a partial persisted completion CI binding", async () => {
-  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: `<!-- soma:work-graph-node\n{"autonomy":"approve","completion":{"receiptCommentId":"9","checkpointId":"cp","autonomy":"approve","closer":"ivy","closedAt":"2026-09-24T00:00:00.000Z","gatedNodeHash":"hash","ciCheckRunId":"42"}}\n-->`, state: "CLOSED", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const item = { id: "gid://gitlab/WorkItem/12", iid: "12", workItemType: "Issue", namespace: { fullPath: REPO }, title: "task", description: `<!-- soma:work-graph-node\n{"autonomy":"approve","completion":{"receiptCommentId":"9","checkpointId":"cp","autonomy":"approve","closer":"ivy","closedAt":"2026-09-24T00:00:00.000Z","gatedNodeHash":"hash","ciCheckRunId":"42"}}\n-->`, state: "CLOSED", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const state = await createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async () => ({ data: { namespace: { workItem: item } } }) }).readNode(REF);
   expect(state.typed).toBe(false);
   expect(state.parseError).toMatch(/invalid persisted completion CI binding/u);
@@ -386,7 +386,7 @@ test("Epic receipt reads refuse a note that is not attached to that Epic", async
 
 test("an Epic root closes through work-item mutations, never an issue REST path", async () => {
   const calls: GitLabApiRequest[] = [];
-  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: "body", state: "OPEN", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
+  const epic = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "map", description: "body", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "HIERARCHY", children: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }] };
   const transport = async (request: GitLabApiRequest): Promise<unknown> => {
     calls.push(request);
     if (request.path !== "graphql") throw new Error(`Epic used REST: ${request.path}`);
@@ -457,8 +457,8 @@ test("GitLab splits a wide subtree read into batches under the query complexity 
   // Live GitLab refuses one document aliasing a whole map level ("Query has complexity of 296, which exceeds max complexity of 250" at 8 items).
   const iids = Array.from({ length: 13 }, (_, index) => String(index + 2));
   const empty = [{ type: "ASSIGNEES", assignees: { nodes: [] } }, { type: "LINKED_ITEMS", linkedItems: { nodes: [] } }];
-  const root = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "root", description: "", state: "OPEN", author: { username: "jc" }, widgets: [...empty, { type: "HIERARCHY", children: { nodes: iids.map((iid) => ({ iid, namespace: { fullPath: "saca/p" }, workItemType: { name: "Issue" } })) } }] };
-  const child = (iid: string) => ({ id: `gid://gitlab/WorkItem/${iid}`, iid, workItemType: "Issue", namespace: { fullPath: "saca/p" }, title: `child ${iid}`, description: "", state: "OPEN", author: { username: "jc" }, widgets: [...empty, { type: "HIERARCHY", children: { nodes: [] } }] });
+  const root = { id: "gid://gitlab/WorkItem/1", iid: "1", workItemType: "Epic", namespace: { fullPath: "saca" }, title: "root", description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [...empty, { type: "HIERARCHY", children: { nodes: iids.map((iid) => ({ iid, namespace: { fullPath: "saca/p" }, workItemType: { name: "Issue" } })) } }] };
+  const child = (iid: string) => ({ id: `gid://gitlab/WorkItem/${iid}`, iid, workItemType: "Issue", namespace: { fullPath: "saca/p" }, title: `child ${iid}`, description: "", state: "OPEN", updatedAt: "2026-10-14T10:00:00Z", author: { username: "jc" }, widgets: [...empty, { type: "HIERARCHY", children: { nodes: [] } }] });
   const calls: GitLabApiRequest[] = [];
   let inFlight = 0; let peak = 0;
   const store = createGitLabGraphStore({ host: "gitlab-int.switch.ch", transport: async (request) => {

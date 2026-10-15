@@ -1,8 +1,8 @@
 {
-  "core": 1000,
+  "core": 1500,
   "events": 6500,
   "memory": 12500,
-  "purpose": 6500,
+  "purpose": 7000,
   "vsa": 9000,
   "tools": 9500,
   "policy": 11000,
@@ -11,9 +11,9 @@
   "router": 8000,
   "graph": 12500,
   "execution": 7500,
-  "substrates": 39500,
-  "migrate": 17000,
-  "flows": 47500,
-  "cli": 74500,
-  "legacy": 59500
+  "substrates": 40000,
+  "migrate": 17500,
+  "flows": 48500,
+  "cli": 75500,
+  "legacy": 60000
 }

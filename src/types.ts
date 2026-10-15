@@ -310,11 +310,33 @@ export interface ErrataRecord extends ErrataInput {
   id: string;
   status: "active" | "dropped";
   createdAt: string;
+  /** Set once a `clustered` event assigned this Errata; never changes afterwards. */
+  clusterId?: string;
+}
+
+/**
+ * Why a cluster's members belong together (node #851, soma#785 Q15). Deterministic
+ * keys come first; a theme is judged only for `passedBy: null` with no shared artifact.
+ * Theme labels are the judge's own words and never contain complaint text.
+ */
+export type ErrataClusterKey =
+  | { kind: "check"; passedBy: ErrataPassedBy }
+  | { kind: "artifact"; path: string }
+  | { kind: "theme"; label: string };
+
+/** Folded cluster: active members only; `ripe` is derived, never stored (soma#785 Q16). */
+export interface ErrataCluster {
+  id: string;
+  key: ErrataClusterKey;
+  errataIds: string[];
+  status: "open" | "ripe";
+  createdAt: string;
 }
 
 export type ErrataEvent =
   | { kind: "created"; record: ErrataRecord }
-  | { kind: "dropped"; id: string; at: string };
+  | { kind: "dropped"; id: string; at: string }
+  | { kind: "clustered"; id: string; clusterId: string; key: ErrataClusterKey; at: string };
 
 export interface AlgorithmLogEntry {
   timestamp: string;

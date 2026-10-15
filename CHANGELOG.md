@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The frozen runtime artifact carries the production dependency closure under `node_modules/`, so the arc-installed `soma` resolves `@the-metafactory/myelin` and its own dependencies with no network and a run-ledger emit from it reaches the bus instead of failing at stage `load`. The artifact hash covers the carried packages; a checkout missing a production dependency is refused at install, and `soma runtime status` and `soma doctor` name a dependency missing from the active artifact. (node #866)
+
 ### Breaking
 
 - PAI migration and import are removed. `soma migrate pai` and the whole `soma import` command (`pai`, `algorithm`, `pai-pack`, `pai-docs`) are gone and now fail like any unknown command; their SDK exports (`migratePai`, `importPaiIdentity`, `importPaiPack`, `importPaiDocs`, `importAlgorithm`, their `plan*` siblings and types) are removed too. To migrate a PAI install, pin soma 0.25 or earlier, migrate, then upgrade. `soma init` still detects `~/.claude/PAI` but plans no `migrate-pai` step; it prints one line saying PAI migration needs soma 0.25 or earlier. `soma doctor` no longer reports `pai-not-migrated`. `soma migrate claude-skills` is unchanged, so it still rewrites `~/.claude/PAI/DOCUMENTATION|TEMPLATES|ALGORITHM/` references to `~/.soma/PAI/...`; those targets are now legacy-only, populated only by `soma import pai-docs` from soma 0.25 or earlier, and point at missing files on any other home. The SDK types `PaiPackNormalizationAction` and `PaiPackNormalizationWarning` are renamed to `SkillNormalizationAction` and `SkillNormalizationWarning`; the old names remain as deprecated aliases. (node #793)

@@ -5,7 +5,7 @@ import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift, isDoctorSubs
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForDsh, installSomaForGrok, installSomaForPiDev } from "./install";
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./home-bootstrap";
-import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate } from "./runtime-artifact";
+import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate, readRuntimeArtifactState } from "./runtime-artifact";
 import { isFsUtilsEnoent as isEnoent, pathExists } from "./core/index";
 import type {
   SomaDoctorDiagnosis,
@@ -280,8 +280,22 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
       findings.push({
         id: runtime.status === "unloadable" ? "runtime-artifact-unloadable" : "runtime-artifact-missing",
         severity: "error",
-        message: `Active enforcement artifact is ${runtime.status.replace(/-/g, " ")}; guarded hooks fail closed until it is restored.`,
+        message: `Active enforcement artifact is ${runtime.status.replace(/-/g, " ")}${runtime.detail ? ` (${runtime.detail})` : ""}; guarded hooks fail closed until it is restored.`,
         action: `soma install ${substrate} --apply --home-dir ${shellQuote(detected.homeDir)} --soma-home ${shellQuote(detected.somaHome)}; if a retained artifact exists, run soma runtime rollback --target ${substrate} --soma-home ${shellQuote(detected.somaHome)}`,
+      });
+    }
+  }
+  // The arc launcher runs every non-maintenance verb from the `cli` artifact. Once
+  // one is installed, a dependency it does not carry breaks the run-ledger emit
+  // silently (node #866), so the active CLI artifact is inspected, load included.
+  if (await readRuntimeArtifactState(detected.somaHome, "cli") !== undefined) {
+    const cliRuntime = await inspectRuntimeArtifact(detected.somaHome, "cli");
+    if (cliRuntime.status !== "ready") {
+      findings.push({
+        id: cliRuntime.status === "unloadable" ? "runtime-artifact-unloadable" : "runtime-artifact-missing",
+        severity: "error",
+        message: `Active CLI runtime artifact is ${cliRuntime.status.replace(/-/g, " ")}${cliRuntime.detail ? ` (${cliRuntime.detail})` : ""}; the installed soma CLI fails closed until it is restored.`,
+        action: `soma install ${substrate} --apply --home-dir ${shellQuote(detected.homeDir)} --soma-home ${shellQuote(detected.somaHome)}; if a retained artifact exists, run soma runtime rollback --target cli --soma-home ${shellQuote(detected.somaHome)}`,
       });
     }
   }
