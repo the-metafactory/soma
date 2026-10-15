@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { caseFoldedEntryName, ensureSymlink, isSameFilesystemEntry, planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../src/skill-projection";
 import { bootstrapSomaHome } from "../src/index";
 import { runSomaCli } from "../src/cli";
-import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { STUB_RUNTIME } from "./fixtures/stub-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-skill-projection-"));
@@ -364,7 +364,7 @@ describe("soma install --skills", () => {
     await withTempHome(async (homeDir) => {
       await authorRegistrySkill(homeDir, "Widget");
 
-      const out = await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "Widget"], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      const out = await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "Widget"], STUB_RUNTIME);
       expect(out).toContain("Projected skills:");
 
       expect((await lstat(join(homeDir, ".claude", "skills", "Widget"))).isSymbolicLink()).toBe(true);
@@ -378,7 +378,7 @@ describe("soma install --skills", () => {
     await withTempHome(async (homeDir) => {
       await authorRegistrySkill(homeDir, "Widget");
 
-      await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir, "--skills", "Widget"], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir, "--skills", "Widget"], STUB_RUNTIME);
 
       const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
       expect(catalog).toContain("**Widget**");
@@ -398,7 +398,7 @@ describe("soma install --skills", () => {
   test("rejects a path-shaped --skills value", async () => {
     await withTempHome(async (homeDir) => {
       await expect(
-        runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "../evil"], { runtimeSourceRoot: STUB_RUNTIME_SOURCE }),
+        runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "../evil"], STUB_RUNTIME),
       ).rejects.toThrow(/skill names, not paths/);
     });
   });
@@ -589,7 +589,7 @@ describe("soma#638: the registry is the curated set", () => {
       await authorSkill(homeDir, "Alpha");
       await authorSkill(homeDir, "Beta");
 
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
       for (const name of ["Alpha", "Beta"]) {
         expect((await lstat(join(homeDir, ".claude", "skills", name))).isSymbolicLink()).toBe(true);
@@ -602,7 +602,7 @@ describe("soma#638: the registry is the curated set", () => {
       await authorSkill(homeDir, "Alpha");
       await authorSkill(homeDir, "Beta");
 
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "Alpha"], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir, "--skills", "Alpha"], STUB_RUNTIME);
 
       expect((await lstat(join(homeDir, ".claude", "skills", "Alpha"))).isSymbolicLink()).toBe(true);
       await expect(lstat(join(homeDir, ".claude", "skills", "Beta"))).rejects.toThrow();
@@ -613,7 +613,7 @@ describe("soma#638: the registry is the curated set", () => {
     await withTempHome(async (homeDir) => {
       await authorSkill(homeDir, "Alpha");
 
-      await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
       await expect(lstat(join(homeDir, ".cursor", "rules", "soma", "skills", "Alpha"))).rejects.toThrow();
       const catalog = await readFile(join(homeDir, ".cursor", "rules", "soma", "SKILLS.md"), "utf8");
@@ -625,7 +625,7 @@ describe("soma#638: the registry is the curated set", () => {
     await withTempHome(async (homeDir) => {
       await authorSkill(homeDir, "Alpha");
 
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
       const vsa = join(homeDir, ".claude", "skills", "VSA");
       expect((await lstat(vsa)).isSymbolicLink()).toBe(false);
@@ -649,7 +649,7 @@ describe("soma#638 review fixes", () => {
       await authorSkill(homeDir, "renamed-vsa", "VSA");
       await authorSkill(homeDir, "Real", "Real");
 
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
       // Every other skill still projected...
       expect((await lstat(join(homeDir, ".claude", "skills", "Real"))).isSymbolicLink()).toBe(true);
@@ -660,10 +660,10 @@ describe("soma#638 review fixes", () => {
 
   test("reproject picks up a skill added to the registry since install", async () => {
     await withTempHome(async (homeDir) => {
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
       await authorSkill(homeDir, "Added", "Added");
 
-      await runSomaCli(["reproject", "claude-code", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["reproject", "claude-code", "--home-dir", homeDir], STUB_RUNTIME);
 
       expect((await lstat(join(homeDir, ".claude", "skills", "Added"))).isSymbolicLink()).toBe(true);
     });
@@ -721,7 +721,7 @@ describe("soma#638 re-review fixes", () => {
       await authorSkill(homeDir, "bad", "../escape");
       await authorSkill(homeDir, "good", "Good");
 
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
       expect((await lstat(join(homeDir, ".claude", "skills", "Good"))).isSymbolicLink()).toBe(true);
     });
@@ -736,7 +736,7 @@ describe("soma#638 re-review fixes", () => {
       expect(plan).not.toContain("dir-name");
 
       // The promise the plan made is the path the apply creates.
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
       expect((await lstat(join(homeDir, ".claude", "skills", "FrontmatterName"))).isSymbolicLink()).toBe(true);
     });
   });
@@ -758,7 +758,7 @@ describe("soma#638 third-pass fixes", () => {
       await mkdir(userOwned, { recursive: true });
       await writeFile(join(userOwned, "SKILL.md"), `---\nname: UserOwned\n---\n# not soma\n`, "utf8");
 
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
       expect((await lstat(join(homeDir, ".claude", "skills", "Mine"))).isSymbolicLink()).toBe(true);
 
       await runSomaCli(["uninstall", "claude-code", "--home-dir", homeDir]);
@@ -827,7 +827,7 @@ describe("soma#638 fourth-pass fixes", () => {
       await mkdir(backup, { recursive: true });
       await writeFile(join(backup, "SKILL.md"), `---\nname: Other\n---\n# o\n`, "utf8");
 
-      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
       // `skills-backup` must not read as inside `skills` — the separator guard.
       await symlink(backup, join(homeDir, ".claude", "skills", "Other"));
 

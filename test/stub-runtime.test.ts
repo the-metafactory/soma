@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { runSomaCli } from "../src/cli";
 import { installSomaForCodex } from "../src/index";
 import { inspectRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
-import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { STUB_RUNTIME, STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 async function withHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
   const home = await mkdtemp(join(tmpdir(), "soma-stub-runtime-"));
@@ -54,7 +54,7 @@ test("runtimeSourceRoot moves the staged runtime only; bundled skills still come
 
 test("an in-process CLI install takes the runtime source as an internal seam, not from argv", async () => {
   await withHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     const manifest = JSON.parse(await readFile(join(homeDir, ".soma", "runtime", "codex", "current", "package.json"), "utf8"));
     expect(manifest.name).toBe("soma-stub-runtime");
     expect(await readdir(join(homeDir, ".soma", "skills"))).toContain("the-algorithm");

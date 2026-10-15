@@ -15,3 +15,6 @@
 import { join } from "node:path";
 
 export const STUB_RUNTIME_SOURCE = join(import.meta.dir, "stub-runtime");
+
+/** The stub opt-in on its own, for an install or an in-process CLI run that passes nothing else. */
+export const STUB_RUNTIME = Object.freeze({ runtimeSourceRoot: STUB_RUNTIME_SOURCE });

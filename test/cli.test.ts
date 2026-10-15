@@ -21,7 +21,7 @@ import {
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
 } from "../src/cli/substrate-lifecycle";
 import { installSpecFor } from "../src/install-spec-registry";
-import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { STUB_RUNTIME } from "./fixtures/stub-runtime";
 
 const INSTALL_SUBSTRATE_USAGE = INSTALL_SUBSTRATES.join("|");
 const PROJECTION_LIFECYCLE_SUBSTRATE_USAGE = PROJECTION_LIFECYCLE_SUBSTRATES.join("|");
@@ -1363,7 +1363,7 @@ test("cli selects, invokes, and removes Algorithm capabilities", async () => {
 
 test("cli handles lifecycle events", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     const output = await runSomaCli([
       "lifecycle",
       "session-start",
@@ -1384,7 +1384,7 @@ test("cli handles lifecycle events", async () => {
 
 test("cli searches Soma memory", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     await mkdir(join(homeDir, ".soma/memory/LEARNING/consulting"), { recursive: true });
     await writeFile(
       join(homeDir, ".soma/memory/LEARNING/consulting/agency.md"),
@@ -1409,7 +1409,7 @@ test("cli searches Soma memory", async () => {
 
 test("cli memory search accepts a positional query", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     await mkdir(join(homeDir, ".soma/memory/LEARNING/consulting"), { recursive: true });
     await writeFile(
       join(homeDir, ".soma/memory/LEARNING/consulting/agency.md"),
@@ -1433,7 +1433,7 @@ test("cli memory search accepts a positional query", async () => {
 
 test("cli memory search prefers --query over a positional query", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     await mkdir(join(homeDir, ".soma/memory/LEARNING/consulting"), { recursive: true });
     await writeFile(
       join(homeDir, ".soma/memory/LEARNING/consulting/agency.md"),
@@ -1458,7 +1458,7 @@ test("cli memory search prefers --query over a positional query", async () => {
 
 test("cli captures feedback candidates", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
     const output = await runSomaCli([
       "feedback",
@@ -1645,7 +1645,7 @@ test("cli does not expose result capture timestamp override", async () => {
 
 test("cli warns when explicit feedback excerpt storage is enabled", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
     const output = await runSomaCli([
       "feedback",
@@ -1960,7 +1960,7 @@ test("cli rejects malformed policy target fields", async () => {
 
 test("cli applies codex install only with explicit apply flag", async () => {
   await withTempHome(async (homeDir) => {
-    const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    const output = await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`somaHome: ${join(homeDir, ".soma")}`);
@@ -1992,7 +1992,7 @@ test("cli dry-runs and applies pi.dev install", async () => {
     expect(dryRun).toContain(join(homeDir, ".pi/agent/skills/soma/SKILL.md"));
     await expect(stat(join(homeDir, ".pi"))).rejects.toThrow();
 
-    const output = await runSomaCli(["install", "pi-dev", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    const output = await runSomaCli(["install", "pi-dev", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`substrate: pi-dev`);
@@ -2051,7 +2051,7 @@ test("cli dry-runs and applies cursor install", async () => {
     expect(dryRun).toContain(join(homeDir, ".cursor/rules/soma/CONTEXT.md"));
     await expect(stat(join(homeDir, ".cursor"))).rejects.toThrow();
 
-    const output = await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    const output = await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain("substrate: cursor");
@@ -2086,7 +2086,7 @@ test("cli install cursor preserves existing workspace .cursorrules", async () =>
   await withTempHome(async (homeDir) => {
     await writeFile(join(homeDir, ".cursorrules"), "# Workspace rules\n\nKeep this file.\n", "utf8");
 
-    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
     const rules = await readFile(join(homeDir, ".cursorrules"), "utf8");
     expect(rules).toContain("Keep this file.");
@@ -2127,7 +2127,7 @@ test("cli uninstall claude-code reports no-op when not installed", async () => {
 
 test("cli uninstall claude-code removes the rules/soma projection (always-apply)", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     await expect(stat(join(homeDir, ".claude/rules/soma"))).resolves.toBeDefined();
 
     const output = await runSomaCli(["uninstall", "claude-code", "--home-dir", homeDir]);
@@ -2139,7 +2139,7 @@ test("cli uninstall claude-code removes the rules/soma projection (always-apply)
 
 test("cli uninstall cursor removes generated Cursor projection files", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     await expect(stat(join(homeDir, ".cursor/rules/soma"))).resolves.toBeDefined();
     await expect(stat(join(homeDir, ".cursorrules"))).resolves.toBeDefined();
 
@@ -2154,7 +2154,7 @@ test("cli uninstall cursor removes generated Cursor projection files", async () 
 
 test("cli uninstall cursor preserves user-owned .cursorrules", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     await writeFile(join(homeDir, ".cursorrules"), "# Workspace rules\n\nKeep this file.\n", "utf8");
 
     const output = await runSomaCli(["uninstall", "cursor", "--home-dir", homeDir]);
@@ -2200,13 +2200,13 @@ test("cli reproject codex routes through the install applier", async () => {
     // The bundled Memory skill projects as an invocable dir; a user "Widget"
     // skill would NOT (the loop is scoped to src/skills bundle), so Memory is
     // the proxy for "a projected skill survives reproject".
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     const projectedSkill = join(homeDir, ".codex", "skills", "Memory", "SKILL.md");
     expect(await readFile(projectedSkill, "utf8")).toContain("name: Memory");
     const staleOwnedFile = join(homeDir, ".codex", "memories", "soma", "stale.md");
     await writeFile(staleOwnedFile, "stale generated projection\n", "utf8");
 
-    const output = await runSomaCli(["reproject", "codex", "--code-only", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    const output = await runSomaCli(["reproject", "codex", "--code-only", "--home-dir", homeDir], STUB_RUNTIME);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`substrate: codex`);
@@ -2218,11 +2218,11 @@ test("cli reproject codex routes through the install applier", async () => {
 
 test("cli upgrade codex routes through the install applier", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     const projectedSkill = join(homeDir, ".codex", "skills", "Memory", "SKILL.md");
     expect(await readFile(projectedSkill, "utf8")).toContain("name: Memory");
 
-    const output = await runSomaCli(["upgrade", "codex", "--code-only", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    const output = await runSomaCli(["upgrade", "codex", "--code-only", "--home-dir", homeDir], STUB_RUNTIME);
 
     expect(output).toContain("Soma install applied");
     expect(output).toContain(`substrate: codex`);
@@ -2237,7 +2237,7 @@ test("cli daemon is a reserved placeholder", async () => {
 test("cli export emits projection JSON without touching home", async () => {
   await withTempHome(async (homeDir) => {
     // Seed a minimal soma home so loadSomaHome succeeds.
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     // Delete the codex home to prove export doesn't recreate it.
     await rm(join(homeDir, ".codex"), { recursive: true, force: true });
 
@@ -2285,7 +2285,7 @@ for (const substrate of INSTALL_SUBSTRATES) {
       const prefix = relative(substrateRoot, installedVsaDir).replace(/\\/g, "/");
 
       // grok's post-install smoke runs the staged runtime, so grok stages the real one.
-      await runSomaCli(["install", substrate, "--apply", "--home-dir", homeDir], substrate === "grok" ? {} : { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+      await runSomaCli(["install", substrate, "--apply", "--home-dir", homeDir], substrate === "grok" ? {} : STUB_RUNTIME);
 
       // Installed-home VSA file set (the source of truth for completeness).
       const installedVsaFiles = await walkRelativeFiles(installedVsaDir);
@@ -2315,7 +2315,7 @@ for (const substrate of INSTALL_SUBSTRATES) {
 
 test("cli export cursor emits Cursor projection JSON", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "cursor", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
     const output = await runSomaCli(["export", "cursor", "--home-dir", homeDir]);
     const parsed = JSON.parse(output) as { path: string; content: string }[];
@@ -2327,7 +2327,7 @@ test("cli export cursor emits Cursor projection JSON", async () => {
 
 test("cli export --out writes projection files into the out dir", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     const outDir = join(homeDir, "exported");
 
     const output = await runSomaCli(["export", "codex", "--out", outDir, "--home-dir", homeDir]);
@@ -2340,7 +2340,7 @@ test("cli export --out writes projection files into the out dir", async () => {
 
 test("cli export --out resolves a relative path against ARC_INVOCATION_CWD (soma#315)", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
 
     // The arc shim `cd`s into the repo before exec, overwriting both
     // process.cwd() and $PWD. It exports the caller's directory as
@@ -2362,7 +2362,7 @@ test("cli export --out resolves a relative path against ARC_INVOCATION_CWD (soma
 
 test("cli export --out rejects symlink escape from within out dir", async () => {
   await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], { runtimeSourceRoot: STUB_RUNTIME_SOURCE });
+    await runSomaCli(["install", "codex", "--apply", "--home-dir", homeDir], STUB_RUNTIME);
     const outDir = join(homeDir, "exported-symlinked");
     const escapeTarget = join(homeDir, "escape-target");
     await mkdir(outDir, { recursive: true });
