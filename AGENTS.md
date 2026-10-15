@@ -26,6 +26,7 @@ rule here is broken and nothing failed, fix the check, not only the code.
 | --- | --- | --- |
 | A list of three or more string literals has one owner; other copies derive from it (`(typeof XS)[number]`). Add a substrate to `SHIPPED_SUBSTRATES` in `src/types.ts`, not per command. | `bun run check:literal-sets` (`scripts/check-literal-sets.ts`, shrink-only `scripts/literal-sets/baseline.json`), CI step "Literal sets" | be80040 (#856, `GoalStatus` copied from `GOAL_STATUSES`) |
 | A `catch` in `src/` reads its error: handle the case you expect (`isEnoent(error)`) and rethrow the rest, or rethrow with `{ cause }`. No `catch {}` and no `.catch(() => fallback)`. | ESLint `soma/no-discarded-error` (`eslint.config.js`), grandfathered in `eslint-suppressions.json`, which `bun run check:suppressions` keeps shrink-only | c2d2f92 (#723, unreadable ledger read as empty) |
+| A runtime-policy prompt-rule change is judged on real text, not on the one case in front of it. A witnessed false positive lands in the corpus as a `"denied": true` row before its fix, and the fix flips it. | `test/runtime-policy-corpus.test.ts` over `test/fixtures/runtime-policy/corpus.jsonl` (372 passages from this repo's reviews, commits and docs) | 1240631^ (before #472: 32 passages denied that the current rules clear) |
 
 ## Substrate Adapters
 
