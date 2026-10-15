@@ -129,7 +129,8 @@ describe("bundled skill references", () => {
     },
     {
       dir: "principles",
-      count: [15, 20],
+      // soma#924 moved the preflight gates and the verification rules into the vocabulary (22).
+      count: [15, 24],
       indexMaxLines: 40,
       maxLines: 24,
       shape: (body) => [

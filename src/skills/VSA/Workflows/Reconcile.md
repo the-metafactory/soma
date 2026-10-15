@@ -106,7 +106,7 @@ If the ephemeral and master have diverged structurally (ephemeral is stale relat
 
 - **ID-stability violation:** ephemeral references ISC-N that doesn't exist in master. Abort. Do not silently drop the entry. Master is the source of truth; ephemeral cannot mint IDs.
 - **Missing canonical header on ephemeral:** abort. Reconcile only operates on files Scaffold produced.
-- **Verification entry missing for a flipped ISC:** soft warning. The flip is valid (ephemeral worker decided to mark it done), but the absence of evidence violates Verification Doctrine Rule 1. Surface in the report; let the Algorithm's VERIFY phase catch it.
+- **Verification entry missing for a flipped ISC:** soft warning. The flip is valid (ephemeral worker decided to mark it done), but the absence of evidence violates the Algorithm's probe-the-user-facing-surface principle. Surface in the report; let the Algorithm's VERIFY phase catch it.
 - **Master VSA modified during the merge:** Reconcile is single-threaded by design. If concurrent edits happen, the second Reconcile sees a different state and may report "ISC already checked" — that's correct behavior.
 
 ## Idempotency
