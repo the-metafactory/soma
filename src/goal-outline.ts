@@ -243,7 +243,7 @@ async function proposeSlot(minutes: number, now: Date, run: CalendarRunner): Pro
 interface OpenDraft { path: string; text: string }
 
 /** Contain source and model headings and fences outside the protected output structure. */
-function markdownBlock(text: string): string {
+export function markdownBlock(text: string): string {
   const length = [...text.matchAll(/`+/g)].reduce((max, match) => Math.max(max, match[0].length + 1), 3);
   const fence = "`".repeat(length);
   return `${fence}markdown\n${text.trim()}\n${fence}`;
@@ -288,7 +288,7 @@ async function readOpenDrafts(root: string): Promise<OpenDraft[]> {
 }
 
 /** Keep the existing section byte-for-byte, including nested headings and fenced examples. */
-function shareDraftsSection(markdown: string): string {
+function shareDraftsRange(markdown: string): { start: number; end: number } | undefined {
   let offset = 0;
   let start: number | undefined;
   let fence: { char: string; length: number } | undefined;
@@ -300,12 +300,25 @@ function shareDraftsSection(markdown: string): string {
     } else if (marker) {
       fence = { char: marker[0], length: marker.length };
     } else if (/^#{1,2}\s/.test(line)) {
-      if (start !== undefined) return markdown.slice(start, offset);
+      if (start !== undefined) return { start, end: offset };
       if (/^## Share drafts[ \t]*\r?\n?$/.test(line)) start = offset;
     }
     offset += line.length;
   }
-  return start === undefined ? "" : markdown.slice(start);
+  return start === undefined ? undefined : { start, end: markdown.length };
+}
+
+function shareDraftsSection(markdown: string): string {
+  const range = shareDraftsRange(markdown);
+  return range === undefined ? "" : markdown.slice(range.start, range.end);
+}
+
+/** Append inside the real section, preserving the rest of an existing outline. */
+export function appendShareDrafts(markdown: string, drafts: string): string {
+  const separated = (text: string) => text + (text.endsWith("\n\n") ? "" : text.endsWith("\n") ? "\n" : "\n\n");
+  const range = shareDraftsRange(markdown);
+  if (!range) return `${separated(markdown)}## Share drafts\n\n${drafts}\n`;
+  return `${separated(markdown.slice(0, range.end))}${drafts}\n\n${markdown.slice(range.end)}`;
 }
 
 async function generateOutline(deps: GoalOutlineDeps, captures: OutlineCapture[], drafts: OpenDraft[]): Promise<string> {

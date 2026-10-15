@@ -9,8 +9,8 @@
  * goal-agnostic; the goal id and URL come in as arguments.
  *
  * The scanner is a block scanner, not an XML parser: it finds `<item>` and
- * `<entry>` blocks and their date element, and nothing else. It never follows
- * links or resolves entities. The envelope carries the goal id and the state
+ * `<entry>` blocks and their date, title and link elements. It never follows
+ * links or resolves external entities. The envelope carries the goal id and the state
  * only, never the URL, the feed's title or any item text.
  */
 import { randomUUID } from "node:crypto";
@@ -76,7 +76,10 @@ export interface FeedScan {
   kind: "rss" | "atom";
   /** Each item's raw date text in document order; `undefined` when it has none. */
   dates: (string | undefined)[];
+  items: FeedItem[];
 }
+
+export interface FeedItem { link?: string; date?: string; title?: string }
 
 const PREFIX = "(?:[A-Za-z_][\\w.-]*:)?";
 
@@ -99,15 +102,37 @@ function escapeText(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+/** Decode XML text without resolving custom or external entities. */
+function unescapeText(text: string | undefined): string | undefined {
+  return text?.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
+    const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+    if (!entity.startsWith("#")) return named[entity] ?? match;
+    const code = entity[1].toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : match;
+  });
+}
+
+function atomLink(inner: string): string | undefined {
+  for (const match of inner.matchAll(new RegExp(`<${PREFIX}link\\s([^>]*?)/?>`, "g"))) {
+    const attributes = Object.fromEntries([...match[1].matchAll(/([\w:-]+)\s*=\s*(["'])([\s\S]*?)\2/g)]
+      .map(([, name, , value]) => [name, unescapeText(value)]));
+    if ((!attributes.rel || attributes.rel === "alternate") && attributes.href) return attributes.href;
+  }
+  return undefined;
+}
+
 /** `undefined` when the body has neither an `<rss>` nor a `<feed>` root. */
 export function scanFeed(body: string): FeedScan | undefined {
   const text = body.replace(COMMENT_OR_CDATA, (_match, cdata: string | undefined) => (cdata === undefined ? "" : escapeText(cdata)));
   const root = ROOT.exec(text)?.[1];
   if (root === undefined) return undefined;
   const kind = root === "rss" ? "rss" : "atom";
-  const dates = [...text.matchAll(blocks(kind === "rss" ? "item" : "entry"))].map(([, , inner = ""]) =>
-    kind === "rss" ? element(inner, "pubDate") : element(inner, "published") ?? element(inner, "updated"));
-  return { kind, dates };
+  const items = [...text.matchAll(blocks(kind === "rss" ? "item" : "entry"))].map(([, , inner = ""]): FeedItem => ({
+    date: kind === "rss" ? element(inner, "pubDate") : element(inner, "published") ?? element(inner, "updated"),
+    link: kind === "rss" ? unescapeText(element(inner, "link")) : atomLink(inner),
+    title: unescapeText(element(inner, "title")),
+  }));
+  return { kind, dates: items.map((item) => item.date), items };
 }
 
 /** Items dated in `[now - windowDays, now]`. An undated or unparseable item is skipped with one warning naming its position. */
@@ -210,7 +235,10 @@ async function fetchFeedBody(fetchFeed: FeedFetch, url: string, signal: AbortSig
   }
 }
 
-async function readFeed(options: FeedSensorOptions, deps: FeedSensorDeps): Promise<FeedScan> {
+export async function readFeed(
+  options: Pick<FeedSensorOptions, "url">,
+  deps: Pick<FeedSensorDeps, "fetch" | "fetchTimeoutMs">,
+): Promise<FeedScan> {
   const timeoutMs = deps.fetchTimeoutMs ?? FEED_FETCH_TIMEOUT_MS;
   const signal = AbortSignal.timeout(timeoutMs);
   const fetchFeed: FeedFetch = deps.fetch ?? ((url, init) => fetch(url, init));
