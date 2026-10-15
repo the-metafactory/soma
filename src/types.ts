@@ -8,20 +8,20 @@ import type { InferenceBackend, InferenceLevel } from "./tools/inference/types";
 import type { BehaviorPolicy } from "./policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
 
-export type SubstrateId =
-  | "codex"
-  | "pi-dev"
-  | "claude-code"
-  | "cursor"
-  | "grok"
-  | "dsh"
-  | "cortex"
-  | "custom"
-  | "anthropic-cowork";
+/** Every substrate id Soma knows. `SubstrateId` and `KNOWN_SUBSTRATES` derive from this list. */
+export const SUBSTRATE_IDS = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh", "cortex", "custom", "anthropic-cowork"] as const;
+export type SubstrateId = (typeof SUBSTRATE_IDS)[number];
 
 export type ExperimentalScaffoldSubstrate = "anthropic-cowork";
 export type ProjectionSubstrate = SubstrateId | ExperimentalScaffoldSubstrate;
-export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok" | "dsh"> | ExperimentalScaffoldSubstrate;
+
+/**
+ * The substrates with a shipped adapter. Install, reproject, `soma doctor` and
+ * content-compare all cover exactly these; add a substrate here, not per command.
+ */
+export const SHIPPED_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh"] as const satisfies readonly SubstrateId[];
+export type ShippedSubstrate = (typeof SHIPPED_SUBSTRATES)[number];
+export type InstallSubstrate = ShippedSubstrate | ExperimentalScaffoldSubstrate;
 
 export interface AssistantIdentity {
   name: string;
@@ -46,7 +46,8 @@ export interface Purpose {
   commitments: string[];
 }
 
-export type GoalStatus = "draft" | "active" | "paused" | "achieved" | "dropped";
+export const GOAL_STATUSES = ["draft", "active", "paused", "achieved", "dropped"] as const;
+export type GoalStatus = (typeof GOAL_STATUSES)[number];
 
 /**
  * One goal (soma#784 D2–D8). The frontmatter fields are typed; `wording` is the
@@ -105,11 +106,14 @@ export interface Checkpoint {
  */
 export type IdealStateCriterion = Checkpoint;
 
-export type AlgorithmPhase = "observe" | "think" | "plan" | "build" | "execute" | "verify" | "learn" | "complete" | "abandoned";
+export const ALGORITHM_PHASES = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete", "abandoned"] as const;
+export type AlgorithmPhase = (typeof ALGORITHM_PHASES)[number];
 
-export type AlgorithmEffortTier = "E1" | "E2" | "E3" | "E4" | "E5";
+export const ALGORITHM_EFFORT_TIERS = ["E1", "E2", "E3", "E4", "E5"] as const;
+export type AlgorithmEffortTier = (typeof ALGORITHM_EFFORT_TIERS)[number];
 
-export type AlgorithmMode = "minimal" | "native" | "algorithm";
+export const ALGORITHM_MODES = ["minimal", "native", "algorithm"] as const;
+export type AlgorithmMode = (typeof ALGORITHM_MODES)[number];
 
 export type AlgorithmEffortSource = "explicit" | "classifier" | "context-override" | "auto" | "fail-safe";
 
@@ -350,7 +354,8 @@ export interface AlgorithmLogEntry {
 }
 
 /** What happened to a reference the principal addressed by code. */
-export type AlgorithmReferenceVerdict = "kept" | "rejected" | "answered" | "done" | "dropped";
+export const ALGORITHM_REFERENCE_VERDICTS = ["kept", "rejected", "answered", "done", "dropped"] as const;
+export type AlgorithmReferenceVerdict = (typeof ALGORITHM_REFERENCE_VERDICTS)[number];
 
 /**
  * A conversational reference point (`F1`, `O2`, `D3`) recorded against a run.
@@ -1516,14 +1521,11 @@ export type SomaInitStepId =
   | "install-dsh";
 
 /**
- * The substrates `soma doctor` can diagnose — every `InstallSubstrate` except
- * the experimental `anthropic-cowork` scaffold. Kept in lockstep with the
- * runtime `DOCTOR_SUPPORTED_SUBSTRATES` list in `src/adapters/doctor.ts`
- * (codex, claude-code, cursor, grok, pi-dev); the two must agree. Used to
+ * The substrates `soma doctor` can diagnose: the shipped substrates. Used to
  * parameterize the projection finding-id type below so only supported-substrate
  * ids are type-valid.
  */
-export type SomaDoctorSubstrate = Exclude<InstallSubstrate, "anthropic-cowork">;
+export type SomaDoctorSubstrate = ShippedSubstrate;
 
 /**
  * Content-compare drift findings (soma#370) are substrate-parameterized: the

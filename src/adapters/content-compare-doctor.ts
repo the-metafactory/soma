@@ -9,7 +9,7 @@ import { isFsUtilsEnoent as isEnoent, pathExists } from "../core/index";
 import { runtimeArtifactActivePath, type GuardedRuntimeSubstrate } from "../runtime-artifact";
 import { CURSOR_RULES_PATH } from "./cursor";
 import { hasProvenanceHeader } from "./shared";
-import type { InstallSubstrate, SomaDoctorFinding } from "../types";
+import type { ShippedSubstrate, SomaDoctorFinding } from "../types";
 
 // The leading heading of a legacy full-file `.cursorrules` projection —
 // mirrors the literal `mergeCursorRulesContent` (home-projection.ts),
@@ -37,7 +37,7 @@ const CURSOR_LEGACY_FULL_FILE_HEADING = "# Soma Cursor Projection";
  * projection. `../adapters/doctor.ts` composes the two for grok; see that
  * file for the composition and the investigation note behind it.
  */
-export type ContentCompareSubstrate = Extract<InstallSubstrate, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok" | "dsh">;
+export type ContentCompareSubstrate = ShippedSubstrate;
 
 export interface ContentCompareDoctorOptions {
   substrate: ContentCompareSubstrate;

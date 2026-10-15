@@ -3,19 +3,9 @@ import { join, resolve } from "node:path";
 import { parseTelemetryEventLine, queryRecentEventRecords, streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./event-journal";
 import type { SomaMemoryEvent, SomaTelemetryQueryOptions, SomaTelemetryQueryResult, SomaTelemetrySummary, SomaTelemetrySummaryOptions } from "./types";
-import type { AlgorithmPhase, SubstrateId } from "../types";
+import { ALGORITHM_PHASES, type AlgorithmPhase, type SubstrateId } from "../types";
 
-const ALGORITHM_PHASES = new Set<AlgorithmPhase>([
-  "observe",
-  "think",
-  "plan",
-  "build",
-  "execute",
-  "verify",
-  "learn",
-  "complete",
-  "abandoned",
-]);
+const ALGORITHM_PHASE_SET = new Set<AlgorithmPhase>(ALGORITHM_PHASES);
 
 function resolveSomaHome(options: Pick<SomaTelemetryQueryOptions, "homeDir" | "somaHome"> = {}): string {
   const home = resolve(options.homeDir ?? homedir());
@@ -94,7 +84,7 @@ function eventSessionId(event: SomaMemoryEvent): string | undefined {
 
 function eventPhase(event: SomaMemoryEvent): AlgorithmPhase | undefined {
   const phase = event.metadata?.phase;
-  if (typeof phase === "string" && ALGORITHM_PHASES.has(phase as AlgorithmPhase)) {
+  if (typeof phase === "string" && ALGORITHM_PHASE_SET.has(phase as AlgorithmPhase)) {
     return phase as AlgorithmPhase;
   }
   return undefined;

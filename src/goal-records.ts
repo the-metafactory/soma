@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { GoalRecord } from "./types";
+import { GOAL_STATUSES, type GoalRecord } from "./types";
 
 /**
  * Goal records (soma#784 D2–D5, D7–D9): one file per goal at
@@ -12,7 +12,6 @@ import type { GoalRecord } from "./types";
  * not named `G<n>.md` are ignored here.
  */
 
-export const GOAL_STATUSES = ["draft", "active", "paused", "achieved", "dropped"] as const;
 
 const GOAL_FILE = /^(G\d+)\.md$/;
 const MISSION_CODE = /^(M\d+)\b/;
