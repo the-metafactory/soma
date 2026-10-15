@@ -13,7 +13,7 @@
   "execution": 7500,
   "substrates": 40000,
   "migrate": 17500,
-  "flows": 48500,
+  "flows": 52500,
   "cli": 75500,
   "legacy": 60000
 }

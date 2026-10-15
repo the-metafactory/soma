@@ -265,6 +265,34 @@ or `--home-dir <dir>` (which resolves Soma to `<dir>/.soma` and Reflex to
 override is set).
 Keep wording in Soma home; use goal IDs in trackers, run metadata and logs.
 
+`soma goal sweep` checks each active goal's pursuit, review date and sensor.
+It publishes three job runs through the run ledger, with check states `ok` or
+`regressed` on `G<n>.pursuit`, `G<n>.review` and `G<n>.sensor`. Goal wording is
+never included. Draft, paused, achieved and dropped goals are skipped.
+
+Pursuit requires an open VSA or open map root serving the goal with an update
+in the last 14 days (`pursuit_window` overrides this), or an enabled scheduled
+Reflex blueprint serving it. A map's descendants count toward its latest
+update; the goal's sensor blueprint never counts as pursuit. Reviews become
+overdue the day after `review_by`, using Europe/Zurich. Sensor existence checks
+all blueprint IDs, including disabled ones. A missing review date or sensor
+regresses its check.
+
+Map discovery is restricted to `<soma-home>/profile/goals/sweep.yaml`:
+
+```yaml
+repos: [owner/name, owner/another-repo]
+```
+
+When the file is absent, one warning is printed and only VSAs and blueprints
+are scanned. Blueprints use the same directory selection as `goal activate`.
+An unreadable repo produces a failed pursuit run with no state; review and
+sensor checks still run, and stderr names the repo. Other unreadable sources
+likewise fail only the checks that need them. Check or publication failures
+exit 1. With `SOMA_PRINCIPAL` unset, no envelopes are published: the sweep
+prints ID-only results to stdout and exits 0. Scheduling this command in
+Reflex is an operator task.
+
 A goal's sensor reports its state on the run ledger (see [Run ledger](#run-ledger)).
 `soma goal sense feed` is the feed sensor, meant to be run by a Reflex activation:
 

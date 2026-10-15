@@ -7,12 +7,13 @@ import {
 import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../goal-sense";
 import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from "../goal-outline";
 import { announceRefusal, runGoalAnnounce, type GoalAnnounceDeps, type GoalAnnounceOptions } from "../goal-announce";
+import { runGoalSweep, type GoalSweepDeps } from "../goal-sweep";
 import { defaultSomaHome, type SomaPathsOptions } from "../core/index";
 import { loadSomaConfig } from "../soma-config";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline" | "announce" | "kinds";
+type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline" | "announce" | "kinds" | "sweep";
 
 export interface ParsedGoalArgs {
   command: "goal";
@@ -32,13 +33,14 @@ export interface ParsedGoalArgs {
 const ACTIVATIONS_DIRECTORY_HELP = "(REFLEX_ACTIVATIONS_DIR overrides goals.activations_dir in <soma-home>/config.yaml; default: ~/.config/reflex/personal-activations)";
 
 export const GOAL_COMMAND_HELP = {
-  usage: `Usage: soma goal <add|activate|set-status|list|sense|outline|announce|kinds> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
+  usage: `Usage: soma goal <add|activate|set-status|list|sense|outline|announce|kinds|sweep> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
   subcommands: {
     add: "Usage: soma goal add --wording <text> [--supports M<n>...] [--sensor <activation-id>] [--review-by YYYY-MM-DD] [--home-dir <dir>] [--soma-home <dir>]",
     activate: `Usage: soma goal activate G<n> [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
     "set-status": "Usage: soma goal set-status G<n> <paused|achieved|dropped|draft> [--home-dir <dir>] [--soma-home <dir>]",
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
     kinds: "Usage: soma goal kinds [--json] [--home-dir <dir>] [--soma-home <dir>]",
+    sweep: `Usage: soma goal sweep [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP} (SOMA_PRINCIPAL unset: print checks without publishing)`,
     sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
     outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--slot-minutes <n>] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
     announce: "Usage: soma goal announce --goal G<n> --url <https-url> --channels <a,b,...> [--home-dir <dir>] [--soma-home <dir>] (drafts only; SOMA_PRINCIPAL unset: no ledger publication)",
@@ -129,7 +131,7 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
 
 export function parseGoalArgs(args: string[]): ParsedGoalArgs {
   const [command, action, ...rest] = args;
-  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "outline", "announce", "kinds"].includes(action)) {
+  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "outline", "announce", "kinds", "sweep"].includes(action)) {
     throw new Error(GOAL_COMMAND_HELP.usage);
   }
   const options: ParsedGoalArgs["options"] = { add: { wording: "", supports: [] }, includeWording: false };
@@ -183,11 +185,26 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
 
 export async function runGoalCli(
   parsed: ParsedGoalArgs,
-  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps> } = {},
+  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps>; sweep?: Partial<GoalSweepDeps> } = {},
 ): Promise<string> {
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
   switch (action) {
+    case "sweep": {
+      const lines: string[] = [];
+      const result = await runGoalSweep({
+        somaHome: defaultSomaHome(options), env: dependencies.env,
+        activationsDir: dependencies.activationsDir ?? (dependencies.env ?? process.env).REFLEX_ACTIVATIONS_DIR
+          ?? await goalActivationsDir(options),
+        ...dependencies.sweep, stdout: (line) => lines.push(line),
+      });
+      if (result.exitCode !== 0) {
+        // Preserve the unaffected checks on stdout even if another check failed.
+        console.log(lines.join("\n"));
+        throw new SomaCliError("soma goal sweep: one or more checks or publications failed", result.exitCode);
+      }
+      return lines.join("\n");
+    }
     case "announce": {
       if (!options.announce) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.announce, 2);
       const lines: string[] = [];
