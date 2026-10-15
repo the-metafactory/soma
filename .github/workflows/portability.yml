@@ -35,6 +35,9 @@ jobs:
       - name: Component boundaries
         run: bun run check:boundaries
 
+      - name: Literal sets
+        run: bun run check:literal-sets
+
       - name: Portability suite
         run: bun run test:portability
 

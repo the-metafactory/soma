@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { createPaths } from "./core/index";
+import type { AlgorithmMode } from "./types";
 
 /**
  * Router corpus: the prompts the principal actually typed, each with the tail of
@@ -19,7 +20,7 @@ export const ROUTER_CORPUS_REPLY_TAIL_CHARS = 800;
 export const ROUTER_CORPUS_DEFAULT_SAMPLE = 1000;
 export const ROUTER_CORPUS_DEFAULT_SEED = "soma-router-v1";
 
-export type RouterCorpusMode = "minimal" | "native" | "algorithm";
+export type RouterCorpusMode = AlgorithmMode;
 
 export interface RouterCorpusClassification {
   mode: RouterCorpusMode;

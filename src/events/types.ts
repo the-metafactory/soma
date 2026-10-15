@@ -1,4 +1,5 @@
 import type { AlgorithmPhase, SubstrateId } from "../types";
+import type { SOMA_FEEDBACK_ACTORS } from "./feedback-contract";
 
 export interface SomaMemoryEventInput {
   id?: string;
@@ -84,4 +85,4 @@ export interface SomaFeedbackClassification {
   reason: string;
 }
 
-export type SomaFeedbackActor = "interactive" | "sdk" | "automated";
+export type SomaFeedbackActor = (typeof SOMA_FEEDBACK_ACTORS)[number];

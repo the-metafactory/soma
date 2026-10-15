@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { createPaths } from "./core/index";
 import { parsePrivateJsonl, writePrivateJsonl, type RouterCorpusRow } from "./router-corpus";
+import { ALGORITHM_EFFORT_TIERS, ALGORITHM_MODES } from "./types";
 
 /**
  * Arm C of the front-door router: local embeddings of the prompt and of the
@@ -234,8 +235,9 @@ export async function fillEmbeddingCache(embedder: OllamaEmbedder, cache: Map<st
   return missing.length;
 }
 
-const PREVIOUS_MODES = ["minimal", "native", "algorithm"] as const;
-const PREVIOUS_EFFORTS = ["E1", "E2", "E3", "E4", "E5"] as const;
+// The one-hot layout follows these lists' order; reordering them retrains arm C.
+const PREVIOUS_MODES = ALGORITHM_MODES;
+const PREVIOUS_EFFORTS = ALGORITHM_EFFORT_TIERS;
 
 /**
  * Arm C's feature vector:

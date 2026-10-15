@@ -11,6 +11,7 @@
     "harness-eval": "bun scripts/harness-eval.ts",
     "typecheck": "tsc --noEmit",
     "check:boundaries": "bun scripts/check-boundaries.ts",
+    "check:literal-sets": "bun scripts/check-literal-sets.ts",
     "test": "bun test --timeout=60000",
     "test:portability": "bun test test/portability-ci.test.ts",
     "check-skill-version": "bun scripts/check-skill-version.ts",

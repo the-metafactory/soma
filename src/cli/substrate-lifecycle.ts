@@ -42,12 +42,14 @@ import { invocationCwd } from "../core/index";
 import { isGuardedRuntimeSubstrate } from "../runtime-artifact";
 import { loadSomaHome } from "../soma-home";
 import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";
-import type {
-  InstallSubstrate,
-  ProjectionInput,
-  SomaInstallOptions,
-  SomaInstallPlan,
-  SomaInstallResult,
+import {
+  SHIPPED_SUBSTRATES,
+  type InstallSubstrate,
+  type ProjectionInput,
+  type ShippedSubstrate,
+  type SomaInstallOptions,
+  type SomaInstallPlan,
+  type SomaInstallResult,
 } from "../types";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
@@ -55,7 +57,7 @@ import { readOption } from "./parse-utils";
 export type { InstallSubstrate } from "../types";
 type InstallCliOptions = SomaInstallOptions &
   Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier" | "policyGuard" | "claudeMd" | "feedbackCapture">>;
-type ProjectionLifecycleSubstrate = Exclude<InstallSubstrate, "anthropic-cowork">;
+type ProjectionLifecycleSubstrate = ShippedSubstrate;
 
 export interface ParsedInstallArgs {
   command: "install";
@@ -107,7 +109,7 @@ export type ParsedSubstrateLifecycleArgs =
   | ParsedExportArgs
   | ParsedDaemonArgs;
 
-export const PROJECTION_LIFECYCLE_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh"] as const satisfies readonly ProjectionLifecycleSubstrate[];
+export const PROJECTION_LIFECYCLE_SUBSTRATES: readonly ProjectionLifecycleSubstrate[] = SHIPPED_SUBSTRATES;
 export const INSTALL_SUBSTRATES = [...PROJECTION_LIFECYCLE_SUBSTRATES, "anthropic-cowork"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");

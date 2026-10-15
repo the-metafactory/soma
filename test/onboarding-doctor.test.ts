@@ -530,7 +530,7 @@ test("DOCTOR_SUPPORTED_SUBSTRATES / isDoctorSubstrate still gate a genuinely unk
   // anthropic-cowork and any other bogus value earlier, with a different
   // message) — this pins the underlying guard directly so the rejection
   // path itself stays covered.
-  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "claude-code", "cursor", "grok", "pi-dev", "dsh"]);
+  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh"]);
   expect(isDoctorSubstrate("anthropic-cowork")).toBe(false);
   expect(isDoctorSubstrate("bogus")).toBe(false);
 });

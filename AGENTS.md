@@ -16,6 +16,16 @@ learning, and adapter contracts.
 - Use Bun for scripts and tests.
 - Verify changes with `bun run test` and `bun run typecheck` (`bun run test` passes `--timeout=60000`; bun's default 5 s per test is too short for the install tests on a loaded host).
 
+## Enforced rules
+
+Each rule pairs with the check that enforces it and the commit it was proven
+on: the check fails on that commit's mistake and passes on the fix. When a
+rule here is broken and nothing failed, fix the check, not only the code.
+
+| Rule | Enforced by | Proven on |
+| --- | --- | --- |
+| A list of three or more string literals has one owner; other copies derive from it (`(typeof XS)[number]`). Add a substrate to `SHIPPED_SUBSTRATES` in `src/types.ts`, not per command. | `bun run check:literal-sets` (`scripts/check-literal-sets.ts`, shrink-only `scripts/literal-sets/baseline.json`), CI step "Literal sets" | be80040 (#856, `GoalStatus` copied from `GOAL_STATUSES`) |
+
 ## Substrate Adapters
 
 Shipped adapters, each projecting the same Soma core into substrate-native
