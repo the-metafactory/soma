@@ -58,6 +58,15 @@ Nothing rejects a phantom on your behalf at selection time — this gate is a se
 
 **Tier intent.** Users must feel a dramatic speed range across tiers. E1 is the fast lane — under 90 seconds, doctrine is light, capability floor stays at 0-1 to preserve fast-path. E2 is structured-but-quick. E3 is substantial middle-tier work. E4/E5 are where full doctrine — second opinions, the cross-family audit, deeper verification — earns its cost. Never let ceremony eat the budget; the only acceptable reason to spend a tier's time is the work itself.
 
+### Playbooks and Principles
+
+Under the tier sit two text layers. **Playbooks** (`references/playbooks.md`) route a run by task shape, once mode and tier are set, to one card of numbered steps, criteria templates and a reply line; the index says how a card is used. **Principles** (`references/principles.md`) are a closed, locally overridable vocabulary of engineering rules.
+
+Two reply rules bind every run that used them:
+
+1. The final message contains everything the card's **Reply** line lists.
+2. Name a principle only next to the decision it changed. A principle named with no decision behind it is name-dropping; leave it out.
+
 ### Mode Classification (v6.3.0)
 
 **Mode and tier come from the harness classifier, not from the executor's judgment.** Run it directly:
