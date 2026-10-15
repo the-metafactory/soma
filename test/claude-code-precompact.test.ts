@@ -22,6 +22,7 @@ import {
   uninstallSomaForClaudeCode,
   writeAlgorithmRun,
 } from "../src/index";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const HOOK_REL = ".claude/hooks/soma/soma-precompact.mjs";
@@ -82,8 +83,8 @@ test("precompact hook files are default-on in the plan, opt-out excludes them", 
 
 test("install is idempotent and patches PreCompact + UserPromptSubmit once each", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, preCompact: true });
-    await installSomaForClaudeCode({ homeDir, preCompact: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, preCompact: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, preCompact: true });
 
     const hookInfo = await stat(join(homeDir, HOOK_REL));
     expect((hookInfo.mode & 0o100) !== 0).toBe(true); // executable
@@ -169,7 +170,7 @@ test("resurface fails open (continue, no context) when the config is missing", a
 
 test("uninstall removes the precompact settings entries even if the bun path drifted", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, preCompact: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, preCompact: true });
     const settingsPath = join(homeDir, ".claude/settings.json");
 
     const raw = await readFile(settingsPath, "utf8");

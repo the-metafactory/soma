@@ -214,12 +214,15 @@ async function installSomaForSubstrate(
   }));
   execution.record({ somaHome });
   const somaRepoPath = options.somaRepoPath ?? defaultSomaRepoPath();
+  // The runtime source is somaRepoPath unless a test stages a stub (node #914);
+  // bundled skills below always read somaRepoPath.
+  const runtimeSourceRoot = options.runtimeSourceRoot ?? somaRepoPath;
   // Arc's PATH shim uses this separately activated snapshot for graph writes.
   // Stage it for every substrate so a Pi.dev-only install has the same gate.
-  const cliRuntime = await execution.run("stage-cli-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: "cli", sourceRoot: somaRepoPath }));
+  const cliRuntime = await execution.run("stage-cli-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: "cli", sourceRoot: runtimeSourceRoot }));
   // Guarded substrates execute only the immutable artifact, never this editable checkout.
   const guardedRuntime = isGuardedRuntimeSubstrate(substrate)
-    ? await execution.run("stage-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: substrate, sourceRoot: somaRepoPath }))
+    ? await execution.run("stage-runtime-artifact", () => stageRuntimeArtifact({ somaHome: somaHome.somaHome, target: substrate, sourceRoot: runtimeSourceRoot }))
     : undefined;
   execution.record({ runtimeArtifact: guardedRuntime ?? cliRuntime });
   const runtimeRepoPath = guardedRuntime?.path ?? somaRepoPath;

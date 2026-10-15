@@ -63,8 +63,9 @@ export const components: ComponentManifest<ComponentName> = {
     publicEntries: ["src/core/index.ts"],
   },
   events: {
-    files: ["src/event-log", "src/event-journal", "src/observability", "src/feedback-contract"],
+    files: ["src/events/**"],
     mayImport: ["core", "legacy"],
+    publicEntries: ["src/events/index.ts"],
   },
   memory: {
     files: ["src/memory", "src/memory-*", "src/episodic-digest"],
@@ -171,6 +172,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/run-ledger-env",
       "src/goal-sense",
       "src/goal-outline",
+      "src/goal-announce",
       "src/goal-kinds/**",
       "src/tools/learning/session-harvester",
       "src/execution/algorithm-loop-executor",

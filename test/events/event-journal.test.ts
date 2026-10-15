@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { appendSomaMemoryEvent, somaMemoryEventsPath } from "../src/event-journal";
+import { appendSomaMemoryEvent, somaMemoryEventsPath } from "../../src/events/event-journal";
 
 async function withTempHome(fn: (somaHome: string) => Promise<void>): Promise<void> {
   const somaHome = await mkdtemp(join(tmpdir(), "soma-event-journal-"));

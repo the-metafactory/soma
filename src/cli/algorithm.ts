@@ -26,7 +26,7 @@ import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest
 import { parsePaiReflections } from "../algorithm-reflection-import";
 import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm-capabilities";
 import { runSomaLifecycleAlgorithmUpdated } from "../lifecycle";
-import { appendSomaMemoryEvent } from "../event-journal";
+import { appendSomaMemoryEvent } from "../events/index";
 import type { BridgedNodeReport } from "../work-graph";
 // VerificationGateError is a CLI-only classification detail — imported straight
 // from its defining module, deliberately NOT re-exported through the public

@@ -1,3 +1,5 @@
+import type { SomaMemoryEvent, SomaFeedbackClassification, SomaFeedbackActor } from "./events/index";
+export type { SomaMemoryEventInput, SomaMemoryEvent, SomaTelemetryQueryOptions, SomaTelemetryQueryResult, SomaTelemetrySummaryOptions, SomaTelemetrySummary, SomaFeedbackKind, SomaFeedbackClassification, SomaFeedbackActor } from "./events/index";
 import type { SomaMemoryPromotionStore } from "./core/index";
 export type { SomaPaths, SomaMemoryPromotionStore } from "./core/index";
 export { SOMA_MEMORY_PROMOTION_STORE_DIRS, SOMA_MEMORY_PROMOTION_STORES } from "./core/index";
@@ -864,6 +866,14 @@ export interface SomaInstallOptions {
   somaHome?: string;
   substrateHome?: string;
   somaRepoPath?: string;
+  /**
+   * @internal Test seam (node #914): the source the runtime artifacts are
+   * staged from. Omitted → `somaRepoPath`. It moves the staged runtime only;
+   * bundled skills and projections still read `somaRepoPath`. Tests that do
+   * not exercise the staged runtime pass a stub so each install does not
+   * stage the whole soma tree.
+   */
+  runtimeSourceRoot?: string;
   codeOnly?: boolean;
   /**
    * Narrow the registry→loader projection to these skill names (soma#638).
@@ -1643,26 +1653,6 @@ export interface SomaDoctorDiagnosis {
   findings: SomaDoctorFinding[];
 }
 
-export interface SomaMemoryEventInput {
-  id?: string;
-  timestamp?: string;
-  substrate: SubstrateId;
-  kind: string;
-  summary: string;
-  artifactPaths?: string[];
-  metadata?: Record<string, unknown>;
-}
-
-export interface SomaMemoryEvent {
-  id: string;
-  timestamp: string;
-  substrate: SubstrateId;
-  kind: string;
-  summary: string;
-  artifactPaths?: string[];
-  metadata?: Record<string, unknown>;
-}
-
 export interface SomaMemorySearchOptions {
   homeDir?: string;
   somaHome?: string;
@@ -1702,62 +1692,6 @@ export interface SomaMemorySearchResult {
   query: string;
   somaHome: string;
   matches: SomaMemorySearchMatch[];
-}
-
-export interface SomaTelemetryQueryOptions {
-  homeDir?: string;
-  somaHome?: string;
-  substrate?: SubstrateId;
-  kind?: string;
-  limit?: number;
-}
-
-export interface SomaTelemetryQueryResult {
-  somaHome: string;
-  eventPath: string;
-  totalEvents: number;
-  skippedMalformedLines: number;
-  events: SomaMemoryEvent[];
-}
-
-export interface SomaTelemetrySummaryOptions {
-  homeDir?: string;
-  somaHome?: string;
-}
-
-export interface SomaTelemetrySummary {
-  somaHome: string;
-  eventPath: string;
-  totalEvents: number;
-  skippedMalformedLines: number;
-  firstTimestamp?: string;
-  lastTimestamp?: string;
-  bySubstrate: Partial<Record<SubstrateId, number>>;
-  byKind: Record<string, number>;
-  sessions: {
-    started: number;
-    ended: number;
-    completedWithDuration: number;
-    averageDurationMs: number | null;
-    bySubstrate: Partial<Record<SubstrateId, {
-      started: number;
-      ended: number;
-      completedWithDuration: number;
-      averageDurationMs: number | null;
-    }>>;
-  };
-  skills: {
-    events: number;
-    byName: Record<string, number>;
-  };
-  algorithm: {
-    events: number;
-    byPhase: Partial<Record<AlgorithmPhase, number>>;
-  };
-  writeback: {
-    events: number;
-    failures: number;
-  };
 }
 
 export const SOMA_RESULT_EVENT_KINDS = [
@@ -1857,16 +1791,6 @@ export interface SomaMemoryPromotionResult {
   /** Id of the principal-trust durable note (see {@link notePath}). */
   noteId: string;
 }
-
-export type SomaFeedbackKind = "correction" | "missed-surface" | "preference" | "relationship-note" | "task-learning" | "none";
-
-export interface SomaFeedbackClassification {
-  kind: SomaFeedbackKind;
-  confidence: "low" | "medium" | "high";
-  reason: string;
-}
-
-export type SomaFeedbackActor = "interactive" | "sdk" | "automated";
 
 export interface SomaFeedbackCaptureOptions {
   homeDir?: string;

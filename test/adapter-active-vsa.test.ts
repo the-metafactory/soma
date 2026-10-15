@@ -26,6 +26,7 @@ import {
   setActiveVsa,
 } from "../src/index";
 import { portableProjectionInput } from "./fixtures";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-37-"));
@@ -95,7 +96,7 @@ test("AC-2: omits active-vsa when no active VSA — no empty file, no stale cont
 
 test("AC-3: installSomaForCodex projects VSA skill source into ~/.codex/skills/VSA/", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const skillMd = await readFile(join(homeDir, ".codex/skills/VSA/SKILL.md"), "utf8");
     expect(skillMd).toContain("name: VSA");
     expect(skillMd).toMatch(/version:\s+\d+\.\d+\.\d+/);
@@ -104,7 +105,7 @@ test("AC-3: installSomaForCodex projects VSA skill source into ~/.codex/skills/V
 
 test("AC-3: installSomaForPiDev projects VSA skill source into Pi-safe ~/.pi/agent/skills/vsa/", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForPiDev({ homeDir });
+    await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const skillMd = await readFile(join(homeDir, ".pi/agent/skills/vsa/SKILL.md"), "utf8");
     const skillDirs = await readdir(join(homeDir, ".pi/agent/skills"));
     expect(skillMd).toContain("name: vsa");
@@ -115,8 +116,8 @@ test("AC-3: installSomaForPiDev projects VSA skill source into Pi-safe ~/.pi/age
 
 test("AC-3: non-Claude VSA skill projections rewrite Claude-specific source paths", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
-    await installSomaForPiDev({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const claudeHome = "~/" + ".claude";
     const codexScaffold = await readFile(join(homeDir, ".codex/skills/VSA/Workflows/Scaffold.md"), "utf8");
@@ -134,7 +135,7 @@ test("AC-3: installSomaForPiDev removes legacy uppercase VSA projection", async 
     await mkdir(join(homeDir, ".pi/agent/skills/VSA"), { recursive: true });
     await writeFile(join(homeDir, ".pi/agent/skills/VSA/SKILL.md"), "---\nname: VSA\n---\n", "utf8");
 
-    await installSomaForPiDev({ homeDir });
+    await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const skillDirs = await readdir(join(homeDir, ".pi/agent/skills"));
     expect(skillDirs).not.toContain("VSA");
@@ -145,7 +146,7 @@ test("AC-3: installSomaForPiDev removes legacy uppercase VSA projection", async 
 
 test("AC-3: installSomaForClaudeCode projects VSA skill source into ~/.claude/skills/VSA/", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const skillMd = await readFile(join(homeDir, ".claude/skills/VSA/SKILL.md"), "utf8");
     expect(skillMd).toContain("name: VSA");
   });
@@ -153,7 +154,7 @@ test("AC-3: installSomaForClaudeCode projects VSA skill source into ~/.claude/sk
 
 test("AC-3: installSomaForClaudeCode projects shared Soma VSA work-home instructions", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scaffold = await readFile(join(homeDir, ".claude/skills/VSA/Workflows/Scaffold.md"), "utf8");
     expect(scaffold).toContain("<soma-home>/memory/WORK/{slug}/VSA.md");
     expect(scaffold).toContain("<soma-home>/memory/WORK/{slug}/_ephemeral/<feature>.md");
@@ -163,7 +164,7 @@ test("AC-3: installSomaForClaudeCode projects shared Soma VSA work-home instruct
 
 test("AC-3: installSomaForCursor projects VSA skill source into Cursor rules", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCursor({ homeDir });
+    await installSomaForCursor({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const skillMd = await readFile(join(homeDir, ".cursor/rules/soma/skills/VSA/SKILL.md"), "utf8");
     expect(skillMd).toContain("name: VSA");
   });
@@ -185,10 +186,10 @@ test("AC-4: byte-portable active-VSA across all four substrate installs", async 
     const ctx = await loadActiveVsaForBundle({ homeDir });
     expect(ctx).not.toBeNull();
     // Run all five substrate installers against the same soma home.
-    await installSomaForCodex({ homeDir });
-    await installSomaForPiDev({ homeDir });
-    await installSomaForClaudeCode({ homeDir });
-    await installSomaForCursor({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForCursor({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await installSomaForGrok({ homeDir });
 
     const codexFile = await readFile(join(homeDir, ".codex/memories/soma/active-vsa.md"), "utf8");
@@ -211,10 +212,10 @@ test("AC-4: portability holds when the active VSA is updated", async () => {
     await bootstrapSomaHome({ homeDir });
     await scaffoldVsa({ homeDir, slug: "demo", goal: "G", effort: "E1" });
     await setActiveVsa("demo", { homeDir });
-    await installSomaForCodex({ homeDir });
-    await installSomaForPiDev({ homeDir });
-    await installSomaForClaudeCode({ homeDir });
-    await installSomaForCursor({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForCursor({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await installSomaForGrok({ homeDir });
     const a = await readFile(join(homeDir, ".codex/memories/soma/active-vsa.md"), "utf8");
     const b = await readFile(join(homeDir, ".pi/agent/soma/active-vsa.md"), "utf8");
@@ -233,8 +234,8 @@ test("AC-5: skill installer baselines track each substrate independently", async
     // Two installs into different substrates should both succeed with the
     // skill present at their respective dest, without one's drift detection
     // interfering with the other.
-    await installSomaForCodex({ homeDir });
-    await installSomaForPiDev({ homeDir });
+    await installSomaForCodex({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
+    await installSomaForPiDev({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const baselines = JSON.parse(
       await readFile(join(homeDir, ".soma/memory/STATE/skill-baselines.json"), "utf8"),
     ) as Record<string, unknown>;

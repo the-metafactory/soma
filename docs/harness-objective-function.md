@@ -10,7 +10,7 @@ The harness is better when, and only when:
 
 1. **A claim can be trusted without re-checking.** The retrospective names the failure: "death by a thousand small overclaims" (coding sessions flat 5.1/10). Every "done" that later turns out hollow taxes every future claim.
 2. **Started work finishes, and stays finished.** Not "phase advanced", not "verified flag set" — every criterion demonstrably closed, and the same intent not respawning under a new name.
-3. **A correction given once changes future behavior.** Learning that doesn't alter what happens next session is storage, not learning. Feedback closure remains a proxy until feedback events carry explicit consumption links.
+3. **A correction given once changes future behavior.** Learning that doesn't alter what happens next session is storage, not learning. The Errata ledger is the consumption link: a rejected output names the check that passed it, and a fix closes the cluster it belongs to (soma#785 Q18).
 4. **All of the above costs less of JC's time and attention over time.** Autonomy is the stated highest value. Ceremony, re-reads, re-explanations, and harness self-maintenance are the cost line.
 
 Anything that can grow while these four stand still is a vanity metric.
@@ -35,12 +35,22 @@ reader source.
 | Finishes | True-finish rate (all criteria checked, criteria state not phase) | **85.8%** | higher |
 | Finishes | Abandoned-run share (zero criteria closed, idle >7d) | **9.1%** | lower |
 | Learning compounds | Learning capture rate on finished runs | **66.8%** | higher |
-| Learning compounds | Feedback closure rate (candidates → downstream memory writes) | **7.8%** | higher |
 | Learning compounds | Memory loop closure (instrumented reads per write) | **0.05** | higher |
 | Learning compounds | Promotion rate (promotions per finished run) | **1.0%** | higher |
 | Trustworthy claims | Hollow-pass attempt rate (gate refusals / (refusals + passed verifications)) | **0.2%** | lower |
+| Trustworthy claims | Rejected passes per check (Errata linked to the check that passed them, plus `errata_unlinked`); source: Errata ledger `created` / `dropped` | n/a (no Errata yet, 2026-10-14) | lower |
+| Learning compounds | Errata fix closure (proposed clusters whose `yes` filed a node that closed); source: Errata ledger `proposed` / `answered` / `node-closed` | n/a (nothing proposed yet, 2026-10-14) | higher |
 
-*The last two shipped 2026-07-11 (loop-closure plan T1/T5), reading the `verification.gate_violation` and `memory.promotion` event streams. Both sit near their floor by design — they exist to make a real move visible, not to flatter the current state.*
+*Hollow-pass and promotion rate shipped 2026-07-11 (loop-closure plan T1/T5), reading the `verification.gate_violation` and `memory.promotion` event streams. Both sit near their floor by design — they exist to make a real move visible, not to flatter the current state.*
+
+### Errata metrics (node #853)
+
+The two Errata rows replace the retired feedback-closure proxy (7.8% on 2026-07-10), which divided all memory writes by all feedback candidates without knowing whether any write answered any candidate. Both are derived from the private Errata ledger alone (`memory/STATE/errata/ledger.jsonl`, see `docs/errata.md`), over the same trailing window:
+
+- **`rejected_passes`**: active (not dropped) Errata whose complaint falls in the window, one row per check that passed the rejected output, as `{check, count}`. An Algorithm verify reads `<runId>/<criterionId>`, a close receipt `<repo>#<nodeId>/<receiptCommentId>`. `errata_unlinked` counts the Errata with `passedBy: null`.
+- **`errata_fix_closure`**: of the Errata clusters proposed in the window, the share fixed, reported as `fixed/proposed`. A cluster is fixed when an `answered` event with `answer: "yes"` is followed by `node-closed` for the node that yes filed. The ledger carries these events once proposals ship (node #852 appends `proposed`; Vigil's answer path appends `answered` and `node-closed`); every line carries `clusterId`, and unknown kinds are skipped.
+
+An empty, missing or unreadable ledger, or a window without Errata or proposals, reports `n/a`, never zero. Both are reported by `bun run harness-eval` (text and `--json` under `errata`) and are not gated: they have no baseline yet, and alerts on them are out of scope. The silent-capture guard stays in `--check` as their countermeasure: it fails when no `feedback.candidate` lands in the window while sessions continue, because every Errata starts as one.
 
 These proxy metrics show a relatively high criterion-completion rate alongside a nearly open-circuit learning loop. They do **not** establish live executor correctness or substrate behavior. The biggest available win is not doing more work — it is closing feedback→learning→recall.
 
@@ -85,8 +95,10 @@ Audit §3 found ~89% of the event log had no automated reader — capture that n
 | `verification.gate_violation` | `hollow_pass_attempt_rate` | no — rare, high-signal |
 | `memory.recall` (incl. `via:"search"`) | `memory_loop_closure` | no |
 | `memory.resurface` / `memory.verify` / `memory.promotion` | `memory_loop_closure`, `promotion_rate` | no |
-| `memory.write.*` | `memory_loop_closure`, `feedback_closure_rate` | no |
-| `feedback.candidate` | `feedback_closure_rate` | no (capture volume is itself a guard) |
+| `memory.write.*` | `memory_loop_closure` | no |
+| `feedback.candidate` | `soma errata triage`; the silent-capture guard in `--check` | no (capture volume is itself a guard) |
+| Errata ledger `created` / `dropped` (private file, not the event log) | `rejected_passes`, `errata_unlinked` | no |
+| Errata ledger `proposed` / `answered` / `node-closed` (private file) | `errata_fix_closure` | no |
 | `lifecycle.session_start` / `session_end` | session bookkeeping, sampling denominators | no — low-volume |
 | `writeback.claude_code.subagent_start` / `subagent_stop` | subagent accounting | no — low-volume |
 | `memory.projection` | observational only (projection frequency vs read frequency) — **deliberately not** counted by `memory_loop_closure` | no — one per session |

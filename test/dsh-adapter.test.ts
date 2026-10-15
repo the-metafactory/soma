@@ -8,6 +8,7 @@ import { DSH_AGENTS_BLOCK_BEGIN, DSH_AGENTS_BLOCK_END, DSH_HOME_FILES, dshInstal
 import type { ProjectionInput } from "../src/index";
 import { portableProjectionInput } from "./fixtures";
 import { expectPlanCoversApplyModuloBundledSkills } from "./fixtures";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 const DSH_MEMORY_INDEX = "skills/soma/memory-index.md";
 
@@ -121,7 +122,7 @@ test("dsh install dry-run lists every substrate file apply reports (modulo bundl
   const homeDir = await mkdtemp(join(tmpdir(), "soma-dsh-install-"));
   try {
     const plan = planSomaForDshInstall({ homeDir });
-    const result = await installSomaForDsh({ homeDir });
+    const result = await installSomaForDsh({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect(plan.substrateHome).toBe(join(homeDir, ".dsh"));
     expect(plan.substrateFiles).toEqual(DSH_HOME_FILES.map((path) => join(homeDir, ".dsh", path)));
@@ -134,7 +135,7 @@ test("dsh install dry-run lists every substrate file apply reports (modulo bundl
 test("dsh install links the registry into the loader and patches AGENTS.md marker-guarded", async () => {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-dsh-loader-"));
   try {
-    const result = await installSomaForDsh({ homeDir });
+    const result = await installSomaForDsh({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const dshHome = join(homeDir, ".dsh");
 
     // Loader substrate: the curated registry lands as SYMLINKS into
@@ -159,7 +160,7 @@ test("dsh install links the registry into the loader and patches AGENTS.md marke
 
     // Re-install is byte-stable on the user-owned file.
     const before = await readFile(join(dshHome, "AGENTS.md"), "utf8");
-    await installSomaForDsh({ homeDir });
+    await installSomaForDsh({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const after = await readFile(join(dshHome, "AGENTS.md"), "utf8");
     expect(after).toBe(before);
 

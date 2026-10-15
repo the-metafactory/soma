@@ -1,4 +1,4 @@
-import { createPaths } from "./core/index";
+import { createPaths } from "../core/index";
 import { appendEventBatch } from "./event-log";
 import type { SomaMemoryEvent, SomaMemoryEventInput } from "./types";
 
@@ -44,4 +44,3 @@ export async function appendSomaMemoryEvents(somaHome: string, inputs: readonly 
 export function somaMemoryEventsPath(somaHome: string): string {
   return createPaths(somaHome).events();
 }
-

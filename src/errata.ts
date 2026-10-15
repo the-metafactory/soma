@@ -6,8 +6,7 @@ import { redactSomaFeedbackText } from "./feedback";
 import type {
   AlgorithmRun, ErrataCluster, ErrataClusterKey, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord, SomaMemoryEvent,
 } from "./types";
-import { parseTelemetryEventLine, streamEventLines } from "./event-log";
-import { somaMemoryEventsPath } from "./event-journal";
+import { parseTelemetryEventLine, somaMemoryEventsPath, streamEventLines } from "./events/index";
 import { hashJudgmentInput, readJudgments, recordJudgment, type JudgmentRecord } from "./core/index";
 import {
   classifyErrataThemeWithClaude, classifyErrataWithClaude, validateErrataTheme, validateErrataVerdict,

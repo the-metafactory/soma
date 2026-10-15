@@ -6,13 +6,13 @@ export interface ParsedErrataArgs {
   command: "errata";
   action: "list" | "drop" | "triage";
   id?: string;
-  options: { somaHome?: string; homeDir?: string; all?: boolean; json?: boolean };
+  options: { somaHome?: string; homeDir?: string; session?: string; all?: boolean; json?: boolean };
 }
 
 export const ERRATA_COMMAND_HELP = {
   usage: "Usage: soma errata <list|drop|triage> [--soma-home <path>]",
   subcommands: {
-    list: "Usage: soma errata list [--all] [--json] [--soma-home <path>] [--home-dir <path>]",
+    list: "Usage: soma errata list [--session <id>] [--all] [--json] [--soma-home <path>] [--home-dir <path>]",
     drop: "Usage: soma errata drop E<n> [--soma-home <path>] [--home-dir <path>]",
     triage: "Usage: soma errata triage [--soma-home <path>] [--home-dir <path>]",
   },
@@ -27,6 +27,9 @@ export function parseErrataArgs(args: string[]): ParsedErrataArgs {
     const arg = rest[index];
     if (arg === "--soma-home" || arg === "--home-dir") {
       options[arg === "--soma-home" ? "somaHome" : "homeDir"] = readOption(rest, index, arg);
+      index++;
+    } else if (action === "list" && arg === "--session") {
+      options.session = readOption(rest, index, arg);
       index++;
     } else if (action === "list" && arg === "--all") options.all = true;
     else if (action === "list" && arg === "--json") options.json = true;
@@ -51,7 +54,8 @@ export async function runErrataCli(parsed: ParsedErrataArgs, deps: Omit<ErrataTr
     await dropErrata(somaHome, parsed.id);
     return `Dropped ${parsed.id}.`;
   }
-  const records = await readErrata(somaHome, parsed.options);
+  const records = (await readErrata(somaHome, parsed.options))
+    .filter((record) => parsed.options.session === undefined || record.sessionId === parsed.options.session);
   if (parsed.options.json) return JSON.stringify(records, null, 2);
   if (records.length === 0) return "No Errata.";
   // The complaint stays home; the list identifies the rejection without printing it.

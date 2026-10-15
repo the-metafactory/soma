@@ -25,6 +25,7 @@ import {
   type ParsedSubstrateLifecycleArgs,
   type ParsedUninstallArgs,
   type ParsedUpgradeArgs,
+  type SubstrateLifecycleCliInternals,
 } from "./cli/substrate-lifecycle";
 import {
   PROJECT_SKILL_COMMAND_HELP,
@@ -547,7 +548,11 @@ function editDistance(left: string, right: string): number {
   return previous[right.length] ?? left.length;
 }
 
-export async function runSomaCli(args: string[]): Promise<string> {
+/**
+ * Run one soma command in-process. `internals` are test seams (node #914) that
+ * argv cannot set; the CLI entry below never passes them.
+ */
+export async function runSomaCli(args: string[], internals: SubstrateLifecycleCliInternals = {}): Promise<string> {
   const parsed = parseArgs(args);
 
   if (parsed.command === "help") {
@@ -662,7 +667,7 @@ export async function runSomaCli(args: string[]): Promise<string> {
   }
 
   if (isSubstrateLifecycleArgs(parsed)) {
-    return runSubstrateLifecycleCli(parsed);
+    return runSubstrateLifecycleCli(parsed, internals);
   }
 
   throw new Error("Unhandled command.");

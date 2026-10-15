@@ -19,6 +19,7 @@ import {
 // Direct adapter import (not re-exported from the root — it's an adapter-internal
 // descriptor): also loads the module's registerProjectionRepairProvider side effect.
 import { claudeCodeProjectionRepairArtifacts } from "../src/adapters/claude-code/projection-self-repair";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 const STATUSLINE_REL = ".claude/hooks/soma/soma-statusline.sh";
 
@@ -55,7 +56,7 @@ function claudeArtifacts(homeDir: string): { substrateHome: string; artifacts: R
 
 test("restores the exec bit on a projected direct-exec script that lost it", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, STATUSLINE_REL);
     await chmod(scriptPath, 0o644);
     expect((await stat(scriptPath)).mode & 0o100).toBe(0);
@@ -103,7 +104,7 @@ test("refuses to follow a symlink that escapes the substrate home", async () => 
 
 test("no-op on a healthy projection: nothing healed, drifted, or refused", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const { substrateHome, artifacts } = claudeArtifacts(homeDir);
     const result = await repairProjectedArtifacts({ substrateHome, artifacts });
     expect(result).toEqual({ healed: [], drifted: [], skipped: [], findings: [] });
@@ -112,7 +113,7 @@ test("no-op on a healthy projection: nothing healed, drifted, or refused", async
 
 test("reports drift for a hand-edited projected file", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, STATUSLINE_REL);
     const original = await readFile(scriptPath, "utf8");
     await writeFile(scriptPath, `${original}\n# hand-edited\n`, { mode: 0o755 });
@@ -129,7 +130,7 @@ test("reports drift for a hand-edited projected file", async () => {
 
 test("session start heals a chmod-644'd statusline and logs an observability event", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, STATUSLINE_REL);
     await chmod(scriptPath, 0o644);
 
@@ -153,7 +154,7 @@ test("session start heals a chmod-644'd statusline and logs an observability eve
 
 test("session start emits no projection-repair event when the projection is healthy", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     await runSomaLifecycleSessionStart({
       homeDir,

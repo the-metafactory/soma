@@ -535,7 +535,7 @@ that change holds no `node_modules`; its emits fail at stage `load`, and
 ### Weekly goal outline
 
 ```bash
-soma goal outline --goal G1 --tana-tag capture --drafts-dir /path/to/drafts --days 7
+soma goal outline --goal G1 --tana-tag capture --drafts-dir /path/to/drafts --days 7 [--slot-minutes 60]
 ```
 
 Reads recent captures from the local `supertag` index (`search --tag ...
@@ -551,6 +551,20 @@ verbatim. Generated outlines are fenced as Markdown source so their headings
 and code fences cannot interfere with that section. This command only
 recommends; it does not share or schedule anything.
 
+With `--slot-minutes <n>`, the outline also gets a `## Proposed slot` section
+(before `## Share drafts`): the first window of `n` minutes in the next 5
+weekdays, 08:00–18:00 Europe/Zurich, free in both the macOS calendars and
+Exchange. It reads `ical availability` and `ical exchange availability`, each
+with `--next 7 --duration <n> --hours 08:00-18:00 --exclude-weekends --format
+json`, intersects their slots and starts no earlier than the next quarter hour.
+It never runs `ical create` or any Exchange write. If either read fails
+(non-zero exit or unparseable JSON), the section names the calendar and
+proposes nothing. If the macOS read returns every working hour of all 5
+weekdays as free, the section warns that calendar access may have been denied
+(macOS returns an empty calendar with exit 0 when access is refused) and
+proposes nothing. Neither case changes the run's outcome, and the slot never
+reaches the run envelope. Without the flag, no calendar is read.
+
 One job run (`goal-outline/G1`, serving `G1`) finishes through the run-ledger
 funnel. Success carries `result_ref: soma:outputs/G1-YYYY-Www.md`, without a
 state or source text. With `SOMA_PRINCIPAL` unset, nothing is published.
@@ -558,6 +572,35 @@ Missing or failing `supertag` exits 1 without writing an output. Inference
 failure or its 30-second timeout exits 1 after writing the sources and a
 failure message in Outline. Failed runs carry no `result_ref`. Usage errors
 exit 2. Ledger delivery retains the fail-open behavior documented above.
+
+### Goal announcement drafts
+
+```bash
+soma goal announce --goal G5 --url https://example.org/feed.xml --channels linkedin,mastodon
+```
+
+Fetches the RSS or Atom feed through the feed sensor's bounded reader. On the
+first run, records every current item link in the private JSON string array
+`<soma-home>/memory/STATE/goal-announce/G5.json` and drafts nothing. Later runs
+draft one short announcement per channel for each unseen link, using `soma
+inference` at level `standard` through its tool-free Claude Code backend (no
+HTTP API fallback). Item links are never fetched and nothing is posted.
+
+Drafts are added under `## Share drafts` in
+`<soma-home>/outputs/G5-YYYY-Www.md`, creating the file if needed. The ISO week
+uses Europe/Zurich, like `goal outline`. Existing sections are retained;
+generated text is fenced as Markdown source. Links join the seen-set only
+after all their channel drafts are saved. Duplicate links and channel names
+are collapsed; items without HTTP(S) links are skipped. With no unseen items,
+inference is skipped and the output and seen-set are untouched.
+
+Feed failure leaves both files untouched and exits 1. Inference failure or a
+30-second timeout leaves that item unseen for retry, saves other successful
+items and exits 1. Usage errors exit 2. Each run reports one `goal-announce/G5`
+job serving `G5`, without state, URLs, titles or draft text. Only a succeeded
+run that added drafts carries `result_ref: soma:outputs/G5-YYYY-Www.md`.
+With `SOMA_PRINCIPAL` unset no ledger envelope is published; delivery otherwise
+uses the existing fail-open ledger funnel.
 
 ### VSA
 

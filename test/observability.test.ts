@@ -10,7 +10,7 @@ import {
   querySomaTelemetryEvents,
   summarizeSomaTelemetry,
 } from "../src/index";
-import { appendEventBatch, compressEventSegment, eventSegmentPath } from "../src/event-log";
+import { appendEventBatch, compressEventSegment, eventSegmentPath } from "../src/events/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-observability-"));

@@ -4,7 +4,12 @@ import {
   type HarnessData,
   METRICS,
   checkAgainstBaseline,
+  computeErrataMetrics,
   computeMetrics,
+  countFeedbackCandidates,
+  ERRATA_METRICS,
+  type ErrataLedgerLine,
+  loadErrataLedger,
   isProbeBacked,
   runCriteria,
 } from "../scripts/harness-eval";
@@ -172,7 +177,7 @@ describe("computeMetrics", () => {
     expect(byId.hollow_pass_attempt_rate.value).toBe(20);
   });
 
-  test("computes feedback closure and memory loop from events", () => {
+  test("computes memory loop from events; the feedback-closure proxy is retired", () => {
     const data = makeData({
       events: [
         { timestamp: daysAgo(5), kind: "feedback.candidate" },
@@ -183,7 +188,8 @@ describe("computeMetrics", () => {
       ],
     });
     const byId = Object.fromEntries(computeMetrics(data).map((m) => [m.id, m]));
-    expect(byId.feedback_closure_rate.denominator).toBe(2);
+    expect(byId.feedback_closure_rate).toBeUndefined();
+    expect(countFeedbackCandidates(data)).toBe(2);
     expect(byId.memory_loop_closure.numerator).toBe(2); // recall + promotion
     expect(byId.memory_loop_closure.denominator).toBe(1);
   });
@@ -211,6 +217,8 @@ describe("computeMetrics", () => {
 describe("checkAgainstBaseline", () => {
   const healthyRuns = Array.from({ length: 10 }, (_, i) => completedRun(`ok-${i}`, 20 - i));
 
+  const activity = (data: HarnessData) => ({ feedbackCandidates: countFeedbackCandidates(data) });
+
   function baselineFrom(data: HarnessData): Baseline {
     return {
       capturedAt: NOW.toISOString(),
@@ -226,7 +234,7 @@ describe("checkAgainstBaseline", () => {
       runs: healthyRuns,
       events: [{ timestamp: daysAgo(5), kind: "feedback.candidate" }],
     });
-    expect(checkAgainstBaseline(computeMetrics(data), baselineFrom(data))).toHaveLength(0);
+    expect(checkAgainstBaseline(computeMetrics(data), baselineFrom(data), activity(data))).toHaveLength(0);
   });
 
   test("flags degradation past tolerance and exits the gate", () => {
@@ -237,7 +245,7 @@ describe("checkAgainstBaseline", () => {
         ...Array.from({ length: 7 }, (_, i) => stalledRun(`dead-${i}`, 25 - i, 10)),
       ],
     });
-    const regressions = checkAgainstBaseline(computeMetrics(degraded), baseline);
+    const regressions = checkAgainstBaseline(computeMetrics(degraded), baseline, { feedbackCandidates: 1 });
     const ids = regressions.map((r) => r.id);
     expect(ids).toContain("true_finish_rate"); // 100% -> 30%
     expect(ids).toContain("abandoned_run_share"); // 0% -> 70%
@@ -257,7 +265,7 @@ describe("checkAgainstBaseline", () => {
         ...Array.from({ length: 5 }, (_, i) => stalledRun(`slow-${i}`, 20 - i, 1)),
       ],
     }); // 50% vs baseline 52, tolerance 5 -> fine
-    expect(checkAgainstBaseline(computeMetrics(data), baseline).map((r) => r.id)).not.toContain(
+    expect(checkAgainstBaseline(computeMetrics(data), baseline, { feedbackCandidates: 1 }).map((r) => r.id)).not.toContain(
       "true_finish_rate",
     );
   });
@@ -269,7 +277,7 @@ describe("checkAgainstBaseline", () => {
       metrics: { true_finish_rate: { value: 100, denominator: 20 } },
     };
     const data = makeData({ runs: [stalledRun("only-one", 20, 10)] }); // denominator 1 < minSample 5
-    expect(checkAgainstBaseline(computeMetrics(data), baseline).map((r) => r.id)).not.toContain(
+    expect(checkAgainstBaseline(computeMetrics(data), baseline, { feedbackCandidates: 1 }).map((r) => r.id)).not.toContain(
       "true_finish_rate",
     );
   });
@@ -279,14 +287,122 @@ describe("checkAgainstBaseline", () => {
       makeData({ runs: healthyRuns, events: [{ timestamp: daysAgo(5), kind: "feedback.candidate" }] }),
     );
     const silent = makeData({ runs: healthyRuns, events: [] });
-    const regressions = checkAgainstBaseline(computeMetrics(silent), baseline);
+    const regressions = checkAgainstBaseline(computeMetrics(silent), baseline, activity(silent));
     expect(regressions.map((r) => r.id)).toContain("feedback_candidate_volume");
+  });
+
+  test("silent capture with no sessions is not a regression", () => {
+    const silent = makeData({ runs: healthyRuns, events: [] });
+    const ids = checkAgainstBaseline(computeMetrics(silent), baselineFrom(silent), {
+      feedbackCandidates: 0,
+      sessionStarts: 0,
+    }).map((r) => r.id);
+    expect(ids).not.toContain("feedback_candidate_volume");
+  });
+});
+
+describe("Errata metrics", () => {
+  const verify = (runId: string, criterionId: string) => ({ kind: "algorithm-verify" as const, runId, criterionId });
+  const created = (id: string, passedBy: ReturnType<typeof verify> | null, complaintDaysAgo = 3): ErrataLedgerLine => ({
+    kind: "created",
+    record: { id, complaintAt: daysAgo(complaintDaysAgo), passedBy },
+  });
+
+  test("rejected passes per check, and unlinked Errata", () => {
+    const report = computeErrataMetrics(
+      makeData({ errata: [created("E1", verify("R", "C3")), created("E2", verify("R", "C3")), created("E3", null)] }),
+    );
+    expect(report.rejected_passes).toEqual([{ check: "R/C3", count: 2 }]);
+    expect(report.errata_unlinked).toBe(1);
+  });
+
+  test("close-receipt checks key by repo, node and receipt; dropped and out-of-window Errata do not count", () => {
+    const receipt = { kind: "close-receipt" as const, repo: "the-metafactory/soma", nodeId: "848", receiptCommentId: "c1" };
+    const report = computeErrataMetrics(
+      makeData({
+        errata: [
+          { kind: "created", record: { id: "E1", complaintAt: daysAgo(2), passedBy: receipt } },
+          created("E2", verify("R", "C3")),
+          { kind: "dropped", id: "E2", at: daysAgo(1) },
+          created("E3", verify("R", "C4"), 90),
+        ],
+      }),
+    );
+    expect(report.rejected_passes).toEqual([{ check: "the-metafactory/soma#848/c1", count: 1 }]);
+    expect(report.errata_unlinked).toBe(0);
+  });
+
+  test("closure: clusters proposed vs fixed (yes answered, filed node closed)", () => {
+    const report = computeErrataMetrics(
+      makeData({
+        errata: [
+          created("E1", verify("R", "C3")),
+          created("E2", null),
+          { kind: "proposed", clusterId: "EC1", at: daysAgo(3) },
+          { kind: "proposed", clusterId: "EC2", at: daysAgo(3) },
+          { kind: "answered", clusterId: "EC1", answer: "yes", at: daysAgo(2) },
+          { kind: "node-closed", clusterId: "EC1", at: daysAgo(1) },
+        ],
+      }),
+    );
+    expect(report.errata_fix_closure).toEqual({ value: 50, fixed: 1, proposed: 2, detail: "1/2 Errata clusters fixed" });
+  });
+
+  test("a closed node without a yes, or a yes whose node is still open, is not a fix", () => {
+    const report = computeErrataMetrics(
+      makeData({
+        errata: [
+          created("E1", null),
+          { kind: "proposed", clusterId: "EC1", at: daysAgo(3) },
+          { kind: "node-closed", clusterId: "EC1", at: daysAgo(2) },
+          { kind: "answered", clusterId: "EC1", answer: "no", at: daysAgo(1) },
+          { kind: "proposed", clusterId: "EC2", at: daysAgo(3) },
+          { kind: "answered", clusterId: "EC2", answer: "yes", at: daysAgo(1) },
+        ],
+      }),
+    );
+    expect(report.errata_fix_closure).toEqual({ value: 0, fixed: 0, proposed: 2, detail: "0/2 Errata clusters fixed" });
+  });
+
+  test("empty or missing ledger reports n/a, never zero", () => {
+    for (const errata of [undefined, null, []]) {
+      expect(computeErrataMetrics(makeData({ errata }))).toEqual({
+        rejected_passes: "n/a",
+        errata_unlinked: "n/a",
+        errata_fix_closure: "n/a",
+      });
+    }
+  });
+
+  test("loadErrataLedger: missing file is null, torn lines and unknown kinds are skipped", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "harness-errata-"));
+    try {
+      expect(loadErrataLedger(join(dir, "missing.jsonl"))).toBeNull();
+      const file = join(dir, "ledger.jsonl");
+      writeFileSync(
+        file,
+        [
+          JSON.stringify(created("E1", verify("R", "C3"))),
+          JSON.stringify({ kind: "expired", clusterId: "EC1", at: daysAgo(1) }),
+          "null",
+          '{"kind":"created","rec',
+        ].join("\n"),
+      );
+      const lines = loadErrataLedger(file);
+      expect(lines).toHaveLength(2);
+      expect(computeErrataMetrics(makeData({ errata: lines })).rejected_passes).toEqual([{ check: "R/C3", count: 1 }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
 describe("metric registry contract", () => {
   test("every metric documents its Goodhart mode and countermeasure", () => {
-    for (const metric of METRICS) {
+    for (const metric of [...METRICS, ...ERRATA_METRICS]) {
       expect(metric.goodhart.length).toBeGreaterThan(20);
       expect(metric.countermeasure.length).toBeGreaterThan(20);
     }

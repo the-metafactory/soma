@@ -6,7 +6,7 @@ import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPromptClassification 
  * Held as pattern *sources* rather than RegExp literals so substrate adapters can
  * project the classifier into generated extension code without duplicating the
  * pattern set. Same idiom as SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE
- * in src/feedback-contract.ts: share the data, generate only the logic.
+ * in src/events/feedback-contract.ts: share the data, generate only the logic.
  *
  * Consumed by src/adapters/shared/algorithm-classifier-source.ts (soma#475).
  * Behavioural equivalence between this module and the projected copy is enforced

@@ -6,12 +6,13 @@ import {
 } from "../goal-records";
 import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../goal-sense";
 import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from "../goal-outline";
+import { announceRefusal, runGoalAnnounce, type GoalAnnounceDeps, type GoalAnnounceOptions } from "../goal-announce";
 import { defaultSomaHome, type SomaPathsOptions } from "../core/index";
 import { loadSomaConfig } from "../soma-config";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline" | "kinds";
+type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline" | "announce" | "kinds";
 
 export interface ParsedGoalArgs {
   command: "goal";
@@ -24,13 +25,14 @@ export interface ParsedGoalArgs {
     json?: boolean;
     feed?: FeedSensorOptions;
     outline?: GoalOutlineOptions;
+    announce?: GoalAnnounceOptions;
   };
 }
 
 const ACTIVATIONS_DIRECTORY_HELP = "(REFLEX_ACTIVATIONS_DIR overrides goals.activations_dir in <soma-home>/config.yaml; default: ~/.config/reflex/personal-activations)";
 
 export const GOAL_COMMAND_HELP = {
-  usage: `Usage: soma goal <add|activate|set-status|list|sense|outline|kinds> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
+  usage: `Usage: soma goal <add|activate|set-status|list|sense|outline|announce|kinds> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
   subcommands: {
     add: "Usage: soma goal add --wording <text> [--supports M<n>...] [--sensor <activation-id>] [--review-by YYYY-MM-DD] [--home-dir <dir>] [--soma-home <dir>]",
     activate: `Usage: soma goal activate G<n> [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
@@ -38,9 +40,34 @@ export const GOAL_COMMAND_HELP = {
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
     kinds: "Usage: soma goal kinds [--json] [--home-dir <dir>] [--soma-home <dir>]",
     sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
-    outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
+    outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--slot-minutes <n>] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
+    announce: "Usage: soma goal announce --goal G<n> --url <https-url> --channels <a,b,...> [--home-dir <dir>] [--soma-home <dir>] (drafts only; SOMA_PRINCIPAL unset: no ledger publication)",
   },
 };
+
+function parseAnnounceArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
+  const usage = (reason: string) => new SomaCliError(`soma goal announce: ${reason}. ${GOAL_COMMAND_HELP.subcommands.announce}`, 2);
+  const announce: Partial<GoalAnnounceOptions> = {};
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index];
+    const value = rest[index + 1];
+    if (!["--goal", "--url", "--channels", "--home-dir", "--soma-home"].includes(arg)) throw usage("unsupported argument");
+    if (!value || value.startsWith("--")) throw usage(`${arg} requires a value`);
+    index++;
+    if (arg === "--goal") announce.goal = value;
+    if (arg === "--url") announce.url = value;
+    if (arg === "--channels") announce.channels = [...new Set(value.split(",").map((channel) => channel.trim()))];
+    if (arg === "--home-dir") options.homeDir = value;
+    if (arg === "--soma-home") options.somaHome = value;
+  }
+  if (!announce.goal) throw usage("--goal is required");
+  if (!announce.url) throw usage("--url is required");
+  if (!announce.channels) throw usage("--channels is required");
+  const complete = announce as GoalAnnounceOptions;
+  const refused = announceRefusal(complete);
+  if (refused) throw usage(refused);
+  options.announce = complete;
+}
 
 function parseOutlineArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
   const usage = (reason: string) => new SomaCliError(`soma goal outline: ${reason}. ${GOAL_COMMAND_HELP.subcommands.outline}`, 2);
@@ -48,23 +75,29 @@ function parseOutlineArgs(rest: string[], options: ParsedGoalArgs["options"]): v
   for (let index = 0; index < rest.length; index++) {
     const arg = rest[index];
     const value = rest[index + 1];
-    if (!["--goal", "--tana-tag", "--drafts-dir", "--days", "--home-dir", "--soma-home"].includes(arg)) throw usage("unsupported argument");
+    if (!["--goal", "--tana-tag", "--drafts-dir", "--days", "--slot-minutes", "--home-dir", "--soma-home"].includes(arg)) {
+      throw usage("unsupported argument");
+    }
     if (!value || value.startsWith("--")) throw usage(`${arg} requires a value`);
     index++;
     if (arg === "--goal") outline.goal = value;
     if (arg === "--tana-tag") outline.tanaTag = value;
     if (arg === "--drafts-dir") outline.draftsDir = value;
     if (arg === "--days") outline.days = Number(value);
+    if (arg === "--slot-minutes") outline.slotMinutes = Number(value);
     if (arg === "--home-dir") options.homeDir = value;
     if (arg === "--soma-home") options.somaHome = value;
   }
-  const { goal, tanaTag, draftsDir, days = 7 } = outline;
+  const { goal, tanaTag, draftsDir, days = 7, slotMinutes } = outline;
   if (!goal?.trim()) throw usage("--goal is required");
   if (!tanaTag?.trim()) throw usage("--tana-tag is required");
   if (!draftsDir?.trim()) throw usage("--drafts-dir is required");
   if (!/^G\d+$/.test(goal)) throw usage("--goal must match G<n>");
   if (!Number.isSafeInteger(days) || days < 1) throw usage("--days must be a positive integer");
-  options.outline = { goal, tanaTag, draftsDir, days };
+  if (slotMinutes !== undefined && (!Number.isSafeInteger(slotMinutes) || slotMinutes < 1)) {
+    throw usage("--slot-minutes must be a positive integer");
+  }
+  options.outline = { goal, tanaTag, draftsDir, days, ...(slotMinutes === undefined ? {} : { slotMinutes }) };
 }
 
 /** Usage errors exit 2, like the sensor's own refusals. */
@@ -96,10 +129,14 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
 
 export function parseGoalArgs(args: string[]): ParsedGoalArgs {
   const [command, action, ...rest] = args;
-  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "outline", "kinds"].includes(action)) {
+  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "outline", "announce", "kinds"].includes(action)) {
     throw new Error(GOAL_COMMAND_HELP.usage);
   }
   const options: ParsedGoalArgs["options"] = { add: { wording: "", supports: [] }, includeWording: false };
+  if (action === "announce") {
+    parseAnnounceArgs(rest, options);
+    return { command: "goal", action, options };
+  }
   if (action === "outline") {
     parseOutlineArgs(rest, options);
     return { command: "goal", action, options };
@@ -146,11 +183,22 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
 
 export async function runGoalCli(
   parsed: ParsedGoalArgs,
-  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; outline?: Partial<GoalOutlineDeps> } = {},
+  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps> } = {},
 ): Promise<string> {
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
   switch (action) {
+    case "announce": {
+      if (!options.announce) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.announce, 2);
+      const lines: string[] = [];
+      const result = await runGoalAnnounce({
+        ...options.announce, somaHome: defaultSomaHome(options), env: dependencies.env,
+        ...dependencies.announce, stdout: (line) => lines.push(line),
+        stderr: dependencies.announce?.stderr ?? (() => undefined),
+      });
+      if (result.exitCode !== 0) throw new SomaCliError(result.error ?? "soma goal announce failed", result.exitCode);
+      return lines.join("\n");
+    }
     case "outline": {
       if (!options.outline) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.outline, 2);
       const lines: string[] = [];
