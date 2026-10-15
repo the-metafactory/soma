@@ -18,6 +18,7 @@ import {
   planSomaForClaudeCodeInstall,
   uninstallSomaForClaudeCode,
 } from "../src/index";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 const SCRIPT_REL = ".claude/hooks/soma/soma-statusline.sh";
 
@@ -60,7 +61,7 @@ test("status line file is default-on in the plan, opt-out excludes it", () => {
 
 test("install writes the statusline script executable with SOMA_HOME substituted", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const scriptPath = join(homeDir, SCRIPT_REL);
     const info = await stat(scriptPath);
@@ -104,7 +105,7 @@ test("a soma-home path with shell metacharacters is safely escaped in the script
 
 test("install sets settings.json statusLine.command to the projected absolute path", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const scriptPath = join(homeDir, SCRIPT_REL);
     const settings = await readJson<{ statusLine?: { type?: string; command?: string } }>(
@@ -116,7 +117,7 @@ test("install sets settings.json statusLine.command to the projected absolute pa
 
 test("statusLine: false disables both the file and the settings entry", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, statusLine: false });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, statusLine: false });
 
     expect(await fileExists(join(homeDir, SCRIPT_REL))).toBe(false);
     const settings = await readJson<{ statusLine?: unknown }>(join(homeDir, ".claude/settings.json"));
@@ -126,11 +127,11 @@ test("statusLine: false disables both the file and the settings entry", async ()
 
 test("install is idempotent: two installs produce byte-identical script and stable settings.json", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptBefore = await readFile(join(homeDir, SCRIPT_REL), "utf8");
     const settingsBefore = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
 
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptAfter = await readFile(join(homeDir, SCRIPT_REL), "utf8");
     const settingsAfter = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
 
@@ -142,7 +143,7 @@ test("install is idempotent: two installs produce byte-identical script and stab
 test("custom --soma-home substitutes correctly into the projected script", async () => {
   await withTempHome(async (homeDir) => {
     const customSomaHome = join(homeDir, "elsewhere/.soma-custom");
-    await installSomaForClaudeCode({ homeDir, somaHome: customSomaHome });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, somaHome: customSomaHome });
 
     const content = await readFile(join(homeDir, SCRIPT_REL), "utf8");
     expect(content).not.toContain("__SOMA_HOME__");
@@ -153,7 +154,7 @@ test("custom --soma-home substitutes correctly into the projected script", async
 
 test("uninstall removes the script and the statusLine settings entry", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, SCRIPT_REL);
     expect(await fileExists(scriptPath)).toBe(true);
 
@@ -168,7 +169,7 @@ test("uninstall removes the script and the statusLine settings entry", async () 
 
 test("uninstall does NOT remove a statusLine that points at some other command", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const settingsPath = join(homeDir, ".claude/settings.json");
     const unrelated = { type: "command", command: "/usr/local/bin/my-other-statusline.sh" };
     const settings = await readJson<Record<string, unknown>>(settingsPath);
@@ -188,7 +189,7 @@ test("uninstall does NOT remove a statusLine that points at some other command",
 
 test("uninstall is idempotent (second run removes nothing further)", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await uninstallSomaForClaudeCode({ homeDir });
     const second = await uninstallSomaForClaudeCode({ homeDir });
     expect(second.removed).not.toContain(join(homeDir, SCRIPT_REL));
@@ -204,7 +205,7 @@ test("issue #236 pattern: statusLine install does not disturb an unrelated user 
       "utf8",
     );
 
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     const settings = await readJson<{ theme?: string; statusLine?: unknown }>(join(homeDir, ".claude/settings.json"));
     expect(settings.theme).toBe("dark");
@@ -214,7 +215,7 @@ test("issue #236 pattern: statusLine install does not disturb an unrelated user 
 
 test("BLOCKER: a crafted numeric field cannot inject shell (no eval)", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, SCRIPT_REL);
 
     // A separate mktemp dir for the injection target so the assertion can't be
@@ -273,7 +274,7 @@ async function writeCurrentWorkTask(homeDir: string, sessionId: string, task: st
 
 test("algorithm mode renders ⚙<effort> plus the full multi-word task", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, SCRIPT_REL);
     const sid = "task-space-sess";
 
@@ -297,7 +298,7 @@ test("algorithm mode renders ⚙<effort> plus the full multi-word task", async (
 
 test("native mode renders ○ plus the task", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, SCRIPT_REL);
     const sid = "native-sess";
 
@@ -319,7 +320,7 @@ test("native mode renders ○ plus the task", async () => {
 
 test("minimal mode drops the Soma segment but keeps the rest of the line", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, SCRIPT_REL);
     const sid = "minimal-sess";
 
@@ -343,7 +344,7 @@ test("minimal mode drops the Soma segment but keeps the rest of the line", async
 
 test("a missing statusline-mode state file drops the Soma segment but keeps the rest of the line", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, SCRIPT_REL);
     const sid = "no-state-sess";
 
@@ -367,7 +368,7 @@ test("a missing statusline-mode state file drops the Soma segment but keeps the 
 
 test("a traversal session id is guarded: the Soma segment is dropped and no file outside STATE is read", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const scriptPath = join(homeDir, SCRIPT_REL);
 
     // Plant a state file OUTSIDE the STATE dir that a naive

@@ -27,6 +27,7 @@ import { writePortableSkillManifest } from "../src/adapters/shared/portable-skil
 import { stripProvenance } from "../src/adapters/shared/provenance";
 import { datePrefixSlug } from "../src/core/index";
 import { expectReprojectPrunesStaleTelos, portableProjectionInput } from "./fixtures";
+import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-29-"));
@@ -195,7 +196,7 @@ test("soma#369: mode classifier hook files are default-on in the Claude Code ins
 
 test("soma#369: a default install writes both the mode classifier and policy guard hooks and wires settings", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await stat(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs"));
     await stat(join(homeDir, ".claude/hooks/soma/soma-policy-guard.mjs"));
     const settings = await readJson<{ hooks: Record<string, unknown[]> }>(join(homeDir, ".claude/settings.json"));
@@ -206,7 +207,7 @@ test("soma#369: a default install writes both the mode classifier and policy gua
 
 test("soma#369: --no-mode-classifier / --no-policy-guard opts a default install back out", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, modeClassifier: false, policyGuard: false });
     await expect(stat(join(homeDir, ".claude/hooks/soma/soma-mode-classifier.mjs"))).rejects.toThrow();
     await expect(stat(join(homeDir, ".claude/hooks/soma/soma-policy-guard.mjs"))).rejects.toThrow();
     const settings = await readJson<{ hooks: Record<string, unknown[]> }>(join(homeDir, ".claude/settings.json"));
@@ -227,17 +228,17 @@ test("soma#329: reproject removes a stale rules/soma/TELOS.md left by a pre-rena
   await withTempHome(async (homeDir) => {
     await expectReprojectPrunesStaleTelos(
       join(homeDir, ".claude/rules/soma"),
-      () => installSomaForClaudeCode({ homeDir }),
+      () => installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir }),
     );
   });
 });
 
 test("AC-4: installSomaForClaudeCode is idempotent (second install bytes-identical)", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const before = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
     const settingsBefore = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const after = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
     const settingsAfter = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
     expect(after).toBe(before);
@@ -266,8 +267,8 @@ test("issue #236: claude-code install wires Soma-owned hooks without overwriting
     // Opt out of the soma#369 default-on fleet: this test targets the base
     // lifecycle hook wiring + user-hook preservation. Default-on fleet has its
     // own coverage below.
-    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false, preCompact: false, feedbackCapture: false });
-    await installSomaForClaudeCode({ homeDir, modeClassifier: false, policyGuard: false, preCompact: false, feedbackCapture: false });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, modeClassifier: false, policyGuard: false, preCompact: false, feedbackCapture: false });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, modeClassifier: false, policyGuard: false, preCompact: false, feedbackCapture: false });
 
     const hookInfo = await stat(join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.mjs"));
     expect((hookInfo.mode & 0o100) !== 0).toBe(true);
@@ -479,7 +480,7 @@ test("issue #274: mode classifier install disables quoted PAI mjs classifier com
       "utf8",
     );
 
-    await installSomaForClaudeCode({ homeDir, modeClassifier: true });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir, modeClassifier: true });
 
     const settings = await readJson<{ hooks: Record<string, unknown[]>; somaDisabledHooks?: Record<string, unknown[]> }>(join(homeDir, ".claude/settings.json"));
     expect(JSON.stringify(settings.hooks)).not.toContain("ModeClassifier.hook.mjs");
@@ -572,7 +573,7 @@ test("AC-5: CLAUDE.md left untouched (pivot dropped @-import composition)", asyn
     await mkdir(join(homeDir, ".claude"), { recursive: true });
     const distinctive = "# my hand-written CLAUDE.md\n\nUntouched by Soma.\n";
     await writeFile(join(homeDir, ".claude/CLAUDE.md"), distinctive, "utf8");
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const after = await readFile(join(homeDir, ".claude/CLAUDE.md"), "utf8");
     expect(after).toBe(distinctive);
   });
@@ -603,7 +604,7 @@ test("AC-10: uninstallSomaForClaudeCode removes only Soma-owned projection and h
       "utf8",
     );
 
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const result = await uninstallSomaForClaudeCode({ homeDir });
 
     expect(result.removed).toContain(join(homeDir, ".claude/rules/soma"));
@@ -629,7 +630,7 @@ test("AC-10: uninstallSomaForClaudeCode removes only Soma-owned projection and h
 
 test("issue #236: uninstall removes settings entries using the installed Bun path", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const configPath = join(homeDir, ".claude/hooks/soma/soma-claude-code-hook.config.json");
     const settingsPath = join(homeDir, ".claude/settings.json");
     const config = await readJson<{ bunPath: string }>(configPath);
@@ -656,7 +657,7 @@ test("issue #236: uninstall removes settings entries using the installed Bun pat
 
 test("uninstallSomaForClaudeCode rethrows non-ENOENT errors (sage r1)", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     // Make rules/soma read-only AND remove write+execute on the parent
     // so rm cannot recurse into it. On a Bun/Posix runtime this surfaces
     // a non-ENOENT error from rm (EACCES). Uninstall must NOT silently
@@ -674,7 +675,7 @@ test("uninstallSomaForClaudeCode rethrows non-ENOENT errors (sage r1)", async ()
 
 test("uninstallSomaForClaudeCode is idempotent (second run = no-op, removed=[])", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await uninstallSomaForClaudeCode({ homeDir });
     const second = await uninstallSomaForClaudeCode({ homeDir });
     expect(second.removed).toEqual([]);
@@ -686,7 +687,7 @@ test("AC-11: active VSA refreshed on install when one is set", async () => {
     await bootstrapSomaHome({ homeDir });
     await scaffoldVsa({ homeDir, slug: "demo", goal: "G", effort: "E1" });
     await setActiveVsa("demo", { homeDir });
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const vsaContent = await readFile(join(homeDir, ".claude/rules/soma/ACTIVE_VSA.md"), "utf8");
     // serializeVsa drops the slug (filename is the slug) but keeps task + Goal.
     expect(vsaContent).toContain("task: G");
@@ -698,7 +699,7 @@ test("active-VSA file is omitted from skeleton when no active VSA set", async ()
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
     // No setActiveVsa called → installer must skip the ACTIVE_VSA file.
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await expect(stat(join(homeDir, ".claude/rules/soma/ACTIVE_VSA.md"))).rejects.toThrow();
   });
 });
@@ -829,14 +830,14 @@ test("soma#638: a loader substrate's home projection emits no skill catalog", ()
 
 test("soma#638: reinstall reconciles away a SKILLS.md left by an older install", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const stale = join(homeDir, ".claude", "rules", "soma", "SKILLS.md");
     await writeFile(stale, "# Soma Skills\n\nleft by an older soma\n", "utf8");
     await expect(stat(stale)).resolves.toBeDefined();
 
     // rules/soma is an owned subtree: reconcile removes anything Soma no longer
     // projects, so --apply does not merely skip the catalog, it cleans it up.
-    await installSomaForClaudeCode({ homeDir });
+    await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     await expect(stat(stale)).rejects.toThrow();
   });
 });
@@ -850,7 +851,7 @@ test("soma#638: the library install projects the registry, not just the CLI", as
     // Sage caught this: the projection lived in src/cli/, so a programmatic
     // install emitted neither the catalog (removed for a loader substrate) nor
     // any loader symlink — a home with no discoverable skills at all.
-    const result = await installSomaForClaudeCode({ homeDir });
+    const result = await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect(result.projectedSkills.map((skill) => skill.skill)).toContain("Lib");
     expect((await stat(join(homeDir, ".claude", "skills", "Lib", "SKILL.md"))).isFile()).toBe(true);
@@ -882,7 +883,7 @@ test("#652: install replaces a migrated manifest slot and continues projecting l
       files: [{ path: "skills/Migrated/SKILL.md", content: migratedContent }],
     });
 
-    const result = await installSomaForClaudeCode({ homeDir });
+    const result = await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const laterSlot = join(substrateHome, "skills", "Later");
 
     expect((await lstat(migratedSlot)).isSymbolicLink()).toBe(true);
@@ -900,7 +901,7 @@ test("soma#638: a catalog substrate's library install links nothing and reports 
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "SKILL.md"), `---\nname: Lib\n---\n# lib\n`, "utf8");
 
-    const result = await installSomaForCursor({ homeDir });
+    const result = await installSomaForCursor({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
 
     expect(result.projectedSkills).toEqual([]);
     await expect(stat(join(homeDir, ".cursor", "rules", "soma", "skills", "Lib"))).rejects.toThrow();
