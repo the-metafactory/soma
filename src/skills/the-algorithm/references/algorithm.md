@@ -527,7 +527,7 @@ Where nothing can satisfy the contract, say so in `## Decisions` rather than ski
 
 At **Deep (E4)** and **Comprehensive (E5)**, before setting `phase: complete`, get an audit from a model **outside the family that did the work** — compare the artifacts against the criteria and surface the blind spots a same-family reviewer shares with the author.
 
-Select the **`CrossFamilyAudit`** capability. It is a contract row, not a command, because this is the one rule no substrate satisfies portably: it needs a second vendor reachable from where you run. Bind it locally where you can; where you cannot, record the gap in `## Decisions` and proceed without selecting it. Do not fabricate the audit, and do not let a same-family reviewer stand in — that is the blind spot, not the check. The binding names the family: an `Agent(…, model="…")` row in `capabilities.local.md` (see "Model roles" in `references/capabilities.md`), and the run's invocation record keeps the model it named.
+Select the **`CrossFamilyAudit`** capability. It is a contract row, not a command, because this is the one rule no substrate satisfies portably: it needs a second vendor reachable from where you run. Bind it locally where you can; where you cannot, record the gap in `## Decisions` and proceed without selecting it. Do not fabricate the audit, and do not let a same-family reviewer stand in — that is the blind spot, not the check. The binding names the family: an `Agent(…, model="…")` row in `capabilities.local.md` (see "Model roles" in `references/capabilities.md`). The run's invocation record keeps the slug the binding asked for; it is not proof that model answered, so the invocation evidence must still say what ran.
 
 | Audit verdict | Action |
 |--------------|--------|
