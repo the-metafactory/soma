@@ -24,6 +24,7 @@ import {
   writeAlgorithmRun,
 } from "../src/index";
 import { loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../src/algorithm-capabilities";
+import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-algorithm-"));
@@ -70,6 +71,7 @@ async function writeAlgorithmCapabilitiesReference(homeDir: string, somaHome = "
       '| MissingSkill | THINK | Missing target | `Skill("MissingSkill")` | E2+ |',
       '| ReReadCheck | VERIFY->LEARN | Final check | *(inline doctrine step - no external tool)* | E1+ |',
       '| Forge (code producer) | EXECUTE | Code production | `Agent(subagent_type="Forge", prompt="...")` | E3+ |',
+      '| Advisor | PLAN | Second opinion | `Agent(subagent_type="general-purpose", model="sonnet")` | E2+ |',
       "",
       "| Capability | When | Invoke |",
       "|------------|------|--------|",
@@ -348,6 +350,19 @@ test("records structured Algorithm capability selections and invocations", () =>
   });
 });
 
+test("capabilities --list prints an agent row's model role and nothing for rows without one", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeAlgorithmCapabilitiesReference(homeDir);
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+
+    const output = await runAlgorithmCli(parseAlgorithmArgs(["algorithm", "capabilities", "--list", "--home-dir", homeDir]));
+    const line = (name: string) => output.split("\n").find((l) => l.startsWith(`- ${name} `));
+
+    expect(line("Advisor")).toBe("- Advisor [agent] plan → general-purpose @sonnet");
+    expect(line("Forge")).toBe("- Forge [agent] execute → Forge");
+  });
+});
+
 test("loads migrated PAI Algorithm skill capabilities from Soma home", async () => {
   await withTempHome(async (homeDir) => {
     await writeAlgorithmCapabilitiesReference(homeDir);
@@ -366,6 +381,14 @@ test("loads migrated PAI Algorithm skill capabilities from Soma home", async () 
       kind: "agent",
       phases: ["execute"],
       invoke: { contract: "agent", target: "Forge" },
+    });
+    // An agent row without model="…" carries no model role at all.
+    expect(registry.definitions.find((definition) => definition.name === "Forge")?.invoke.model).toBeUndefined();
+    expect(registry.definitions.find((definition) => definition.name === "Advisor")).toMatchObject({
+      name: "Advisor",
+      kind: "agent",
+      phases: ["plan"],
+      invoke: { contract: "agent", target: "general-purpose", model: "sonnet" },
     });
     expect(registry.definitions.find((definition) => definition.name === "ReReadCheck")).toMatchObject({
       name: "ReReadCheck",
@@ -1271,6 +1294,44 @@ test("reselecting an unchanged invoked capability preserves invocation evidence"
     status: "invoked",
     invocation: { evidence: "Initial invocation." },
   });
+});
+
+test("an agent capability's model role is copied into the invocation record, and only then", () => {
+  let run = createAlgorithmRun({
+    id: "model-role-invocation",
+    timestamp: "2026-10-15T10:00:00.000Z",
+    prompt: "Record the model role",
+    intent: "The run shows which slug the binding asked for.",
+    currentState: "Advisor is bound to a sub-agent with a model role.",
+    goal: "The invocation record carries the slug; a row without one carries nothing.",
+    criteria: [{ id: "C1", text: "Invocation keeps the requested model." }],
+  });
+  run = registerAlgorithmCapabilityDefinition(run, {
+    name: "Advisor",
+    kind: "agent",
+    phases: ["plan"],
+    triggerSignals: ["second opinion"],
+    invoke: { contract: "agent", target: "general-purpose", model: "sonnet" },
+  });
+  run = registerAlgorithmCapabilityDefinition(run, {
+    name: "Forge",
+    kind: "agent",
+    phases: ["plan"],
+    triggerSignals: ["code production"],
+    invoke: { contract: "agent", target: "Forge" },
+  });
+  run = selectAlgorithmCapability(run, { name: "Advisor", phase: "plan", reason: "Before committing to the approach." });
+  run = selectAlgorithmCapability(run, { name: "Forge", phase: "plan", reason: "Write the code." });
+  run = recordAlgorithmCapabilityInvocation(run, { name: "Advisor", evidence: "Asked sonnet about the data shape." });
+  run = recordAlgorithmCapabilityInvocation(run, { name: "Forge", evidence: "Diff produced." });
+
+  const advisor = run.capabilitySelections?.find((selection) => selection.name === "Advisor");
+  const forge = run.capabilitySelections?.find((selection) => selection.name === "Forge");
+  expect(advisor?.invocation).toMatchObject({ target: "general-purpose", model: "sonnet" });
+  // The record carries the slug the binding asked for; a row without one must
+  // not invent a model, so the key is absent rather than null or empty.
+  expect(forge?.invocation).toMatchObject({ target: "Forge" });
+  expect(forge?.invocation && "model" in forge.invocation).toBe(false);
 });
 
 test("removed Algorithm capabilities do not block completion", () => {

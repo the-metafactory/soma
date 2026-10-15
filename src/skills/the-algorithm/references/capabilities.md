@@ -193,6 +193,35 @@ keeping, not an inconvenience to route around.
 `<prefix> algorithm capabilities --list` marks every contract row that still
 needs a binding on this machine.
 
+## Model roles: `model="…"` on an Agent row
+
+A second opinion is only a second opinion if something other than the author
+answers, and a cross-family audit needs a different vendor. The binding is where
+that is said. An `Agent(…)` cell in `capabilities.local.md` may name the model
+role beside the sub-agent type:
+
+```
+| Advisor | PLAN, VERIFY | Commitment-boundary second opinion (Rule 2) | `Agent(subagent_type="general-purpose", model="sonnet")` | E2+ |
+| JudgeOutput | VERIFY | Score text against a rubric; must not be the producer | `Agent(subagent_type="general-purpose", model="sonnet")` | E3+ |
+```
+
+`model` is optional and read only on agent rows. The registry keeps it on the
+definition (`invoke.model`), `--list` prints it as `@<model>`, and
+`algorithm invoke` copies it into the run's invocation record. Read that record
+for what it is: **the slug the binding asked for**, not evidence of which model
+answered. Soma stores the slug and never validates it, because what a model is
+called differs per substrate, and `algorithm invoke` does not execute the
+target (see "Capability-Name Audit Gate" in `algorithm.md`). Whether the
+substrate routed the request to that model is for the substrate, and for your
+evidence text, to show. A row with no `model` binds the sub-agent type and
+leaves the model to the substrate's default, which for a second opinion usually
+means the author's own family. Say the family you mean.
+
+Bind `CrossFamilyAudit` this way only on a substrate whose sub-agent tool can
+reach a second vendor. Where it cannot, the shipped contract row stays unbound
+and the run records the gap, as Rule 2a says; a `model="…"` slug the substrate
+ignores would make the record look like an audit that never happened.
+
 ## Capability table
 
 | Capability | Phase | Trigger Signal | Invoke | Typical Cost |

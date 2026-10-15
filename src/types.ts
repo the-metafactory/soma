@@ -507,6 +507,14 @@ export interface AlgorithmCapabilityDefinition {
   invoke: {
     contract: AlgorithmCapabilityContract;
     target: string;
+    /**
+     * The model slug an `Agent(…, model="…")` row asks for (soma#921, O6).
+     * The registry carries it so a second-opinion or cross-family-audit
+     * binding can name the family it wants; Soma never validates the slug and
+     * the substrate decides whether it can route to it. Absent on every other
+     * kind.
+     */
+    model?: string;
   };
   /**
    * Who put this definition on the run (soma#574). A home refresh REPLACES the
@@ -541,6 +549,12 @@ export interface AlgorithmCapabilityInvocation {
   substrate: SubstrateId;
   contract: AlgorithmCapabilityInvocationContract;
   target: string;
+  /**
+   * Copied from the definition at invocation time: the slug the binding asked
+   * for, not evidence of which model answered. `algorithm invoke` does not run
+   * the target, so what actually ran belongs in `evidence`.
+   */
+  model?: string;
   evidence: string;
 }
 

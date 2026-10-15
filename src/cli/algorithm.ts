@@ -731,7 +731,8 @@ function formatAlgorithmCapabilityRegistry(
     // declare `adapter` for a capability that targets a real skill and invokes
     // fine, and flagging it would contradict what `algorithm invoke` does.
     const suffix = definition.kind === "contract" ? "  ← needs a local binding" : "";
-    lines.push(`- ${definition.name} [${definition.kind}] ${definition.phases.join(",")} → ${definition.invoke.target}${suffix}`);
+    const model = definition.invoke.model ? ` @${definition.invoke.model}` : "";
+    lines.push(`- ${definition.name} [${definition.kind}] ${definition.phases.join(",")} → ${definition.invoke.target}${model}${suffix}`);
   }
 
   if (shadowed.length > 0) {

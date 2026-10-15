@@ -299,6 +299,13 @@ function agentInvocationTarget(value: string, capabilityName: string): string | 
   return subtype ?? (value.includes("Agent(") ? capabilityName : undefined);
 }
 
+// `Agent(subagent_type="…", model="…")`: the model role is optional and only
+// meaningful on agent rows. A whitespace-only value is no role at all.
+function agentInvocationModel(value: string): string | undefined {
+  const model = /\bmodel\s*=\s*"([^"]+)"/.exec(value)?.[1]?.trim();
+  return model !== undefined && model.length > 0 ? model : undefined;
+}
+
 function commandInvocationTarget(value: string): string | undefined {
   const stripped = stripMarkdownEmphasis(value);
   if (stripped.includes("Bash(")) return stripped;
@@ -501,7 +508,10 @@ function registerCapabilityTableRows(
     }
 
     if (agentTarget) {
-      definitions.set(name, buildCapabilityDefinition(name, "agent", phases, triggerSignals, agentTarget));
+      const definition = buildCapabilityDefinition(name, "agent", phases, triggerSignals, agentTarget);
+      const model = agentInvocationModel(invokeCell);
+      if (model) definition.invoke.model = model;
+      definitions.set(name, definition);
       continue;
     }
 
@@ -920,6 +930,7 @@ export function recordAlgorithmCapabilityInvocation(
     substrate: input.substrate ?? run.substrate ?? "custom",
     contract: definition.invoke.contract,
     target: definition.invoke.target,
+    ...(definition.invoke.model ? { model: definition.invoke.model } : {}),
     evidence,
   };
 
