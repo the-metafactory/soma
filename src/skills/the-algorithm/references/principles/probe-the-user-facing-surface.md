@@ -1,8 +1,8 @@
 # Probe the user-facing surface
 
-**When it applies:** you mark a criterion passed, or claim done, for something a user or a caller touches.
+**When it applies:** you mark any criterion passed, a code edit or a config change included, or claim done.
 
-**Rule:** mark it passed only with a tool probe of that surface, captured in the same tool block as the claim or the one right after it.
+**Rule:** mark it passed only with a tool probe captured in the same tool block as the claim or the one right after it. For something a user or a caller touches, probe that surface.
 
 | Artifact | Minimum probe |
 | --- | --- |

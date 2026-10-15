@@ -9,7 +9,7 @@ Read `references/principles.local.md` first when it exists: its rows add princip
 | `references/principles/verify-before-claiming.md` | about to write done, fixed, passing, deployed or clean |
 | `references/principles/ground-claims-in-this-session.md` | describing how code, a system or a past decision behaves |
 | `references/principles/probe-what-the-claim-asserts.md` | choosing the check behind a claim |
-| `references/principles/probe-the-user-facing-surface.md` | marking a criterion passed for something a user or caller touches |
+| `references/principles/probe-the-user-facing-surface.md` | marking any criterion passed; a user-facing one is probed on its surface |
 | `references/principles/preflight-before-the-first-edit.md` | OBSERVE, before the work starts |
 | `references/principles/second-opinion-at-commitment-boundaries.md` | before an approach, after two failed attempts, before declaring a deliverable done |
 | `references/principles/reproduce-first.md` | a bug report, a regression, "it broke" |
