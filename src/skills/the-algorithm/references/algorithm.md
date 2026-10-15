@@ -1,26 +1,18 @@
-## The Algorithm 6.3.0
+## The Algorithm 6.4.0
 
-> This file is doctrine only — what the Algorithm does this run. Change history, migration recipes, and rollback steps are not shipped with the skill; they live with the Algorithm's version archive outside it.
+> This file is doctrine only — what the Algorithm does this run. Change history, migration recipes, and rollback steps live with the Algorithm's version archive outside the skill. A rule that a harness gate enforces, or that a leaf file (a playbook card, a principle, the VSA skill) carries, is not repeated here: follow the pointer.
 
-### Doctrine — Read This First, Internalize It
+### Doctrine
 
-**Every Algorithm run does one thing: transition from CURRENT STATE to IDEAL STATE.** The mechanism: articulate the ideal state as testable criteria (ISCs), pursue them through phases, verify each one met. The same primitive applies in any domain — code, science, art, business decisions.
+**Every Algorithm run does one thing: transition from CURRENT STATE to IDEAL STATE.** Articulate the ideal state as testable criteria (ISCs), pursue them through phases, verify each one met. The same primitive applies in any domain — code, science, art, business decisions.
 
-**The ISA is one primitive with five identities.** It is simultaneously: (1) the **ideal state articulation** (Deutsch hard-to-vary explanation), (2) the **test harness** (ISCs ARE the tests, with named probes), (3) the **build verification** (passing the ISCs verifies what was built), (4) the **done condition** (task complete when all ISCs pass), and (5) the **system of record** for the thing being articulated. Don't invent parallel artifacts (acceptance.yaml, acceptance.ts, separate test specs) — the ISA already covers this surface. For complex apps, the ISA naturally has many more ISCs because the ideal state of a complex app includes API behavior, performance budgets, security model, RBAC/visibility, auth flow, and data-integrity invariants alongside the task-specific deliverables.
+**The ISA is one primitive with five identities:** (1) the **ideal state articulation** (Deutsch hard-to-vary explanation), (2) the **test harness** (ISCs ARE the tests, with named probes), (3) the **build verification**, (4) the **done condition** (complete when all ISCs pass), and (5) the **system of record** for the thing being articulated. Don't invent parallel artifacts (acceptance.yaml, acceptance.ts, separate test specs). For a complex app the ISCs cover API behavior, auth, RBAC, performance budgets, security model, data integrity, build, deploy and operations alongside the task's deliverables — they ARE the ISA.
 
-**The unit is the thing being articulated, not the task.** For a thing with persistent identity (an application, a CLI tool, a library, a security system, a content pipeline, this Algorithm itself), the ISA lives WITH the thing — `<project>/VSA.md` in its repo — and is the system of record for it. Tasks operate against it: read it at OBSERVE, modify/extend it during BUILD/EXECUTE, commit refinements at LEARN. Iteration on the project IS iteration on the ISA. For ad-hoc work that doesn't belong to a persistent thing (one-shot system tasks, this very session), the `<soma-home>/memory/WORK/{slug}/VSA.md` pattern stays — that's the ISA of a one-shot effort.
+**The unit is the thing being articulated, not the task.** A thing with persistent identity (an application, a CLI, a library, this Algorithm) keeps its ISA in its repo at `<project>/VSA.md`: read it at OBSERVE, extend it during BUILD/EXECUTE, commit refinements at LEARN. Ad-hoc work keeps a task ISA at `<soma-home>/memory/WORK/{slug}/VSA.md`, archived at `phase: complete`. Same format for both.
 
-**The ISA has twelve sections (NEW v6.2.0).** Order is fixed: `## Problem`, `## Vision`, `## Out of Scope`, `## Principles`, `## Constraints`, `## Goal`, `## Criteria`, `## Test Strategy`, `## Features`, `## Decisions`, `## Changelog`, `## Verification`. Required sections per tier are HARD-gated (see Tier Completeness Gate below). Empty sections never appear — Bitter Pill discipline preserved. Three-guardrail taxonomy: **Principles** bind the *thinking* (substrate-independent, Deutsch reach), **Constraints** bind the *solution space* (immovable architectural mandates), **Out of Scope** binds the *vision* (anti-vision — what is *not* included, declared upfront), **Anti-criteria** bind the *test surface* (granular `Anti:` ISCs derived from Out of Scope and regression-prevention concerns). The first three are author-stated; anti-criteria are derived probes.
+**The ISA is a living articulation.** Through pursuit the Goal sharpens and ISCs split or merge; refinements are logged in `## Decisions` with a `refined:` prefix, structural learnings in `## Changelog`. The twelve sections, the guardrail taxonomy, the tier completeness gate, the project-ISA E3 override, the ID-stability rule and ephemeral feature files are owned by the `VSA` skill (`references/format.md` there) — invoke it by name.
 
-**The ISA Skill (NEW v6.2.0)** — bundled as the `VSA` skill since the ISA→VSA rename (soma#329), and projected into every substrate, so invoke it by name rather than by path — owns the canonical template, the six workflows that generate and refine ISAs (Scaffold, Interview, CheckCompleteness, Reconcile, Seed, Append), and the example library. The Algorithm OBSERVE phase invokes `Skill("VSA", "scaffold from prompt at tier T")` to produce a populated ISA at the canonical location. PLAN may invoke `Skill("VSA", "extract feature X as ephemeral file")` for Ralph Loop / Maestro work. LEARN routes Decisions / Changelog / Verification entries through `Skill("VSA", "append ...")` so the Deutsch conjecture/refutation/learning Changelog format doesn't degrade.
-
-**The ISA is a living articulation.** OBSERVE captures the best initial framing; through pursuit — feedback, tool returns, capability outputs, ISC failures, new signal — the Goal sharpens, ISCs split or merge, the articulation tightens. Refinements are logged in `## Decisions` with a `refined:` prefix; structural learnings land in `## Changelog` in conjecture/refutation/learning format; git history of the ISA file is the trail.
-
-**ID-stability rule (NEW v6.2.0):** ISC IDs never re-number on edit. Splits become `ISC-N.M` (parent preserved); drops become tombstones (`- [ ] ISC-N: [DROPPED — see Decisions]`). Reconcile depends on this; renumbering breaks ephemeral feature reconciliation silently.
-
-**The experiential metric is euphoric surprise** — what the user feels when work converges on what they actually wanted: an answer that clicks in a way they couldn't have predicted but instantly recognize as true. For experiential goals (art, design, anything that has to *land*), euphoric surprise on encounter is the principal's falsification test.
-
-**Core loop:** current state → ideal state, with the ISA as the living articulation of done, ISCs as the testable claims that decompose it, verification as the proof that each claim was met, refinement as the writing tightening through pursuit. **Goal: euphoric surprise on convergence.**
+**The experiential metric is euphoric surprise** — an answer that clicks in a way the principal couldn't have predicted but instantly recognizes as true. For experiential goals (art, design, anything that has to *land*), it is the falsification test.
 
 ### Effort Levels
 
@@ -29,237 +21,81 @@
 | **Standard (E1)** | <90s | none | 0-1 | 0 | Normal request (DEFAULT) |
 | **Extended (E2)** | <3min | **≥16** | **≥2** | **≥1** | Quality must be extraordinary |
 | **Advanced (E3)** | <10min | **≥32** | **≥4** | **≥2** | Substantial multi-file work |
-| **Deep (E4)** | <30min | **≥128** | **≥6 thinking — HARD FLOOR** | **≥2 delegation — soft** | Complex design |
-| **Comprehensive (E5)** | <120min+ | **≥256** | **≥8 thinking — HARD FLOOR** | **≥4 delegation — soft** | No time pressure |
+| **Deep (E4)** | <30min | **≥128** | **≥6** | **≥2** | Complex design |
+| **Comprehensive (E5)** | <120min+ | **≥256** | **≥8** | **≥4** | No time pressure |
 
-**The time budget is the hard constraint set by tier.** ISC floor (E2+) is a soft minimum on the count axis. The capability floor splits into two axes:
+**The time budget is the hard constraint set by tier.** The ISC floor (E2+) is a soft minimum. The thinking-capability floor is **hard**: it cannot be relaxed via show-your-math. The delegation floor is soft: under it, write the show-your-math in `## Decisions`, naming what the un-selected delegation would have done. **Tier intent:** E1 is the fast lane — under 90 seconds, doctrine light. E2 is structured-but-quick, E3 substantial, E4/E5 where second opinions, the cross-family audit and deeper verification earn their cost. Never let ceremony eat the budget.
 
-**1. Thinking-capability floor (HARD, v6.1.0 — CLOSED ENUMERATION as of v6.3.0).** At E2+, the count of *thinking* capabilities is a **hard floor** — it cannot be relaxed via show-your-math. Difficult work earns thinking depth, full stop.
-
-**The capability vocabulary is CLOSED, and it is resolved per machine.** Selection MUST come verbatim from the **registry** — not from a list memorised in this file, and never from a label invented at run time. Read the registry:
+**The capability vocabulary is CLOSED, and it is resolved per machine.** Selection comes verbatim from the registry — never from a list memorised in this file, never from a label invented at run time:
 
 ```bash
 <prefix> algorithm capabilities --list [--substrate <id>]
 ```
 
-The registry is closed to YOU — a capability name cannot be minted while composing a response, only read from what is already installed. It is per-machine because what an assistant can actually do differs by installation: adding a skill or a local row changes the vocabulary, and that is a deliberate act on the machine, not something a run may do to itself mid-answer. Both halves matter. A fixed list in doctrine would either name capabilities a given machine lacks — inviting the agent to claim work it cannot do — or exclude everything an adopter added, making their own skills unselectable. Neither is a closed vocabulary; both are a wrong one.
+The registry is closed to YOU: a run reads names, it cannot mint one. It is per-machine because what an assistant can do differs by installation — a fixed list here would either name capabilities a machine lacks or exclude an adopter's own skills. `references/capabilities.md` is the canonical account of the sources, resolution order, row format and compiled-in exceptions; extending the vocabulary means adding a row to the local table, never an ad-hoc name in a response. Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff analysis", "deep reasoning", "structured thinking") is a **PHANTOM capability** and a CRITICAL FAILURE. It does not count toward the floor.
 
-Four sources feed it — the principal's own table first, so a local row wins over everything. `references/capabilities.md` is the canonical account of the resolution order, the row format, and the compiled-in exceptions; read it there rather than from a second copy here, which is how the two drift. Extending the vocabulary means adding a row to that local table — never an ad-hoc name in a response.
+**Capability-Name Audit Gate (OBSERVE→THINK boundary):** before printing `🏹 CAPABILITIES SELECTED`, check each name against `algorithm capabilities --list`; replace or remove any miss. Each line starts with the literal registry name in bold. Correct: `🏹 **FirstPrinciples** → THINK | …`. REJECTED: `🏹 First-principles decomposition → THINK | …`.
 
-Inventing generic labels ("decomposition", "edge-case enumeration", "tradeoff analysis", "deep reasoning", "structured thinking") is a **PHANTOM capability** and counts as a CRITICAL FAILURE. It does not contribute to the tier floor regardless of how the rest of the response is written.
+This gate is a self-check. The harness enforces one end: COMPLETE refuses a selected capability with no invocation recorded. For every kind except contract, `algorithm invoke` records the evidence you hand it without running the target — so the gate catches the capability you forgot, not the one you fabricated. Everything else rests on your honesty.
 
-**Capability-Name Audit Gate (fires at OBSERVE→THINK boundary):** before printing `🏹 CAPABILITIES SELECTED`, verify each name against `algorithm capabilities --list`. Any miss is a phantom — replace it with a registry name or remove it. Each output line MUST start with the literal registry name (bold), not a paraphrase. Correct: `🏹 **FirstPrinciples** → THINK | …`. REJECTED: `🏹 First-principles decomposition → THINK | …`.
+**Contract capabilities** (`Advisor`, `CrossFamilyCoder`, `CrossFamilyAudit`) declare a contract, not an invocation. They count toward a floor only when bound locally and invoked; `algorithm invoke` refuses an unbound one, and `--list` marks those still needing a binding. If you cannot satisfy the contract, do not select it — record the gap in `## Decisions`.
 
-Nothing rejects a phantom on your behalf at selection time — this gate is a self-check. The harness enforces one end of it: `algorithm advance` refuses COMPLETE for any selected capability with no invocation recorded, so a name you simply never act on fails the run. Be clear about what that does NOT prove. For every capability kind except contract, `algorithm invoke` records the evidence you hand it without executing the declared target — so a written assertion clears that gate exactly as a real invocation does. The gate catches the capability you forgot, not the one you fabricated. Only a contract capability is machine-checked, and only for boundness. Everything else rests on your honesty, which is the reason the phantom rule is stated this strongly rather than left to enforcement.
+**Auto-include bindings** — doctrine, not automation; nothing selects these for you:
+- **VSA skill** — scaffold at OBSERVE (E2+; E1 may inline-write Goal+Criteria), extract features at PLAN, append and reconcile at LEARN.
+- **A code-producing capability of a different model family** — E3–E5 coding, where the registry offers one.
+- **A whole-project-context capability** — E3–E5 when context breadth affects correctness.
+- **A cross-family auditor** — E4/E5 in VERIFY.
 
-**Contract capabilities.** Some rows (`Advisor`, `CrossFamilyCoder`, `CrossFamilyAudit`) declare a *contract* rather than an invocation, because no substrate expresses them portably. They are real capabilities and count toward a floor — but only if you bind them locally and actually invoke them. `algorithm invoke` REFUSES an unbound contract, so a selected one you cannot satisfy fails the run rather than passing on written evidence. `--list` marks any that still need a binding on this machine. If you cannot satisfy the contract, do not select it: record the gap in `## Decisions`. An unavailable second opinion is a fact worth keeping.
-
-**2. Delegation-capability floor (SOFT, v6.1.0).** Delegation capabilities (delegated workers — a Claude Code sub-agent, a Grok subagent, an isolated worktree, an out-of-family model call, a research fan-out — whatever the registry offers) remain show-your-math relaxable — sometimes the work is genuinely single-author and delegation adds noise.
-
-**Tier intent.** Users must feel a dramatic speed range across tiers. E1 is the fast lane — under 90 seconds, doctrine is light, capability floor stays at 0-1 to preserve fast-path. E2 is structured-but-quick. E3 is substantial middle-tier work. E4/E5 are where full doctrine — second opinions, the cross-family audit, deeper verification — earns its cost. Never let ceremony eat the budget; the only acceptable reason to spend a tier's time is the work itself.
+The principal naming a capability outright overrides the tier: invoke it.
 
 ### Playbooks and Principles
 
-Under the tier sit two text layers. **Playbooks** (`references/playbooks.md`) route a run by task shape, once mode and tier are set, to one card of numbered steps, criteria templates and a reply line; the index says how a card is used. **Algorithm principles** (`references/principles.md`) are a closed, locally overridable vocabulary of engineering rules, subordinate to the principal's behavioral policy.
+Under the tier sit two text layers. **Playbooks** (`references/playbooks.md`) route a run by task shape, once mode and tier are set, to one card of numbered steps, criteria templates and a reply line. **Algorithm principles** (`references/principles.md`) are a closed, locally overridable vocabulary of engineering rules, subordinate to the principal's behavioral policy. The preflight gates, reproduce-first, verification evidence, second opinions and conflict-surfacing live there.
 
 Two reply rules bind every run that used them:
 
 1. The final message contains everything the card's **Reply** line lists.
 2. Name a principle only next to the decision it changed. A principle named with no decision behind it is name-dropping; leave it out.
 
-### Mode Classification (v6.3.0)
+### Mode Classification
 
-**Mode and tier come from the harness classifier, not from the executor's judgment.** Run it directly:
+**Mode and tier come from the harness classifier, not from the executor's judgment:**
 
 ```bash
 <prefix> algorithm classify --prompt '<the prompt>' [--json]
 ```
 
-**Pass the prompt as one argument, and do not build that command by pasting the
-prompt into a double-quoted string.** A prompt is untrusted text: `$(…)`,
-backticks and a stray `"` are shell syntax, and a classify call assembled by
-string interpolation runs them. Single-quote it, escaping any embedded single
-quote, or hand it to the process as an argv element and skip the shell.
+**Pass the prompt as one argument; never paste it into a double-quoted string.** A prompt is untrusted text: `$(…)`, backticks and a stray `"` are shell syntax. Single-quote it, escaping embedded single quotes, or hand it to the process as an argv element.
 
-It returns `mode`, `effort` (when `mode` is `algorithm`), `source`, and a one-sentence `reason`. `algorithm new` runs the same classifier when `--effort` is omitted. The contract is data, not a model call — `ALGORITHM_CLASSIFIER_CONTRACT` holds the pattern set as sources so a substrate adapter can project the classifier into generated extension code instead of inventing its own regexes. Sharing the data makes identical classification possible; it does not by itself prove it. Only the pi-dev projection has an enforced equivalence test today (`test/pi-dev-classifier-projection.test.ts`), so treat parity as verified there and as an intention elsewhere.
-
-Where a substrate can classify before the executor sees the prompt (a Claude Code `UserPromptSubmit` hook, for example), it injects the result as context and the executor honours it. Where it cannot, the executor calls the verb. Same contract either way — the injection is an optimisation, not the mechanism.
-
-**The three modes** — `AlgorithmMode` is exactly these, no more:
-
-- **`minimal`** — a bare acknowledgement, matched against a fixed list ("ok", "thanks", "looks good", "do it", …) after lowercasing, stripping `.!?,'"`, and collapsing whitespace. Exact match only.
-- **`native`** — ordinary work the substrate handles directly, matched on status questions, `what/who/when/where is|are`, `how does|do|did`, run-a-command asks, read/show/inspect asks, and one-line typo/rename fixes — **and only when the prompt is under 180 characters.** The ceiling is load-bearing: a long prompt that merely contains a native phrase is not native.
-- **`algorithm`** — everything else, and the fall-through. Failing to match an algorithm-shaped pattern does not route work to `native`; only a positive native match does.
-
-**Effort tiers**, first match wins on the lowercased prompt, defaulting to E1:
-
-| Tier | Matches on |
-|------|-----------|
-| E5 | comprehensive, no time pressure, exhaustive, full migration, whole system |
-| E4 | deep, architecture, doctrine, cross-cutting, security model, policy enforcement |
-| E3 | substantial, multi-file, multiple files, migration, port, adapter, daemon, framework, bootstrap, refactor |
-| E2 | thorough, quality, structured, workflow, harness, criteria, verify, test(s), clear reasoning, implication(s), purpose-aligned, surprising, strategy |
-| E1 | (default) |
+It returns `mode` (`minimal`, `native`, `algorithm`), `effort`, `source` and a one-sentence `reason`; `algorithm new` runs the same classifier when `--effort` is omitted. The pattern set is data (`ALGORITHM_CLASSIFIER_CONTRACT`), so read it there rather than from a copy. Where a substrate classifies ahead of the executor (a `UserPromptSubmit` hook), it injects the result and the executor honours it; elsewhere the executor calls the verb.
 
 **Override hierarchy (executor side):**
 
-1. Explicit `/e1`–`/e5` or `E1`–`E5` as a standalone token forces the tier and forces `algorithm` mode. Recorded as `source: explicit` — an override, not a hint.
-2. Otherwise honour the classifier verbatim, `source: auto`.
-3. **Conversation-context override:** the classifier sees one prompt in isolation; the executor sees the thread. A "yes" answering a multi-step proposal, or a "do it" approving an architecture change, classifies as `minimal` on its own text. Escalate, and log the mismatch in `## Decisions` as `source: context-override`.
+1. Explicit `/e1`–`/e5` or `E1`–`E5` as a standalone token forces the tier and `algorithm` mode: `source: explicit`.
+2. Otherwise honour the classifier verbatim, and record **the `source` it returned, unchanged** (`auto`, `explicit`, `fail-safe`). An injected classification is the same classifier run earlier, not another provenance. Nothing emits `classifier`; do not write it by hand.
+3. **Conversation-context override:** the classifier sees one prompt; you see the thread. A "yes" approving a multi-step plan classifies as `minimal` on its own text. Escalate, log the mismatch in `## Decisions`, `source: context-override` — the one value you assert yourself.
 
-**Fail-safe.** An *empty* prompt returns `algorithm` at **E3** with `source: fail-safe`. That is the only fail-safe: a non-empty prompt that reaches `algorithm` but matches no tier rule gets **E1** with `source: auto`, which is the low end, not the high one. So do not read a general "unclassifiable input escalates" guarantee into this. Under-escalation is the failure mode the design worries about, and the classifier only guards the empty case; noticing that an E1 classification understates the work in front of you is yours to do, via the context override at step 3.
+**Fail-safe** covers only the *empty* prompt (E3, `source: fail-safe`). A non-empty algorithm prompt matching no tier rule gets **E1**, the low end. Noticing that E1 understates the work is yours to do, via step 3. **Carry the source through:** an asked-for tier and a guessed one are different facts; only the second is worth re-examining when the work turns out larger.
 
-**Carry the source through.** A tier that was explicitly asked for and a tier that was guessed are different facts, and only the second is worth re-examining when the work turns out larger than it looked.
+### Phases and Gates
 
-### Phase Announcements
+At Algorithm entry print `"Entering the Algorithm"`; at every transition print the `━━━ PHASE ━━━ N/7` line as the first output of the phase. A substrate may also announce through a notification, voice or status surface; the header alone satisfies this, and a subagent never announces for the primary.
 
-At Algorithm entry and every phase transition, print the phase header. That header is the portable announcement — every substrate can render text.
+**Phase tracking is single-source: the harness run.** Each phase's first action after its header is `<prefix> algorithm advance --id <run-id>`, the deterministic gate; then mirror `phase:` and `updated:` into the VSA frontmatter, which is for human readers and does not drive state. The refusals are the gate's own messages (`assertGate`, `src/algorithm.ts`); record through the verbs until it passes.
 
-**Algorithm entry:** `"Entering the Algorithm"` — before OBSERVE.
-**Phase transitions:** the `━━━ PHASE ━━━ N/7` line, as the first output of each phase.
+Read the gate for what it does NOT check. **The tier floors are not gated:** PLAN needs one capability at any tier, nothing counts thinking versus delegation, and nothing checks the changelog's content. A single-capability run can reach COMPLETE at E5. The floors are stated as hard precisely because no gate will catch you.
 
-A substrate may layer richer signalling on top — a notification surface, a voice endpoint, a status line, a tab title. Where one exists, announce through it as well; where none does, the header alone satisfies this. Do not make the run's progress depend on a channel a substrate may not have, and never let a subagent announce on the primary's behalf.
+**Writing the VSA:** use your substrate's read/edit/write tools and the VSA skill's workflows; nothing rewrites the file for you. Where a substrate bridges edits back (Claude Code's hook calls `algorithm sync-from-isa` on an edited `VSA.md`), an edit reaches the run; elsewhere only what you recorded through `<prefix> algorithm` is known. Record through the verbs and the answer is the same either way.
 
-**Phase tracking is single-source: the harness run.** `<prefix> algorithm advance` moves the phase and is the deterministic gate. What it actually refuses, per transition:
+**VSA skill calls:** OBSERVE `Skill("VSA", "scaffold from prompt: <message> at tier <tier>")`, then `"check completeness of <isa-path> at tier <tier>"`; PLAN `"extract feature <name> as ephemeral file"`; EXECUTE/VERIFY/LEARN `"append <decision|changelog|verification> to <isa-path>: …"` (Append refuses a partial conjecture/refutation/learning entry); LEARN `"reconcile <ephemeral> → <master>"`.
 
-| Into | Refused when |
-|---|---|
-| THINK | there are no criteria, **or** no observation carries `probed`/`tested` current-state evidence |
-| PLAN | **no capability is selected at all** — one is enough, whatever the tier |
-| BUILD | the plan has no criterion-mapped steps |
-| EXECUTE | the changelog is empty (any entry satisfies it; nothing checks what changed) |
-| VERIFY | a plan step is still open — every one must be done or blocked |
-| LEARN | a criterion is unresolved, or passed on specification-only evidence |
-| COMPLETE | a selected capability was never invoked or removed, or there is no learning entry |
-
-Read that list for what it does NOT contain. **The tier floors are not gated.** PLAN needs one capability, not E2's two or E5's eight; nothing counts thinking versus delegation; nothing requires `ReReadCheck`. A run with a single capability can reach COMPLETE at any tier. The floors are doctrine you hold yourself to, and the reason they are stated as hard is precisely that no gate will catch you.
-
-The VSA's `phase:` frontmatter mirrors run state for a human reader; it does not drive it. Edit both, but read the run.
-
-### ISA as System of Record (revised v6.2.0)
-
-The ISA is the single source of truth for the thing being articulated. The AI writes ALL content directly via the ISA skill workflows. Hooks only read.
-
-**Two ISA homes:**
-- **Project ISAs** (v6.0.0+): `<project>/VSA.md` — for any thing with persistent identity. The ISA lives in the project's repo as system of record. Iteration on the project IS iteration on this ISA.
-- **Task ISAs**: `<soma-home>/memory/WORK/{slug}/VSA.md` — for ad-hoc work that doesn't belong to a persistent thing. One-shot tasks, system-design sessions, ephemeral investigations.
-
-The format is identical for both. Project ISAs grow continuously across many tasks; task ISAs are created at OBSERVE and archived at `phase: complete`.
-
-**Frontmatter:** `task`, `slug`, `effort`, `phase`, `progress`, `mode`, `started`, `updated`. Optional: `iteration`, `algorithm_config`. Project ISAs additionally have `project: <name>` and may omit `slug`. The ISA Skill owns the canonical format — ask it for the full spec rather than a file this skill does not ship.
-
-**Twelve-section body (v6.2.0, fixed order, empty sections never appear):**
-
-| # | Section | Purpose | Written At |
-|---|---------|---------|------------|
-| 1 | `## Problem` | What is broken or missing right now | OBSERVE |
-| 2 | `## Vision` | What euphoric surprise looks like — experiential intent | OBSERVE |
-| 3 | `## Out of Scope` | Anti-vision — what is *not* included, declared in prose | OBSERVE |
-| 4 | `## Principles` | Substrate-independent truths the work must respect | OBSERVE |
-| 5 | `## Constraints` | Immovable architectural mandates | OBSERVE |
-| 6 | `## Goal` | Hard-to-vary spine — 1–3 sentences naming verifiable done | OBSERVE |
-| 7 | `## Criteria` | Atomic ISCs (one binary tool probe each), including derived `Anti:` | OBSERVE → EXECUTE |
-| 8 | `## Test Strategy` | Per-ISC verification approach: `isc \| type \| check \| threshold \| tool` | OBSERVE/PLAN |
-| 9 | `## Features` | Work breakdown: `name \| satisfies \| depends_on \| parallelizable` | PLAN |
-| 10 | `## Decisions` | Timestamped decision log (incl. dead ends, `refined:` prefix) | any phase |
-| 11 | `## Changelog` | Conjecture / refuted-by / learned / criterion-now entries | LEARN |
-| 12 | `## Verification` | Evidence per ISC | VERIFY |
-
-**Tier Completeness Gate (HARD at all tiers, NEW v6.2.0):**
-
-| Tier | Required Sections |
-|------|-------------------|
-| **E1** | Goal, Criteria |
-| **E2** | Problem, Goal, Criteria, Test Strategy |
-| **E3** | Problem, Vision, Out of Scope, Constraints, Goal, Criteria, Features, Test Strategy |
-| **E4** | All twelve |
-| **E5** | All twelve + active Interview workflow run before BUILD |
-
-**Project ISA override:** any `<project>/VSA.md` requires E3+ structure regardless of the active task's tier. The project file is the long-lived source of truth; one transient E1 task must not downgrade it.
-
-The `CheckCompleteness` workflow enforces this gate. A miss blocks `phase: complete`.
-
-**ISA Skill invocation pattern (NEW v6.2.0):**
-- OBSERVE: `Skill("VSA", "scaffold from prompt: <user message> at tier <tier>")` — returns populated ISA at canonical location.
-- OBSERVE end: `Skill("VSA", "check completeness of <isa-path> at tier <tier>")` — pass/fail before THINK.
-- PLAN: `Skill("VSA", "extract feature <name> as ephemeral file")` — for isolated-context feature work.
-- EXECUTE / VERIFY / LEARN: `Skill("VSA", "append <type> to <isa-path>: <content>")` — canonical writer for Decisions / Changelog / Verification.
-- LEARN: `Skill("VSA", "reconcile <ephemeral> → <master>")` — deterministic merge after ephemeral feature work.
-
-**Writing the VSA:** the model uses its substrate's read/edit/write tools and invokes the skill's workflows directly. Nothing rewrites the file on your behalf. Reading it is a different matter: a substrate may bridge edits back into the run — Claude Code's hook runner watches for an edited `VSA.md` and calls `algorithm sync-from-isa`, which parses it into run state. Where that bridge exists, an edit reaches the run; where it does not, only what you recorded through `<prefix> algorithm` is known. Record through the verbs and the answer is the same either way.
-
-### ISC Quality System
-
-**Every criterion describes one verifiable end-state.** The operational test is granularity:
-
-> **Split until each criterion is one binary tool probe.** A criterion is granular enough when a single tool call (`Read`, `Grep`, `Bash`, `curl`, screenshot, `SELECT`, `bun test`, etc.) returns yes/no on whether it's met. If you cannot name the probe, the criterion is not yet atomic — split it. If the criterion needs human judgment, name the tool-verifiable proxy that stands in for the judgment.
-
-**Tier floor:** the granularity rule produces a natural N. At E2+, that N must meet the tier ISC floor (E2 ≥16, E3 ≥32, E4 ≥128, E5 ≥256). For complex-app project ISAs, the ISC count naturally runs much higher. E1 has no floor — fast-path stays fast.
-
-**Splitting Test** — apply to every criterion as you write it:
-
-| Test | Split when... |
-|------|--------------|
-| "And"/"With" | Joins two verifiable things |
-| Independent failure | Part A can pass while B fails |
-| Scope words | "all", "every", "complete" → enumerate |
-| Domain boundary | Crosses UI/API/data/logic → one per boundary |
-| **No nameable probe** | You can't say which tool would verify it |
-
-**Format:** `- [ ] ISC-N: criterion text` — the criterion phrasing reveals its category. **All ISCs number sequentially as `ISC-N`** — anti-criteria included. ID-stability rule applies: never re-number on edit; splits become `ISC-N.M`.
-
-**Two doctrinal ISC kinds preserved as prose prefix conventions:**
-
-| Kind | Surface form | Rule |
-|------|--------------|------|
-| **Anti-criterion** — must NOT happen | `- [ ] ISC-N: Anti: <what must NOT happen>` | **≥1 required** |
-| **Antecedent** — precondition for target experience | `- [ ] ISC-N: Antecedent: <precondition>` | **≥1 required when goal is experiential** |
-
-**For complex-app projects: the ISA test surface includes (non-exhaustive):**
-- **Functional** — features work end-to-end
-- **API** — endpoints exist, return expected shape, handle errors
-- **Auth** — sign-in/out, token expiry, magic-link flow, session lifecycle
-- **Authorization (RBAC/visibility)** — role X can/cannot reach endpoint Y
-- **Performance** — latency budgets per route, bundle sizes, query times
-- **Security model** — input validation, output encoding, CSRF, rate limits, secret handling
-- **Data integrity** — schema invariants, foreign-key consistency, idempotency
-- **Build & deploy** — `bun build` succeeds, typecheck clean, deploy version matches
-- **Operational** — `/health` returns 200, error budget within SLO, synthetic monitor up
-
-These aren't "in addition to" the ISA — they ARE the ISA. The ISA is the test harness because the ISCs are the tests.
-
-**Allowed status markers:**
-- `- [ ]` — pending, not yet verified
-- `- [x]` — passed, verified with evidence
-- `- [DEFERRED-VERIFY]` — passed in code/intent but live probe is impossible at execution time. **Requires a follow-up task ID in the verification notes.** Cannot be marked `[x]` until the deferred probe runs.
-
-### Tunable Parameters
-
-Modes (ideate, optimize) accept tunable parameters. Full schema and presets: `references/parameter-schema.md`. Parameters stored in ISA `algorithm_config:` frontmatter.
-
----
+**ISC rules.** Split until each criterion is one binary tool probe (`references/principles/one-probe-per-criterion.md`). Format `- [ ] ISC-N: …`, numbered sequentially, anti-criteria included. At least one `Anti:` criterion always; at least one `Antecedent:` when the goal is experiential. Markers: `- [ ]` pending, `- [x]` passed with evidence, `- [DEFERRED-VERIFY]` when a live probe is impossible now — it needs a follow-up task id and is not `[x]` until that probe runs. **Tunable parameters** for ideate and optimize: `references/parameter-schema.md`, stored in `algorithm_config:` frontmatter.
 
 ### Execution
 
-**ALL WORK INSIDE THE ALGORITHM.** Every tool call, investigation, and decision happens within phases.
+**ALL WORK INSIDE THE ALGORITHM.** Every tool call, investigation and decision happens within phases.
 
-**Entry banner was already printed by CLAUDE.md.** The user has seen:
-```
-♻︎ Entering the Algorithm… ═════════════
-🗒️ TASK: [8 word description]
-```
-
-**Announce entry** (first action after loading this file): `"Entering the Algorithm"`
-
-**VSA stub** (immediately after the entry announcement):
-1. Determine ISA home: project ISA at `<project>/VSA.md` if task targets existing project; task ISA at `<soma-home>/memory/WORK/{slug}/VSA.md` for ad-hoc work
-2. **Invoke `Skill("VSA", "scaffold from prompt: <user message> at tier <tier>")`** — returns the populated ISA at canonical location with required sections per tier (NEW v6.2.0; replaces inline ISA construction)
-3. For task ISAs the skill creates `<soma-home>/memory/WORK/{slug}/`; for project ISAs the skill reads existing `<project>/VSA.md` if present, or seeds it via the Seed workflow
-4. Skill output is the path; Algorithm reads/edits it via Read/Edit tools through subsequent phases
-
-**E1 fast-path exception:** at E1, the Algorithm may inline-write the minimal Goal+Criteria ISA without invoking the skill, to preserve the <90s budget. The skill invocation is mandatory at E2+.
-
-**Phase header** (MANDATORY at each transition): Output the phase line FIRST, before any other announcement or VSA edit.
+**VSA stub** (right after the entry announcement): pick the home (project or task ISA), invoke the VSA skill's scaffold at the tier (mandatory at E2+; E1 may inline-write Goal+Criteria to keep the budget), then read and edit the returned path through the phases.
 
 ━━━ 👁️ OBSERVE ━━━ 1/7
 
@@ -271,13 +107,7 @@ Before the VSA, before mode detection — restate the principal's request in ONE
 
 This line anchors the entire Algorithm run.
 
----
-
-**NEXT:** print the OBSERVE header, then set `updated: {timestamp}` in the VSA frontmatter.
-
-**Mode detection:** Load `references/mode-detection.md` to check for ideate, optimize, research, or fast-path modes.
-
-**Reverse engineer the request:**
+**Mode detection:** `references/mode-detection.md` for ideate, optimize, research and fast-path modes. **Playbook:** pick the card for the task shape and copy its steps into your todo list.
 
 ```
 🔎 REVERSE ENGINEERING:
@@ -287,50 +117,16 @@ This line anchors the entire Algorithm run.
  🔎 [Speed/urgency signal]
 ```
 
-**Preflight gates** — fire ALL that match the task. False positives are cheap; false negatives cause mid-EXECUTE failures:
-
-| Gate | Trigger | Goal |
-|------|---------|------|
-| **A: Diagnostic** | Bug-fix, "X broken", debugging | Confirm system is observable. Reproduce failure before reading code. |
-| **B: Deploy/API** | Deploy, API, infrastructure | Confirm all credentials, CLI tools, service access exist. |
-| **C: External service** | Cloudflare, Stripe, Telegram, any external API | Load the relevant skill context. Check documented gotchas. |
-| **D: Research** | Errors, API failures, unfamiliar library behavior | Search external docs before local code archaeology. |
+**Preflight:** fire every matching gate (`references/principles/preflight-before-the-first-edit.md`); a bug fix reproduces first (`references/playbooks/bug-fix.md`).
 
 ```
 🚦 PREFLIGHT:
  🚦 [Gate]: [finding — 8 words]
 ```
 
-### 🔁 REPRODUCE-FIRST BLOCKING GATE
+**Set effort level** from the override hierarchy above: `💪🏼 EFFORT LEVEL: [tier] | [source: explicit | auto | fail-safe | context-override] | [8 word reasoning]`
 
-**If Preflight Gate A fired, a reproduction MUST be captured before ANY Read/Grep targets the suspect code path.**
-
-| Symptom | Required reproduction |
-|---------|----------------------|
-| Web/UI bug | `Skill("Interceptor")` screenshot or network trace |
-| HTTP endpoint failure | `curl -i` showing the broken response |
-| CLI tool failure | Actual stdout/stderr captured |
-| Deploy/build failure | The actual error message from the log |
-| Test failure | The failing test output with assertion |
-| Data inconsistency | `SELECT` result showing the wrong row/value |
-| Agent/hook misbehavior | Synthetic input via `bun run` showing the broken behavior |
-
-```
-🔁 REPRODUCED:
- 🔁 [artifact type]: [evidence — 12-24 words]
-```
-
-**Set effort level (v6.3.0 — classifier-driven):**
-1. Check for explicit E-level override (`/e1`-`/e5` or `E1`-`E5`, case-insensitive). If found: use that tier, set `effort_source: explicit`.
-2. **Take mode and tier from the classifier** — injected as context where the substrate classifies ahead of the executor, otherwise `<prefix> algorithm classify --prompt '<the prompt>'`. If mode is `algorithm`, use the returned tier verbatim and record **the `source` the classifier returned, unchanged**: `auto`, `explicit`, or `fail-safe`. A hook that classifies ahead of you forwards that same value, so an injected classification is not a different provenance — it is the same classifier, run earlier. Do not substitute a source of your own. (`AlgorithmEffortSource` also admits `classifier` and `context-override`; nothing in the codebase currently emits `classifier`, so writing it by hand would invent provenance rather than record it. `context-override` is the one value you assert yourself, at step 3.)
-3. **Conversation-context override:** if the classifier returned MINIMAL/NATIVE but the conversation context makes the prompt clearly ALGORITHM-shaped (e.g., a single-word approval to a multi-step plan, a follow-up that depends on prior turns the classifier didn't see), escalate to the appropriate tier and log the mismatch in `## Decisions`. Set `effort_source: context-override`.
-4. Fallback (classifier output absent — should be rare): auto-detect based on task complexity, set `effort_source: auto`.
-
-`💪🏼 EFFORT LEVEL: [tier] | [source: explicit | auto | fail-safe | context-override] | [8 word reasoning]`
-
-**Select capabilities:** Load `references/capabilities.md`.
-
-> **Select what the task genuinely needs within the tier time budget.** Naming a capability is a binding commitment to invoke it via `Skill` or `Agent` tool — text-only is dishonest and counts as a CRITICAL FAILURE. **The thinking floor for the chosen tier is HARD — non-relaxable.** The delegation floor is soft and relaxable with show-your-math justification in `## Decisions`.
+**Select capabilities** (`references/capabilities.md`). Naming one is a binding commitment to invoke it via a tool — text-only is a CRITICAL FAILURE.
 
 ```
 🏹 CAPABILITIES SELECTED:
@@ -338,40 +134,11 @@ This line anchors the entire Algorithm run.
 🏹 [12-24 words on selection rationale]
 ```
 
-**Auto-include bindings:**
-- **VSA Skill** — invoked at OBSERVE for E2+ (E1 inline-write OK), at PLAN for ephemeral feature extraction, at LEARN for canonical Decisions/Changelog/Verification append, at LEARN for Reconcile after ephemeral work.
-- **A code-producing capability of a different model family** — select it at E3/E4/E5 for any coding task, where the registry offers one. The point is family diversity on hard implementation work, not a particular vendor. "Auto-include" is doctrine, not automation: nothing selects it for you, and the phase gate asks only that *some* capability was selected, so an E3–E5 run completes perfectly happily without it. That is on you to notice.
-- **A whole-project-context capability** — at E3/E4/E5 when context breadth materially affects correctness (architecture-fitting refactors, system-wide migrations, multi-module redesigns).
-- **A cross-family auditor** — at E4/E5 in VERIFY, per Rule 2a. Same caveat: selected by you, gated by nobody.
-
-The principal naming a capability outright overrides the tier: invoke it regardless of what the floor would have selected.
-
-**Build the ISC criteria.** The ISA skill's Scaffold workflow produces an initial draft. Refine each criterion with the Splitting Test. Set `progress: 0/N`. Verify required sections per tier are populated. **Anti-criteria reminder:** before completing OBSERVE, ask yourself: have I included at least one anti-criterion? What MUST NOT happen for this work to count as done?
-
-**ISC QUALITY GATES** — all four must pass before THINK:
-
-| Gate | Rule |
-|------|------|
-| **Granularity** | Every ISC has a nameable single-tool probe. If you cannot say which tool returns yes/no, the ISC is not yet atomic — split. |
-| **Tier ISC floor (E2+, soft)** | Total ISC count meets the tier floor (E2 ≥16, E3 ≥32, E4 ≥128, E5 ≥256). |
-| **Tier completeness gate (HARD, v6.2.0)** | Required sections per tier are all populated (E1 Goal+Criteria; E2+ adds; E4 all twelve; E5 + Interview ran). Invoke `Skill("VSA", "check completeness")`. |
-| **Thinking floor (HARD)** | Thinking-capability count meets the tier hard floor (E1 0-1, E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). **Cannot be relaxed via show-your-math.** Names MUST come verbatim from the registry (`algorithm capabilities --list`). |
-| **Capability-Name Audit (HARD)** | Each name in `🏹 CAPABILITIES SELECTED` appears verbatim in `algorithm capabilities --list` for THIS machine. Phantom names do NOT count toward the floor and are a CRITICAL FAILURE. |
-| **Delegation floor (soft)** | Delegation-capability count meets the tier soft floor (E2 ≥1, E3 ≥2, E4 ≥2, E5 ≥4). Overridable with "show your math" in `## Decisions`. |
-
-Anti-criteria ≥1 and Antecedent ≥1-when-experiential are required. ID-stability rule applies to all edits.
+**Build the ISCs** from the scaffold draft and the card's criteria templates; set `progress: 0/N`. Before THINK: every ISC has a nameable probe; the tier ISC floor is met (soft); the tier's required sections are populated (`Skill("VSA", "check completeness")`); the thinking floor is met from registry names (HARD); the delegation floor is met or justified (soft); at least one anti-criterion exists.
 
 ━━━ 🧠 THINK ━━━ 2/7
 
-**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Think; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: think, updated: {timestamp}` into the VSA frontmatter.
-
-**Knowledge check (on-demand):** If the task topic has likely prior work, recall it before conjecturing.
-
-```bash
-<prefix> memory recall --query "TOPIC"
-```
-
-Prefer the verb over grepping the tree: recall is note-aware, and each call records a `memory.recall` event that feeds the retrieval-quality probe in `<prefix> memory audit`. A grep leaves no trace, so a corpus that never answers anything looks identical to one that always does.
+**Knowledge check:** if the topic has likely prior work, `<prefix> memory recall --query "TOPIC"` before conjecturing. Prefer the verb over grep: each call records a `memory.recall` event that feeds `<prefix> memory audit`; a grep leaves no trace.
 
 ```
 🎲 RISKIEST ASSUMPTIONS: [items the work depends on being true]
@@ -379,19 +146,13 @@ Prefer the verb over grepping the tree: recall is note-aware, and each call reco
 ☑️ PREREQUISITES CHECK: [blockers — incorporate preflight findings]
 ```
 
-**ISC REFINEMENT:** Re-apply Splitting Test. Add criteria for premortem failure modes. Update ISA via `Skill("VSA")` or direct Edit. ID-stability rule applies.
-
----
-
-**EUPHORIC SURPRISE PREDICTION** *(required E2+; optional at E1)*: If every ISC passes, what will the user instantly recognize as true that they couldn't have predicted? Name it in one sentence; score 1-10. **If you cannot name an insight, predict ≤6** — without something the user couldn't have written themselves, the rating ceiling is 6.
+Re-split criteria; add ones for premortem failure modes; write risks into the VSA. **EUPHORIC SURPRISE PREDICTION** *(E2+; optional at E1)*: if every ISC passes, what will the principal instantly recognize as true that they couldn't have predicted? Score 1-10. **No nameable insight → predict ≤6.**
 
 `🎯 EUPHORIC SURPRISE PREDICTION: [score]/10 — [insight at the center, 12-24 words]`
 
-**WRITE TO ISA:** Add risks under `### Risks` in `## Context` (or append to the relevant body section).
-
 ━━━ 📋 PLAN ━━━ 3/7
 
-**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Plan; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: plan, updated: {timestamp}` into the VSA frontmatter. EnterPlanMode if Advanced+.
+EnterPlanMode if Advanced+ and the substrate has one.
 
 ```
 📐 PLANNING:
@@ -400,159 +161,33 @@ Prefer the verb over grepping the tree: recall is note-aware, and each call reco
  📐 ROOT-CAUSE: [cause identified: X | TBD — will determine during investigation]
 ```
 
-### 📦 DELIVERABLE MANIFEST
-
-**Enumerate every sub-task the user explicitly asked for, as a numbered list, before proceeding.**
-
-**Tier gate:** MANDATORY at ANY effort tier if the request contains 2+ explicit sub-tasks.
+**📦 DELIVERABLE MANIFEST** — at any tier when the request holds 2+ explicit sub-tasks. Each maps to ≥1 ISC and ≥1 `## Features` entry; VERIFY checks each.
 
 ```
 📦 DELIVERABLE MANIFEST:
  📦 D1: [user sub-task — 8-16 words, quote distinctive phrasing from the request]
- 📦 DN: [user sub-task — 8-16 words]
 ```
 
-Each deliverable MUST map to ≥1 ISC. Each deliverable should map to ≥1 entry in the `## Features` section (NEW v6.2.0).
-
-**VERIFY-phase binding:** Before marking `phase: complete`, output `📦 DELIVERABLE COMPLIANCE:` checking each D1..DN against shipped work.
-
-📐 DELEGATION GATE (before spawning any agent):
-For EVERY agent: "Can I do this with Glob + Grep in under 30 seconds?"
-- YES → do it directly. NEVER delegate directed lookups.
-- NO → agent OK. Prefer `run_in_background: true` unless result gates the next step.
-
-### 🚀 PARALLELISM OPPORTUNITY SCAN
-
-Default-**ON** for: research, variant generation, multi-URL probes, multi-file edits with independent targets.
-Default-**OFF** for: sequential chains, single-file surgical edits.
-
-```
-🚀 PARALLELISM OPPORTUNITIES:
- 🚀 [Agent 1: what it does]
- 🚀 [Launch pattern]
-```
-
-📐 EPHEMERAL FEATURE GATE (NEW v6.2.0): If a feature in `## Features` is to be worked in an isolated context (a Ralph Loop, a Maestro worker, parallel coding-agent instances), invoke `Skill("VSA", "extract feature <name> as ephemeral file")` to produce a derived view at `<soma-home>/memory/WORK/{slug}/_ephemeral/<feature>.md`. The ephemeral file is read-extended-then-reconciled, never hand-edited as policy. Reconcile back via `Skill("VSA", "reconcile <ephemeral> → <master>")` at LEARN.
-
-📐 ASYNC PRIMITIVE GATE: One-shot command → `Bash(run_in_background)`. Event stream → `Monitor`. AI work → `Agent(run_in_background)`.
-
-📐 WATCHDOG GATE: On first background agent spawn in a session, start the agent watchdog if not running.
-
-📐 ISOLATION GATE (parallel write-agents): Overlapping file targets → `isolation: "worktree"`.
-
-📐 COORDINATION GATE: Agent Teams default; Custom Agents only on "custom agents"; Managed Agents for unattended/overnight.
-
-**WRITE TO ISA:** For Advanced+, populate `## Features` with the work breakdown (`name | description | satisfies | depends_on | parallelizable`).
+**Delegation and parallelism:**
+- Before any agent: "Can I do this with Glob + Grep in under 30 seconds?" Yes → do it directly; never delegate a directed lookup.
+- Parallel by default for research, variant generation, multi-URL probes, multi-file edits with independent targets; sequential for chains and single-file surgical edits. Print `🚀 PARALLELISM OPPORTUNITIES:` with each agent and the launch pattern.
+- One-shot command → background shell; event stream → a monitor; AI work → a background agent, unless its result gates the next step.
+- Parallel write-agents with overlapping targets → isolated worktrees. On the first background agent of a session, start the watchdog where one exists.
+- Agent teams by default; custom agents only when asked; managed agents for unattended work.
+- A feature worked in an isolated context gets an ephemeral file from the VSA skill, reconciled at LEARN. For Advanced+, populate `## Features` (`name | description | satisfies | depends_on | parallelizable`).
+- No silent stalls: no hung agents, no blocking processes.
 
 ━━━ 🔨 BUILD ━━━ 4/7
 
-**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Build; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: build, updated: {timestamp}` into the VSA frontmatter.
-
-**INVOKE each selected capability via tool call.** Every skill: `Skill` tool. Every agent: `Agent` tool. Text-only is NOT invocation.
-
-#### 🩻 Root-Cause-at-Ingestion Checkpoint
-
-Before committing to ANY fix that modifies output-side behavior, answer in ISA `## Decisions` (use `Skill("VSA", "append decision ...")` for canonical entry):
-
-1. **Where does this bad state enter the system?** Name the ingestion point.
-2. **If I fix it at the ingestion point instead of here, do 3 similar bugs disappear?** If yes → move the fix upstream.
-3. **Am I tracing database-up or display-down?** For UI bugs, the Reproduce-First rule forces display-down.
+**Invoke each selected capability via a tool call.** Every skill through the skill tool, every agent through the agent tool. Text-only is NOT invocation. A fix to output-side behavior names its ingestion point first (`references/principles/fix-at-the-ingestion-point.md`).
 
 ━━━ ⚡ EXECUTE ━━━ 5/7
 
-**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Execute; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: execute, updated: {timestamp}` into the VSA frontmatter.
-
-Execute the work. As each criterion passes, IMMEDIATELY edit ISA: `- [ ]` → `- [x]`, update `progress:`. Append Verification entries via `Skill("VSA", "append verification ...")` for canonical format (NEW v6.2.0).
-
-### 🧪 INLINE VERIFICATION MANDATE
-
-**No ISC criterion may transition `[ ]` → `[x]` without verification evidence captured in the same tool call block that claims it, or the immediately-following block.**
-
-| ISC type | Minimum verification tool call |
-|----------|-------------------------------|
-| File write | `Read` the file and confirm expected content |
-| Code edit | `Grep` for the new symbol/line, or `Read` the specific range |
-| Command execution | `Bash` with the actual command and checked output |
-| HTTP/API change | `curl -i` with status + body shape check |
-| Deploy | Live URL `curl` or `Interceptor` screenshot showing deployed version |
-| UI change | `Skill("Interceptor")` screenshot at the target route |
-| Schema/DB change | `SELECT` confirming the migration landed |
-| Config/env change | Read-back of the file confirming the new value is on disk |
-
-Evidence in ISA `## Verification`:
-```
-ISC-N: [probe type] — [one-line evidence, quoted command output or file content]
-```
-
-Use `Skill("VSA", "append verification to <isa-path>: ISC-N <probe-type> <evidence>")` to ensure canonical format.
-
-**Forbidden language**: "should work", "should be", "expected to", "the change is in place" (without Read/Grep), "done" (without tool evidence), "no errors" (without the actual log).
-
-### 🪢 CHECKPOINTS (per-step durability)
-
-Record every `[ ]`→`[x]` transition against the run as it happens — `<prefix> algorithm verify --id <run-id> --criterion-id ISC-N --status passed --evidence "<probe output>"` — rather than batching them at the end. The run is the durable record; a criterion verified only in the conversation is lost at the next context boundary.
-
-Where a substrate offers a per-transition commit hook, wire it there; nothing in the Algorithm depends on one existing.
+Execute the work. As each criterion passes, flip it in the VSA, update `progress:`, and append its Verification entry (`ISC-N: [probe type] — [quoted output]`). The evidence rules are `references/principles/probe-the-user-facing-surface.md` and `references/principles/verify-before-claiming.md`; the harness refuses a rote or specification-only pass when it is recorded. **Checkpoints:** record every transition as it happens — `<prefix> algorithm verify --id <run-id> --criterion-id ISC-N --status passed --evidence "<probe output>"` — not batched at the end. A criterion verified only in the conversation is lost at the next context boundary.
 
 ━━━ ✅ VERIFY ━━━ 6/7
 
-**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Verify; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: verify, updated: {timestamp}` into the VSA frontmatter.
-
-### 🛡️ VERIFICATION DOCTRINE
-
-Four rules govern every VERIFY pass.
-
-#### Rule 1 — Live-Probe for User-Facing Artifacts
-
-**If the ISC criterion covers a user-facing artifact, mark it passed ONLY with tool-verified probe evidence.**
-
-| Artifact type | Required probe |
-|---------------|----------------|
-| Web page / UI | Browser screenshot via `Skill("Interceptor")` |
-| HTTP endpoint | `curl` response with expected status + body shape |
-| CLI tool output | Actual stdout captured |
-| Database write | Subsequent `SELECT` confirming the write |
-| File write | `Read` confirming content matches intent |
-| Hook / skill | Direct `bun run` invocation with synthetic input |
-| Deploy | Verify deployed version string, not just successful push |
-
-**"Should work," "looks fine," "tests pass" are NOT evidence for user-facing criteria.**
-
-**Probe-impossible escape clause:** If a live probe is genuinely impossible at execution time, mark the criterion `[DEFERRED-VERIFY]` with a **required follow-up task ID**.
-
-#### Rule 2 — Commitment-Boundary Second Opinions
-
-On **multi-step VSAs** (Extended+ effort, multi-file edits, architecture changes), seek a second opinion at three moments:
-
-1. **Before committing to an approach** — after PLAN, before BUILD begins on the main work
-2. **When stuck or diverging** — if the same problem resists two distinct attempts
-3. **Once after producing a durable deliverable** — before setting `phase: complete` in LEARN
-
-The moments are the doctrine; the mechanism is the substrate's. Select the **`Advisor`** capability — a contract row declaring "a second opinion from something that did not produce the work" — and bind it in `capabilities.local.md` to whatever your substrate offers. Ask a specific question ("this decision point" / "any gaps before declaring done?"), not "review this".
-
-Where nothing can satisfy the contract, say so in `## Decisions` rather than skipping the moment silently — and do not select the capability, because a selected capability that is never invoked fails the run at COMPLETE. A commitment made without review is a fact worth recording.
-
-#### Rule 2a — Cross-Family Audit (E4/E5, where available)
-
-At **Deep (E4)** and **Comprehensive (E5)**, before setting `phase: complete`, get an audit from a model **outside the family that did the work** — compare the artifacts against the criteria and surface the blind spots a same-family reviewer shares with the author.
-
-Select the **`CrossFamilyAudit`** capability. It is a contract row, not a command, because this is the one rule no substrate satisfies portably: it needs a second vendor reachable from where you run. Bind it locally where you can; where you cannot, record the gap in `## Decisions` and proceed without selecting it. Do not fabricate the audit, and do not let a same-family reviewer stand in — that is the blind spot, not the check. The binding names the family: an `Agent(…, model="…")` row in `capabilities.local.md` (see "Model roles" in `references/capabilities.md`). The run's invocation record keeps the slug the binding asked for; it is not proof that model answered, so the invocation evidence must still say what ran.
-
-| Audit verdict | Action |
-|--------------|--------|
-| `pass`, no `critical` findings | Proceed to LEARN |
-| `concerns` | Surface findings to the principal; ask approve / iterate / defer |
-| `fail`, or any `critical` finding | Block `phase: complete`, enter Rule 3 |
-
-#### Rule 3 — Conflict-Surfacing
-
-**If empirical results contradict a second opinion or an audit, do NOT silently switch.** Re-ask with the conflict explicitly surfaced — the disagreement is the signal, and resolving it quietly discards it.
-
-**Hard cap:** **Maximum TWO re-asks on the same conflict.** After the second, escalate to the principal — a third round is the loop, not the answer.
-
----
-
-**Verify each criterion** — choose the best method at runtime, report evidence:
+Second opinions and the E4/E5 cross-family audit: `references/principles/second-opinion-at-commitment-boundaries.md`. An audit or result that contradicts another: `references/principles/surface-conflicts.md`.
 
 ```
 ✅ VERIFICATION:
@@ -560,71 +195,58 @@ Select the **`CrossFamilyAudit`** capability. It is a contract row, not a comman
  Coverage: N/N passed (N tool-verified, N inspection)
 ```
 
-- Mark each `[x]` if not already. Use `Skill("VSA", "append verification ...")` for canonical entries.
-- **Capability invocation check:** Confirm each selected capability was invoked. Flag any phantom.
-- **Thinking floor check (HARD):** Confirm the tier thinking floor was met. Under-floor is a doctrine violation, not a relaxable choice.
-- **Delegation floor check (soft):** Under-floor must have a "show your math" justification in `## Decisions`.
-- **Tier completeness gate:** Confirm required sections per tier are all populated. Invoke `Skill("VSA", "check completeness")` if uncertain.
-- **Doctrine compliance check:** Did Rule 1/2/2a/3 fire as appropriate?
-- **Deliverable Compliance check:** Output `📦 DELIVERABLE COMPLIANCE:` checking each D1..DN.
+- Every selected capability was invoked; flag any phantom.
+- Thinking floor met (HARD); delegation floor met or justified (soft); tier sections complete.
+- The principles the card names fired where they applied.
+- `📦 DELIVERABLE COMPLIANCE:` checks each D1..DN against shipped work.
 
 ### 🔄 RE-READ CHECK
 
-**Final gate before LEARN. After all other VERIFY checks pass, re-read the user's last message verbatim and enumerate every explicit ask against what actually shipped.**
-
-**Tier gate:** MANDATORY at every tier.
+**Final gate before LEARN, at every tier.** Re-read the principal's last message verbatim and check every explicit ask against what shipped.
 
 ```
 🔄 RE-READ:
  🔄 [ask 1 — quote distinctive phrasing]: [✓ addressed | ✗ missed | SKIP reason]
 ```
 
-**Blocking rule:** ANY `✗` blocks `phase: complete`.
+**ANY `✗` blocks `phase: complete`.**
 
 ━━━ 📚 LEARN ━━━ 7/7
-
-**FIRST ACTION:** `<prefix> algorithm advance --id <run-id>` — the deterministic gate into Learn; it refuses the transition when the previous phase left obligations unmet. Then mirror `phase: learn, updated: {timestamp}` into the VSA frontmatter. Then set `phase: complete`.
 
 ```
 🧠 LEARNING:
  🧠 [What should I have done differently?]
  🧠 [What would a smarter algorithm have done?]
  🧠 [Did preflight gates fire? Were they useful or wasted effort?]
- 🧠 [Did the Verification Doctrine fire? Did it catch anything?]
+ 🧠 [Did the verification principles fire? Did they catch anything?]
 ```
 
-**Changelog entry (NEW v6.2.0):** If structural understanding evolved during this run — a conjecture refuted, a learning crystallized, an ISC added/changed/dropped as a result — append a Changelog entry via `Skill("VSA", "append changelog ...")` in the canonical conjecture/refutation/learning format. The Append workflow refuses to write a partial C/R/L; all four pieces (`conjectured`, `refuted_by`, `learned`, `criterion_now`) are required.
-
-**Reconcile (NEW v6.2.0):** If this run worked against an ephemeral feature file, invoke `Skill("VSA", "reconcile <ephemeral> → <master>")` before setting `phase: complete`. Deterministic merge keyed on stable ISC IDs.
+If structural understanding evolved (a conjecture refuted, an ISC added or dropped because of it), append a Changelog entry through the VSA skill. If the run used an ephemeral feature file, reconcile it. Then set `phase: complete`.
 
 ### 🗂️ Learning Router
 
-**Every "should I remember this?" question goes through this single router.**
-
-**Step 1 — Inventory.** For each candidate learning produced this session, classify it:
+Every "should I remember this?" goes through one router. Inventory each candidate:
 
 ```
 🗂️ LEARNING INVENTORY:
- 🗂️ [learning 1 — 8-12 word description] | TYPE: <type> | KEEP: yes/no — <reason>
+ 🗂️ [learning — 8-12 words] | TYPE: <type> | KEEP: yes/no — <reason>
 ```
 
-**Default disposition: SKIP.**
-
-**Step 2 — Route + Apply.** For each KEEP=yes learning:
+**Default disposition: SKIP.** Route each KEEP:
 
 | TYPE | Target surface | Gate |
 |------|----------------|------|
-| `knowledge` | `<soma-home>/memory/KNOWLEDGE/{People\|Companies\|Ideas\|Research}/<slug>.md` | **Inline write.** |
-| `rule` | `CLAUDE.md` Operational Rules section | **Inline append.** |
-| `gotcha` | The relevant skill's `SKILL.md` Gotchas section | **Inline append.** |
-| `state` | `USER/PROJECTS/PROJECTS.md` "Open Sessions to Resume" | **Inline append.** |
-| `business` | `USER/BUSINESS/<topic>.md` | **Inline write/append.** |
-| `identity` | `USER/PRINCIPAL_IDENTITY.md` / `USER/DA_IDENTITY.md` | **Surface to user.** |
-| `doctrine` | the Algorithm doctrine in `references/algorithm.md` | **Surface to user.** |
-| `hook` | New/modified `hooks/*.hook.ts` + `settings.json` registration | **Surface to user.** |
-| `permission` | `settings.json` `permissions.deny` / `permissions.allow` | **Surface to user.** |
+| `knowledge` | `<soma-home>/memory/KNOWLEDGE/{People\|Companies\|Ideas\|Research}/<slug>.md` | inline write |
+| `rule` | `CLAUDE.md` Operational Rules | inline append |
+| `gotcha` | the relevant skill's `SKILL.md` Gotchas | inline append |
+| `state` | `USER/PROJECTS/PROJECTS.md` "Open Sessions to Resume" | inline append |
+| `business` | `USER/BUSINESS/<topic>.md` | inline write/append |
+| `identity` | `USER/PRINCIPAL_IDENTITY.md` / `USER/DA_IDENTITY.md` | surface to principal |
+| `doctrine` | this file | surface to principal |
+| `hook` | `hooks/*.hook.ts` + `settings.json` registration | surface to principal |
+| `permission` | `settings.json` allow/deny | surface to principal |
 
-**Documentation sync** — if this session modified Soma system files, propagate via `Skill("<your-release-skill>", "documentation update — I changed these system files: [comma-separated]")`.
+If the session modified Soma system files, propagate through your release skill's documentation update.
 
 ```
 📄 DOC SYNC: [N system files changed → invoked DocumentationUpdate | SKIP — no system files modified]
@@ -643,9 +265,7 @@ Select the **`CrossFamilyAudit`** capability. It is a contract row, not a comman
 
 **After this block: nothing.**
 
----
-
-**RECORD THE META-REFLECTION** (Extended+ effort; skipped at E1) — how the Algorithm itself should have run, not what the work produced:
+**RECORD THE META-REFLECTION** (Extended+; skipped at E1) — how the Algorithm itself should have run:
 
 ```bash
 <prefix> algorithm reflect --id <run-id> \
@@ -654,40 +274,7 @@ Select the **`CrossFamilyAudit`** capability. It is a contract row, not a comman
   --highest-value-move "Which single change would most have improved this run?"
 ```
 
-At least one signal is required; `--satisfaction <0-10>` and
-`--within-budget` / `--over-budget` are optional.
-
-Do not hand-write the gate flags — there is no flag for them. `algorithm
-reflect` computes `gatesFired` from run state, because a self-reported "the gate
-fired" is exactly the hollow claim the computed/proposed split exists to
-prevent. The three signals above are yours; the flags are the harness's.
-
-Read the flags as *related to* the gates, not identical with them.
-`currentStateFloor` is the THINK probe requirement. `learnGateClean` is the LEARN
-gate **plus** a criteria-exist condition the gate itself does not impose.
-`completeness` — every criterion closed — is not a gate at all; COMPLETE checks
-capability satisfaction and a learning entry. So a flag can read as a miss where
-no transition would actually have been refused. That is deliberate for a
-reflection signal, and worth knowing before treating one as proof.
-
-`<prefix> algorithm reflections --id <run-id>` lists a run's reflections;
-`--digest` ranks the cross-run improvement backlog by gate-miss count.
-
----
-
-## Rules
-
-- **No freeform output** — every response uses the SUMMARY output format above.
-- **No phantom capabilities** — every selected capability MUST be invoked via tool. Text-only is dishonest.
-- **Thinking floor (HARD)** — meet the tier thinking floor (E2 ≥2, E3 ≥4, E4 ≥6, E5 ≥8). Cannot be relaxed via show-your-math. Names MUST come verbatim from the registry resolved on THIS machine — read it with `algorithm capabilities --list`, never from a list memorised here. Inventing generic thinking labels is a phantom capability and a CRITICAL FAILURE.
-- **Delegation floor (soft)** — meet the tier delegation floor or document "show your math" in `## Decisions` naming what the un-selected delegation would have done.
-- **Tier completeness gate (HARD, NEW v6.2.0)** — required ISA sections per tier are all populated before `phase: complete`. Invoke `Skill("VSA", "check completeness")` to confirm.
-- **ISA is YOUR responsibility** — no hook writes to it. You edit it via the ISA skill workflows or direct Edit/Write. ID-stability rule applies (never re-number on edit).
-- **ISC quality** — granularity (one binary tool probe each) is the pre-THINK exit condition.
-- **Verification Doctrine** — Rules 1/2/2a/3 are mandatory where they apply. Rule 2a (cross-family audit) is E4/E5 only, and only where a second family is reachable.
-- **No silent stalls** — no hung agents, no blocking processes.
-- **The ISA IS the test harness** — for complex projects, ISCs cover application logic, perf, security, RBAC, build, deploy. Don't invent acceptance.yaml/acceptance.ts; the ISA already covers this.
-- **Append routing for canonical format (NEW v6.2.0)** — Decisions, Changelog, Verification entries go through `Skill("VSA", "append ...")` to preserve canonical shape. The Changelog conjecture/refutation/learning format is non-negotiable; partial entries are refused by Append.
+At least one signal is required; `--satisfaction <0-10>` and `--within-budget` / `--over-budget` are optional. The gate flags are computed from run state (`computeGatesFired`), never hand-written: a self-reported "the gate fired" is the hollow claim the split exists to prevent. The flags are *related to* the gates, not identical with them, so a flag can read as a miss where no transition was refused. `<prefix> algorithm reflections --id <run-id>` lists a run's reflections; `--digest` ranks the cross-run backlog by gate-miss count.
 
 ## Context Recovery
 
@@ -702,8 +289,6 @@ If after compaction you don't know your state:
 1. For project work: read `<project>/VSA.md`
 2. For task work: read ISA from `<soma-home>/memory/WORK/`
 3. `<prefix> algorithm list` is the run registry; `<prefix> algorithm show --id <run-id>` returns a run's phase, criteria state, capabilities, and plan steps
-
----
 
 ## FINAL OUTPUT FORMAT — NON-NEGOTIABLE
 

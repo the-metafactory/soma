@@ -72,14 +72,17 @@ import file65 from "./skills/the-algorithm/references/principles/fix-at-the-inge
 import file66 from "./skills/the-algorithm/references/principles/fix-the-class-not-the-instance.md" with { type: "text" };
 import file67 from "./skills/the-algorithm/references/principles/ground-claims-in-this-session.md" with { type: "text" };
 import file68 from "./skills/the-algorithm/references/principles/one-probe-per-criterion.md" with { type: "text" };
-import file69 from "./skills/the-algorithm/references/principles/probe-what-the-claim-asserts.md" with { type: "text" };
-import file70 from "./skills/the-algorithm/references/principles/reproduce-first.md" with { type: "text" };
-import file71 from "./skills/the-algorithm/references/principles/separate-before-serializing-shared-state.md" with { type: "text" };
-import file72 from "./skills/the-algorithm/references/principles/ship-what-the-evidence-justifies.md" with { type: "text" };
-import file73 from "./skills/the-algorithm/references/principles/surface-conflicts.md" with { type: "text" };
-import file74 from "./skills/the-algorithm/references/principles/verify-before-claiming.md" with { type: "text" };
-import file75 from "./skills/the-algorithm/references/target-types.md" with { type: "text" };
-import file76 from "./skills/the-algorithm/references/third-party/pstack-NOTICE.md" with { type: "text" };
+import file69 from "./skills/the-algorithm/references/principles/preflight-before-the-first-edit.md" with { type: "text" };
+import file70 from "./skills/the-algorithm/references/principles/probe-the-user-facing-surface.md" with { type: "text" };
+import file71 from "./skills/the-algorithm/references/principles/probe-what-the-claim-asserts.md" with { type: "text" };
+import file72 from "./skills/the-algorithm/references/principles/reproduce-first.md" with { type: "text" };
+import file73 from "./skills/the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md" with { type: "text" };
+import file74 from "./skills/the-algorithm/references/principles/separate-before-serializing-shared-state.md" with { type: "text" };
+import file75 from "./skills/the-algorithm/references/principles/ship-what-the-evidence-justifies.md" with { type: "text" };
+import file76 from "./skills/the-algorithm/references/principles/surface-conflicts.md" with { type: "text" };
+import file77 from "./skills/the-algorithm/references/principles/verify-before-claiming.md" with { type: "text" };
+import file78 from "./skills/the-algorithm/references/target-types.md" with { type: "text" };
+import file79 from "./skills/the-algorithm/references/third-party/pstack-NOTICE.md" with { type: "text" };
 
 /** Every bundled skill file, keyed by its posix path relative to `src/skills`. */
 export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
@@ -152,12 +155,15 @@ export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
   "the-algorithm/references/principles/fix-the-class-not-the-instance.md": file66,
   "the-algorithm/references/principles/ground-claims-in-this-session.md": file67,
   "the-algorithm/references/principles/one-probe-per-criterion.md": file68,
-  "the-algorithm/references/principles/probe-what-the-claim-asserts.md": file69,
-  "the-algorithm/references/principles/reproduce-first.md": file70,
-  "the-algorithm/references/principles/separate-before-serializing-shared-state.md": file71,
-  "the-algorithm/references/principles/ship-what-the-evidence-justifies.md": file72,
-  "the-algorithm/references/principles/surface-conflicts.md": file73,
-  "the-algorithm/references/principles/verify-before-claiming.md": file74,
-  "the-algorithm/references/target-types.md": file75,
-  "the-algorithm/references/third-party/pstack-NOTICE.md": file76,
+  "the-algorithm/references/principles/preflight-before-the-first-edit.md": file69,
+  "the-algorithm/references/principles/probe-the-user-facing-surface.md": file70,
+  "the-algorithm/references/principles/probe-what-the-claim-asserts.md": file71,
+  "the-algorithm/references/principles/reproduce-first.md": file72,
+  "the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md": file73,
+  "the-algorithm/references/principles/separate-before-serializing-shared-state.md": file74,
+  "the-algorithm/references/principles/ship-what-the-evidence-justifies.md": file75,
+  "the-algorithm/references/principles/surface-conflicts.md": file76,
+  "the-algorithm/references/principles/verify-before-claiming.md": file77,
+  "the-algorithm/references/target-types.md": file78,
+  "the-algorithm/references/third-party/pstack-NOTICE.md": file79,
 };

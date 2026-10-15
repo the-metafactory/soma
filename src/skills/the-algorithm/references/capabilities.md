@@ -201,7 +201,7 @@ that is said. An `Agent(…)` cell in `capabilities.local.md` may name the model
 role beside the sub-agent type:
 
 ```
-| Advisor | PLAN, VERIFY | Commitment-boundary second opinion (Rule 2) | `Agent(subagent_type="general-purpose", model="sonnet")` | E2+ |
+| Advisor | PLAN, VERIFY | Commitment-boundary second opinion | `Agent(subagent_type="general-purpose", model="sonnet")` | E2+ |
 | JudgeOutput | VERIFY | Score text against a rubric; must not be the producer | `Agent(subagent_type="general-purpose", model="sonnet")` | E3+ |
 ```
 
@@ -219,7 +219,7 @@ means the author's own family. Say the family you mean.
 
 Bind `CrossFamilyAudit` this way only on a substrate whose sub-agent tool can
 reach a second vendor. Where it cannot, the shipped contract row stays unbound
-and the run records the gap, as Rule 2a says; a `model="…"` slug the substrate
+and the run records the gap, as `references/principles/second-opinion-at-commitment-boundaries.md` says; a `model="…"` slug the substrate
 ignores would make the record look like an audit that never happened.
 
 ## Capability table
