@@ -108,36 +108,54 @@ describe("bundled skill references", () => {
   // whole point of the layer is text cheap enough to load per run. A leaf the
   // index does not name is unreachable (the agent routes through the index), so
   // coverage is checked from the leaf side, not just pointer resolution.
-  const LAYERS = [
-    { dir: "playbooks", count: [8, 10], maxLines: 39 },
-    { dir: "principles", count: [15, 20], maxLines: 24 },
-  ] as const;
+  const markdownLeaves = async (dir: string): Promise<string[]> =>
+    (await readdir(join(ALGORITHM_REFERENCES, dir))).filter((f) => f.endsWith(".md")).sort();
+  const hasLine = (body: string[], prefix: string): boolean => body.some((line) => line.startsWith(prefix));
 
-  for (const { dir, count, maxLines } of LAYERS) {
+  const LAYERS: { dir: string; count: [number, number]; indexMaxLines: number; maxLines: number; shape: (body: string[]) => string[] }[] = [
+    {
+      dir: "playbooks",
+      count: [8, 10],
+      indexMaxLines: 40,
+      maxLines: 39,
+      shape: (body) => {
+        const steps = body.filter((line) => /^\d+\. /.test(line)).length;
+        return [
+          ...(steps < 6 || steps > 10 ? [`${steps} numbered steps`] : []),
+          ...(hasLine(body, "## Criteria") ? [] : ["no Criteria section"]),
+          ...(body.at(-1)?.startsWith("**Reply:**") === true ? [] : ["does not end with a Reply line"]),
+        ];
+      },
+    },
+    {
+      dir: "principles",
+      count: [15, 20],
+      indexMaxLines: 40,
+      maxLines: 24,
+      shape: (body) => [
+        ...(hasLine(body, "**When it applies:**") ? [] : ['no "When it applies"']),
+        ...(hasLine(body, "**Rule:**") ? [] : ["no Rule"]),
+      ],
+    },
+  ];
+
+  for (const { dir, count, indexMaxLines, maxLines, shape } of LAYERS) {
     test(`the-algorithm's ${dir} index names every ${dir} leaf`, async () => {
       const index = await readFile(join(ALGORITHM_REFERENCES, `${dir}.md`), "utf8");
-      const leaves = (await readdir(join(ALGORITHM_REFERENCES, dir))).filter((f) => f.endsWith(".md")).sort();
+      const leaves = await markdownLeaves(dir);
 
       expect(leaves.length).toBeGreaterThanOrEqual(count[0]);
       expect(leaves.length).toBeLessThanOrEqual(count[1]);
       expect(leaves.filter((leaf) => !index.includes(`\`references/${dir}/${leaf}\``))).toEqual([]);
-      expect((await lines(join(ALGORITHM_REFERENCES, `${dir}.md`))).length).toBeLessThanOrEqual(40);
+      expect((await lines(join(ALGORITHM_REFERENCES, `${dir}.md`))).length).toBeLessThanOrEqual(indexMaxLines);
     });
 
     test(`every the-algorithm ${dir} leaf keeps its shape`, async () => {
       const misshapen: string[] = [];
-      for (const leaf of await readdir(join(ALGORITHM_REFERENCES, dir))) {
+      for (const leaf of await markdownLeaves(dir)) {
         const body = await lines(join(ALGORITHM_REFERENCES, dir, leaf));
         if (body.length > maxLines) misshapen.push(`${leaf}: ${body.length} lines`);
-        if (dir === "playbooks") {
-          const steps = body.filter((line) => /^\d+\. /.test(line)).length;
-          if (steps < 6 || steps > 10) misshapen.push(`${leaf}: ${steps} numbered steps`);
-          if (!body.some((line) => line.startsWith("## Criteria"))) misshapen.push(`${leaf}: no Criteria section`);
-          if (!body.at(-1)?.startsWith("**Reply:**")) misshapen.push(`${leaf}: does not end with a Reply line`);
-        } else {
-          if (!body.some((line) => line.startsWith("**When it applies:**"))) misshapen.push(`${leaf}: no "When it applies"`);
-          if (!body.some((line) => line.startsWith("**Rule:**"))) misshapen.push(`${leaf}: no Rule`);
-        }
+        misshapen.push(...shape(body).map((problem) => `${leaf}: ${problem}`));
       }
       expect(misshapen).toEqual([]);
     });
@@ -159,8 +177,15 @@ describe("bundled skill references", () => {
       // A principal-added sibling install does not ship: it must survive untouched.
       await writeFile(join(references, "capabilities.local.md"), "PRINCIPAL ROWS\n", "utf8");
       await writeFile(join(references, "principles.local.md"), "PRINCIPAL PRINCIPLES\n", "utf8");
+      // A local principle file lives under principles-local/, which the bundle
+      // never ships (soma#922 Sage review): an override written over a bundled
+      // leaf would be lost on the next install.
+      await mkdir(join(references, "principles-local"), { recursive: true });
+      await writeFile(join(references, "principles-local", "my-rule.md"), "MY RULE\n", "utf8");
 
       await installBundledSkillsIntoHome({ homeDir });
+
+      expect(await readFile(join(references, "principles-local", "my-rule.md"), "utf8")).toBe("MY RULE\n");
 
       expect(await readFile(join(references, "capabilities.local.md"), "utf8")).toBe("PRINCIPAL ROWS\n");
       expect(await readFile(join(references, "principles.local.md"), "utf8")).toBe("PRINCIPAL PRINCIPLES\n");

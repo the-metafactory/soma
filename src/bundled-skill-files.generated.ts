@@ -79,6 +79,7 @@ import file72 from "./skills/the-algorithm/references/principles/ship-what-the-e
 import file73 from "./skills/the-algorithm/references/principles/surface-conflicts.md" with { type: "text" };
 import file74 from "./skills/the-algorithm/references/principles/verify-before-claiming.md" with { type: "text" };
 import file75 from "./skills/the-algorithm/references/target-types.md" with { type: "text" };
+import file76 from "./skills/the-algorithm/references/third-party/pstack-NOTICE.md" with { type: "text" };
 
 /** Every bundled skill file, keyed by its posix path relative to `src/skills`. */
 export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
@@ -158,4 +159,5 @@ export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
   "the-algorithm/references/principles/surface-conflicts.md": file73,
   "the-algorithm/references/principles/verify-before-claiming.md": file74,
   "the-algorithm/references/target-types.md": file75,
+  "the-algorithm/references/third-party/pstack-NOTICE.md": file76,
 };

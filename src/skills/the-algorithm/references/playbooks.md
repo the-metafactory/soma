@@ -24,3 +24,5 @@ Using a card:
 - Its **Criteria** are templates: rewrite each for the task and pass them to `algorithm new --criterion "C1:…"`.
 - Its **Principles** are the ones that most often decide that shape; the full vocabulary is `references/principles.md`.
 - Its **Reply** line lists what the final message must contain.
+
+Adapted in part from pstack (MIT, © 2026 Lauren Tan); notice in `references/third-party/pstack-NOTICE.md`.

@@ -1,8 +1,8 @@
 # Principles
 
-A closed vocabulary of engineering principles. How a reply names one is set in `references/algorithm.md`, section Playbooks and Principles.
+A closed vocabulary of engineering heuristics for Algorithm runs. How a reply names one is set in `references/algorithm.md`, section Playbooks and Principles. Where a principle and the principal's behavioral policy (`policy/behavior.md` in the soma home) disagree, the policy wins.
 
-Read `references/principles.local.md` first when it exists: its rows add principles or override a row here by name. It is yours; `soma install` never creates or overwrites it. Each local row points at a file you keep next to it.
+Read `references/principles.local.md` first when it exists: its rows add principles or override a row here by name. It is yours; `soma install` never creates or overwrites it. A local row points at a file under `references/principles-local/`, a directory install never ships, so an override survives every install; never edit a file under `references/principles/` in place.
 
 | Principle | When it applies |
 | --- | --- |
@@ -26,4 +26,6 @@ Read `references/principles.local.md` first when it exists: its rows add princip
 | `references/principles/explain-the-number.md` | trusting or reporting a measured number |
 | `references/principles/separate-before-serializing-shared-state.md` | concurrent actors may write the same target |
 
-Local row format, same columns: `| references/principles/<name>.md | <when it applies> |`.
+Local row format, same columns: `| references/principles-local/<name>.md | <when it applies> |`.
+
+Adapted in part from pstack (MIT, © 2026 Lauren Tan); notice in `references/third-party/pstack-NOTICE.md`.
