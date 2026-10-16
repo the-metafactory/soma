@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { installSpecFor } from "../../install-spec-registry";
-import { registerProjectionRepairProvider } from "../../lifecycle-registry";
+import { registerProjectionRepairProvider } from "../../home/index";
 import { SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH, renderClaudeCodeStatusLineScript } from "./hooks";
 import type { ProjectedArtifact } from "../../projection-self-repair";
 

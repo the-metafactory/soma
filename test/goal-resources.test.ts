@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadGoalResources, parseGoalResources, resolveGoalResource } from "../src/goal-resources";
+import { loadGoalResources, parseGoalResources, resolveGoalResource } from "../src/home/index";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 
 const roots: string[] = [];

@@ -44,6 +44,33 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("another component may import home's index, but no home internal", async () => {
+    expect(components.home.files).toEqual(["src/home/**"]);
+    expect(components.home.publicEntries).toEqual(["src/home/index.ts"]);
+    await withRepoFixture("soma-boundaries-home-", async (root) => {
+      const importer = join(root, "src/cli/home-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/home")))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts");
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../home/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/home-entry-fixture.ts",
+          to: `src/home/${name}`,
+          fromComponent: "cli",
+          toComponent: "home",
+          rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, 'import { loadSomaHome } from "../home/index";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "home" && v.toComponent !== "legacy")).toEqual([]);
+    });
+  }, { timeout: 30_000 });
+
   test("policy public entries exclude internals and keep the hook closure unbarrelled", async () => {
     expect(components.policy.files).toEqual(["src/policy/**"]);
     expect(components.policy.publicEntries).toEqual([

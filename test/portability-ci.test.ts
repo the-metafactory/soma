@@ -22,7 +22,8 @@ import {
   setActiveVsa,
   type Projection,
 } from "../src/index";
-import type { ClaudeSkillsSmokeSubstrate, ProjectionInput, SomaSkill } from "../src/types";
+import type { ClaudeSkillsSmokeSubstrate, SomaSkill } from "../src/types";
+import type { ProjectionInput } from "../src/home/index";
 import { portableProjectionInput } from "./fixtures";
 
 const PORTABLE_NEEDLES = [

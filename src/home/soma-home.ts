@@ -1,12 +1,11 @@
 import { open, readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { loadGoalRecords } from "./goal-records";
-import { createPaths } from "./core/index";
-import { parseBehaviorPolicy } from "./policy/behavior-policy";
+import { loadGoalRecords, type GoalRecordWarning } from "../goal-records";
+import { createPaths } from "../core/index";
+import { parseBehaviorPolicy, type BehaviorPolicy } from "../policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
-import type { GoalRecordWarning } from "./goal-records";
-import type { BehaviorPolicy } from "./policy/types";
-import type { ProjectionInput, SomaSkill } from "./types";
+import type { SomaSkill } from "../types";
+import type { ProjectionInput } from "./types";
 
 export interface LoadSomaProfileOptions {
   /**

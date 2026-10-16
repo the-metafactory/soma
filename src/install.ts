@@ -15,7 +15,7 @@ import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lif
 import { SOMA_MEMORY_CATEGORIES } from "./memory/index";
 import { defaultSomaRepoPath } from "./core/index";
 import { bootstrapSomaHome } from "./home-bootstrap";
-import { loadSomaHome } from "./soma-home";
+import { loadSomaHome } from "./home/index";
 import { createPaths } from "./core/index";
 import { pruneLegacyVsaSkill } from "./legacy-skill-prune";
 import { installBundledSkillsIntoHome } from "./bundled-skills";
@@ -37,13 +37,15 @@ import { allInstallSpecs, defaultSubstrateHome, installSpecFor } from "./install
 import { projectSkills, scanRegistrySkills } from "./skill-projection";
 import type {
   InstalledSkill,
-  ProjectionInput,
   SomaInstallOptions,
   SomaInstallPlan,
   SomaInstallResult,
   SubstrateId,
   UninstallableSkillReport,
 } from "./types";
+import type {
+  ProjectionInput,
+} from "./home/index";
 
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 

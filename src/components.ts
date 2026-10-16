@@ -115,7 +115,8 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "events", "tools", "legacy"],
   },
   home: {
-    files: ["src/soma-home", "src/soma-config", "src/goal-resources", "src/snapshots", "src/work-registry", "src/communication-contract", "src/lifecycle-registry"],
+    files: ["src/home/**"],
+    publicEntries: ["src/home/index.ts"],
     mayImport: ["core", "events", "memory", "purpose", "policy", "legacy"],
   },
   algorithm: {

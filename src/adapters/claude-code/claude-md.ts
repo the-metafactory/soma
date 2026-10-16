@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isFsUtilsEnoent as isEnoent } from "../../core/index";
-import { loadSomaHome } from "../../soma-home";
+import { loadSomaHome } from "../../home/index";
 import type { InstallPostProjectionContext } from "../../install-spec";
-import type { ProjectionInput } from "../../types";
+import type { ProjectionInput } from "../../home/index";
 import {
   extractOverlay,
   hasProvenanceHeader,

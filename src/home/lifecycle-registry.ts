@@ -1,4 +1,4 @@
-import type { SubstrateId } from "./types";
+import type { SubstrateId } from "../types";
 
 /** A projected artifact the self-repair pass can heal (exec bit) and drift-check. */
 export interface ProjectedArtifact {

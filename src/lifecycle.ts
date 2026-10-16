@@ -9,9 +9,9 @@ import { buildLearningReadback } from "./learning-readback";
 import { appendSomaMemoryEvent } from "./events/index";
 import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
 import { repairProjectedArtifacts } from "./projection-self-repair";
-import { getProjectionRepairProvider, getSessionEndTranscriptHandler } from "./lifecycle-registry";
-import { loadSomaProfile } from "./soma-home";
-import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
+import { getProjectionRepairProvider, getSessionEndTranscriptHandler } from "./home/index";
+import { loadSomaProfile } from "./home/index";
+import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./home/index";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa/index";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {

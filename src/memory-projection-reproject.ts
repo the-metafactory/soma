@@ -5,8 +5,9 @@ import { buildSubstrateHomeProjection } from "./home-projection";
 import { isRegisteredInstallSubstrate } from "./install-spec-registry";
 import { loadMemoryIndexForProjection, reindexMemoryIfStale } from "./memory/index";
 import { appendSomaMemoryEvent } from "./events/index";
-import { loadSomaHome } from "./soma-home";
-import type { ProjectionInput, SubstrateId } from "./types";
+import { loadSomaHome } from "./home/index";
+import type { SubstrateId } from "./types";
+import type { ProjectionInput } from "./home/index";
 
 /**
  * Note-pointer count for the `memory.projection` event: the rendered index lists

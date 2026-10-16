@@ -9,7 +9,7 @@ import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { goalKinds } from "../src/goal-kinds/registry";
 import { loadGoalRecords } from "../src/goal-records";
 import { proposeGoal } from "../src/goal-propose";
-import type { GoalResource } from "../src/goal-resources";
+import type { GoalResource } from "../src/home/index";
 import type { InferenceBackend } from "../src/tools/inference";
 
 const roots: string[] = [];

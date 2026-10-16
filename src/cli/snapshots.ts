@@ -2,12 +2,12 @@ import {
   createSomaSnapshot,
   listSomaSnapshots,
   rollbackSomaSnapshot,
-} from "../snapshots";
+} from "../home/index";
 import type {
   SomaSnapshotListOptions,
   SomaSnapshotOptions,
   SomaSnapshotRollbackOptions,
-} from "../types";
+} from "../home/index";
 import { readOption } from "./parse-utils";
 
 export const SNAPSHOT_USAGE =

@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, serializeMemoryNote, type SomaHomeProjection, type SomaMemoryNote } from "../src/index";
 import { runSomaLifecycleSessionEnd, resolveLifecycleHomeDir, SCRATCH_SUBSTRATE_HOME_DIRNAME } from "../src/lifecycle";
-import { registerSessionEndTranscriptHandler } from "../src/lifecycle-registry";
+import { registerSessionEndTranscriptHandler } from "../src/home/index";
 import { memoryNotePath, type WritableType } from "../src/memory/index";
 import { resolveInstalledLifecycleHomeDir } from "../src/adapters/shared/lifecycle-home-binding";
 import { buildCodexHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection } from "../src/home-projection";

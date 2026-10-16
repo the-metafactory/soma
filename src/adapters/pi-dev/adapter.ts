@@ -1,7 +1,8 @@
 import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
+import type { SomaAdapter, Projection } from "../../types";
+import type { ProjectionInput } from "../../home/index";
 import { renderAlgorithmClassifierSource } from "../shared/algorithm-classifier-source";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";

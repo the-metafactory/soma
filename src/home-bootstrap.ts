@@ -4,7 +4,7 @@ import { allInstallSpecs } from "./install-spec-registry";
 import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory/index";
 import { createPaths } from "./core/index";
-import { loadSomaHome } from "./soma-home";
+import { loadSomaHome } from "./home/index";
 import type { SomaHomeBootstrapOptions, SomaHomeBootstrapResult } from "./types";
 
 // #88 / DD-2: canonical PAI v5.0.0 memory taxonomy (17 substrate-neutral +
