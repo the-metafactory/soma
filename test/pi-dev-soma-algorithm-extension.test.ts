@@ -35,7 +35,7 @@ describe("renderSomaAlgorithmExtension", () => {
     expect(source).toMatch(/from "file:\/\/.*phase-parser\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*widget-renderers\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*vsa-checklist\.ts"/u);
-    expect(source).toMatch(/from "file:\/\/.*\/src\/policy-audit\.ts"/u);
+    expect(source).toMatch(/from "file:\/\/.*\/src\/policy\/policy-audit\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/extensions\/policy-targets\.ts"/u);
     expect(source).toMatch(/from "file:\/\/.*\/src\/adapters\/pi-dev\/algorithm-run-snapshot\.ts"/u);
   });

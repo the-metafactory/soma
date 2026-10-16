@@ -17,7 +17,7 @@ export function hasSomaPolicyPrivateMarker(content: string | undefined, marker: 
 
 export function renderPolicyMarkerMjs(): string {
   return [
-    "// Generated from src/policy-marker.ts. Do not edit by hand.",
+    "// Generated from src/policy/policy-marker.ts. Do not edit by hand.",
     `const PATH_CONTINUATION_PATTERN = /${SOMA_POLICY_PATH_CONTINUATION_PATTERN.source}/;`,
     "",
     "/**",

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { isEnvFileName, redactSecrets } from "../redact";
+import { isEnvFileName, redactSecrets } from "../policy/index";
 
 export interface ParsedRedactArgs {
   command: "redact";

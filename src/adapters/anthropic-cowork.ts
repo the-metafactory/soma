@@ -27,9 +27,9 @@ export const ANTHROPIC_COWORK_COMMUNICATION_PATH = "soma/communication.md";
 export const ANTHROPIC_COWORK_MEMORY_SNAPSHOT_PATH = "soma/memory-snapshot.md";
 export const ANTHROPIC_COWORK_ACTIVE_VSA_PATH = activeVsaProjectionPath("anthropic-cowork");
 export const ANTHROPIC_COWORK_CAPTURE_README_PATH = "capture/README.md";
-// Owned by the leaf `adapters/private-roots` module (which must not import an
+// Owned by the leaf `policy/private-roots` module (which must not import an
 // adapter) and re-exported here so existing importers are unchanged.
-export { ANTHROPIC_COWORK_DEFAULT_HOME } from "./private-roots";
+export { ANTHROPIC_COWORK_DEFAULT_HOME } from "../policy/private-roots";
 export const ANTHROPIC_COWORK_SKILLS_ROOT_PATH = "skills";
 
 const COWORK_README_HEADING = "# Soma Anthropic Cowork Projection";

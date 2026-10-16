@@ -5,9 +5,10 @@ import { basename, dirname, join, resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
 import { activeVsaBundleFile } from "../../vsa/index";
 import { resolveBunExecutable } from "../../core/index";
-import { defaultInboundContentSecurityConfig } from "../../inbound-security";
-import { somaPolicyPrivateMarkers } from "../../policy";
-import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
+import { defaultInboundContentSecurityConfig } from "../../policy/inbound-security";
+import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
+import { somaPolicyPrivateMarkers } from "../../policy/policy";
+import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../policy/projection-private-roots";
 import {
   GROK_LIFECYCLE_CONFIG_PATH,
   GROK_AGENT_MARKER,
@@ -31,7 +32,6 @@ import {
 } from "../shared";
 import { readGrokHookAsset } from "./hooks/assets";
 import { GROK_PRE_TOOL_USE_VERB } from "./hooks/grok-hook-verbs.mjs";
-import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 
 export function isGrokSkillProjectionPath(path: string): boolean {
   return path.startsWith("skills/");

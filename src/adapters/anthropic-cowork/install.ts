@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { isEnoent } from "../../core/index";
 import { skillsLoaderUnder, type SubstrateInstallSpec, type UninstallContext } from "../../install-spec";
 import { projectVsaSkillBundleFiles } from "../../vsa-skill-installer";
-import { anthropicCoworkProjectionPrivateRoots } from "../private-roots";
+import { anthropicCoworkProjectionPrivateRoots } from "../../policy/private-roots";
 import {
   ANTHROPIC_COWORK_ACTIVE_VSA_PATH,
   ANTHROPIC_COWORK_ACTIVE_VSA_MARKER,

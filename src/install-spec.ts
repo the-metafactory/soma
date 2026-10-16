@@ -1,15 +1,14 @@
 import { resolve } from "node:path";
 import type {
-  InstallSubstrate,
   Projection,
   ProjectionInput,
-  ProjectionSubstrate,
   SomaHomeProjection,
   SomaHomeProjectionOptions,
   WrittenProjection,
 } from "./types";
 
-export type { InstallSubstrate } from "./types";
+import type { InstallSubstrate, PrivateRootOptions } from "./policy/types";
+export type { InstallSubstrate, PrivateRootOptions } from "./policy/types";
 
 export interface LifecycleProjectionSpec {
   startupContextPath: string;
@@ -129,12 +128,6 @@ export interface ImplementedUninstallSpec {
 }
 
 export type UninstallSpec = ReservedUninstallSpec | ImplementedUninstallSpec;
-
-export interface PrivateRootOptions {
-  homeDir?: string;
-  substrate?: ProjectionSubstrate;
-  substrateHome?: string;
-}
 
 export interface PrivateRootSpec {
   projection?(options?: PrivateRootOptions): string[];

@@ -282,12 +282,12 @@ function isTextProjectionPath(path: string): boolean {
  *   by `soma install` (documented in the generated pai-imports.md's
  *   "Read For Detail" section).
  * - `<somaHome>/imports/**`: the same migration staging root, declared
- *   defensively by policy markers (src/policy.ts `somaPolicyPrivateMarkers`)
+ *   defensively by policy markers (src/policy/policy.ts `somaPolicyPrivateMarkers`)
  *   ahead of any migration ever running.
  * - `<somaHome>/memory/RAW/untrusted` and
  *   `<somaHome>/memory/SECURITY/inbound-content`: inbound-content security
  *   scan targets, created on first scan, not at bootstrap
- *   (src/inbound-security.ts `defaultInboundContentSecurityConfig`).
+ *   (src/policy/inbound-security.ts `defaultInboundContentSecurityConfig`).
  * - `<somaHome>/memory/LEARNING/ALGORITHM`: completed Algorithm-run
  *   learnings, created when the first Algorithm run completes — a fresh
  *   install has run none (documented in lifecycle.md's "Source Files" list

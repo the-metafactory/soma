@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, checkSomaPolicy, evaluateSomaPolicy, somaMemoryEventsPath } from "../src/index";
-import { somaPolicyPrivateMarkers } from "../src/policy";
-import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs, renderPolicyMarkerMjs } from "../src/policy-marker";
+import { somaPolicyPrivateMarkers } from "../src/policy/policy";
+import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs, renderPolicyMarkerMjs } from "../src/policy/policy-marker";
 
 // policy-marker.mjs wird von hooks/assets.ts als Text eingebettet, damit die
 // kompilierte Binary projizieren kann (soma#531). Derselbe Pfad zusaetzlich als

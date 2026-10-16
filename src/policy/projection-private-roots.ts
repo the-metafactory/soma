@@ -6,15 +6,15 @@ import {
   dshProjectionPrivateRoots,
   grokProjectionPrivateRoots,
   piDevProjectionPrivateRoots,
-} from "./adapters/private-roots";
-import type { InstallSubstrate, PrivateRootOptions } from "./install-spec";
+} from "./private-roots";
+import type { InstallSubstrate, PrivateRootOptions } from "./types";
 
 type PrivateRootBuilder = (options: PrivateRootOptions) => string[];
 
 /**
  * Deliberately NOT routed through `install-spec-registry`.
  *
- * This module sits on every `checkSomaPolicy` call (src/policy-audit.ts) —
+ * This module sits on every `checkSomaPolicy` call (src/policy/policy-audit.ts) —
  * including the checks inside the GENERATED pi.dev extensions, which import this
  * repo's `src/` directly through pi's jiti loader. Walking the install-spec
  * registry pulled every adapter's *installer* into that graph, and the

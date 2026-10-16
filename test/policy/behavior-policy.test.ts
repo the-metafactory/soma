@@ -5,8 +5,8 @@ import {
   EMPTY_BEHAVIOR_POLICY,
   behaviorPolicyAdvisory,
   parseBehaviorPolicy,
-} from "../src/policy/behavior-policy";
-import type { BehaviorPolicySection } from "../src/policy/behavior-policy";
+} from "../../src/policy/behavior-policy";
+import type { BehaviorPolicySection } from "../../src/policy/behavior-policy";
 
 /** Entry texts of one kind, in source order. `entries` is the only stored shape. */
 function textsOfKind(section: BehaviorPolicySection | undefined, kind: "rule" | "prose"): string[] {
@@ -225,7 +225,7 @@ test("the three behaviours hold on real authored markdown, not just the sample",
   // And the same three behaviours hold on the one authored-shape file the repo
   // ships — asserted against its actual content, not just its section count
   // (sage #636 r7).
-  const shipped = readFileSync(join(import.meta.dir, "..", "policy", "self-healing.md"), "utf8");
+  const shipped = readFileSync(join(import.meta.dir, "..", "..", "policy", "self-healing.md"), "utf8");
   const shippedSections = parseBehaviorPolicy(shipped).sections;
   const shippedLines = behaviorPolicyAdvisory({ sections: shippedSections });
 

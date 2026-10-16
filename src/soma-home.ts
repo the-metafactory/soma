@@ -5,7 +5,7 @@ import { createPaths } from "./core/index";
 import { parseBehaviorPolicy } from "./policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
 import type { GoalRecordWarning } from "./goal-records";
-import type { BehaviorPolicy } from "./policy/behavior-policy";
+import type { BehaviorPolicy } from "./policy/types";
 import type { ProjectionInput, SomaSkill } from "./types";
 
 export interface LoadSomaProfileOptions {
