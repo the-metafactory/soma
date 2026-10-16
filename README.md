@@ -320,6 +320,52 @@ never followed and entities never resolved. stdout prints the value, the count
 and the ledger result; with `SOMA_PRINCIPAL` unset nothing is published and the
 exit code is 0 (1 on a failed fetch).
 
+### Proposing a goal
+
+```bash
+soma goal propose --wording "<private wording>" [--hint "<revision guidance>"] \
+  [--param url=https://example.org/feed.xml] [--json]
+```
+
+The session assistant shows the proposal and asks the principal to accept it.
+On a yes, the next step is `soma goal add --accept <hash>` (acceptance and
+activation are separate commands, delivered by the follow-on nodes). An edit
+means re-proposing with `--hint`, producing a new hash. Activation requires a
+separate yes naming the goal id. Proposing creates neither a goal record nor an
+activation and reserves no goal id; `params.goal: G0` is an acceptance placeholder.
+
+The proposer uses standard-level `soma inference` over mission bullets,
+existing goal ids, statuses, kinds and wording for overlap, the kind catalog,
+and resource names and types. Wording and hints go to the inference provider;
+resource values never do. Replies are validated locally against kind Zod
+schemas, with one retry carrying value-free validation errors. A second invalid
+reply becomes `no_fit`. Schedules and sensor state rules come from kinds;
+`review_by` defaults to today plus 13 weeks. Zero mechanisms is allowed, with a
+warning that nothing moves the goal and the sweep's pursuit check will flag it.
+
+Private params use `<resource:name>`. Values come from `profile/resources.yaml`
+or `--param key=value`: use a private parameter name, `kind.parameter`, resource
+name or resource type (in that precedence order). Values may be JSON for
+structured inputs, such as a channel array. Overrides stay local and are stored
+only in the successful proposal for later staging. Missing required resources
+return `needs_input: [<resource type>]` and create no file. A single matching
+resource type can fill an omitted private param; ambiguous resources need a
+named reference or override.
+
+A valid proposal is written only to
+`<soma-home>/profile/goals/proposals/<sha256>.yaml`, mode `0600`. The hash covers
+the full YAML bytes. Local output shows the design, state rule, schedules, drop
+line, review date, overlaps and any mechanism gap, followed by the hash;
+`--json` returns the same result as JSON. Proposal files older than 24 hours are
+pruned on every invocation. Calls create no log or publication; the Claude
+backend disables session persistence, hooks and tools for this private call.
+
+On `no_fit` or a mechanism gap, show the generic needed-kind description to the
+principal. Only on a yes, file that generic description with
+`soma graph add 781 --kind grilling --title "<generic kind>" --autonomy approve --checkpoint <checkpoint-id> --body "<generic description>"`.
+Keep wording, hints, drop text and resource values out of the tracker. Proposing
+does not file that node itself.
+
 `soma goal kinds --json` lists the goal-kind catalog for inference; without
 `--json` it prints a compact ID, role and description list. The registry lives
 in `src/goal-kinds/registry.ts`. Each kind lives in
