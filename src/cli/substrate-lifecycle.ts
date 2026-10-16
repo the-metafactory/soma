@@ -42,15 +42,8 @@ import { invocationCwd } from "../core/index";
 import { isGuardedRuntimeSubstrate } from "../runtime-artifact";
 import { loadSomaHome } from "../soma-home";
 import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";
-import {
-  SHIPPED_SUBSTRATES,
-  type InstallSubstrate,
-  type ProjectionInput,
-  type ShippedSubstrate,
-  type SomaInstallOptions,
-  type SomaInstallPlan,
-  type SomaInstallResult,
-} from "../types";
+import { SHIPPED_SUBSTRATES, type ProjectionInput, type ShippedSubstrate, type SomaInstallOptions, type SomaInstallPlan, type SomaInstallResult } from "../types";
+import { type InstallSubstrate } from "../policy/types";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 

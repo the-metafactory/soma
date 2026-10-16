@@ -60,7 +60,7 @@ export function renderSomaAlgorithmExtension(options: RenderSomaAlgorithmExtensi
   const parserModule = JSON.stringify(`${runtimeDir}phase-parser.ts`);
   const widgetsModule = JSON.stringify(`${runtimeDir}widget-renderers.ts`);
   const checklistModule = JSON.stringify(`${runtimeDir}vsa-checklist.ts`);
-  const policyModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}policy-audit.ts` : new URL("../../../policy-audit.ts", sourceDir).href);
+  const policyModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}policy-audit.ts` : new URL("../../../policy/policy-audit.ts", sourceDir).href);
   const policyTargetsModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}policy-targets.ts` : new URL("policy-targets.ts", sourceDir).href);
   const runSnapshotModule = JSON.stringify(options.runtimeModuleDir ? `${runtimeDir}algorithm-run-snapshot.ts` : new URL("../algorithm-run-snapshot.ts", sourceDir).href);
   const installedSomaHome = JSON.stringify(options.somaHome ?? `${process.env.HOME ?? ""}/.soma`);

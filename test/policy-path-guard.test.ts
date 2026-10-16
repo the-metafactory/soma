@@ -5,11 +5,11 @@ import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { evaluatePathGuard, parseBashDestructivePaths } from "../src/policy-path-guard";
-import { evaluateSomaPolicy } from "../src/policy";
+import { evaluatePathGuard, parseBashDestructivePaths } from "../src/policy/policy-path-guard";
+import { evaluateSomaPolicy } from "../src/policy/policy";
 import { renderPathGuardExtension } from "../src/adapters/pi-dev/path-guard";
 import { bootstrapSomaHome } from "../src/home-bootstrap";
-import { checkSomaPolicy, checkSomaPolicyBatch } from "../src/policy-audit";
+import { checkSomaPolicy, checkSomaPolicyBatch } from "../src/policy/policy-audit";
 
 const execFileAsync = promisify(execFile);
 

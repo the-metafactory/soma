@@ -6,14 +6,14 @@
   "vsa": 9000,
   "tools": 3500,
   "policy": 11000,
-  "home": 8500,
+  "home": 13000,
   "algorithm": 14000,
   "router": 8000,
   "graph": 13000,
-  "execution": 7500,
-  "substrates": 44000,
-  "migrate": 18000,
-  "flows": 58500,
+  "execution": 8000,
+  "substrates": 46500,
+  "migrate": 22500,
+  "flows": 61500,
   "cli": 77500,
-  "legacy": 60000
+  "legacy": 60500
 }

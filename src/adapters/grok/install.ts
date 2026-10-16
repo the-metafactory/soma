@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../core/index";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { removeProjectedSkillLinks } from "../../projected-skill-links";
-import { GROK_DEFAULT_HOME, grokProjectionPrivateRoots } from "../private-roots";
+import { GROK_DEFAULT_HOME, grokProjectionPrivateRoots } from "../../policy/index";
 import {
   GROK_LIFECYCLE_CONFIG_PATH,
   GROK_AGENT_MARKER,

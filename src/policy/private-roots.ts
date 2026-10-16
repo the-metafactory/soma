@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { InstallSubstrate, PrivateRootOptions } from "../install-spec";
+import type { InstallSubstrate, PrivateRootOptions } from "./types";
 
 /**
  * Per-substrate default homes and private-root path builders, deliberately kept
@@ -10,7 +10,7 @@ import type { InstallSubstrate, PrivateRootOptions } from "../install-spec";
  *
  *   1. the install specs (`adapters/<substrate>/install.ts`), which drag in the
  *      whole projection surface — hook assets, config writers, skill projection;
- *   2. `src/policy-audit.ts` via `src/projection-private-roots.ts`, which every
+ *   2. `src/policy/policy-audit.ts` via `src/policy/projection-private-roots.ts`, which every
  *      Soma policy check goes through — including the checks inside the
  *      GENERATED pi.dev extensions, which `import` this repo's `src/` directly
  *      (see `adapters/pi-dev/adapter.ts`).

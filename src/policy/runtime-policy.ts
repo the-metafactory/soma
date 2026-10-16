@@ -1,24 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { appendSomaMemoryEvent } from "./events/index";
-import { createPaths } from "./core/index";
+import { appendSomaMemoryEvent } from "../events/index";
+import { createPaths } from "../core/index";
 import { hasSomaPolicyPrivateMarker, somaPolicyPrivateMarkers } from "./policy";
-import { inference } from "./tools/inference";
-import type {
-  RuntimePolicyCommandInspectionConfig,
-  RuntimePolicyConfigChange,
-  RuntimePolicyModelInspectorConfig,
-  RuntimePolicyModelRule,
-  RuntimePolicyPermissionConfig,
-  RuntimePolicyPermissionRequest,
-  RuntimePolicyDecision,
-  RuntimePolicyFinding,
-  RuntimePolicyInspectAudit,
-  RuntimePolicyInspectOptions,
-  RuntimePolicyInspectResult,
-  RuntimePolicySurface,
-} from "./types";
+import { inference } from "../tools/inference/index";
+import type { RuntimePolicyCommandInspectionConfig, RuntimePolicyConfigChange, RuntimePolicyModelInspectorConfig, RuntimePolicyModelRule, RuntimePolicyPermissionConfig, RuntimePolicyPermissionRequest, RuntimePolicyDecision, RuntimePolicyFinding, RuntimePolicyInspectAudit, RuntimePolicyInspectOptions, RuntimePolicyInspectResult, RuntimePolicySurface } from "./types";
 
 const PROMPT_INSPECTOR_ID = "soma-deterministic-prompt-v0";
 const COMMAND_INSPECTOR_ID = "soma-deterministic-command-v0";

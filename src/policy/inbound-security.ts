@@ -1,18 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
-import { createPaths } from "./core/index";
-import { appendSomaMemoryEvent } from "./events/index";
-import type {
-  InboundContentDecision,
-  InboundContentScanOptions,
-  InboundContentScanOutput,
-  InboundContentScanResult,
-  InboundContentScanner,
-  InboundContentSecurityConfig,
-  InboundContentPromotionResult,
-  SubstrateId,
-} from "./types";
+import { createPaths } from "../core/index";
+import { appendSomaMemoryEvent } from "../events/index";
+import type { SubstrateId } from "../types";
+import type { InboundContentDecision, InboundContentScanOptions, InboundContentScanOutput, InboundContentScanResult, InboundContentScanner, InboundContentSecurityConfig, InboundContentPromotionResult } from "./types";
 
 export function inboundContentHash(content: string): string {
   return createHash("sha256").update(content).digest("hex");

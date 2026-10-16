@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
-import { isInsidePath } from "./core/index";
+import { isInsidePath } from "../core/index";
 import type { SomaProtectedPath } from "./types";
 
 // ── Default Protected Paths ──

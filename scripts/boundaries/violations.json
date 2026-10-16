@@ -1,5 +1,3 @@
 [
-  "src/adapters/private-roots.ts -> src/install-spec.ts",
-  "src/experimental/anthropic-cowork.ts -> src/install.ts",
-  "src/projection-private-roots.ts -> src/install-spec.ts"
+  "src/experimental/anthropic-cowork.ts -> src/install.ts"
 ]

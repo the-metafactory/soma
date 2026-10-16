@@ -1,20 +1,11 @@
 // Hot path (node #794): every import here names its defining module, never the
 // ../index barrel — `soma policy inspect|guard` runs on each hook event, and the
 // barrel drags in ~200 modules Bun cannot tree-shake.
-import { checkSomaPolicy, checkSomaPolicyBatch } from "../policy-audit";
-import { promoteInboundContent, scanInboundContent } from "../inbound-security";
-import { inspectRuntimePolicy, RUNTIME_POLICY_SURFACES } from "../runtime-policy";
-import { evaluateToolCallPolicyGuard, type ToolCallPolicyGuardOptions } from "../tool-policy-guard";
-import type {
-  InboundContentScanOptions,
-  RuntimePolicyConfigChange,
-  RuntimePolicyInspectOptions,
-  RuntimePolicyPermissionRequest,
-  RuntimePolicySurface,
-  SomaPolicyBatchTarget,
-  SomaPolicyCheckOptions,
-  SomaPolicyCheckResult,
-} from "../types";
+import { checkSomaPolicy, checkSomaPolicyBatch } from "../policy/policy-audit";
+import { promoteInboundContent, scanInboundContent } from "../policy/inbound-security";
+import { inspectRuntimePolicy, RUNTIME_POLICY_SURFACES } from "../policy/runtime-policy";
+import { evaluateToolCallPolicyGuard, type ToolCallPolicyGuardOptions } from "../policy/tool-policy-guard";
+import type { InboundContentScanOptions, RuntimePolicyConfigChange, RuntimePolicyInspectOptions, RuntimePolicyPermissionRequest, RuntimePolicySurface, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../policy/types";
 import { loadProbeRegistry, type ProbeRegistry } from "../work-graph-probe-registry";
 import { probeRegistryKey, resolveGraphRepo } from "../work-graph-bridge";
 import { readOption } from "./parse-utils";

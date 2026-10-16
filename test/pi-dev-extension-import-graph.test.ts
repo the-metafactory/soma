@@ -23,7 +23,7 @@ import { portableProjectionInput } from "./fixtures";
  * `checkSomaPolicy` call reached `install-spec-registry`, which eagerly imports
  * every adapter's installer.
  *
- * The fix was `src/adapters/private-roots.ts` + `src/projection-private-roots.ts`;
+ * The fix was `src/policy/private-roots.ts` + `src/policy/projection-private-roots.ts`;
  * this test is what stops the graph from re-acquiring the syntax by accident.
  */
 
@@ -146,7 +146,7 @@ test("the generated pi.dev extensions reach at least one real Soma module", () =
   // Vacuity guard: a walk that resolves nothing would pass the real assertion
   // below for the wrong reason.
   expect(visited.size).toBeGreaterThan(10);
-  expect([...visited].map((path) => relative(REPO_ROOT, path))).toContain("src/policy-audit.ts");
+  expect([...visited].map((path) => relative(REPO_ROOT, path))).toContain("src/policy/policy-audit.ts");
 });
 
 test("no module reachable from a generated pi.dev extension uses a bun-only import attribute", () => {

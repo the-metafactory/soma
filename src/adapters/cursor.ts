@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
 import { activeVsaBundleFile } from "../vsa/index";
 import { buildPortableSkillFiles, communicationContractFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
-import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
+import { behaviorPolicyAdvisory } from "../policy/index";
 
 export const CURSOR_RULES_PATH = ".cursorrules";
 export const CURSOR_RULES_BLOCK_BEGIN = "<!-- SOMA_CURSOR_BEGIN -->";

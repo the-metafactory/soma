@@ -252,7 +252,7 @@ export type { BridgedNodeReport } from "./algorithm";
 // makes — it exports nothing here — and the one this file makes for
 // `VerificationGateError`: off the barrel, free to change.
 export type { CommunicationContract } from "./communication-contract";
-export type { BehaviorPolicy } from "./policy/behavior-policy";
+export type { BehaviorPolicy } from "./policy/index";
 // The planSteps bridge's READ half (§2.7), beside the write half on purpose: a
 // consumer that can reach `syncBridgedPlanStep` but not the reader must
 // re-implement repo resolution, becoming the second reader the bridge forbids.
@@ -585,8 +585,8 @@ export {
   type SyncAlgorithmRunFromVsaResult,
 } from "./algorithm-vsa-sync";
 export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./result-capture";
-export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy-audit";
-export { evaluateSomaPolicy } from "./policy";
+export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy/policy-audit";
+export { evaluateSomaPolicy } from "./policy/index";
 export {
   createDeterministicInboundContentScanner,
   defaultInboundContentSecurityConfig,
@@ -594,18 +594,18 @@ export {
   isInboundUntrustedPath,
   promoteInboundContent,
   scanInboundContent,
-} from "./inbound-security";
+} from "./policy/inbound-security";
 export {
   inspectRuntimePolicy,
   runtimePolicyTraceRoot,
   RUNTIME_POLICY_SURFACES,
-} from "./runtime-policy";
+} from "./policy/runtime-policy";
 export {
   evaluateToolCallPolicyGuard,
   type ToolCallPolicyGuardOptions,
   type ToolCallPolicyGuardResult,
   type ToolCallPolicyGuardDecision,
-} from "./tool-policy-guard";
+} from "./policy/tool-policy-guard";
 export { bootstrapSomaHome } from "./home-bootstrap";
 export { loadSomaHome, loadSomaProfile } from "./soma-home";
 // Algorithm ↔ VSA bridge (#39) — advisory, non-blocking.

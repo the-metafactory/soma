@@ -21,7 +21,7 @@ import {
 import { activeVsaBundleFile } from "../../vsa/index";
 import { SOMA_VERSION } from "../../core/index";
 import { regexClassifierVersion } from "../../judge";
-import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
+import { behaviorPolicyAdvisory } from "../../policy/index";
 
 export function isPiDevSkillProjectionPath(path: string): boolean {
   return path.startsWith("agent/skills/");

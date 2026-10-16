@@ -44,6 +44,49 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("policy public entries exclude internals and keep the hook closure unbarrelled", async () => {
+    expect(components.policy.files).toEqual(["src/policy/**"]);
+    expect(components.policy.publicEntries).toEqual([
+      "src/policy/index.ts",
+      "src/policy/types.ts",
+      "src/policy/policy-audit.ts",
+      "src/policy/inbound-security.ts",
+      "src/policy/runtime-policy.ts",
+      "src/policy/tool-policy-guard.ts",
+    ]);
+    await withRepoFixture("soma-boundaries-policy-", async (root) => {
+      const importer = join(root, "src/cli/policy-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/policy")))
+        .filter((name) => name.endsWith(".ts") && !components.policy.publicEntries!.includes(`src/policy/${name}`));
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../policy/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/policy-entry-fixture.ts",
+          to: `src/policy/${name}`,
+          rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, components.policy.publicEntries!
+        .map((entry) => `import "../policy/${entry.split("/").pop()!.slice(0, -3)}";\n`).join(""));
+      const report = checkBoundaries({ root, updateBaseline: true });
+      if (!report.ok) throw new Error(formatReport(report));
+      expect(report.violations.filter((v) => v.fromComponent === "policy" && v.toComponent !== "legacy")).toEqual([]);
+      const reachable = new Set<string>();
+      const pending = ["src/cli/policy.ts"];
+      while (pending.length) {
+        const file = pending.pop()!;
+        if (reachable.has(file)) continue;
+        reachable.add(file);
+        for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
+      }
+      expect(reachable.has("src/index.ts")).toBe(false);
+      expect(reachable.has("src/policy/index.ts")).toBe(false);
+    });
+  }, { timeout: 30_000 });
+
   test("another component may import tools' five public entries, but no tools internal", async () => {
     expect(components.tools.publicEntries).toEqual([
       "src/tools/index.ts",

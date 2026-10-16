@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
   shouldCheckSomaPolicyTarget,
   somaPolicyActionForToolAction,
-} from "../src/policy-targets";
+} from "../src/policy/policy-targets";
 import { extractCodexPolicyTargets } from "../src/adapters/codex/policy-targets";
 import { extractCodexInboundContentTargets } from "../src/adapters/codex/policy-targets";
 import { extractToolCallPolicyTargets } from "../src/adapters/pi-dev/extensions/policy-targets";

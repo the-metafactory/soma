@@ -249,6 +249,16 @@
       "count": 6
     }
   },
+  "src/memory-projection-reproject.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/memory-promotion.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
   "src/memory/memory-audit.ts": {
     "soma/no-discarded-error": {
       "count": 2
@@ -274,16 +284,6 @@
       "count": 1
     }
   },
-  "src/memory-projection-reproject.ts": {
-    "soma/no-discarded-error": {
-      "count": 2
-    }
-  },
-  "src/memory-promotion.ts": {
-    "soma/no-discarded-error": {
-      "count": 2
-    }
-  },
   "src/memory/memory-write.ts": {
     "soma/no-discarded-error": {
       "count": 5
@@ -294,17 +294,22 @@
       "count": 3
     }
   },
-  "src/policy-path-guard.ts": {
+  "src/policy/policy-path-guard.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/policy-targets.ts": {
+  "src/policy/policy-targets.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/policy.ts": {
+  "src/policy/policy.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/policy/runtime-policy.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
@@ -354,11 +359,6 @@
       "count": 10
     }
   },
-  "src/runtime-policy.ts": {
-    "soma/no-discarded-error": {
-      "count": 1
-    }
-  },
   "src/skill-projection.ts": {
     "soma/no-discarded-error": {
       "count": 9
@@ -389,14 +389,14 @@
       "count": 6
     }
   },
-  "src/vsa/vsa-reconcile.ts": {
-    "soma/no-discarded-error": {
-      "count": 2
-    }
-  },
   "src/vsa-skill-installer.ts": {
     "soma/no-discarded-error": {
       "count": 3
+    }
+  },
+  "src/vsa/vsa-reconcile.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
     }
   },
   "src/vsa/vsa.ts": {

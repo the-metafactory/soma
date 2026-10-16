@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { configureCodexInstall } from "./config";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
-import { CODEX_DEFAULT_HOME, codexMemoryPrivateRoots, codexProjectionPrivateRoots } from "../private-roots";
+import { CODEX_DEFAULT_HOME, codexMemoryPrivateRoots, codexProjectionPrivateRoots } from "../../policy/index";
 import { pathExists } from "../../core/index";
 import { isCodexSkillProjectionPath, projectCodexHome } from "./adapter";
 
