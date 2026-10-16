@@ -1,7 +1,6 @@
 import type { GoalRecord, SomaSkill, VerificationStateArtifact } from "../types";
 import type { BehaviorPolicy } from "../policy/types";
 import type { CommunicationContract } from "./communication-contract";
-import type { WorkingMethod } from "./working-method";
 
 export interface AssistantIdentity {
   name: string;
@@ -139,4 +138,9 @@ export interface ProjectionInput {
    * the principal did not write is worse than projecting none.
    */
   behavior?: BehaviorPolicy;
+}
+
+/** The rendered working-method rules file; read by `src/home/working-method.ts`. */
+export interface WorkingMethod {
+  readonly content: string;
 }

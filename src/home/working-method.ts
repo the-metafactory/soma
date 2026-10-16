@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { WorkingMethod } from "./types";
 
 /**
  * The working method: the Algorithm's principles and playbooks indexes,
@@ -16,9 +17,6 @@ import { join } from "node:path";
  * to the files a substrate can actually read. The relative `references/...`
  * pointers are rewritten to absolute paths under that directory.
  */
-export interface WorkingMethod {
-  readonly content: string;
-}
 
 export const WORKING_METHOD_HEADING = "# Working Method";
 
