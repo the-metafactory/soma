@@ -173,35 +173,44 @@ export interface AddGoalOptions {
   wording: string;
   sensor?: string;
   reviewBy?: string;
+  /** Private text following the wording line. */
+  body?: string;
 }
 
-/** Allocate from file names, including invalid records; never fill a gap. */
-export async function addGoalRecord(goalsDir: string, options: AddGoalOptions): Promise<string> {
+function validateGoalOptions(options: AddGoalOptions): void {
   if (!options.wording.trim() || /[\r\n]/.test(options.wording)) {
     throw new Error("wording must be a non-empty single line");
   }
   if (options.supports.some((code) => !/^M\d+$/.test(code))) {
     throw new Error("supports must contain M<n> mission codes");
   }
+}
+
+/** Allocate from file names, including invalid records; never fill a gap.
+ * A factory binds dependent activation ids to the exclusively allocated id.
+ */
+export async function addGoalRecord(goalsDir: string, input: AddGoalOptions | ((id: string) => AddGoalOptions)): Promise<string> {
+  if (typeof input !== "function") validateGoalOptions(input);
   const schema = await goalFrontmatterSchema();
-  const fields = {
-    id: "G5", status: "draft", supports: options.supports,
-    ...(options.sensor === undefined ? {} : { sensor: options.sensor }),
-    ...(options.reviewBy === undefined ? {} : { review_by: options.reviewBy }),
-  };
-  const parsed = schema.safeParse(fields);
-  if (!parsed.success) throw new Error(`Invalid goal field: ${parsed.error.issues[0].path.join(".")}`);
-  await mkdir(goalsDir, { recursive: true, mode: 0o700 });
   for (;;) {
     const ids = (await readGoalFiles(goalsDir)).map((file) => BigInt(file.slice(1, -3)));
     const next = ids.reduce((max, id) => id > max ? id : max, 4n) + 1n;
     const id = `G${next}`;
+    const options = typeof input === "function" ? input(id) : input;
+    validateGoalOptions(options);
+    const parsed = schema.safeParse({
+      id, status: "draft", supports: options.supports,
+      ...(options.sensor === undefined ? {} : { sensor: options.sensor }),
+      ...(options.reviewBy === undefined ? {} : { review_by: options.reviewBy }),
+    });
+    if (!parsed.success) throw new Error(`Invalid goal field: ${parsed.error.issues[0].path.join(".")}`);
+    await mkdir(goalsDir, { recursive: true, mode: 0o700 });
     // JSON string literals are YAML-safe, even for sensor ids with punctuation.
     const lines = [`id: ${id}`, "status: draft", `supports: ${JSON.stringify(options.supports)}`];
     if (options.sensor !== undefined) lines.push(`sensor: ${JSON.stringify(options.sensor)}`);
     if (options.reviewBy !== undefined) lines.push(`review_by: ${options.reviewBy}`);
     try {
-      await writeFile(join(goalsDir, `${id}.md`), `---\n${lines.join("\n")}\n---\n${options.wording}\n`, {
+      await writeFile(join(goalsDir, `${id}.md`), `---\n${lines.join("\n")}\n---\n${options.wording}\n${options.body ?? ""}`, {
         encoding: "utf8", flag: "wx", mode: 0o600,
       });
       return id;

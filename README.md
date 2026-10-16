@@ -328,8 +328,11 @@ soma goal propose --wording "<private wording>" [--hint "<revision guidance>"] \
 ```
 
 The session assistant shows the proposal and asks the principal to accept it.
-On a yes, the next step is `soma goal add --accept <hash>` (acceptance and
-activation are separate commands, delivered by the follow-on nodes). An edit
+On a yes, the next step is `soma goal add --accept <hash>`. It verifies the
+proposal's content hash and 24-hour lifetime, writes a private draft record and
+`profile/goals/G<n>.activations.yaml` (0600), then deletes the proposal. Resource
+values are resolved locally; stdout prints only the goal and activation ids.
+Nothing is installed into Reflex by acceptance. An edit
 means re-proposing with `--hint`, producing a new hash. Activation requires a
 separate yes naming the goal id. Proposing creates neither a goal record nor an
 activation and reserves no goal id; `params.goal: G0` is an acceptance placeholder.
