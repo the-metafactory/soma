@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
-import { appendAlgorithmProvenance } from "./algorithm-provenance";
+import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm/algorithm-store";
+import { appendAlgorithmProvenance } from "./algorithm/algorithm-provenance";
 import { appendSomaMemoryEvent } from "./events/index";
 import { createPaths } from "./core/index";
 import {
@@ -13,14 +13,10 @@ import {
   type WritableNoteType,
 } from "./memory/index";
 import { getCriteria, getGoal } from "./vsa/index";
-import { getRunPhase } from "./algorithm-lifecycle";
+import { getRunPhase } from "./algorithm/algorithm-lifecycle";
 import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./core/index";
-import type {
-  AlgorithmRun,
-  SomaMemoryPromotionOptions,
-  SomaMemoryPromotionResult,
-  SubstrateId,
-} from "./types";
+import type { SomaMemoryPromotionOptions, SomaMemoryPromotionResult, SubstrateId } from "./types";
+import type { AlgorithmRun } from "./algorithm/types";
 import type { SomaMemoryPromotionStore } from "./core/index";
 
 /**

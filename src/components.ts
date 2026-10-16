@@ -127,8 +127,20 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "events", "memory", "purpose", "policy", "legacy"],
   },
   algorithm: {
-    files: ["src/algorithm", "src/algorithm-*"],
-    exclude: ["src/algorithm-vsa-bridge", "src/algorithm-vsa-sync"],
+    files: ["src/algorithm/**"],
+    // Direct CLI entries preserve the classify import closure without the barrel.
+    publicEntries: [
+      "src/algorithm/index.ts",
+      "src/algorithm/types.ts",
+      "src/algorithm/algorithm.ts",
+      "src/algorithm/algorithm-store.ts",
+      "src/algorithm/algorithm-classifier.ts",
+      "src/algorithm/algorithm-reflection-digest.ts",
+      "src/algorithm/algorithm-reflection-import.ts",
+      "src/algorithm/algorithm-capabilities.ts",
+      "src/algorithm/algorithm-provenance.ts",
+      "src/algorithm/algorithm-lifecycle.ts",
+    ],
     mayImport: ["core", "home", "vsa", "graph", "legacy"],
   },
   router: {

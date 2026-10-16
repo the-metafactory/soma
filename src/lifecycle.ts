@@ -3,8 +3,8 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { listAlgorithmRunSummaries, listAlgorithmRuns, listStartupAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
-import { appendAlgorithmProvenance } from "./algorithm-provenance";
+import { listAlgorithmRunSummaries, listAlgorithmRuns, listStartupAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "./algorithm/algorithm-store";
+import { appendAlgorithmProvenance } from "./algorithm/algorithm-provenance";
 import { buildLearningReadback } from "./learning-readback";
 import { appendSomaMemoryEvent } from "./events/index";
 import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
@@ -12,7 +12,7 @@ import { repairProjectedArtifacts } from "./projection-self-repair";
 import { getProjectionRepairProvider, getSessionEndTranscriptHandler } from "./home/lifecycle-registry";
 import { loadSomaProfile, normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./home/index";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa/index";
-import { getRunPhase } from "./algorithm-lifecycle";
+import { getRunPhase } from "./algorithm/algorithm-lifecycle";
 import {
   applyVsaUpdate,
   checkCompleteness,
@@ -20,7 +20,8 @@ import {
   readVsa,
   type VsaUpdateEntry,
 } from "./vsa/index";
-import type { AlgorithmRun, AlgorithmRunSummary, AlgorithmWorkIndex, VsaUpdatePayload, SomaLifecycleOptions, SomaLifecycleResult, SomaStartupContext, SubstrateId } from "./types";
+import type { AlgorithmWorkIndex, VsaUpdatePayload, SomaLifecycleOptions, SomaLifecycleResult, SomaStartupContext, SubstrateId } from "./types";
+import type { AlgorithmRun, AlgorithmRunSummary } from "./algorithm/types";
 import type { VerificationStateArtifact } from "./vsa/index";
 
 const execFileAsync = promisify(execFile);

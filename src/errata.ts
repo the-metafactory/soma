@@ -1,11 +1,10 @@
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join, normalize, relative, isAbsolute } from "node:path";
-import { listAlgorithmRuns } from "./algorithm-store";
+import { listAlgorithmRuns } from "./algorithm/algorithm-store";
 import { redactSomaFeedbackText } from "./feedback";
-import type {
-  AlgorithmRun, ErrataCluster, ErrataClusterKey, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord, SomaMemoryEvent,
-} from "./types";
+import type { ErrataCluster, ErrataClusterKey, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord, SomaMemoryEvent } from "./types";
+import type { AlgorithmRun } from "./algorithm/types";
 import { parseTelemetryEventLine, somaMemoryEventsPath, streamEventLines } from "./events/index";
 import { hashJudgmentInput, readJudgments, recordJudgment, type JudgmentRecord } from "./core/index";
 import {

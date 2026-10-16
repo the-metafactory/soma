@@ -10,7 +10,7 @@ import {
   writeAlgorithmRun,
   writeAlgorithmWorkIndex,
 } from "../src/index";
-import { listStartupAlgorithmRunSummaries } from "../src/algorithm-store";
+import { listStartupAlgorithmRunSummaries } from "../src/algorithm/algorithm-store";
 
 test("session startup reconciles a long Algorithm history from the work index", async () => {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-startup-history-"));

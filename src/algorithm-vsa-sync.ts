@@ -35,17 +35,18 @@ import {
   setAlgorithmPlan,
   verifyAlgorithmCriterion,
   type AlgorithmSessionEnv,
-} from "./algorithm";
+} from "./algorithm/algorithm";
 import {
   registerSomaHomeAlgorithmCapabilities,
   selectAlgorithmCapability,
-} from "./algorithm-capabilities";
-import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
+} from "./algorithm/algorithm-capabilities";
+import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm/algorithm-store";
 import { datePrefixSlug } from "./core/index";
-import { getRunPhase } from "./algorithm-lifecycle";
+import { getRunPhase } from "./algorithm/algorithm-lifecycle";
 import { getCriteria, getDecisions, getGoal, isClosedCriterion, parseVsa, serializeVsa, type VerificationStateArtifact, type Checkpoint } from "./vsa/index";
 import { _promoteAlgorithmRunMemoryWithCallback } from "./memory-promotion";
-import type { AlgorithmPhase, AlgorithmPlanStep, AlgorithmRun, SubstrateId } from "./types";
+import type { AlgorithmPhase, SubstrateId } from "./types";
+import type { AlgorithmPlanStep, AlgorithmRun } from "./algorithm/types";
 
 export interface SyncAlgorithmRunFromVsaOptions {
   /** Absolute path to the VSA markdown file. */

@@ -1,17 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  computeGatesFired,
-  createAlgorithmRun,
-  recordAlgorithmMetaReflection,
-  recordAlgorithmObservation,
-  verifyAlgorithmCriterion,
-  buildReflectionDigest,
-  renderReflectionDigest,
-  parsePaiReflections,
-  type ReflectionForDigest,
-} from "../src/index";
+import { computeGatesFired, createAlgorithmRun, recordAlgorithmMetaReflection, recordAlgorithmObservation, verifyAlgorithmCriterion } from "../../src/algorithm/algorithm";
+import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../../src/algorithm/algorithm-reflection-digest";
+import { parsePaiReflections } from "../../src/algorithm/algorithm-reflection-import";
 
 function freshRun() {
   return createAlgorithmRun({
@@ -109,7 +101,7 @@ test("digest over a sample of the historical PAI corpus surfaces the P2 (current
   // Reads a committed fixture vendored from the historical PAI reflections jsonl
   // (4 records mirroring the real shape: 3 of 4 missed live_probe = current-state
   // floor). The full live corpus lives at ~/.soma and is not version-controlled.
-  const fixture = join(import.meta.dir, "fixtures", "pai-algorithm-reflections-sample.jsonl");
+  const fixture = join(import.meta.dir, "..", "fixtures", "pai-algorithm-reflections-sample.jsonl");
   const imported = parsePaiReflections(await readFile(fixture, "utf8"));
   expect(imported).toHaveLength(4);
   expect(imported[0].runId).toBe("20260505-course-sales-strategy");

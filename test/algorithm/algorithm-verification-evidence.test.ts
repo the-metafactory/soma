@@ -1,15 +1,7 @@
 import { expect, test } from "bun:test";
-import {
-  addAlgorithmCapabilities,
-  advanceAlgorithmRun,
-  createAlgorithmRun,
-  getCriteria,
-  getRunPhase,
-  recordAlgorithmObservation,
-  setAlgorithmPlan,
-  updateAlgorithmPlanStep,
-  verifyAlgorithmCriterion,
-} from "../src/index";
+import { addAlgorithmCapabilities, advanceAlgorithmRun, createAlgorithmRun, recordAlgorithmObservation, setAlgorithmPlan, updateAlgorithmPlanStep, verifyAlgorithmCriterion } from "../../src/algorithm/algorithm";
+import { getCriteria } from "../../src/vsa/index";
+import { getRunPhase } from "../../src/algorithm/algorithm-lifecycle";
 
 // Fast-forward a fresh run to the VERIFY phase with one criterion C1.
 function toVerify(): ReturnType<typeof createAlgorithmRun> {

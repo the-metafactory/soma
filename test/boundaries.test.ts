@@ -44,6 +44,48 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("algorithm public entries reject internals and keep classify unbarrelled", async () => {
+    expect(components.algorithm.files).toEqual(["src/algorithm/**"]);
+    expect(components.algorithm.publicEntries).toContain("src/algorithm/index.ts");
+    await withRepoFixture("soma-boundaries-algorithm-", async (root) => {
+      const importer = join(root, "src/cli/algorithm-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/algorithm")))
+        .filter((name) => name.endsWith(".ts") && !components.algorithm.publicEntries!.includes(`src/algorithm/${name}`));
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../algorithm/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/algorithm-entry-fixture.ts",
+          to: `src/algorithm/${name}`,
+          rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, components.algorithm.publicEntries!
+        .map((entry) => `import "../algorithm/${entry.split("/").pop()!.slice(0, -3)}";\n`).join(""));
+      const report = checkBoundaries({ root, updateBaseline: true });
+      if (!report.ok) throw new Error(formatReport(report));
+      expect(report.violations.filter((v) => v.fromComponent === "algorithm" && v.toComponent !== "legacy")).toEqual([]);
+      const directEntries = report.edges
+        .filter((edge) => edge.from === "src/cli/algorithm.ts" && edge.to.startsWith("src/algorithm/"))
+        .map((edge) => edge.to);
+      expect([...components.algorithm.publicEntries!].sort()).toEqual(
+        [...new Set(["src/algorithm/index.ts", ...directEntries])].sort(),
+      );
+      const reachable = new Set<string>();
+      const pending = ["src/cli/algorithm.ts"];
+      while (pending.length) {
+        const file = pending.pop()!;
+        if (reachable.has(file)) continue;
+        reachable.add(file);
+        for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
+      }
+      expect(reachable.has("src/index.ts")).toBe(false);
+      expect(reachable.has("src/algorithm/index.ts")).toBe(false);
+    });
+  }, { timeout: 30_000 });
+
   test("shared types reach home types without its runtime barrel", () => {
     const report = checkBoundaries({ root: repoRoot });
     const reachable = new Set<string>();
@@ -61,7 +103,7 @@ describe("component boundaries on the repository", () => {
   });
 
   test.each([
-    "src/algorithm.ts",
+    "src/algorithm/algorithm.ts",
     "src/adapters/claude-code/session-digest.ts",
     "src/adapters/codex/session-digest.ts",
   ])("%s reaches only home's dependency-light entries", (entry) => {

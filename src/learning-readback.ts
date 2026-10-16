@@ -33,8 +33,8 @@
  */
 import { open, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { listRecentAlgorithmRuns } from "./algorithm-store";
-import { buildReflectionDigest, type ReflectionForDigest } from "./algorithm-reflection-digest";
+import { listRecentAlgorithmRuns } from "./algorithm/algorithm-store";
+import { buildReflectionDigest, type ReflectionForDigest } from "./algorithm/algorithm-reflection-digest";
 import { createPaths } from "./core/index";
 import { parseRatingsJsonl } from "./tools/learning";
 import type { Rating } from "./tools/learning";

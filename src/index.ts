@@ -1,40 +1,12 @@
 export type { SomaPaths, SomaMemoryPromotionStore } from "./core/index";
+export type { AlgorithmEffortSource, AlgorithmBatchOperation, AlgorithmCapabilityContract, AlgorithmCapabilityDefinition, AlgorithmCapabilityInvocation, AlgorithmCapabilityKind, AlgorithmCapabilitySelection, AlgorithmCapabilitySelectionStatus, AlgorithmCriteriaPartition, AlgorithmGatesFired, AlgorithmMetaReflection, AlgorithmObservation, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmLoopExecutionContext, AlgorithmLoopExecutor, AlgorithmLoopIteration, AlgorithmLoopIterationResult, AlgorithmLoopState, AlgorithmLoopStatus, AlgorithmNotificationEvent, AlgorithmNotificationSink, AlgorithmPlanStep, AlgorithmPromptClassification, AlgorithmRun, AlgorithmRunInput, AlgorithmRunSummary, IdeateParameters, IdeatePresetName, OptimizeParameters, OptimizePresetName, SomaSkillManifest } from "./algorithm/types";
 export type {
   AlgorithmEffortTier,
-  AlgorithmEffortSource,
-  AlgorithmBatchOperation,
-  AlgorithmCapabilityContract,
-  AlgorithmCapabilityDefinition,
-  AlgorithmCapabilityInvocation,
-  AlgorithmCapabilityKind,
-  AlgorithmCapabilitySelection,
-  AlgorithmCapabilitySelectionStatus,
-  AlgorithmCriteriaPartition,
-  AlgorithmGatesFired,
-  AlgorithmMetaReflection,
-  AlgorithmObservation,
-  AlgorithmReference,
-  AlgorithmReferenceVerdict,
-  AlgorithmLoopExecutionContext,
-  AlgorithmLoopExecutor,
-  AlgorithmLoopIteration,
-  AlgorithmLoopIterationResult,
-  AlgorithmLoopState,
-  AlgorithmLoopStatus,
   AlgorithmMode,
-  AlgorithmNotificationEvent,
-  AlgorithmNotificationSink,
   AlgorithmPhase,
-  AlgorithmPlanStep,
-  AlgorithmPromptClassification,
-  AlgorithmRun,
-  AlgorithmRunInput,
-  AlgorithmRunSummary,
   AlgorithmWorkIndex,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional back-compat re-export of the deprecated alias (soma#329)
   IdealStateCriterion,
-  IdeateParameters,
-  IdeatePresetName,
   VsaUpdatePayload,
   VsaSkillInstallAction,
   VsaSkillInstallOptions,
@@ -119,15 +91,12 @@ export type {
   RuntimePolicyToolCall,
   RuntimePolicyTrustedRoot,
   SomaProtectedPath,
-  OptimizeParameters,
-  OptimizePresetName,
   SkillNormalizationAction,
   SkillNormalizationWarning,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (node #793)
   PaiPackNormalizationAction,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (node #793)
   PaiPackNormalizationWarning,
-  SomaSkillManifest,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (DD-15)
   SomaRunResult,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional migration alias re-export (DD-15)
@@ -242,8 +211,8 @@ export {
   updateAlgorithmPlanStep,
   VerificationGateError,
   verifyAlgorithmCriterion,
-} from "./algorithm";
-export type { BridgedNodeReport } from "./algorithm";
+} from "./algorithm/algorithm";
+export type { BridgedNodeReport } from "./algorithm/algorithm";
 // The two principal-authored compartment surfaces reach the barrel as TYPES
 // ONLY, because `ProjectionInput`/`SomaProfile` name them and a caller building
 // a projection input needs to spell them. Their parsers and helpers stay module-
@@ -280,8 +249,8 @@ export {
   removeAlgorithmCapabilitySelection,
   selectAlgorithmCapability,
   unresolvedAlgorithmCapabilitySelections,
-} from "./algorithm-capabilities";
-export { classifyAlgorithmPrompt } from "./algorithm-classifier";
+} from "./algorithm/algorithm-capabilities";
+export { classifyAlgorithmPrompt } from "./algorithm/algorithm-classifier";
 export {
   DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT,
   DEFAULT_ALGORITHM_LOOP_STATE,
@@ -296,7 +265,7 @@ export {
   recordAlgorithmLoopIterationResult,
   validateIdeateParameters,
   validateOptimizeParameters,
-} from "./algorithm-execution-modes";
+} from "./algorithm/index";
 // Public VSA API — cohesive surface: semantic accessors + mutators + parse/serialize.
 // Renderer details (SECTION_NAME_MAP, TWELVE_SECTIONS, renderCriteriaMarkdown,
 // renderLogEntries, parseCriteriaMarkdown, progressFromCriteria,
@@ -324,7 +293,7 @@ export {
   abandonAlgorithmRun,
   completeAlgorithmRun,
   getRunPhase,
-} from "./algorithm-lifecycle";
+} from "./algorithm/algorithm-lifecycle";
 export {
   algorithmRunPath,
   algorithmRunPathById,
@@ -338,15 +307,15 @@ export {
   writeAlgorithmRun,
   type AlgorithmStoreOptions,
   type WrittenAlgorithmRun,
-} from "./algorithm-store";
+} from "./algorithm/algorithm-store";
 export {
   buildReflectionDigest,
   renderReflectionDigest,
   type ReflectionDigestEntry,
   type ReflectionForDigest,
   type ReflectionCategoryKey,
-} from "./algorithm-reflection-digest";
-export { parsePaiReflections } from "./algorithm-reflection-import";
+} from "./algorithm/algorithm-reflection-digest";
+export { parsePaiReflections } from "./algorithm/algorithm-reflection-import";
 export {
   projectClaudeCode,
   projectClaudeCodeHome,

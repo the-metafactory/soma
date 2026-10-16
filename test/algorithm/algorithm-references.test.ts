@@ -1,14 +1,8 @@
 import { expect, test } from "bun:test";
-import {
-  applyAlgorithmBatch,
-  createAlgorithmRun,
-  getAlgorithmReferences,
-  recordAlgorithmReference,
-  resolveAlgorithmReference,
-} from "../src/index";
-import { loadAlgorithmRun } from "../src/algorithm-store";
-import { ReservedReferenceLetterError } from "../src/home/index";
-import type { AlgorithmRun } from "../src/types";
+import { applyAlgorithmBatch, createAlgorithmRun, getAlgorithmReferences, recordAlgorithmReference, resolveAlgorithmReference } from "../../src/algorithm/algorithm";
+import { loadAlgorithmRun } from "../../src/algorithm/algorithm-store";
+import { ReservedReferenceLetterError } from "../../src/home/index";
+import type { AlgorithmRun } from "../../src/algorithm/types";
 
 function newRun(): AlgorithmRun {
   return createAlgorithmRun({

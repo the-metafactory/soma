@@ -1,4 +1,5 @@
-import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPromptClassification } from "./types";
+import type { AlgorithmEffortTier, AlgorithmMode } from "../types";
+import type { AlgorithmPromptClassification } from "./types";
 
 /**
  * Serialisable classification contract.
