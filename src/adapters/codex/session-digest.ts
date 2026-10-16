@@ -4,8 +4,9 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { registerSessionEndTranscriptHandler } from "../../lifecycle-registry";
-import { hasSessionDigest, writeSessionDigest } from "../../memory-episodic";
-import type { SomaMemoryDigestResult, SubstrateId } from "../../types";
+import { hasSessionDigest, writeSessionDigest } from "../../memory/index";
+import type { SomaMemoryDigestResult } from "../../memory/index";
+import type { SubstrateId } from "../../types";
 
 const FALLBACK_MIN_PROMPTS = 6;
 const FALLBACK_MAX_PROMPT_LINES = 13;

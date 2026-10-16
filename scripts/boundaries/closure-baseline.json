@@ -11,9 +11,9 @@
   "router": 8000,
   "graph": 12500,
   "execution": 7500,
-  "substrates": 40000,
+  "substrates": 42500,
   "migrate": 17500,
-  "flows": 52500,
+  "flows": 55500,
   "cli": 75500,
   "legacy": 60000
 }

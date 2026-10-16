@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { parseDigestPointerIds, renderDigestPointer } from "../src/episodic-digest";
-import type { SomaMemoryNote } from "../src/types";
+import { parseDigestPointerIds, renderDigestPointer } from "../../src/memory/episodic-digest";
+import type { SomaMemoryNote } from "../../src/memory/types";
 
 function note(id: string, body: string): SomaMemoryNote {
   return {

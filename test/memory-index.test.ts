@@ -3,9 +3,9 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { rebuildMemoryIndex, serializeMemoryNote, type SomaMemoryNote } from "../src/index";
-// Index internals are module-private (not public index API) — import direct.
-import { renderMemoryIndex, retentionScore, memoryIndexPath, reindexMemoryIfStale } from "../src/memory-index";
-import { memoryNotePath, type WritableType } from "../src/memory-write";
+// These helpers are public through the memory entry, but not the root compatibility entry.
+import { renderMemoryIndex, retentionScore, memoryIndexPath, reindexMemoryIfStale } from "../src/memory/index";
+import { memoryNotePath, type WritableType } from "../src/memory/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
 const NOW = new Date("2026-07-11T10:00:00.000Z");

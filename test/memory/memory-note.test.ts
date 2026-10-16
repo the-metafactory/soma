@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  MemoryNoteError,
-  parseMemoryNote,
-  serializeMemoryNote,
-  type SomaMemoryNote,
-} from "../src/index";
+import { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "../../src/memory/memory-note";
+import { type SomaMemoryNote } from "../../src/memory/types";
 
 function fullNote(): SomaMemoryNote {
   return {

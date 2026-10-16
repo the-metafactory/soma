@@ -1,9 +1,7 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createPaths } from "./core/index";
-import { isFsUtilsEnoent as isEnoent } from "./core/index";
+import { createPaths, isFsUtilsEnoent as isEnoent, runBoundedConcurrent } from "../core/index";
 import { collectDurableNotes, listDurableNotePaths } from "./memory-write";
-import { runBoundedConcurrent } from "./core/index";
 import { noteDateMs, ageDays, sanitizeNoteText } from "./memory-corpus";
 
 // Cap on concurrent freshness stats so a huge corpus can't fire thousands of

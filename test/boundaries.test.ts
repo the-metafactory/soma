@@ -1,8 +1,8 @@
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
-import type { ComponentManifest } from "../src/components";
+import { components, type ComponentManifest } from "../src/components";
 import {
   BASELINE_PATH,
   CLOSURE_STEP,
@@ -20,6 +20,15 @@ const fixture = (name: string): string => join(import.meta.dir, "fixtures", "bou
 const check = (name: string, manifest: ComponentManifest = fixtureManifest) =>
   checkBoundaries({ root: fixture(name), manifest });
 
+async function withRepoFixture<T>(prefix: string, fn: (root: string) => Promise<T>): Promise<T> {
+  return withTempHome(async (root) => {
+    await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
+    await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+    await mkdir(join(root, "src/cli"), { recursive: true });
+    return fn(root);
+  }, prefix);
+}
+
 function commitFixture(root: string): string {
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
   git("init");
@@ -35,12 +44,59 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("shared types reach only memory's types entry, even transitively", () => {
+    expect(components.memory.publicEntries).toEqual(["src/memory/index.ts", "src/memory/types.ts"]);
+    const report = checkBoundaries({ root: repoRoot });
+    const reachable = new Set<string>();
+    const pending = ["src/types.ts"];
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (reachable.has(file)) continue;
+      reachable.add(file);
+      for (const edge of report.edges) {
+        if (edge.from === file) pending.push(edge.to);
+      }
+    }
+    expect([...reachable].filter((file) => file.startsWith("src/memory/")))
+      .toEqual(["src/memory/types.ts"]);
+  });
+
+  test("another component may import memory's runtime and types entries, but no memory internal", async () => {
+    await withRepoFixture("soma-boundaries-memory-", async (root) => {
+      const importer = join(root, "src/cli/memory-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/memory")))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../memory/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/memory-entry-fixture.ts",
+          to: `src/memory/${name}`,
+          fromComponent: "cli",
+          toComponent: "memory",
+          rule: "public-entry",
+        }));
+      }
+
+      await writeFile(importer, [
+        'import { parseMemoryNote } from "../memory/index";',
+        'import { SOMA_MEMORY_NOTE_TYPES, type SomaMemoryNote } from "../memory/types";',
+      ].join("\n"));
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.ok).toBe(true);
+      expect(new Set(publicEntry.edges
+        .filter((edge) => edge.from === "src/types.ts" && edge.to.startsWith("src/memory/"))
+        .map((edge) => edge.to)))
+        .toEqual(new Set(["src/memory/types.ts"]));
+    });
+  }, { timeout: 30_000 });
+
   test("another component may import events' public entry, but not its value or type implementation files", async () => {
-    await withTempHome(async (root) => {
-      await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
-      await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+    await withRepoFixture("soma-boundaries-events-", async (root) => {
       const importer = join(root, "src/cli/events-entry-fixture.ts");
-      await mkdir(join(root, "src/cli"), { recursive: true });
       for (const [declaration, target] of [
         ['import { appendSomaMemoryEvent } from "../events/event-journal";\n', "src/events/event-journal.ts"],
         ['import type { SomaMemoryEvent } from "../events/types";\n', "src/events/types.ts"],
@@ -61,15 +117,12 @@ describe("component boundaries on the repository", () => {
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
-    }, "soma-boundaries-events-");
+    });
   }, { timeout: 30_000 });
 
   test("another component may import core's public entry, but not a core implementation file", async () => {
-    await withTempHome(async (root) => {
-      await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
-      await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+    await withRepoFixture("soma-boundaries-core-", async (root) => {
       const importer = join(root, "src/cli/core-entry-fixture.ts");
-      await mkdir(join(root, "src/cli"), { recursive: true });
       await writeFile(importer, 'import { createPaths } from "../core/paths";\n');
       const internal = checkBoundaries({ root, updateBaseline: true });
       expect(internal.ok).toBe(false);
@@ -85,7 +138,7 @@ describe("component boundaries on the repository", () => {
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
-    }, "soma-boundaries-core-");
+    });
   }, { timeout: 30_000 });
 
   test(

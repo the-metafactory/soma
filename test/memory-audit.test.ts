@@ -16,7 +16,7 @@ import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 // #428: computeNoteRetrievalCounts now lives in the neutral journal read-model
 // (moved out of memory-audit so M6 consolidation can reuse it without depending
 // on the audit module). Module-private, test-imported (same pattern as elsewhere).
-import { computeNoteRetrievalCounts } from "../src/memory-journal";
+import { computeNoteRetrievalCounts } from "../src/memory/index";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 const SESSION = "0afea4e4-967d-4a38-a855-0d12ac63c2f3";

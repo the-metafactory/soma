@@ -1,8 +1,8 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, extname, join, sep } from "node:path";
 import { memoryTerms } from "./memory-terms";
-import { createPaths } from "./core/index";
-import { appendSomaMemoryEvent } from "./events/index";
+import { createPaths } from "../core/index";
+import { appendSomaMemoryEvent } from "../events/index";
 import type {
   SomaMemorySearchMatch,
   SomaMemorySearchOptions,

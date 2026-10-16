@@ -94,23 +94,6 @@ export type {
   SomaMemoryEventInput,
   SomaMemoryPromotionOptions,
   SomaMemoryPromotionResult,
-  SomaMemoryRecallOptions,
-  SomaMemoryRecallResult,
-  SomaMemoryRecalledNote,
-  SomaMemoryIndexResult,
-  SomaMemoryDigestOptions,
-  SomaMemoryDigestResult,
-  SomaMemoryActionOptions,
-  SomaMemoryActionResult,
-  SomaMemoryActionApproval,
-  SomaMemoryConsolidateOptions,
-  SomaMemoryConsolidateResult,
-  SomaMemorySimilarPair,
-  SomaMemoryAutoMergePlan,
-  SomaMemoryArchivePlan,
-  SomaMemorySearchMatch,
-  SomaMemorySearchOptions,
-  SomaMemorySearchResult,
   SomaResultCaptureOptions,
   SomaResultCaptureResult,
   SomaResultEventKind,
@@ -171,6 +154,25 @@ export type {
   SomaTask,
   WrittenProjection,
 } from "./types";
+export type {
+  SomaMemoryRecallOptions,
+  SomaMemoryRecallResult,
+  SomaMemoryRecalledNote,
+  SomaMemoryIndexResult,
+  SomaMemoryDigestOptions,
+  SomaMemoryDigestResult,
+  SomaMemoryActionOptions,
+  SomaMemoryActionResult,
+  SomaMemoryActionApproval,
+  SomaMemoryConsolidateOptions,
+  SomaMemoryConsolidateResult,
+  SomaMemorySimilarPair,
+  SomaMemoryAutoMergePlan,
+  SomaMemoryArchivePlan,
+  SomaMemorySearchMatch,
+  SomaMemorySearchOptions,
+  SomaMemorySearchResult,
+} from "./memory/index";
 
 export type {
   ExecuteOptions,
@@ -204,9 +206,9 @@ export type { CodexCommandResult, CodexCommandRunner, CodexExecutorOptions } fro
 export { ClaudeCodeExecutor, registerClaudeCodeExecutor } from "./execution/claude-code-executor";
 export type { ClaudeCodeCommandResult, ClaudeCodeCommandRunner, ClaudeCodeExecutorOptions } from "./execution/claude-code-executor";
 export { SOMA_RESULT_EVENT_KINDS } from "./types";
-export { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./types";
-export { SOMA_MEMORY_WRITE_TRIGGERS, SOMA_MEMORY_TRIGGER_TRUST } from "./types";
-export type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./types";
+export { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./memory/index";
+export { SOMA_MEMORY_WRITE_TRIGGERS, SOMA_MEMORY_TRIGGER_TRUST } from "./memory/index";
+export type { SomaMemoryNote, SomaMemoryNoteType, SomaMemoryTrust } from "./memory/index";
 export type {
   SomaMemoryWriteTrigger,
   SomaMemoryWriteMode,
@@ -217,7 +219,7 @@ export type {
   SomaMemoryResurfaceOptions,
   SomaMemoryResurfaceResult,
   SomaMemoryDuplicateCandidate,
-} from "./types";
+} from "./memory/index";
 
 export {
   addAlgorithmCapabilities,
@@ -538,36 +540,29 @@ export type {
 } from "./projection-self-repair";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./events/index";
-export { searchSomaMemory } from "./memory";
+export { searchSomaMemory } from "./memory/index";
 export { streamEventLines, streamEventRecords } from "./events/index";
-export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory-note";
-// Public write surface only. Path/dedup helpers (memoryNotePath,
-// findDuplicateCandidates, MEMORY_DEDUP_JACCARD_THRESHOLD) stay module-private so
-// the storage layout and dedup threshold are not frozen as stable API — internal
-// soma modules (M2/M3/M6) and tests import them from "./memory-write" directly.
-export { writeMemoryNote, verifyMemoryNote, resurfaceMemoryNote } from "./memory-write";
-export { recallMemory } from "./memory-recall";
-// Public surface is the CLI-facing rebuild only. renderMemoryIndex / retentionScore
-// / collectAllNotes / memoryIndexPath stay module-private (the scoring model and
-// storage path are not frozen as stable API — episodic joins at M5); internal soma
-// modules and tests import them from "./memory-index" directly.
-export { rebuildMemoryIndex } from "./memory-index";
+export { MemoryNoteError, parseMemoryNote, serializeMemoryNote } from "./memory/index";
+// Preserve the root write surface; path/dedup helpers are exposed by memory/index.
+export { writeMemoryNote, verifyMemoryNote, resurfaceMemoryNote } from "./memory/index";
+export { recallMemory } from "./memory/index";
+// Preserve the root rebuild surface; scoring/path helpers are exposed by memory/index.
+export { rebuildMemoryIndex } from "./memory/index";
 // SessionStart's smart reindex + single-file substrate projection (M8). The
-// CLI-facing entry point; `reindexMemoryIfStale` itself is imported directly
-// from "./memory-index" by the lifecycle handler and tests.
+// CLI-facing entry point; lifecycle and tests use memory/index for smart reindexing.
 export {
   reprojectSubstrateMemoryProjection,
   type ReprojectSubstrateMemoryProjectionOptions,
   type ReprojectSubstrateMemoryProjectionResult,
 } from "./memory-projection-reproject";
-export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memory-episodic";
+export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memory/index";
 // The Claude Code SessionEnd transcript fallback (extractDigestBodyFromTranscript /
 // writeSessionDigestFromTranscript / ClaudeSessionDigest*) is adapter-specific and is
 // NOT re-exported from the package root — the CLI and tests import it directly from
 // `./adapters/claude-code/session-digest`, keeping the root substrate-neutral
 // (docs/architecture.md#Core; sage m5b r2).
-export { consolidateMemory } from "./memory-consolidate";
-export { auditMemory } from "./memory-audit";
+export { consolidateMemory } from "./memory/index";
+export { auditMemory } from "./memory/index";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./events/index";
 export {
@@ -588,7 +583,7 @@ export {
 } from "./work-registry";
 export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
-export { planMemoryBackfill, runMemoryBackfill } from "./memory-backfill";
+export { planMemoryBackfill, runMemoryBackfill } from "./memory/index";
 export {
   syncAlgorithmRunFromVsa,
   formatSyncResult,

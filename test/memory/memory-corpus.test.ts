@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { jaccard, NEAR_DUPLICATE_JACCARD_THRESHOLD, noteDateMs, ageDays, sanitizeNoteText } from "../src/memory-corpus";
+import { jaccard, NEAR_DUPLICATE_JACCARD_THRESHOLD, noteDateMs, ageDays, sanitizeNoteText } from "../../src/memory/memory-corpus";
 
 // --- jaccard -------------------------------------------------------------------
 

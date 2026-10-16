@@ -7,7 +7,7 @@ import {
   memoryIndexBundleFile,
   projectClaudeCodeHome,
 } from "../src/adapters/claude-code";
-import { loadMemoryIndexForProjection, memoryIndexPath } from "../src/memory-index";
+import { loadMemoryIndexForProjection, memoryIndexPath } from "../src/memory/index";
 import type { ProjectionInput } from "../src/index";
 import { portableProjectionInput } from "./fixtures";
 

@@ -2,17 +2,13 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, open, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { constants as FS } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { createPaths } from "./core/index";
-import { isFsUtilsEnoent as isEnoent } from "./core/index";
+import { createPaths, isFsUtilsEnoent as isEnoent, runBoundedConcurrent } from "../core/index";
 import { listMemoryNotes } from "./memory-fs";
-import { runBoundedConcurrent } from "./core/index";
-import { appendSomaMemoryEvent } from "./events/index";
+import { appendSomaMemoryEvent, type SomaMemoryEvent } from "../events/index";
 import { parseMemoryNote, serializeMemoryNote, MemoryNoteError, isValidNoteId, NOTE_ID_MAX_LEN } from "./memory-note";
 import { memoryTermSet } from "./memory-terms";
 import { jaccard, NEAR_DUPLICATE_JACCARD_THRESHOLD } from "./memory-corpus";
-import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRIGGER_TRUST } from "./types";
-import type { SomaMemoryEvent } from "./events/index";
-import type { SomaMemoryDuplicateCandidate, SomaMemoryNote, SomaMemoryNoteType, SomaMemoryResurfaceOptions, SomaMemoryResurfaceResult, SomaMemoryTrust, SomaMemoryVerifyOptions, SomaMemoryVerifyResult, SomaMemoryWriteOptions, SomaMemoryWriteResult, SomaMemoryWriteTrigger } from "./types";
+import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRIGGER_TRUST, type SomaMemoryDuplicateCandidate, type SomaMemoryNote, type SomaMemoryNoteType, type SomaMemoryResurfaceOptions, type SomaMemoryResurfaceResult, type SomaMemoryTrust, type SomaMemoryVerifyOptions, type SomaMemoryVerifyResult, type SomaMemoryWriteOptions, type SomaMemoryWriteResult, type SomaMemoryWriteTrigger } from "./types";
 
 /**
  * Memory write + verify (subsystem M1). Plan v2 §M1 (do not redesign the
