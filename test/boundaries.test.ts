@@ -44,16 +44,14 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
-  test("another component may import vsa's public entry, but no value or type implementation file", async () => {
-    expect(components.vsa.publicEntries).toEqual(["src/vsa/index.ts"]);
+  test("another component may import vsa's runtime and types entries, but no vsa internal", async () => {
+    expect(components.vsa.publicEntries).toEqual(["src/vsa/index.ts", "src/vsa/types.ts"]);
     await withRepoFixture("soma-boundaries-vsa-", async (root) => {
       const importer = join(root, "src/cli/vsa-entry-fixture.ts");
       const internals = (await readdir(join(root, "src/vsa")))
-        .filter((name) => name.endsWith(".ts") && name !== "index.ts");
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
       expect(internals.length).toBeGreaterThan(0);
-      await writeFile(importer, internals.map((name) => name === "types.ts"
-        ? 'import type { VerificationStateArtifact } from "../vsa/types";\n'
-        : `import "../vsa/${name.slice(0, -3)}";\n`).join(""));
+      await writeFile(importer, internals.map((name) => `import "../vsa/${name.slice(0, -3)}";\n`).join(""));
       const internal = checkBoundaries({ root, updateBaseline: true });
       expect(internal.ok).toBe(false);
       for (const name of internals) {
@@ -66,7 +64,10 @@ describe("component boundaries on the repository", () => {
         }));
       }
 
-      await writeFile(importer, 'import { parseVsa, type VerificationStateArtifact } from "../vsa/index";\n');
+      await writeFile(importer, [
+        'import { parseVsa } from "../vsa/index";',
+        'import type { VerificationStateArtifact } from "../vsa/types";',
+      ].join("\n"));
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
@@ -76,8 +77,8 @@ describe("component boundaries on the repository", () => {
     });
   }, { timeout: 30_000 });
 
-  test("shared types reach only memory's types entry, even transitively", () => {
-    expect(components.memory.publicEntries).toEqual(["src/memory/index.ts", "src/memory/types.ts"]);
+  test.each(["memory", "vsa"] as const)("shared types reach only %s's types entry, even transitively", (component) => {
+    expect(components[component].publicEntries).toEqual([`src/${component}/index.ts`, `src/${component}/types.ts`]);
     const report = checkBoundaries({ root: repoRoot });
     const reachable = new Set<string>();
     const pending = ["src/types.ts"];
@@ -89,8 +90,8 @@ describe("component boundaries on the repository", () => {
         if (edge.from === file) pending.push(edge.to);
       }
     }
-    expect([...reachable].filter((file) => file.startsWith("src/memory/")))
-      .toEqual(["src/memory/types.ts"]);
+    expect([...reachable].filter((file) => file.startsWith(`src/${component}/`)))
+      .toEqual([`src/${component}/types.ts`]);
   });
 
   test("another component may import memory's runtime and types entries, but no memory internal", async () => {

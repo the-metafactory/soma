@@ -311,12 +311,13 @@ export {
   getGoal,
   getSection,
   getVerification,
+  parseVsa,
   recomputeProgress,
   recomputeVerified,
   setSection,
+  serializeVsa,
   updateCriterion,
 } from "./vsa/index";
-export { parseVsa, serializeVsa } from "./vsa/index";
 export {
   abandonAlgorithmRun,
   completeAlgorithmRun,
@@ -644,8 +645,6 @@ export {
   type ScaffoldVsaInput,
   type SetActiveVsaResult,
   type WriteVsaResult,
-} from "./vsa/index";
-export {
   reconcileVsa,
   reconcileVsaArtifacts,
   type VsaConflictPolicy,
@@ -653,8 +652,9 @@ export {
   type VsaReconcileReport,
   type VsaReconcileResult,
   type ReconcileVsaOptions,
+  type CompletenessGap,
+  type CompletenessReport,
 } from "./vsa/index";
-export { type CompletenessGap, type CompletenessReport } from "./vsa/index";
 
 // Work graph (#497, DD-16): typed cross-session effort topology. The contract
 // layer and the store seam are public; backends are imported by name.

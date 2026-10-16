@@ -79,7 +79,7 @@ export const components: ComponentManifest<ComponentName> = {
   },
   vsa: {
     files: ["src/vsa/**"],
-    publicEntries: ["src/vsa/index.ts"],
+    publicEntries: ["src/vsa/index.ts", "src/vsa/types.ts"],
     mayImport: ["core", "events", "memory", "purpose", "legacy"],
   },
   tools: {
