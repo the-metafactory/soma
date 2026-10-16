@@ -249,27 +249,27 @@
       "count": 6
     }
   },
-  "src/memory-audit.ts": {
+  "src/memory/memory-audit.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/memory-backfill.ts": {
+  "src/memory/memory-backfill.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/memory-consolidate.ts": {
+  "src/memory/memory-consolidate.ts": {
     "soma/no-discarded-error": {
       "count": 10
     }
   },
-  "src/memory-index.ts": {
+  "src/memory/memory-index.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/memory-journal.ts": {
+  "src/memory/memory-journal.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
@@ -284,12 +284,12 @@
       "count": 2
     }
   },
-  "src/memory-write.ts": {
+  "src/memory/memory-write.ts": {
     "soma/no-discarded-error": {
       "count": 5
     }
   },
-  "src/memory.ts": {
+  "src/memory/memory.ts": {
     "soma/no-discarded-error": {
       "count": 3
     }
