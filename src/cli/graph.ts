@@ -33,11 +33,12 @@ import { resolve } from "node:path";
 
 import packageJson from "../../package.json";
 import { assertActiveCliRuntime } from "../runtime-artifact";
-import { buildBriefMissing } from "../build-brief";
-
-const SOMA_VERSION: string = packageJson.version;
-
+// Repo resolution and the bridge's node read live in the graph component,
+// not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
+// to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
+// other importers use graph's public entry, so there is one path to each symbol.
 import {
+  buildBriefMissing,
   WorkGraph,
   WorkGraphError,
   UnreadableBlockersError,
@@ -67,32 +68,42 @@ import {
   type Reaction,
   type ReceiptScan,
   type WorkGraphEvidenceKind,
-} from "../work-graph";
-import { deriveAttestation, findGraphRoot } from "../work-graph-attestation";
-import { GITHUB_DOTCOM, displayRepo, formatRepoRef, parseLocatedNodeId, type RepoRef } from "../work-graph-ref";
-import { ProposalFileError, hasProposalMarker, proposalMarker, proposalNodeSpec, readProposalFile, type ProposalFile } from "../proposal-file";
-import {
+  deriveAttestation,
+  findGraphRoot,
+  GITHUB_DOTCOM,
+  displayRepo,
+  formatRepoRef,
+  parseLocatedNodeId,
+  type RepoRef,
+  ProposalFileError,
+  hasProposalMarker,
+  proposalMarker,
+  proposalNodeSpec,
+  readProposalFile,
+  type ProposalFile,
   isProbeRefusal,
   loadProbeRegistry as defaultLoadProbeRegistry,
   type ProbeRegistry,
-} from "../work-graph-probe-registry";
-import {
   allProbesPassed,
   authorizeProbeTree,
   isProbeEscape,
   probeDirectory,
   runCommand,
   runProbes as defaultRunProbes,
-} from "../work-graph-probes";
-// Repo resolution and the bridge's node read live in `../work-graph-bridge` (core),
-// not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
-// to re-implement it, becoming the second reader §2.7 forbids. No re-export — the
-// other importers point at core directly, so there is one path to each symbol.
-import { createGraphStore, localBlockerId, localNodeId, probeRegistryKey, resolveGraphRepo, resolveNodeTarget } from "../work-graph-bridge";
+  createGraphStore,
+  localBlockerId,
+  localNodeId,
+  probeRegistryKey,
+  resolveGraphRepo,
+  resolveNodeTarget,
+} from "../graph/index";
+
 import { invocationCwd } from "../core/index";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 import { GOAL_ID_PATTERN, readGoalStatus, warnServes, type ServesOptions } from "../goal-reference";
+
+const SOMA_VERSION: string = packageJson.version;
 
 const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "add", "link", "chart", "close", "audit", "decisions", "file-proposal"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];

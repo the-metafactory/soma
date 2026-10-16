@@ -18,7 +18,7 @@ import type { BridgedNodeReport, GraphStore } from "./work-graph";
 import { createGitHubGraphStore } from "./work-graph-github";
 import { createGitLabGraphStore } from "./work-graph-gitlab";
 import { runCommand, type CommandRequest } from "./work-graph-probes";
-import { invocationCwd } from "./core/index";
+import { invocationCwd } from "../core/index";
 import {
   GITHUB_DOTCOM,
   edgeNodeId,

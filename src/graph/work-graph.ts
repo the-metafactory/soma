@@ -21,7 +21,7 @@ import { replaceNodeProse } from "./work-graph-node-block";
  */
 
 import { createHash } from "node:crypto";
-import type { EvidenceKind } from "./types";
+import type { EvidenceKind } from "../types";
 
 /**
  * The only classification the runtime enforces (#485). The work-kind vocabulary

@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
-import { proposalMarker } from "../src/proposal-file";
-import { WorkGraphError, type GraphStore } from "../src/work-graph";
-import { createGitHubGraphStore, parseGhApiOutput, type GitHubApiRequest, type GitHubApiTransport } from "../src/work-graph-github";
+import {
+  proposalMarker,
+  WorkGraphError,
+  type GraphStore,
+  createGitHubGraphStore,
+  parseGhApiOutput,
+  type GitHubApiRequest,
+  type GitHubApiTransport,
+} from "../../src/graph/index";
 
 const REPO = "the-metafactory/soma";
 const MARKER = proposalMarker("errata-check-g1");

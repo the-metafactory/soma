@@ -5,10 +5,16 @@ import { join } from "node:path";
 
 import { parseGraphArgs, runGraphCli } from "../src/cli/graph";
 import { SomaCliError } from "../src/cli/errors";
-import type { CreateNodeSpec, GraphStore, NodeState } from "../src/work-graph";
-import { hasProposalMarker, proposalMarker } from "../src/proposal-file";
-import { createGitHubGraphStore, type GitHubApiTransport } from "../src/work-graph-github";
-import { WorkGraphError } from "../src/work-graph";
+import {
+  type CreateNodeSpec,
+  type GraphStore,
+  type NodeState,
+  hasProposalMarker,
+  proposalMarker,
+  createGitHubGraphStore,
+  type GitHubApiTransport,
+  WorkGraphError,
+} from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const BRIEF = "## Deliverable\nA check that refuses the bad output.\n\n## Acceptance criteria\n- The check fails on the cited case.\n";

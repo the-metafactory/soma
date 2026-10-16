@@ -1,16 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  checkGitHubConfinement,
-  deriveAttestation,
-  findGraphRoot,
-  parseAuthStatusLogins,
-  type AttestationInputs,
-  type CommandOutcome,
-  type CommandRequest,
-  type ConfinementResult,
-  type NodeRef,
-  type NodeState,
-} from "../src/index";
+import { checkGitHubConfinement, deriveAttestation, findGraphRoot, parseAuthStatusLogins, type AttestationInputs, type CommandOutcome, type CommandRequest, type ConfinementResult, type NodeRef, type NodeState } from "../../src/graph/index";
 
 const AT = "2026-08-04T09:00:00.000Z";
 

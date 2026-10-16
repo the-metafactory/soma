@@ -6,8 +6,12 @@ import { promoteInboundContent, scanInboundContent } from "../policy/inbound-sec
 import { inspectRuntimePolicy, RUNTIME_POLICY_SURFACES } from "../policy/runtime-policy";
 import { evaluateToolCallPolicyGuard, type ToolCallPolicyGuardOptions } from "../policy/tool-policy-guard";
 import type { InboundContentScanOptions, RuntimePolicyConfigChange, RuntimePolicyInspectOptions, RuntimePolicyPermissionRequest, RuntimePolicySurface, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../policy/types";
-import { loadProbeRegistry, type ProbeRegistry } from "../work-graph-probe-registry";
-import { probeRegistryKey, resolveGraphRepo } from "../work-graph-bridge";
+import {
+  loadProbeRegistry,
+  type ProbeRegistry,
+  probeRegistryKey,
+  resolveGraphRepo,
+} from "../graph/index";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseGraphArgs, runGraphCli } from "../src/cli/graph";
-import { renderCloseReceipt, type GraphStore, type NodeState } from "../src/work-graph";
+import { renderCloseReceipt, type GraphStore, type NodeState } from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma" } as const;

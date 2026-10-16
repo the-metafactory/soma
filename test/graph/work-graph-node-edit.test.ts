@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { replaceNodeProse } from "../src/work-graph-node-block";
+import { replaceNodeProse } from "../../src/graph/index";
 
 test("prose edits retain node and GitLab routing blocks verbatim", () => {
   const node = '<!-- soma:work-graph-node\n{ "autonomy": "approve" }\n-->';

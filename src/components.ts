@@ -148,8 +148,11 @@ export const components: ComponentManifest<ComponentName> = {
     publicEntries: ["src/router/index.ts"],
     mayImport: ["core", "algorithm", "legacy"],
   },
+  // Node #810 declares a single public entry. Type-only consumers therefore
+  // count the full barrel in the static closure, while Bun erases their imports.
   graph: {
-    files: ["src/work-graph", "src/work-graph-*", "src/build-brief", "src/proposal-file"],
+    files: ["src/graph/**"],
+    publicEntries: ["src/graph/index.ts"],
     mayImport: ["core", "legacy"],
   },
   execution: {

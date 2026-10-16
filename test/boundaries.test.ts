@@ -8,6 +8,7 @@ import {
   CLOSURE_STEP,
   VIOLATIONS_PATH,
   checkBoundaries,
+  collectSpecifiers,
   closureCeiling,
   formatReport,
 } from "../scripts/check-boundaries";
@@ -44,6 +45,42 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("algorithm's graph dependency is type-only despite its static barrel closure", async () => {
+    const source = await Bun.file(join(repoRoot, "src/algorithm/algorithm.ts")).text();
+    const edges = collectSpecifiers("algorithm.ts", source).filter(({ specifier }) => specifier.includes("graph/"));
+    expect(edges).toEqual([{ specifier: "../graph/index", kind: "type-import" }]);
+    // The closure check intentionally includes type edges. Bun must still erase
+    // this contract import so pure algorithm calls do not evaluate the backends.
+    const emitted = new Bun.Transpiler({ loader: "ts" }).transformSync(source);
+    expect(collectSpecifiers("algorithm.js", emitted).filter(({ specifier }) => specifier.includes("graph/"))).toEqual([]);
+  });
+
+  test("graph public entry rejects every internal and has no outward violations", async () => {
+    expect(components.graph.files).toEqual(["src/graph/**"]);
+    expect(components.graph.publicEntries).toEqual(["src/graph/index.ts"]);
+    await withRepoFixture("soma-boundaries-graph-", async (root) => {
+      const importer = join(root, "src/cli/graph-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/graph")))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts");
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../graph/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/graph-entry-fixture.ts",
+          to: `src/graph/${name}`,
+          toComponent: "graph",
+          rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, 'import "../graph/index";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "graph" && v.toComponent !== "legacy")).toEqual([]);
+    });
+  }, { timeout: 30_000 });
+
   test("router public entry rejects every internal and has no outward violations", async () => {
     expect(components.router.files).toEqual(["src/router/**"]);
     expect(components.router.publicEntries).toEqual(["src/router/index.ts"]);

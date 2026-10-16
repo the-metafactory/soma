@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
-import { type GraphStore, WorkGraphError } from "../src/work-graph";
-import { createGitHubGraphStore, type GitHubApiRequest, type GitHubApiTransport } from "../src/work-graph-github";
-import { createGitLabGraphStore } from "../src/work-graph-gitlab";
+import {
+  type GraphStore,
+  WorkGraphError,
+  createGitHubGraphStore,
+  type GitHubApiRequest,
+  type GitHubApiTransport,
+  createGitLabGraphStore,
+} from "../../src/graph/index";
 
 const REPO = "the-metafactory/soma";
 const API_TIME = "2026-10-14T10:00:00Z";

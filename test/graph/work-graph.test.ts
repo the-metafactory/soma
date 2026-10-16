@@ -1,38 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
-import {
-  WorkGraph,
-  WorkGraphError,
-  UnreadableBlockersError,
-  assertClosable,
-  hashGatedNodeFields,
-  estimateReceiptChars,
-  scanCommentsForReceipt,
-  spliceSection,
-  DECISIONS_BEGIN,
-  DECISIONS_END,
-  parseNodeSpec,
-  parseProbe,
-  renderCloseReceipt,
-  RECEIPT_COMMENT_BUDGET,
-  RECEIPT_COMMENT_LIMIT,
-  resolveClaimRace,
-  toNode,
-  type ClaimResult,
-  type ReleaseResult,
-  type CloseReceipt,
-  type CommentRef,
-  type CreateNodeOptions,
-  type CreateNodeSpec,
-  type RehomeSelection,
-  type ConfinementResult,
-  type GraphStore,
-  type NodeRef,
-  type NodeState,
-  type Probe,
-  type WorkGraphNode,
-} from "../src/index";
+import { walkFakeSubtree } from "../fixtures/work-graph-fixtures";
+import { WorkGraph, WorkGraphError, UnreadableBlockersError, assertClosable, hashGatedNodeFields, estimateReceiptChars, scanCommentsForReceipt, spliceSection, DECISIONS_BEGIN, DECISIONS_END, parseNodeSpec, parseProbe, renderCloseReceipt, RECEIPT_COMMENT_BUDGET, RECEIPT_COMMENT_LIMIT, resolveClaimRace, toNode, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type ConfinementResult, type GraphStore, type NodeRef, type NodeState, type Probe, type WorkGraphNode } from "../../src/graph/index";
 
 test("the close hash binds store-owned home without changing other node hashes", () => {
   const base = { autonomy: "approve" as const };
@@ -411,7 +380,7 @@ test("spliceSection replaces only the marked span, and refuses malformed markers
 // copy of the marker strings.
 test("the orienteer map template is writable by spliceSection (#621)", async () => {
   const template = await readFile(
-    new URL("../src/skills/orienteer/references/map.md", import.meta.url),
+    new URL("../../src/skills/orienteer/references/map.md", import.meta.url),
     "utf8",
   );
   const spliced = spliceSection(template, "- [A closed node](link) — the gist");
