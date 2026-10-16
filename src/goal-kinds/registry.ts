@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { feedKind } from "./feed";
+import { outlineKind } from "./outline";
+import { announceKind } from "./announce";
 
 /** One module per kind. No inference, execution or private home reads here. */
-export const goalKinds = { feed: feedKind } as const;
+export const goalKinds = { feed: feedKind, outline: outlineKind, announce: announceKind } as const;
 
 /** JSON-safe inference catalog. Private parameters expose only resource type. */
 export function listGoalKinds() {

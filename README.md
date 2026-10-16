@@ -325,10 +325,10 @@ exit code is 0 (1 on a failed fetch).
 in `src/goal-kinds/registry.ts`. Each kind lives in
 `src/goal-kinds/<kind>.ts` and declares a strict Zod parameter object, public
 parameters, private parameter resource types, its existing command and argv
-mapping, a Cortex Reflex target, and a fixed default schedule. Sensors own a
+mapping, a Reflex target, and a fixed default schedule. Sensors own a
 state rule rendered from their threshold parameters. Unknown fields and missing
 required fields fail `params.safeParse`; JSON output uses JSON Schema for public
-parameters and only `{resourceType: "feed"}` for the private `url` parameter.
+parameters and only `{resourceType: "..."}` for private parameters.
 Catalog listing never reads private resources. There is no `soma goal run`.
 
 The first kind is `feed`: `goal` and `url` are required; `window_days` defaults
@@ -338,6 +338,24 @@ to 7 and `min` to 1, both positive integers. Its argv maps to `--goal`, `--url`,
 target `@jc/goal-sense-feed` uses Cortex's existing `process` handler. Binding
 that target to a process spec on the personal stack belongs to goal activation
 setup; listing a kind does not install a route or activation.
+
+Two mechanism kinds register the landed draft commands. Their default schedules
+use `Europe/Zurich`, and private values are resolved locally before execution:
+
+| Kind | Parameters | Private resource types | Schedule | Target |
+| --- | --- | --- | --- | --- |
+| `outline` | Required `goal`, `tana_tag`, `drafts_dir`; `days` defaults to 7; optional positive integer `slot_minutes` | `tana_tag`: `tana-tag`, `drafts_dir`: `directory` | Monday 06:00 (`0 6 * * 1`) | `@jc/g5-outline` |
+| `announce` | Required `goal`, `url`, `channels` (nonempty list of channel names) | `url`: `feed`, `channels`: `channels` | Daily 06:35 (`35 6 * * *`) | `@jc/g5-announce` |
+
+`outline` maps to `soma goal outline --goal ... --tana-tag ... --drafts-dir ...
+--days ...`, adding `--slot-minutes` only when supplied. Both numeric parameters
+are positive integers. The slot proposal is part of `outline`, with no separate
+kind. Its existing target kickstarts the Calendar-granted launchd runner from
+node #845: a Cortex-spawned process is silently denied calendar access.
+`announce` maps to `soma goal announce --goal ... --url ... --channels ...`,
+joining the channel list with commas. Feed URLs must use HTTPS; private parameters
+also accept `<resource:name>` references for local resolution. Neither mechanism
+publishes a post or writes a calendar event.
 
 Private resources live only at `<soma-home>/profile/resources.yaml`, as one
 YAML sequence of entries. For example, using a generic placeholder URL:
