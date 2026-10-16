@@ -240,7 +240,7 @@ export function communicationContractFile(input: ProjectionInput, path: string):
  * The working method (principles and playbooks indexes) as a projected file, or
  * `[]` when the home has no installed the-algorithm skill. Same shape as the
  * communication contract: the content is rendered once at load
- * (`src/working-method.ts`) and identical on every substrate, and the caller
+ * (`src/home/working-method.ts`) and identical on every substrate, and the caller
  * passes the substrate-native path.
  */
 export function workingMethodFile(input: ProjectionInput, path: string): { path: string; content: string }[] {

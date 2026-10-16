@@ -429,7 +429,7 @@ extension's system prompt, which is that substrate's native equivalent of an
 appended system-prompt file — how the assistant talks has to be present on every
 turn, not fetched on demand.
 
-The working method rides the same rail. `src/working-method.ts` reads the
+The working method rides the same rail. `src/home/working-method.ts` reads the
 installed the-algorithm skill's `references/principles.md` and
 `references/playbooks.md`, rewrites their `references/...` pointers to absolute
 paths into `<soma-home>/skills/the-algorithm/references/`, and projects the
