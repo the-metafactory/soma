@@ -1,4 +1,5 @@
 import type { InferenceBackend, InferenceLevel, InferenceMode, InferenceRequest } from "../types";
+import { devNull } from "node:os";
 
 const CLAUDE_MODEL_BY_LEVEL: Record<InferenceLevel, string> = {
   fast: "haiku",
@@ -28,6 +29,8 @@ export interface ClaudeCodeBackendOptions {
   binary?: string;
   spawn?: typeof Bun.spawn;
   env?: NodeJS.ProcessEnv;
+  /** Private one-shot calls must not persist sessions or run local hooks/tools. */
+  privateCall?: boolean;
 }
 
 function allowedSubprocessEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
@@ -72,11 +75,13 @@ export class ClaudeCodeBackend implements InferenceBackend {
   private readonly binary: string;
   private readonly spawn: typeof Bun.spawn;
   private readonly env: NodeJS.ProcessEnv;
+  private readonly privateCall: boolean;
 
   constructor(options: ClaudeCodeBackendOptions = {}) {
     this.binary = options.binary ?? "claude";
     this.spawn = options.spawn ?? Bun.spawn;
     this.env = allowedSubprocessEnv(options.env);
+    this.privateCall = options.privateCall ?? false;
   }
 
   resolveModel(level: InferenceLevel, mode: InferenceMode): string {
@@ -92,13 +97,21 @@ export class ClaudeCodeBackend implements InferenceBackend {
       model,
       "--allowedTools",
       "",
-      "--hookTimeout",
-      "1",
+      ...(this.privateCall ? [
+        "--no-session-persistence", "--tools", "", "--disable-slash-commands",
+        "--debug-file", devNull,
+        "--setting-sources", "", "--settings", '{"disableAllHooks":true}',
+        "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+        "--system-prompt", "Return only the requested JSON. Do not use tools or retain the input.",
+      ] : ["--hookTimeout", "1"]),
     ], {
       stdin: promptStream(prompt),
       stdout: "pipe",
       stderr: "pipe",
-      env: this.env,
+      env: this.privateCall ? {
+        ...this.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1", DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      } : this.env,
     });
 
     const killTimer = setTimeout(() => {

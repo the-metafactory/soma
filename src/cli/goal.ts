@@ -12,8 +12,9 @@ import { defaultSomaHome, type SomaPathsOptions } from "../core/index";
 import { loadSomaConfig } from "../soma-config";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
+import type { GoalProposeDeps, GoalProposeOptions } from "../goal-propose";
 
-type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline" | "announce" | "kinds" | "sweep";
+type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline" | "announce" | "kinds" | "sweep" | "propose";
 
 export interface ParsedGoalArgs {
   command: "goal";
@@ -27,14 +28,16 @@ export interface ParsedGoalArgs {
     feed?: FeedSensorOptions;
     outline?: GoalOutlineOptions;
     announce?: GoalAnnounceOptions;
+    propose?: GoalProposeOptions;
   };
 }
 
 const ACTIVATIONS_DIRECTORY_HELP = "(REFLEX_ACTIVATIONS_DIR overrides goals.activations_dir in <soma-home>/config.yaml; default: ~/.config/reflex/personal-activations)";
 
 export const GOAL_COMMAND_HELP = {
-  usage: `Usage: soma goal <add|activate|set-status|list|sense|outline|announce|kinds|sweep> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
+  usage: `Usage: soma goal <add|activate|set-status|list|sense|outline|announce|kinds|sweep|propose> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
   subcommands: {
+    propose: "Usage: soma goal propose --wording <text> [--hint <text>] [--param <key=value>]... [--json] [--home-dir <dir>] [--soma-home <dir>]",
     add: "Usage: soma goal add --wording <text> [--supports M<n>...] [--sensor <activation-id>] [--review-by YYYY-MM-DD] [--home-dir <dir>] [--soma-home <dir>]",
     activate: `Usage: soma goal activate G<n> [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
     "set-status": "Usage: soma goal set-status G<n> <paused|achieved|dropped|draft> [--home-dir <dir>] [--soma-home <dir>]",
@@ -46,6 +49,30 @@ export const GOAL_COMMAND_HELP = {
     announce: "Usage: soma goal announce --goal G<n> --url <https-url> --channels <a,b,...> [--home-dir <dir>] [--soma-home <dir>] (drafts only; SOMA_PRINCIPAL unset: no ledger publication)",
   },
 };
+
+function parseProposeArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
+  const usage = (reason: string) => new SomaCliError(`soma goal propose: ${reason}. ${GOAL_COMMAND_HELP.subcommands.propose}`, 2);
+  const propose: GoalProposeOptions = { wording: "" };
+  const params: Record<string, string> = Object.create(null) as Record<string, string>;
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index];
+    if (arg === "--json") { options.json = true; continue; }
+    if (!["--wording", "--hint", "--param", "--home-dir", "--soma-home"].includes(arg)) throw usage("unsupported argument");
+    const value = rest[++index];
+    if (!value || value.startsWith("--")) throw usage(`${arg} requires a value`);
+    if (arg === "--wording") propose.wording = value;
+    if (arg === "--hint") propose.hint = value;
+    if (arg === "--home-dir") options.homeDir = value;
+    if (arg === "--soma-home") options.somaHome = value;
+    if (arg === "--param") {
+      const equal = value.indexOf("=");
+      if (equal < 1 || equal === value.length - 1 || !/^[a-z][a-z0-9_.-]*$/.test(value.slice(0, equal))) throw usage("--param requires key=value");
+      params[value.slice(0, equal)] = value.slice(equal + 1);
+    }
+  }
+  if (!propose.wording.trim()) throw usage("--wording is required");
+  options.propose = { ...propose, params };
+}
 
 function parseAnnounceArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
   const usage = (reason: string) => new SomaCliError(`soma goal announce: ${reason}. ${GOAL_COMMAND_HELP.subcommands.announce}`, 2);
@@ -131,10 +158,14 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
 
 export function parseGoalArgs(args: string[]): ParsedGoalArgs {
   const [command, action, ...rest] = args;
-  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "outline", "announce", "kinds", "sweep"].includes(action)) {
+  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "outline", "announce", "kinds", "sweep", "propose"].includes(action)) {
     throw new Error(GOAL_COMMAND_HELP.usage);
   }
   const options: ParsedGoalArgs["options"] = { add: { wording: "", supports: [] }, includeWording: false };
+  if (action === "propose") {
+    parseProposeArgs(rest, options);
+    return { command: "goal", action, options };
+  }
   if (action === "announce") {
     parseAnnounceArgs(rest, options);
     return { command: "goal", action, options };
@@ -185,11 +216,19 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
 
 export async function runGoalCli(
   parsed: ParsedGoalArgs,
-  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps>; sweep?: Partial<GoalSweepDeps> } = {},
+  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps>; sweep?: Partial<GoalSweepDeps>; propose?: Partial<GoalProposeDeps> } = {},
 ): Promise<string> {
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
   switch (action) {
+    case "propose": {
+      if (!options.propose) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.propose, 2);
+      const { proposeGoal, formatGoalProposal } = await import("../goal-propose");
+      const result = await proposeGoal({
+        ...dependencies.propose, ...options.propose, somaHome: defaultSomaHome(options),
+      });
+      return options.json ? JSON.stringify(result, null, 2) : formatGoalProposal(result);
+    }
     case "sweep": {
       const lines: string[] = [];
       const result = await runGoalSweep({
