@@ -297,7 +297,7 @@ A goal's sensor reports its state on the run ledger (see [Run ledger](#run-ledge
 `soma goal sense feed` is the feed sensor, meant to be run by a Reflex activation:
 
 ```bash
-soma goal sense feed --goal G5 --url https://example.org/feed.xml [--window-days 7] [--min 1]
+soma goal sense feed --goal G5 --url https://example.org/feed.xml [--window-days 7] [--min 1] [--link-match <substring>]
 ```
 
 It fetches one RSS 2.0 or Atom feed over `https:` (10 s limit for the whole
@@ -306,7 +306,11 @@ items dated in the last `--window-days` days (RSS `<pubDate>`; Atom
 `<published>`, else `<updated>`; items dated after now do not count), and
 publishes one `execution.run.finished` with `ran.kind = job`, `ran.ref =
 goal-sense/G<n>`, `serves.goal = G<n>` and `state {subject: G<n>, value}`. At
-least `--min` items is `on-track`, fewer (including none) is `off-track`. An
+least `--min` items is `on-track`, fewer (including none) is `off-track`.
+With `--link-match <substring>`, only items whose link contains that literal,
+case-sensitive substring count; items without a link do not count.
+For example, `--link-match /shorts/` counts YouTube Shorts while excluding
+`/watch?v=` entries. Without the flag, every item in the window counts. An
 item with a missing or unparseable date is skipped with one stderr warning
 naming its position. A failed fetch (network, timeout, non-2xx, a redirect off
 `https:` or past 5 hops, a body over 2 MiB) or a body with
@@ -382,7 +386,8 @@ Catalog listing never reads private resources. There is no `soma goal run`.
 
 The first kind is `feed`: `goal` and `url` are required; `window_days` defaults
 to 7 and `min` to 1, both positive integers. Its argv maps to `--goal`, `--url`,
-`--window-days` and `--min` on `soma goal sense feed`. Its default schedule is
+`--window-days` and `--min` on `soma goal sense feed`. Optional `link_match`
+is a string mapped to `--link-match`. Its default schedule is
 `30 6 * * *`, timezone `Europe/Zurich`; the proposer must keep it. The declared
 target `@jc/goal-sense-feed` uses Cortex's existing `process` handler. Binding
 that target to a process spec on the personal stack belongs to goal activation

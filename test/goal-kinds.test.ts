@@ -120,6 +120,18 @@ test("feed argv yields exactly the landed subcommand flags and round trips", () 
   });
 });
 
+test("feed link_match is optional and round trips to the sensor's linkMatch option", () => {
+  const filtered = { ...params, link_match: "/shorts/" };
+  expect(feedKind.params.parse(filtered)).toEqual(filtered);
+  expect(feedKind.params.safeParse({ ...params, link_match: 1 }).success).toBe(false);
+  const flags = feedKind.argv(filtered);
+  expect(flags.slice(-2)).toEqual(["--link-match", "/shorts/"]);
+  expect(parseGoalArgs([...feedKind.command.slice(1), ...flags]).options.feed).toEqual({
+    goal: "G5", url: params.url, windowDays: 7, min: 1, linkMatch: "/shorts/",
+  });
+  expect(feedKind.stateRule(filtered)).toContain('Only items whose link contains "/shorts/" count.');
+});
+
 test.each(["goal", "url"])("required field %s fails safeParse naming the field", (field) => {
   const input = Object.fromEntries(Object.entries(params).filter(([name]) => name !== field));
   const result = feedKind.params.safeParse(input);
@@ -169,6 +181,7 @@ test("kinds JSON lists every kind with JSON Schema and only the private resource
       goal: { type: "string", pattern: "^G\\d+$" },
       url: { resourceType: "feed" },
       window_days: { type: "integer", default: 7 }, min: { type: "integer", default: 1 },
+      link_match: { type: "string" },
     },
   });
   expect(catalog[0].params.properties.url).toEqual({ resourceType: "feed" });

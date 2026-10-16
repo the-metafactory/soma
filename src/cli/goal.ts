@@ -46,7 +46,7 @@ export const GOAL_COMMAND_HELP = {
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
     kinds: "Usage: soma goal kinds [--json] [--home-dir <dir>] [--soma-home <dir>]",
     sweep: `Usage: soma goal sweep [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP} (SOMA_PRINCIPAL unset: print checks without publishing)`,
-    sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
+    sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--link-match <substring>] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
     outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--slot-minutes <n>] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
     announce: "Usage: soma goal announce --goal G<n> --url <https-url> --channels <a,b,...> [--home-dir <dir>] [--soma-home <dir>] (drafts only; SOMA_PRINCIPAL unset: no ledger publication)",
   },
@@ -156,7 +156,7 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
   for (let index = 0; index < rest.length; index++) {
     const arg = rest[index];
     const value = rest[index + 1];
-    if (!["--goal", "--url", "--window-days", "--min", "--home-dir", "--soma-home"].includes(arg)) {
+    if (!["--goal", "--url", "--window-days", "--min", "--link-match", "--home-dir", "--soma-home"].includes(arg)) {
       // Do not echo unknown arguments, as for the other goal verbs.
       throw usage("unsupported argument");
     }
@@ -164,6 +164,7 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
     index++;
     if (arg === "--goal") feed.goal = value;
     if (arg === "--url") feed.url = value;
+    if (arg === "--link-match") feed.linkMatch = value;
     // The sensor refuses anything that is not a positive integer.
     if (arg === "--window-days") feed.windowDays = Number(value);
     if (arg === "--min") feed.min = Number(value);
