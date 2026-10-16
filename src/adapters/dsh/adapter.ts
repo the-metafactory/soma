@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Projection, ProjectionInput, SomaAdapter } from "../../types";
-import { activeVsaBundleFile } from "../../adapter-active-vsa";
+import { activeVsaBundleFile } from "../../vsa/index";
 import {
   communicationContractFile,
   renderAssistantCore,

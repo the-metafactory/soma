@@ -12,7 +12,7 @@ import {
   setActiveVsa,
   type EffortTier,
   type VsaListEntry,
-} from "./vsa";
+} from "./vsa/index";
 import { installVsaSkill } from "./vsa-skill-installer";
 import { datePrefixSlug } from "./core/index";
 

@@ -14,10 +14,11 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "./events/index";
-import { getActiveVsa, readVsa, writeVsa } from "./vsa";
+import { getActiveVsa, readVsa, writeVsa } from "./vsa/index";
 import { runSomaLifecycleVsaUpdated } from "./lifecycle";
-import { getCriteria } from "./vsa-accessors";
-import type { AlgorithmEffortTier, AlgorithmPhase, VerificationStateArtifact, SubstrateId } from "./types";
+import { getCriteria } from "./vsa/index";
+import type { AlgorithmEffortTier, AlgorithmPhase, SubstrateId } from "./types";
+import type { VerificationStateArtifact } from "./vsa/index";
 
 export interface AlgorithmVsaOptions {
   homeDir?: string;

@@ -3,7 +3,7 @@ import { activeGoalLines } from "../../goal-records";
 import type { SkillsDiscoveryMode } from "../../install-spec";
 import { withProvenance as applyProvenance } from "./provenance";
 import type { ProjectionInput, SomaSkill, SubstrateId } from "../../types";
-import { getCriteria, getGoal } from "../../vsa-accessors";
+import { getCriteria, getGoal } from "../../vsa/index";
 import { VSA_SKILL_NAME } from "../../vsa-skill-installer";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import { renderSkillRegistryEntry } from "./skill-registry";

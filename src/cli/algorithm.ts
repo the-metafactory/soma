@@ -40,7 +40,7 @@ import { defaultSomaHome } from "../core/index";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
 import { algorithmTouchedBy } from "../algorithm-provenance";
 import { datePrefixSlug } from "../core/index";
-import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa-accessors";
+import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa/index";
 import { getRunPhase } from "../algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";

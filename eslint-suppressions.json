@@ -389,7 +389,7 @@
       "count": 6
     }
   },
-  "src/vsa-reconcile.ts": {
+  "src/vsa/vsa-reconcile.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
@@ -399,7 +399,7 @@
       "count": 3
     }
   },
-  "src/vsa.ts": {
+  "src/vsa/vsa.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }

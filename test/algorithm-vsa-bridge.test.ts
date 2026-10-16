@@ -15,7 +15,7 @@ import {
   writeVsa,
 } from "../src/index";
 import { _resetSuggestSessionForTests } from "../src/algorithm-vsa-bridge";
-import { updateCriterion } from "../src/vsa-accessors";
+import { updateCriterion } from "../src/vsa/vsa-accessors";
 
 async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-alg-vsa-"));

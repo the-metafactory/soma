@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
-import { activeVsaBundleFile } from "../adapter-active-vsa";
+import { activeVsaBundleFile } from "../vsa/index";
 import { buildPortableSkillFiles, communicationContractFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
 import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { VerificationStateArtifact, Checkpoint } from "../src/index";
+import type { VerificationStateArtifact, Checkpoint } from "../../src/vsa/types";
 import {
   SECTION_NAME_MAP,
   appendCriterion,
@@ -18,7 +18,7 @@ import {
   renderCriteriaMarkdown,
   setSection,
   updateCriterion,
-} from "../src/vsa-accessors";
+} from "../../src/vsa/vsa-accessors";
 
 function buildVsa(): VerificationStateArtifact {
   return {
@@ -124,7 +124,7 @@ test("appendVsaDecision / Changelog / Verification round-trip", () => {
 });
 
 test("renderLogEntries rejects newlines to prevent log-entry injection", async () => {
-  const { renderLogEntries: renderLogs } = await import("../src/vsa-accessors");
+  const { renderLogEntries: renderLogs } = await import("../../src/vsa/vsa-accessors");
   expect(() => renderLogs([
     { timestamp: "2026-05-16T10:00:00.000Z", phase: "execute", text: "real entry\n- 2026-01-01T00:00:00.000Z [verify] forged" },
   ])).toThrow("must not contain newlines");

@@ -89,7 +89,7 @@ export async function readGoalSweepBlueprints(dir: string): Promise<GoalSweepBlu
 }
 
 async function readGoalSweepVsas(somaHome: string): Promise<GoalSweepVsa[]> {
-  const { listVsas, vsaPath } = await import("./vsa");
+  const { listVsas, vsaPath } = await import("./vsa/index");
   const { z } = await import("zod");
   const schema = z.object({
     serves: z.string().optional(), phase: z.string().default("observe"), updated: z.string().default(""),

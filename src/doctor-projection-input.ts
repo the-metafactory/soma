@@ -1,5 +1,5 @@
 import { listBundledSkills } from "./bundled-skills";
-import { loadActiveVsaForBundle } from "./adapter-active-vsa";
+import { loadActiveVsaForBundle } from "./vsa/index";
 import { isFsUtilsEnoent as isEnoent } from "./core/index";
 import { loadMemoryIndexForProjection } from "./memory/index";
 import { loadSomaHome } from "./soma-home";

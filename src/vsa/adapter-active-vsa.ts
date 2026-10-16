@@ -15,7 +15,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { getActiveVsa, readVsa } from "./vsa";
 import { serializeVsa } from "./vsa-parse";
-import type { VerificationStateArtifact, ProjectionSubstrate } from "./types";
+import type { VerificationStateArtifact } from "./types";
+import type { ProjectionSubstrate } from "../types";
 
 export interface LoadActiveVsaOptions {
   homeDir?: string;

@@ -78,8 +78,8 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "legacy"],
   },
   vsa: {
-    files: ["src/vsa", "src/vsa-*", "src/adapter-active-vsa"],
-    exclude: ["src/vsa-skill-installer"],
+    files: ["src/vsa/**"],
+    publicEntries: ["src/vsa/index.ts"],
     mayImport: ["core", "events", "memory", "purpose", "legacy"],
   },
   tools: {

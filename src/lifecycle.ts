@@ -12,7 +12,7 @@ import { repairProjectedArtifacts } from "./projection-self-repair";
 import { getProjectionRepairProvider, getSessionEndTranscriptHandler } from "./lifecycle-registry";
 import { loadSomaProfile } from "./soma-home";
 import { normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./work-registry";
-import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa-accessors";
+import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa/index";
 import { getRunPhase } from "./algorithm-lifecycle";
 import {
   applyVsaUpdate,
@@ -20,18 +20,9 @@ import {
   getActiveVsa,
   readVsa,
   type VsaUpdateEntry,
-} from "./vsa";
-import type {
-  AlgorithmRun,
-  AlgorithmRunSummary,
-  AlgorithmWorkIndex,
-  VerificationStateArtifact,
-  VsaUpdatePayload,
-  SomaLifecycleOptions,
-  SomaLifecycleResult,
-  SomaStartupContext,
-  SubstrateId,
-} from "./types";
+} from "./vsa/index";
+import type { AlgorithmRun, AlgorithmRunSummary, AlgorithmWorkIndex, VsaUpdatePayload, SomaLifecycleOptions, SomaLifecycleResult, SomaStartupContext, SubstrateId } from "./types";
+import type { VerificationStateArtifact } from "./vsa/index";
 
 const execFileAsync = promisify(execFile);
 

@@ -44,6 +44,38 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("another component may import vsa's public entry, but no value or type implementation file", async () => {
+    expect(components.vsa.publicEntries).toEqual(["src/vsa/index.ts"]);
+    await withRepoFixture("soma-boundaries-vsa-", async (root) => {
+      const importer = join(root, "src/cli/vsa-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/vsa")))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts");
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => name === "types.ts"
+        ? 'import type { VerificationStateArtifact } from "../vsa/types";\n'
+        : `import "../vsa/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/vsa-entry-fixture.ts",
+          to: `src/vsa/${name}`,
+          fromComponent: "cli",
+          toComponent: "vsa",
+          rule: "public-entry",
+        }));
+      }
+
+      await writeFile(importer, 'import { parseVsa, type VerificationStateArtifact } from "../vsa/index";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.ok).toBe(true);
+      expect(publicEntry.violations.filter((violation) =>
+        violation.fromComponent === "vsa" && violation.toComponent !== "legacy"))
+        .toEqual([]);
+    });
+  }, { timeout: 30_000 });
+
   test("shared types reach only memory's types entry, even transitively", () => {
     expect(components.memory.publicEntries).toEqual(["src/memory/index.ts", "src/memory/types.ts"]);
     const report = checkBoundaries({ root: repoRoot });

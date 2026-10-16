@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { warnServes } from "../src/goal-reference";
-import { parseVsa } from "../src/vsa-parse";
-import { readVsa } from "../src/vsa";
+import { parseVsa } from "../src/vsa/vsa-parse";
+import { readVsa } from "../src/vsa/vsa";
 import { parseNodeSpec } from "../src/work-graph";
 
 test("serves probes records in the supplied soma-home without leaking wording", async () => {
