@@ -6,6 +6,7 @@ import { parseBehaviorPolicy, type BehaviorPolicy } from "../policy/behavior-pol
 import type { CommunicationContract } from "./communication-contract";
 import type { SomaSkill } from "../types";
 import type { ProjectionInput } from "./types";
+import { readWorkingMethod } from "./working-method";
 
 export interface LoadSomaProfileOptions {
   /**
@@ -242,11 +243,12 @@ export async function loadSomaProfile(
   // path soma re-executes per subprocess invocation (sage #636 r2).
   // soma#329: `readPurposeProfile` reads the renamed `purpose.md` and falls back
   // to a legacy `telos.md`, so homes created before the rename still load.
-  const [assistant, principal, communication, purpose] = await Promise.all([
+  const [assistant, principal, communication, purpose, workingMethod] = await Promise.all([
     readFile(paths.resolve("profile", "assistant.md"), "utf8"),
     readFile(paths.resolve("profile", "principal.md"), "utf8"),
     readCommunicationContract(paths),
     readPurposeProfile(paths),
+    readWorkingMethod(paths.resolve("skills", "the-algorithm", "references")),
   ]);
   const missions = purposeMissions(purpose);
   // soma#784 D2/D9: typed goal records live one per file in `profile/goals/`.
@@ -283,6 +285,7 @@ export async function loadSomaProfile(
       state: paths.state(),
     },
     ...(communication === undefined ? {} : { communication }),
+    ...(workingMethod === undefined ? {} : { workingMethod }),
   };
 }
 

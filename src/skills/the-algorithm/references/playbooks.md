@@ -1,8 +1,8 @@
 # Playbooks
 
-A playbook card is the step list for one task shape. Route in this order:
+A playbook card is the step list for one task shape. Cards apply in every mode: `soma install` projects this index into each substrate's always-loaded rules, so a NATIVE turn routes to a card too. Route in this order:
 
-1. Mode and effort tier first, from the classifier (`algorithm classify`; `references/mode-detection.md` for overrides).
+1. In an Algorithm run, mode and effort tier first, from the classifier (`algorithm classify`; `references/mode-detection.md` for overrides).
 2. Then the card whose task shape matches, from the table below. One card per run; when a task changes shape mid-run (an investigation that turns into a fix), switch cards and record the switch as a decision.
 3. No card matches: run without one and record that in the run's decisions. A shape that keeps recurring without a card is a candidate for a new one.
 
@@ -21,7 +21,7 @@ A playbook card is the step list for one task shape. Route in this order:
 Using a card:
 
 - Copy its steps, verbatim and numbered, as the first items of your substrate's todo list. A step you choose not to do stays in the list as `skip: <reason>`; never drop one silently.
-- Its **Criteria** are templates: rewrite each for the task and pass them to `algorithm new --criterion "C1:…"`.
+- In an Algorithm run, its **Criteria** are templates: rewrite each for the task and pass them to `algorithm new --criterion "C1:…"`.
 - Its **Principles** are the ones that most often decide that shape; the full vocabulary is `references/principles.md`.
 - Its **Reply** line lists what the final message must contain.
 

@@ -6,6 +6,7 @@ import type { ProjectionInput } from "../home/types";
 import { activeVsaBundleFile, activeVsaProjectionPath } from "../vsa/index";
 import {
   communicationContractFile,
+  workingMethodFile,
   renderAssistantCore,
   renderPolicyProjection,
   renderProfilePointer,
@@ -25,6 +26,7 @@ export const ANTHROPIC_COWORK_PURPOSE_PATH = "soma/purpose.md";
 export const ANTHROPIC_COWORK_SKILLS_PATH = "soma/skills.md";
 export const ANTHROPIC_COWORK_POLICY_PATH = "soma/policy.md";
 export const ANTHROPIC_COWORK_COMMUNICATION_PATH = "soma/communication.md";
+export const ANTHROPIC_COWORK_PRINCIPLES_PATH = "soma/principles.md";
 export const ANTHROPIC_COWORK_MEMORY_SNAPSHOT_PATH = "soma/memory-snapshot.md";
 export const ANTHROPIC_COWORK_ACTIVE_VSA_PATH = activeVsaProjectionPath("anthropic-cowork");
 export const ANTHROPIC_COWORK_CAPTURE_README_PATH = "capture/README.md";
@@ -62,6 +64,7 @@ function renderEntrypoint(input: ProjectionInput): string {
     "Read `soma/instructions.md` and `soma/memory-snapshot.md` before making durable claims about identity, memory, active work, or prior decisions.",
     "Use `soma/skills.md` for available Soma skills and `soma/policy.md` for policy limits.",
     "Read `soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
+    "Read `soma/principles.md`, when present: the principles and playbooks that apply to every task.",
     "Write candidate durable observations into `capture/`; do not claim they are saved to Soma memory unless a separately implemented, policy-checked process later admits them.",
     "",
     "`~/.soma` is authoritative. Do not assume it is mounted in the Cowork session; files in this folder are generated snapshots and may be overwritten by the next Soma install.",
@@ -84,6 +87,7 @@ function renderReadme(): string {
     "- `skills.md` - discovered Soma skills",
     "- `policy.md` - advisory-only policy projection",
     "- `communication.md` - how the assistant talks (omitted when the home has no contract)",
+    "- `principles.md` - principles and playbooks that apply to every task (omitted when the-algorithm is not installed)",
     "- `memory-snapshot.md` - projected memory readback snapshot",
     "- `active-vsa.md` - active VSA when one is set",
     "- `<projection-folder>/capture/` - candidate memory and session notes for later review outside Cowork",
@@ -249,6 +253,8 @@ export const ANTHROPIC_COWORK_HOME_FILE_PATHS: readonly string[] = [
   // but the planner must still list it, or install writes a file the plan never
   // declared. Omitted at projection time when the home has no contract.
   ANTHROPIC_COWORK_COMMUNICATION_PATH,
+  // Same shape: omitted when the home has no installed the-algorithm skill.
+  ANTHROPIC_COWORK_PRINCIPLES_PATH,
 ];
 
 export const ANTHROPIC_COWORK_GENERATED_HOME_FILE_MARKERS = ANTHROPIC_COWORK_STATIC_HOME_FILE_DESCRIPTORS.map((file) => ({
@@ -276,6 +282,8 @@ export function projectAnthropicCoworkHome(input: ProjectionInput): Projection {
       // so it is appended here rather than added to the marker-guarded static
       // descriptors (like the active VSA, it carries the source's own heading).
       ...communicationContractFile(input, ANTHROPIC_COWORK_COMMUNICATION_PATH),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, ANTHROPIC_COWORK_PRINCIPLES_PATH),
     ],
   };
 }

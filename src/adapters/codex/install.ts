@@ -30,6 +30,8 @@ export const CODEX_HOME_FILES = [
   "memories/soma/policy.md",
   // Conditional: omitted when the home has no `profile/communication.md`.
   "memories/soma/communication.md",
+  // Conditional: omitted when the home has no installed the-algorithm skill.
+  "memories/soma/principles.md",
   "memories/soma/soma-repo.txt",
   "AGENTS.md",
   "config.toml",
@@ -49,25 +51,32 @@ export const CODEX_AGENTS_IMPORTS = ["@./memories/soma/context.md", "@./skills/t
  * least name the soma skill from their entrypoint. Codex named nothing.
  */
 export const CODEX_AGENTS_CONTRACT_IMPORT = "@./memories/soma/communication.md";
-const CODEX_CONTRACT_PROJECTION_PATH = "memories/soma/communication.md";
+
+/** The working method (principles and playbooks) is conditional the same way. */
+export const CODEX_AGENTS_WORKING_METHOD_IMPORT = "@./memories/soma/principles.md";
+
+const CODEX_CONDITIONAL_IMPORTS = [
+  { line: CODEX_AGENTS_CONTRACT_IMPORT, projectionPath: "memories/soma/communication.md" },
+  { line: CODEX_AGENTS_WORKING_METHOD_IMPORT, projectionPath: "memories/soma/principles.md" },
+] as const;
 
 export async function configureCodexAgentsImport(codexHome: string): Promise<string[]> {
   const path = join(codexHome, "AGENTS.md");
   const existing = await readFile(path, "utf8").catch(() => "");
   // Runs after the home projection is written, so disk is the authority on
-  // whether the contract was projected at all.
-  const hasContract = await pathExists(join(codexHome, CODEX_CONTRACT_PROJECTION_PATH));
-  const wanted = hasContract
-    ? [...CODEX_AGENTS_IMPORTS, CODEX_AGENTS_CONTRACT_IMPORT]
-    : [...CODEX_AGENTS_IMPORTS];
-  // This is the one conditional import Soma owns. A later projection can omit
-  // its file, in which case retaining the import would leave AGENTS dangling.
-  const withoutStaleContract = hasContract
+  // whether each conditional file was projected at all.
+  const present = await Promise.all(CODEX_CONDITIONAL_IMPORTS.map((entry) => pathExists(join(codexHome, entry.projectionPath))));
+  const projected = CODEX_CONDITIONAL_IMPORTS.filter((_, index) => present[index]).map((entry) => entry.line);
+  const stale = new Set<string>(CODEX_CONDITIONAL_IMPORTS.filter((_, index) => !present[index]).map((entry) => entry.line));
+  const wanted = [...CODEX_AGENTS_IMPORTS, ...projected];
+  // A later projection can omit a conditional file, in which case retaining
+  // its import would leave AGENTS dangling.
+  const withoutStale = stale.size === 0
     ? existing
-    : existing.split("\n").filter((line) => line.trim() !== CODEX_AGENTS_CONTRACT_IMPORT).join("\n");
-  const existingLines = new Set(withoutStaleContract.split("\n").map((line) => line.trim()));
+    : existing.split("\n").filter((line) => !stale.has(line.trim())).join("\n");
+  const existingLines = new Set(withoutStale.split("\n").map((line) => line.trim()));
   const missingImports = wanted.filter((line) => !existingLines.has(line));
-  let updated = withoutStaleContract;
+  let updated = withoutStale;
 
   if (missingImports.length > 0) {
     const separator = updated.length === 0 || updated.endsWith("\n") ? "" : "\n";

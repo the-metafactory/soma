@@ -50,7 +50,7 @@ The principal naming a capability outright overrides the tier: invoke it.
 
 ### Playbooks and Principles
 
-Under the tier sit two text layers. **Playbooks** (`references/playbooks.md`) route a run by task shape, once mode and tier are set, to one card of numbered steps, criteria templates and a reply line. **Algorithm principles** (`references/principles.md`) are a closed, locally overridable vocabulary of engineering rules, subordinate to the principal's behavioral policy. The preflight gates, reproduce-first, verification evidence, second opinions and conflict-surfacing live there.
+Under the tier sit two text layers. **Playbooks** (`references/playbooks.md`) route a run by task shape, once mode and tier are set, to one card of numbered steps, criteria templates and a reply line. **Algorithm principles** (`references/principles.md`) are a closed, locally overridable vocabulary of engineering rules, subordinate to the principal's behavioral policy. The preflight gates, reproduce-first, verification evidence, second opinions and conflict-surfacing live there. Both indexes also bind outside the Algorithm: `soma install` projects them into each substrate's always-loaded rules (`PRINCIPLES.md` on Claude Code and Cursor, `principles.md` elsewhere), so a NATIVE turn sees them too.
 
 Two reply rules bind every run that used them:
 

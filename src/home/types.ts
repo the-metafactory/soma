@@ -1,6 +1,7 @@
 import type { GoalRecord, SomaSkill, VerificationStateArtifact } from "../types";
 import type { BehaviorPolicy } from "../policy/types";
 import type { CommunicationContract } from "./communication-contract";
+import type { WorkingMethod } from "./working-method";
 
 export interface AssistantIdentity {
   name: string;
@@ -93,6 +94,12 @@ export interface SomaProfile {
    * substrate then simply projects no contract.
    */
   communication?: CommunicationContract;
+  /**
+   * The Algorithm's principles and playbooks indexes, rendered for an
+   * always-loaded rules file (`src/home/working-method.ts`). Omitted when the
+   * home has no installed the-algorithm skill.
+   */
+  workingMethod?: WorkingMethod;
 }
 
 export interface ProjectionInput {

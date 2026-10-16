@@ -236,6 +236,19 @@ export function communicationContractFile(input: ProjectionInput, path: string):
   return [{ path, content }];
 }
 
+/**
+ * The working method (principles and playbooks indexes) as a projected file, or
+ * `[]` when the home has no installed the-algorithm skill. Same shape as the
+ * communication contract: the content is rendered once at load
+ * (`src/working-method.ts`) and identical on every substrate, and the caller
+ * passes the substrate-native path.
+ */
+export function workingMethodFile(input: ProjectionInput, path: string): { path: string; content: string }[] {
+  const content = input.profile.workingMethod?.content;
+  if (content === undefined || content.trim().length === 0) return [];
+  return [{ path, content }];
+}
+
 export function renderMemoryLayout(input: ProjectionInput): string {
   const { memory } = input.profile;
 
@@ -351,6 +364,7 @@ export function renderSubstrateInstructions(
     "## Operating Rules",
     "- Use the active VSA as the verification contract when present.",
     "- Read `communication.md` beside this file, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
+    "- Read `principles.md` beside this file, when present: the principles and playbooks that apply to every task.",
     "- Read memory from the declared file layout before inventing persistent facts.",
     "- Keep personal context out of public templates unless explicitly requested.",
     "- Report verification performed and any substrate limitation encountered.",
