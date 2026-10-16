@@ -1,22 +1,13 @@
-import type { AlgorithmGatesFired, AlgorithmBatchOperation, AlgorithmMetaReflection, AlgorithmObservation, AlgorithmPhase, AlgorithmPlanStep, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRun, AlgorithmRunInput, EvidenceKind } from "./types";
-import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint } from "./vsa/index";
-import {
-  assertAlgorithmCapabilitiesSatisfied,
-  recordAlgorithmCapabilityInvocation,
-  removeAlgorithmCapabilitySelection,
-  selectAlgorithmCapability,
-} from "./algorithm-capabilities";
+import type { AlgorithmPhase, EvidenceKind } from "../types";
+import type { AlgorithmGatesFired, AlgorithmBatchOperation, AlgorithmMetaReflection, AlgorithmObservation, AlgorithmPlanStep, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRun, AlgorithmRunInput } from "./types";
+import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint } from "../vsa/index";
+import { assertAlgorithmCapabilitiesSatisfied, recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "./algorithm-capabilities";
 // The narrow report type the graph publishes for §2.7 — declared THERE, so the
 // graph owns the shape it publishes and this module names a contract rather than
 // a `NodeState`. Type-only: no runtime dependency on the graph from this pure module.
-import type { BridgedNodeReport } from "./work-graph";
+import type { BridgedNodeReport } from "../work-graph";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
-import {
-  DECISION_REFERENCE_LETTER,
-  ReservedReferenceLetterError,
-  isReservedReferenceLetter,
-  requireReferenceCode,
-} from "./home/communication-contract";
+import { DECISION_REFERENCE_LETTER, ReservedReferenceLetterError, isReservedReferenceLetter, requireReferenceCode } from "../home/communication-contract";
 import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
   buildVsaArtifact,
@@ -28,7 +19,7 @@ import {
   updateCriterionWithResult,
   verificationGateViolation,
   verifiedFromCriteria,
-} from "./vsa/index";
+} from "../vsa/index";
 
 /**
  * The criteria that block entry to LEARN, split by reason. Single source of truth

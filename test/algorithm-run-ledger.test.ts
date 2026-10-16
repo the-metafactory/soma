@@ -16,10 +16,10 @@ import {
   setAlgorithmPlan,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
-} from "../src/algorithm";
-import { recordAlgorithmCapabilityInvocation } from "../src/algorithm-capabilities";
-import { abandonAlgorithmRun, getRunPhase } from "../src/algorithm-lifecycle";
-import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm-store";
+} from "../src/algorithm/algorithm";
+import { recordAlgorithmCapabilityInvocation } from "../src/algorithm/algorithm-capabilities";
+import { abandonAlgorithmRun, getRunPhase } from "../src/algorithm/algorithm-lifecycle";
+import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm/algorithm-store";
 import { parseAlgorithmArgs, runAlgorithmCli, updateAndReportAlgorithmRun, type AlgorithmCliDeps } from "../src/cli/algorithm";
 import {
   buildRunFinishedEnvelope,
@@ -30,7 +30,8 @@ import {
   runLedgerSpoolPath,
   type RunLedgerEnv,
 } from "../src/run-ledger";
-import type { AlgorithmPhase, AlgorithmRun } from "../src/types";
+import type { AlgorithmPhase } from "../src/types";
+import type { AlgorithmRun } from "../src/algorithm/types";
 
 const RUN_ID = "run-ledger-fixture";
 const CREATED_AT = "2026-05-14T10:00:00.000Z";

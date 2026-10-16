@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { installBundledSkillsIntoHome, listBundledSkills } from "../src/bundled-skills";
-import { loadSomaHomeAlgorithmCapabilityRegistry } from "../src/algorithm-capabilities";
+import { loadSomaHomeAlgorithmCapabilityRegistry } from "../src/algorithm/algorithm-capabilities";
 
 const SKILLS_ROOT = resolve(import.meta.dir, "..", "src", "skills");
 

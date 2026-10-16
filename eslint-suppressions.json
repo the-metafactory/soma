@@ -109,17 +109,17 @@
       "count": 2
     }
   },
-  "src/algorithm-capabilities.ts": {
+  "src/algorithm/algorithm-capabilities.ts": {
     "soma/no-discarded-error": {
       "count": 4
     }
   },
-  "src/algorithm-reflection-import.ts": {
+  "src/algorithm/algorithm-reflection-import.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/algorithm-store.ts": {
+  "src/algorithm/algorithm-store.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }

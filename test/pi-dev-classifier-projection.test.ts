@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { classifyAlgorithmPrompt } from "../src/algorithm-classifier";
+import { classifyAlgorithmPrompt } from "../src/algorithm/algorithm-classifier";
 import { renderAlgorithmClassifierSource } from "../src/adapters/shared/algorithm-classifier-source";
 
 /**

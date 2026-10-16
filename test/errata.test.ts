@@ -6,8 +6,8 @@ import {
   appendErrata, dropErrata, errataLedgerPath, linkErrataCandidate, readErrata,
   type ErrataCloseReceipt, type ErrataLinkDeps,
 } from "../src/errata";
-import { createAlgorithmRun, verifyAlgorithmCriterion } from "../src/algorithm";
-import { writeAlgorithmRun } from "../src/algorithm-store";
+import { createAlgorithmRun, verifyAlgorithmCriterion } from "../src/algorithm/algorithm";
+import { writeAlgorithmRun } from "../src/algorithm/algorithm-store";
 import type { AlgorithmLogEntry } from "../src/vsa/index";
 import type { ErrataInput } from "../src/types";
 

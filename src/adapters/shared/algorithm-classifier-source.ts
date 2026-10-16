@@ -1,4 +1,4 @@
-import { ALGORITHM_CLASSIFIER_CONTRACT } from "../../algorithm-classifier";
+import { ALGORITHM_CLASSIFIER_CONTRACT } from "../../algorithm/algorithm-classifier";
 
 /**
  * Renders the Soma prompt classifier as standalone source for projection into a
@@ -20,7 +20,7 @@ export function renderAlgorithmClassifierSource(): string {
   const contract = ALGORITHM_CLASSIFIER_CONTRACT;
 
   return [
-    "// ── Soma prompt classifier (projected from src/algorithm-classifier.ts) ──",
+    "// ── Soma prompt classifier (projected from src/algorithm/algorithm-classifier.ts) ──",
     "// Pure and synchronous: no subprocess, no I/O. Patterns are serialised from",
     "// ALGORITHM_CLASSIFIER_CONTRACT so they cannot drift from the Soma runtime.",
     `const SOMA_NOTIFICATION = new RegExp(${JSON.stringify(contract.notificationPattern)}, "gi");`,

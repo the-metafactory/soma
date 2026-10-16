@@ -19,12 +19,12 @@ import {
   syncBridgedPlanStep,
   updateAlgorithmPlanStep,
   verifyAlgorithmCriterion,
-} from "../algorithm";
-import { listAlgorithmRuns, listAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "../algorithm-store";
-import { classifyAlgorithmPrompt } from "../algorithm-classifier";
-import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../algorithm-reflection-digest";
-import { parsePaiReflections } from "../algorithm-reflection-import";
-import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm-capabilities";
+} from "../algorithm/algorithm";
+import { listAlgorithmRuns, listAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "../algorithm/algorithm-store";
+import { classifyAlgorithmPrompt } from "../algorithm/algorithm-classifier";
+import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../algorithm/algorithm-reflection-digest";
+import { parsePaiReflections } from "../algorithm/algorithm-reflection-import";
+import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm/algorithm-capabilities";
 import { runSomaLifecycleAlgorithmUpdated } from "../lifecycle";
 import { appendSomaMemoryEvent } from "../events/index";
 import type { BridgedNodeReport } from "../work-graph";
@@ -32,36 +32,25 @@ import type { BridgedNodeReport } from "../work-graph";
 // from its defining module, deliberately NOT re-exported through the public
 // barrel (Sage review, PR #455): keeping it off ../index leaves the internal
 // error shape free to change without a public-API break.
-import { VerificationGateError, getAlgorithmReferences, recordAlgorithmReference, resolveAlgorithmReference } from "../algorithm";
+import { VerificationGateError, getAlgorithmReferences, recordAlgorithmReference, resolveAlgorithmReference } from "../algorithm/algorithm";
 import { readFile } from "node:fs/promises";
-import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm-capabilities";
-import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm-capabilities";
+import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm/algorithm-capabilities";
+import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm/algorithm-capabilities";
 import { defaultSomaHome } from "../core/index";
 import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
-import { algorithmTouchedBy } from "../algorithm-provenance";
+import { algorithmTouchedBy } from "../algorithm/algorithm-provenance";
 import { datePrefixSlug } from "../core/index";
 import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa/index";
-import { getRunPhase } from "../algorithm-lifecycle";
+import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import { readNodeForBridge } from "../work-graph-bridge";
 import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../run-ledger";
 import { resolveSubstrateSessionEnv } from "../adapters/session-env";
 import { hashJudgmentInput, recordJudgment, regexClassifierVersion } from "../judge";
-import { ALGORITHM_REFERENCE_VERDICTS } from "../types";
-import type {
-  AlgorithmBatchOperation,
-  AlgorithmEffortTier,
-  AlgorithmPhase,
-  AlgorithmPlanStep,
-  AlgorithmPromptClassification,
-  AlgorithmRun,
-  AlgorithmReference,
-  AlgorithmReferenceVerdict,
-  AlgorithmRunInput,
-  EvidenceKind,
-  SubstrateId,
-} from "../types";
+import { ALGORITHM_REFERENCE_VERDICTS } from "../algorithm/types";
+import type { AlgorithmEffortTier, AlgorithmPhase, EvidenceKind, SubstrateId } from "../types";
+import type { AlgorithmBatchOperation, AlgorithmPlanStep, AlgorithmPromptClassification, AlgorithmRun, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRunInput } from "../algorithm/types";
 
 export const ALGORITHM_ACTIONS = [
   "new",

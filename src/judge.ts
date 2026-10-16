@@ -1,4 +1,4 @@
-import { ALGORITHM_CLASSIFIER_CONTRACT } from "./algorithm-classifier";
+import { ALGORITHM_CLASSIFIER_CONTRACT } from "./algorithm/algorithm-classifier";
 import { hashJudgmentInput, matchesFilter, type JudgmentRecord, type JudgmentFilter } from "./core/index";
 export { hashJudgmentInput, judgeLedgerPath, recordJudgment, readJudgments } from "./core/index";
 export type { JudgmentRecord, JudgmentFilter } from "./core/index";

@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, spyOn, test } from "bun:test";
 import { syncAlgorithmRunFromVsa } from "../src/algorithm-vsa-sync";
-import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm-store";
-import { syncBridgedPlanStep } from "../src/algorithm";
+import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm/algorithm-store";
+import { syncBridgedPlanStep } from "../src/algorithm/algorithm";
 import { getCriteria } from "../src/vsa/vsa-accessors";
-import { getRunPhase } from "../src/algorithm-lifecycle";
+import { getRunPhase } from "../src/algorithm/algorithm-lifecycle";
 
 async function withSomaHome<T>(fn: (somaHome: string, dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "soma-vsa-sync-"));

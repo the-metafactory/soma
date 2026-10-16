@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createAlgorithmRun, verifyAlgorithmCriterion, somaMemoryEventsPath } from "../src/index";
 // VerificationGateError is intentionally not on the public barrel (Sage review,
 // PR #455) — import it from its defining module, as the CLI does.
-import { VerificationGateError } from "../src/algorithm";
+import { VerificationGateError } from "../src/algorithm/algorithm";
 import { appendVerificationGateViolationEvent } from "../src/cli/algorithm";
 
 function makeRun() {

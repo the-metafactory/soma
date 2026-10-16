@@ -23,7 +23,7 @@ import {
   verifyAlgorithmCriterion,
   writeAlgorithmRun,
 } from "../src/index";
-import { loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../src/algorithm-capabilities";
+import { loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../src/algorithm/algorithm-capabilities";
 import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {

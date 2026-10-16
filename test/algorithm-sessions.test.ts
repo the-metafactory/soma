@@ -8,8 +8,8 @@ import {
   VerificationGateError,
   verifyAlgorithmCriterion,
   type AlgorithmSessionEnv,
-} from "../src/algorithm";
-import { algorithmRunPath, readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm-store";
+} from "../src/algorithm/algorithm";
+import { algorithmRunPath, readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm/algorithm-store";
 import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 
 const homes: string[] = [];

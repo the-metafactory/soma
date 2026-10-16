@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { parseAlgorithmArgs } from "../src/cli/algorithm";
-import { VerificationGateError } from "../src/algorithm";
+import { VerificationGateError } from "../src/algorithm/algorithm";
 import { getCriteria, readAlgorithmRunById } from "../src/index";
 
 const runId = "batch-verify";

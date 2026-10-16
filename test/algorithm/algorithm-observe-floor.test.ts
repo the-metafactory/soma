@@ -1,11 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  advanceAlgorithmRun,
-  createAlgorithmRun,
-  getRunPhase,
-  hasCurrentStateProbe,
-  recordAlgorithmObservation,
-} from "../src/index";
+import { advanceAlgorithmRun, createAlgorithmRun, hasCurrentStateProbe, recordAlgorithmObservation } from "../../src/algorithm/algorithm";
+import { getRunPhase } from "../../src/algorithm/algorithm-lifecycle";
 
 function freshRun() {
   return createAlgorithmRun({

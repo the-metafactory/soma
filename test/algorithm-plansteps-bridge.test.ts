@@ -16,7 +16,7 @@ import {
 } from "../src/index";
 import type { AlgorithmRun, BridgedNodeReport } from "../src/index";
 // Not on the public barrel — its one production consumer imports it here too.
-import { markUnbridgedPlanStepsDone } from "../src/algorithm";
+import { markUnbridgedPlanStepsDone } from "../src/algorithm/algorithm";
 import type { GraphStore, NodeRef, NodeState } from "../src/work-graph";
 import { readNodeForBridge } from "../src/work-graph-bridge";
 import type { RepoRef } from "../src/work-graph-ref";

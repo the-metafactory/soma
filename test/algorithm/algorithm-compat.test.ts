@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { getCriteria, getGoal, getRunPhase } from "../src/index";
-import { loadAlgorithmRun } from "../src/algorithm-store";
+import { getCriteria, getGoal } from "../../src/vsa/index";
+import { getRunPhase } from "../../src/algorithm/algorithm-lifecycle";
+import { loadAlgorithmRun } from "../../src/algorithm/algorithm-store";
 
 const LEGACY_V1_RUN = {
   id: "legacy-run-1",

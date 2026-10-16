@@ -228,7 +228,7 @@ export interface FrontierReport {
  * graph publishes to the planSteps bridge (§2.7).
  *
  * It lives here, with the graph, because the graph owns the shape it publishes:
- * declaring it in `src/algorithm.ts` would point the run module at the graph
+ * declaring it in `src/algorithm/algorithm.ts` would point the run module at the graph
  * module and invert §2.7's dependency direction, in which a plan step *references*
  * a node and the two scopes never merge.
  *

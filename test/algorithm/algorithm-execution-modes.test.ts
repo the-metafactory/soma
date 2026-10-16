@@ -1,22 +1,10 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import {
-  DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT,
-  IDEATE_PRESETS,
-  OPTIMIZE_PRESETS,
-  algorithmLoopBlockedEvent,
-  algorithmLoopStateChangedEvent,
-  algorithmPhaseEnteredEvent,
-  createAlgorithmRun,
-  detectPlateau,
-  partitionCriteriaByDomain,
-  partitionRunCriteriaByDomain,
-  recordAlgorithmLoopIterationResult,
-  validateIdeateParameters,
-  validateOptimizeParameters,
-} from "../src";
-import type { AlgorithmRun, Checkpoint } from "../src";
-import { loadAlgorithmRun } from "../src/algorithm-store";
+import { DEFAULT_ALGORITHM_LOOP_ITERATION_HISTORY_LIMIT, IDEATE_PRESETS, OPTIMIZE_PRESETS, algorithmLoopBlockedEvent, algorithmLoopStateChangedEvent, algorithmPhaseEnteredEvent, detectPlateau, partitionCriteriaByDomain, partitionRunCriteriaByDomain, recordAlgorithmLoopIterationResult, validateIdeateParameters, validateOptimizeParameters } from "../../src/algorithm/algorithm-execution-modes";
+import { createAlgorithmRun } from "../../src/algorithm/algorithm";
+import type { AlgorithmRun } from "../../src/algorithm/types";
+import type { Checkpoint } from "../../src/vsa/index";
+import { loadAlgorithmRun } from "../../src/algorithm/algorithm-store";
 
 const algorithmExecutionModesDocs = readFileSync("docs/algorithm-execution-modes.md", "utf8");
 const normalizedAlgorithmExecutionModesDocs = algorithmExecutionModesDocs.replace(/\s+/g, " ");
@@ -306,7 +294,7 @@ test("#133 notification events are substrate-neutral data contracts", () => {
 });
 
 test("#222 execution-mode contracts avoid hardcoded Claude invocation paths", () => {
-  const executionModeSource = readFileSync("src/algorithm-execution-modes.ts", "utf8");
+  const executionModeSource = readFileSync("src/algorithm/algorithm-execution-modes.ts", "utf8");
   const contractSurface = `${executionModeSource}\n${algorithmExecutionModesDocs}`;
 
   for (const forbidden of ["~/.claude", ".claude/", "claude -p", "ClaudeCLI", "CodexAPI", "Pi.dev API"]) {
