@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { listGoalRecords } from "./goal-records";
 import { publishRunFinished, type RunFinishedPublisher, type RunFinishedResult, type RunLedgerEnv } from "./run-ledger";
 import type { GoalRecord } from "./types";
-import type { GraphStore } from "./work-graph";
+import type { GraphStore } from "./graph/index";
 
 const DAY_MS = 86_400_000;
 export type GoalSweepValue = "ok" | "regressed";
@@ -136,7 +136,7 @@ export async function runGoalSweep(deps: GoalSweepDeps): Promise<GoalSweepResult
     stderr("soma goal sweep: sweep.yaml is missing; map roots are not scanned");
   }
   const createStore = !deps.graphStore && repos.status === "fulfilled" && repos.value?.length
-    ? (await import("./work-graph-github")).createGitHubGraphStore : undefined;
+    ? (await import("./graph/index")).createGitHubGraphStore : undefined;
   const store = deps.graphStore ?? ((repo: string) => {
     if (!createStore) throw new Error("GraphStore unavailable");
     return createStore({ repo });

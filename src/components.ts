@@ -149,7 +149,8 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "algorithm", "legacy"],
   },
   graph: {
-    files: ["src/work-graph", "src/work-graph-*", "src/build-brief", "src/proposal-file"],
+    files: ["src/graph/**"],
+    publicEntries: ["src/graph/index.ts"],
     mayImport: ["core", "legacy"],
   },
   execution: {

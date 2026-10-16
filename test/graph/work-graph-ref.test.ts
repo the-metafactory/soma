@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { WorkGraphError } from "../src/work-graph";
+import { WorkGraphError } from "../../src/graph/index";
 import {
   displayRepo,
   formatQualifiedNodeRef,
@@ -13,7 +13,7 @@ import {
   sameStore,
   storeNodeId,
   type RepoRef,
-} from "../src/work-graph-ref";
+} from "../../src/graph/index";
 
 const SOMA: RepoRef = { forge: "github", host: "github.com", path: "the-metafactory/soma" };
 const REPORTER: RepoRef = { forge: "gitlab", host: "gitlab-int.switch.ch", path: "csoc/soc-reporter" };

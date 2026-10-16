@@ -329,7 +329,7 @@
       "count": 3
     }
   },
-  "src/proposal-file.ts": {
+  "src/graph/proposal-file.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
@@ -404,32 +404,32 @@
       "count": 1
     }
   },
-  "src/work-graph-attestation.ts": {
+  "src/graph/work-graph-attestation.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/work-graph-bridge.ts": {
+  "src/graph/work-graph-bridge.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/work-graph-github.ts": {
+  "src/graph/work-graph-github.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/work-graph-gitlab.ts": {
+  "src/graph/work-graph-gitlab.ts": {
     "soma/no-discarded-error": {
       "count": 4
     }
   },
-  "src/work-graph-probe-registry.ts": {
+  "src/graph/work-graph-probe-registry.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/work-graph-ref.ts": {
+  "src/graph/work-graph-ref.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }

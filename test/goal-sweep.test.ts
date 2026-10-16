@@ -7,7 +7,7 @@ import { runGoalSweep, type GoalSweepDeps } from "../src/goal-sweep";
 import { buildRunFinishedEnvelope } from "../src/run-ledger";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import type { GoalRecord } from "../src/types";
-import type { NodeState } from "../src/work-graph";
+import type { NodeState } from "../src/graph/index";
 
 const NOW = new Date("2026-10-15T06:00:00.000Z");
 const ago = (days: number) => new Date(NOW.getTime() - days * 86_400_000).toISOString();

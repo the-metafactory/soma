@@ -233,12 +233,12 @@ export type { BehaviorPolicy } from "./policy/index";
 // them here would drag a GitHub-shaped transport concern into the import graph of
 // every consumer of the pure algorithm functions. Same reasoning excludes
 // `markUnbridgedPlanStepsDone`: one production consumer, which imports it directly.
-export { readNodeForBridge } from "./work-graph-bridge";
-export type { ReadNodeForBridgeOptions } from "./work-graph-bridge";
+export { readNodeForBridge } from "./graph/index";
+export type { ReadNodeForBridgeOptions } from "./graph/index";
 // The ref grammar is contract (#536 D1) — `ReadNodeForBridgeOptions` and
 // `GraphCliDeps` take a `RepoRef` — so it is on the barrel; the remote parser is not.
-export { FORGES, formatQualifiedNodeRef, formatRepoRef, parseQualifiedNodeRef, parseRepoRef } from "./work-graph-ref";
-export type { Forge, QualifiedNodeRef, RepoRef } from "./work-graph-ref";
+export { FORGES, formatQualifiedNodeRef, formatRepoRef, parseQualifiedNodeRef, parseRepoRef } from "./graph/index";
+export type { Forge, QualifiedNodeRef, RepoRef } from "./graph/index";
 export {
   assertAlgorithmCapabilitiesSatisfied,
   getAlgorithmCapabilityDefinition,
@@ -686,7 +686,7 @@ export {
   type WorkGraphEvidenceKind,
   type WorkGraphNode,
   type WorkGraphNodeBase,
-} from "./work-graph";
+} from "./graph/index";
 export {
   checkGitHubConfinement,
   createGhCliTransport,
@@ -703,7 +703,7 @@ export {
   type GitHubApiRequest,
   type GitHubApiTransport,
   type GitHubGraphStoreOptions,
-} from "./work-graph-github";
+} from "./graph/index";
 export {
   checkGitLabConfinement,
   createGlabCliTransport,
@@ -712,7 +712,7 @@ export {
   type GitLabApiTransport,
   type GitLabGraphStoreOptions,
   type GlabCliTransportOptions,
-} from "./work-graph-gitlab";
+} from "./graph/index";
 export {
   allProbesPassed,
   authorizeProbeTree,
@@ -730,7 +730,7 @@ export {
   type ProbeRunnerDeps,
   type ProbeRunnerOptions,
   type ResolvedProbePath,
-} from "./work-graph-probes";
+} from "./graph/index";
 export {
   authorizeProbe,
   isProbeRefusal,
@@ -746,13 +746,13 @@ export {
   type ProbeAuthorization,
   type ProbeRegistry,
   type ProbeRegistryHomeOptions,
-} from "./work-graph-probe-registry";
+} from "./graph/index";
 export {
   deriveAttestation,
   findGraphRoot,
   type AttestationInputs,
   type AttestationOutcome,
   type ConfinementDeps,
-} from "./work-graph-attestation";
+} from "./graph/index";
 
 export { SOMA_VERSION } from "./core/index";

@@ -5,7 +5,7 @@ import { assertAlgorithmCapabilitiesSatisfied, recordAlgorithmCapabilityInvocati
 // The narrow report type the graph publishes for §2.7 — declared THERE, so the
 // graph owns the shape it publishes and this module names a contract rather than
 // a `NodeState`. Type-only: no runtime dependency on the graph from this pure module.
-import type { BridgedNodeReport } from "../work-graph";
+import type { BridgedNodeReport } from "../graph/index";
 import { classifyAlgorithmPrompt } from "./algorithm-classifier";
 import { DECISION_REFERENCE_LETTER, ReservedReferenceLetterError, isReservedReferenceLetter, requireReferenceCode } from "../home/communication-contract";
 import { compactSmarterRun } from "./algorithm-reflection-digest";

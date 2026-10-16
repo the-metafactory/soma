@@ -1,13 +1,7 @@
 import { expect, test } from "bun:test";
-import {
-  WorkGraphError,
-  WorkGraph,
-  checkGitLabConfinement,
-  createGitLabGraphStore,
-  type GitLabApiRequest,
-} from "../src/index";
-import { gitLabCliEnvironment, glabApiArgs, parseGitLabCreateData, parseGlabApiOutput } from "../src/work-graph-gitlab";
-import { parseNodeSpec } from "../src/work-graph";
+import { WorkGraphError, WorkGraph, checkGitLabConfinement, createGitLabGraphStore, type GitLabApiRequest } from "../../src/graph/index";
+import { gitLabCliEnvironment, glabApiArgs, parseGitLabCreateData, parseGlabApiOutput } from "../../src/graph/index";
+import { parseNodeSpec } from "../../src/graph/index";
 
 const REF = { id: "saca/secacademy#12" };
 const REPO = "saca/secacademy";
@@ -444,7 +438,7 @@ function expectBalancedGraphQL(name: string, text: string): void {
 
 test("the GitLab store's GraphQL literals and field selections are balanced in source", async () => {
   // Fake transports never parse a query, so an unbalanced document only fails against a live server.
-  const source = await Bun.file(new URL("../src/work-graph-gitlab.ts", import.meta.url)).text();
+  const source = await Bun.file(new URL("../../src/graph/work-graph-gitlab.ts", import.meta.url)).text();
   const documents = [
     ...[...source.matchAll(/const (\w+_FIELDS) = `([^`]*)`/gu)].map((match) => ({ name: match[1], text: match[2] })),
     ...[...source.matchAll(/`((?:query|mutation)[({][^`]*)`/gu)].map((match) => ({ name: match[1].slice(0, 40), text: match[1] })),
