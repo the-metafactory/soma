@@ -1,5 +1,5 @@
 import { classifyDomains, listFrames, normalizeSimilarityThreshold, synthesizeWisdom, updateFrame } from "./index";
-import type { WisdomObservationType, WisdomToolOptions } from "./types";
+import type { WisdomObservationType, WisdomToolOptions } from "./index";
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];

@@ -9,7 +9,7 @@ import type { GoalKind } from "./goal-kinds/types";
 import { loadGoalResources, resolveGoalResource, type GoalResource } from "./goal-resources";
 import { loadSomaProfile } from "./soma-home";
 import { inference, type InferenceBackend } from "./tools/inference";
-import { createAutoInferenceBackend } from "./tools/inference/factory";
+import { createAutoInferenceBackend } from "./tools/index";
 import type { GoalRecord } from "./types";
 
 const DAY_MS = 86_400_000;

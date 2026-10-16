@@ -1,5 +1,5 @@
-import { reflectRelationship } from "./reflect";
-import type { RelationshipReflectOptions } from "./types";
+import { reflectRelationship } from "./index";
+import type { RelationshipReflectOptions } from "./index";
 
 export const RELATIONSHIP_REFLECT_USAGE = "Usage: soma relationship reflect [--opinions-only|--milestones-only] [--dry-run] [--home-dir <dir>] [--soma-home <dir>]";
 

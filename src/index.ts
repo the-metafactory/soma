@@ -371,6 +371,7 @@ export {
 // substrate barrel (./adapters/pi-dev) until AC-7..AC-12 settle the
 // runtime shape in the follow-up PR. Tests can import the helpers
 // directly from the substrate path.
+export { harvestSessions } from "./tools/learning/session-harvester";
 export { writeProjection } from "./projection";
 export { SomaInstallError } from "./installation-execution";
 export type { SomaHomeInstallReceipt, SomaInstallStage, SomaPartialInstallResult, SomaRuntimeArtifactReceipt, SomaSubstrateInstallReceipt } from "./installation-execution";
@@ -388,7 +389,7 @@ export {
   type InferenceOptions,
   type InferenceRequest,
   type InferenceResult,
-} from "./tools/inference";
+} from "./tools/index";
 export {
   applySomaInit,
   diagnoseSomaDoctor,
@@ -402,7 +403,6 @@ export {
   createSessionProgress,
   formatCountsShell,
   getSomaCounts,
-  harvestSessions,
   listOpinions,
   listSessionProgress,
   recordSessionBlocker,
@@ -429,7 +429,7 @@ export {
   type SomaCounts,
   type SynthesisResult,
   type ToolCall,
-} from "./tools/learning";
+} from "./tools/index";
 export {
   parseRelationshipNotes,
   reflectRelationship,
@@ -440,7 +440,7 @@ export {
   type RelationshipNotifier,
   type RelationshipReflectOptions,
   type RelationshipReflectResult,
-} from "./tools/relationship";
+} from "./tools/index";
 export {
   classifyDomains,
   listFrames,
@@ -457,7 +457,7 @@ export {
   type WisdomObservationType,
   type WisdomSynthesisResult,
   type WisdomToolOptions,
-} from "./tools/wisdom";
+} from "./tools/index";
 export {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,

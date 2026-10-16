@@ -4,9 +4,9 @@ import { basename, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { streamEventLines } from "../../events/index";
 import { listSomaWorkRegistryEntries, type SomaCurrentWorkPointer, type SomaWorkRegistryEntry } from "../../work-registry";
-import { isoTimestamp, pathsForLearningOptions, safeFileToken } from "./paths";
-import { transcriptContentToText } from "./transcript";
-import type { HarvestOptions, HarvestedLearning } from "./types";
+import { isoTimestamp, pathsForLearningOptions, safeFileToken } from "../index";
+import { transcriptContentToText } from "../index";
+import type { HarvestOptions, HarvestedLearning } from "./index";
 
 const CORRECTION_PATTERNS = [/actually,?\s+/i, /wait,?\s+/i, /no,?\s+i meant/i, /let me clarify/i, /you misunderstood/i];
 const ERROR_PATTERNS = [/error:/i, /failed:/i, /exception:/i, /stderr:/i, /command failed/i, /permission denied/i, /not found/i];

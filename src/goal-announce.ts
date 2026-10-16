@@ -7,7 +7,7 @@ import { readFeed, type FeedFetch, type FeedItem } from "./goal-sense";
 import { appendShareDrafts, markdownBlock, zurichIsoWeek } from "./goal-outline";
 import { publishRunFinished, type RunFinishedPublisher, type RunFinishedResult, type RunLedgerEnv } from "./run-ledger";
 import { inference } from "./tools/inference";
-import { createClaudeCodeBackend } from "./tools/inference/backends/claude-code";
+import { createClaudeCodeBackend } from "./tools/index";
 
 export const ANNOUNCE_INFERENCE_TIMEOUT_MS = 30_000;
 

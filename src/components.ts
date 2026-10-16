@@ -85,6 +85,13 @@ export const components: ComponentManifest<ComponentName> = {
   tools: {
     files: ["src/tools/**"],
     exclude: ["src/tools/learning/session-harvester", "src/tools/*/cli"],
+    publicEntries: [
+      "src/tools/index.ts",
+      "src/tools/inference/index.ts",
+      "src/tools/learning/index.ts",
+      "src/tools/relationship/index.ts",
+      "src/tools/wisdom/index.ts",
+    ],
     mayImport: ["core", "legacy"],
   },
   policy: {

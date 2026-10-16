@@ -44,6 +44,53 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("another component may import tools' five public entries, but no tools internal", async () => {
+    expect(components.tools.publicEntries).toEqual([
+      "src/tools/index.ts",
+      "src/tools/inference/index.ts",
+      "src/tools/learning/index.ts",
+      "src/tools/relationship/index.ts",
+      "src/tools/wisdom/index.ts",
+    ]);
+    await withRepoFixture("soma-boundaries-tools-", async (root) => {
+      const importer = join(root, "src/cli/tools-entry-fixture.ts");
+      const internals = [
+        "inference/backends/claude-code.ts",
+        "inference/types.ts",
+        "learning/pattern-synthesis.ts",
+        "learning/types.ts",
+        "relationship/reflect.ts",
+        "wisdom/frame.ts",
+      ];
+      await writeFile(importer, internals.map((name) => `import "../tools/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/tools-entry-fixture.ts",
+          to: `src/tools/${name}`,
+          fromComponent: "cli",
+          toComponent: "tools",
+          rule: "public-entry",
+        }));
+      }
+
+      await writeFile(importer, [
+        'import { createAutoInferenceBackend } from "../tools/index";',
+        'import { inference } from "../tools/inference";',
+        'import { addOpinion } from "../tools/learning";',
+        'import { reflectRelationship } from "../tools/relationship";',
+        'import { listFrames } from "../tools/wisdom";',
+      ].join("\n"));
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.ok).toBe(true);
+      expect(publicEntry.violations.filter((violation) =>
+        violation.fromComponent === "tools" && violation.toComponent !== "legacy"))
+        .toEqual([]);
+    });
+  }, { timeout: 30_000 });
+
   test("another component may import vsa's runtime and types entries, but no vsa internal", async () => {
     expect(components.vsa.publicEntries).toEqual(["src/vsa/index.ts", "src/vsa/types.ts"]);
     await withRepoFixture("soma-boundaries-vsa-", async (root) => {
