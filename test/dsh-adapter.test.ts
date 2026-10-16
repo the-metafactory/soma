@@ -31,6 +31,7 @@ test("dsh adapter builds a portable context bundle", () => {
     ".dsh/soma/skills.md",
     ".dsh/soma/policy.md",
     ".dsh/soma/communication.md",
+    ".dsh/soma/principles.md",
   ]);
 });
 
@@ -45,6 +46,7 @@ test("dsh home projects the entry skill + colocated refs — and NO catalog or p
     "skills/soma/policy.md",
     "skills/soma/lifecycle.md",
     "skills/soma/communication.md",
+    "skills/soma/principles.md",
     "skills/soma/active-vsa.md",
   ]);
   const paths = bundle.files.map((file) => file.path);

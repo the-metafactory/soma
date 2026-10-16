@@ -130,6 +130,17 @@ export const portableProjectionInput: ProjectionInput = {
         "",
       ].join("\n"),
     },
+    // Every installed home has the-algorithm skill, so the working method
+    // projects too; same reasoning as the contract above.
+    workingMethod: {
+      content: [
+        "# Working Method",
+        "",
+        "## Principles",
+        "",
+        "| `/tmp/soma-home/skills/the-algorithm/references/principles/reproduce-first.md` | a bug report |",
+      ].join("\n"),
+    },
   },
   activeVsa: {
     slug: "portable-context",

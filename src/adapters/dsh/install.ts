@@ -31,6 +31,8 @@ export const DSH_STATIC_PROJECTION_FILES = [
   "skills/soma/lifecycle.md",
   // Conditional: omitted when the home has no `profile/communication.md`.
   "skills/soma/communication.md",
+  // Conditional: omitted when the home has no installed the-algorithm skill.
+  "skills/soma/principles.md",
 ] as const;
 
 /** Written by the shared lifecycle-projection step, not the bundle. */

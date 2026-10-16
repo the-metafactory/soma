@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The working method (the Algorithm's principles and playbooks indexes) now projects into every substrate's always-loaded rules: `rules/soma/PRINCIPLES.md` on Claude Code, `.cursor/rules/soma/PRINCIPLES.md` on Cursor, `principles.md` beside `communication.md` elsewhere, imported from codex `AGENTS.md` and injected into the pi-dev system prompt. Pointers resolve to absolute paths in the installed the-algorithm skill. A NATIVE turn now sees the principles and routes to a card, as pstack's poteto-mode does. The vocabulary grows from 22 to 39 principles: 17 more ported from pstack (MIT, commit `f713f14`), with prove-it-works, fix-root-causes and never-block-on-the-human merged into existing files. The principal's behavioral policy still wins over every principle.
+
 - `soma graph file-proposal <proposal_ref>` files the node a `<soma-home>/proposals/<ref>.md` proposal describes under its `landing#map_root`: a `deterministic-check` as `kind: build, autonomy: propose`, every other kind as `kind: grilling, autonomy: approve`. It refuses a ref outside `proposals/` (after realpath and percent-decoding), a missing file, front-matter that fails the schema and a body `build-brief-not-ready` would flag, and files nothing. The node body carries a `<!-- soma:proposal-ref: <ref> -->` marker, so a second run returns the node already filed. `--json` prints `{ "ref", "created" }`. (node #908)
 
 ### Changed

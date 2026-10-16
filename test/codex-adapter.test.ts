@@ -26,6 +26,7 @@ test("codex adapter builds a portable context bundle", () => {
     ".codex/soma/skills.md",
     ".codex/soma/policy.md",
     ".codex/soma/communication.md",
+    ".codex/soma/principles.md",
   ]);
 });
 

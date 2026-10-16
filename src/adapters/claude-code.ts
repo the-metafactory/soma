@@ -1,7 +1,7 @@
 import type { SkillsDiscoveryMode } from "../install-spec";
 import type { SomaAdapter, Projection } from "../types";
 import type { ProjectionInput } from "../home/types";
-import { buildPortableSkillFiles, communicationContractFile, projectedRulesFiles, skillCatalogFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
+import { buildPortableSkillFiles, communicationContractFile, workingMethodFile, projectedRulesFiles, skillCatalogFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
 import { activeVsaBundleFile } from "../vsa/index";
 import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
 
@@ -42,6 +42,7 @@ function renderClaudeMd(input: ProjectionInput): string {
     "",
     "Read `.claude/soma/context.md`, `.claude/soma/memory-layout.md`, `.claude/soma/skills.md`, and `.claude/soma/policy.md` before acting as the Soma assistant.",
     "Read `.claude/soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
+    "Read `.claude/soma/principles.md`, when present: the principles and playbooks that apply to every task.",
     "",
     input.prompt ? "## Current Prompt\n\n" + input.prompt : undefined,
   ]
@@ -106,6 +107,8 @@ export function projectClaudeCode(input: ProjectionInput): Projection {
         : []),
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, ".claude/soma/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, ".claude/soma/principles.md"),
     ],
   };
 }
@@ -126,6 +129,7 @@ function renderClaudeRulesReadme(): string {
     "- `MEMORY_LAYOUT.md` — pointers into the soma memory tree",
     "- `POLICY.md` — substrate policy projection",
     "- `COMMUNICATION.md` — how the assistant talks (omitted when the home has no contract)",
+    "- `PRINCIPLES.md` — principles and playbooks that apply to every task (omitted when the-algorithm is not installed)",
     "- `ACTIVE_VSA.md` — current active VSA (omitted when none set)",
     "",
     "Skills are not listed here. Claude Code discovers them from `~/.claude/skills/`, where Soma projects each canonical `~/.soma/skills/<name>` (soma#638) — a second catalog would cost context every turn and name skills the Skill tool cannot resolve.",
@@ -225,6 +229,9 @@ export const CLAUDE_CODE_RULES_FILES = [
   // doctor / owned-subtree reconcile) but excluded from the always-on builders
   // map below and appended by communicationContractFile.
   "rules/soma/COMMUNICATION.md",
+  // Working method (principles + playbooks). Conditional like COMMUNICATION:
+  // omitted when the home has no installed the-algorithm skill.
+  "rules/soma/PRINCIPLES.md",
 ] as const;
 
 /**
@@ -248,6 +255,7 @@ type ConditionalRulesFile =
   | "rules/soma/ACTIVE_VSA.md"
   | "rules/soma/MEMORY.md"
   | "rules/soma/COMMUNICATION.md"
+  | "rules/soma/PRINCIPLES.md"
   // soma#638: the skill catalog is conditional on discovery mode, not on source
   // presence like the three above. Claude Code is a `loader` substrate — its Skill
   // tool already advertises every ~/.claude/skills/*/SKILL.md — so no catalog is
@@ -334,6 +342,8 @@ export function projectClaudeCodeHome(input: ProjectionInput): Projection {
       }),
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, "rules/soma/COMMUNICATION.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, "rules/soma/PRINCIPLES.md"),
     ],
   };
 }

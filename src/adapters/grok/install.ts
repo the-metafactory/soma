@@ -40,6 +40,8 @@ export const GROK_STATIC_PROJECTION_FILES = [
   "skills/soma/policy.md",
   // Conditional: omitted when the home has no `profile/communication.md`.
   "skills/soma/communication.md",
+  // Conditional: omitted when the home has no installed the-algorithm skill.
+  "skills/soma/principles.md",
   "hooks/soma-lifecycle.json",
   "hooks/soma-lifecycle.mjs",
   GROK_LIFECYCLE_CONFIG_PATH,

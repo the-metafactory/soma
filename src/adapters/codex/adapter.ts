@@ -7,7 +7,7 @@ import { defaultSomaRepoPath } from "../../core/index";
 import { resolveBunExecutable } from "../../core/index";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
-import { buildPortableSkillFiles, communicationContractFile, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, renderSubstrateInstructions, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
+import { buildPortableSkillFiles, communicationContractFile, workingMethodFile, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, renderSubstrateInstructions, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
 import { activeVsaBundleFile } from "../../vsa/index";
 import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 import { somaPolicyPrivateMarkers } from "../../policy/policy";
@@ -148,6 +148,7 @@ function renderHomeSkill(somaHome: string): string {
     "- Do not assume a global `soma` binary exists; use lifecycle hooks or the `bun run soma` commands in `lifecycle.md`.",
     "- Read `~/.codex/memories/soma/memory-layout.md` before using persistent memory.",
     "- Read `~/.codex/memories/soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
+    "- Read `~/.codex/memories/soma/principles.md`, when present: the principles and playbooks that apply to every task.",
     "- Treat project-local `.codex/soma/` context as an overlay.",
   ].join("\n");
 }
@@ -369,6 +370,8 @@ export function projectCodex(input: ProjectionInput): Projection {
       },
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, ".codex/soma/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, ".codex/soma/principles.md"),
     ],
   };
 }
@@ -465,6 +468,8 @@ export function projectCodexHome(input: ProjectionInput, somaHome: string, homeD
       },
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, "memories/soma/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, "memories/soma/principles.md"),
       // Tier-0 durable memory INDEX (M4 parity). OMITTED when no index exists yet.
       ...codexMemoryIndexFile(input),
       ...portableSkillFiles,

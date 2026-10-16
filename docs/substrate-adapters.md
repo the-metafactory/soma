@@ -429,6 +429,17 @@ extension's system prompt, which is that substrate's native equivalent of an
 appended system-prompt file — how the assistant talks has to be present on every
 turn, not fetched on demand.
 
+The working method rides the same rail. `src/home/working-method.ts` reads the
+installed the-algorithm skill's `references/principles.md` and
+`references/playbooks.md`, rewrites their `references/...` pointers to absolute
+paths into `<soma-home>/skills/the-algorithm/references/`, and projects the
+result as `PRINCIPLES.md` (claude-code home, cursor) or `principles.md`
+(everywhere else, beside `communication.md`). So the one-line indexes are in
+context in every mode, and a principle or card file is read when its trigger
+fires. This is pstack's poteto-mode shape, except that it is always on. Codex
+imports it from `AGENTS.md`, and pi-dev puts it in the extension system prompt.
+A home without the-algorithm installed projects nothing.
+
 `~/.soma/policy/behavior.md` (Policy) is parsed by
 `src/policy/behavior-policy.ts` and merged into each adapter's
 `renderPolicyProjection` advisory list as `<Heading>: <rule>` lines, ahead of

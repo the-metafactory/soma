@@ -6,6 +6,7 @@ import type { ProjectionInput } from "../../home/types";
 import { activeVsaBundleFile } from "../../vsa/index";
 import {
   communicationContractFile,
+  workingMethodFile,
   renderAssistantCore,
   renderMemoryLayout,
   renderPolicyProjection,
@@ -84,6 +85,7 @@ function renderDshEntrySkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.dsh/skills/soma/memory-layout.md` before using persistent memory.",
     "- Read `~/.dsh/skills/soma/policy.md` for the enforceable/advisory policy projection.",
     "- Read `~/.dsh/skills/soma/communication.md`, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
+    "- Read `~/.dsh/skills/soma/principles.md`, when present: the principles and playbooks that apply to every task.",
     "- When present, read `~/.dsh/skills/soma/memory-index.md` for the durable memory INDEX (Tier-0 orientation). It is a snapshot written whenever the DSH bundle is projected (e.g. `soma install`) from the index at that moment, and only when durable notes exist — so it may be absent (no index yet) or lag the live store between projections.",
     "- Read `~/.dsh/skills/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present.",
     "- Read `~/.dsh/skills/soma/lifecycle.md` for lifecycle refresh commands.",
@@ -172,6 +174,8 @@ export function projectDsh(input: ProjectionInput): Projection {
       },
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, ".dsh/soma/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, ".dsh/soma/principles.md"),
     ],
   };
 }
@@ -207,6 +211,8 @@ export function projectDshHome(input: ProjectionInput, somaHome: string, _homeDi
       },
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, "skills/soma/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, "skills/soma/principles.md"),
       // Tier-0 durable memory INDEX. OMITTED when no index exists yet.
       ...dshMemoryIndexFile(input),
       // Active-VSA projection (#37). OMITTED when no active VSA — AC-2.

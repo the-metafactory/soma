@@ -82,6 +82,7 @@ test("builds codex home projection bundle for default availability", () => {
     "memories/soma/skills.md",
     "memories/soma/policy.md",
     "memories/soma/communication.md",
+    "memories/soma/principles.md",
     "skills/the-algorithm/SKILL.md",
     "memories/soma/active-vsa.md",
   ]);
@@ -174,6 +175,7 @@ test("builds pi.dev home projection bundle for default availability", () => {
     "agent/soma/skills.md",
     "agent/soma/policy.md",
     "agent/soma/communication.md",
+    "agent/soma/principles.md",
     "agent/extensions/soma-path-guard.ts",
     // #43 — Algorithm phase renderer extension.
     "agent/extensions/soma-algorithm.ts",
@@ -210,6 +212,7 @@ test("builds cursor home projection bundle for default availability", () => {
     ".cursor/rules/soma/SKILLS.md",
     ".cursor/rules/soma/POLICY.md",
     ".cursor/rules/soma/COMMUNICATION.md",
+    ".cursor/rules/soma/PRINCIPLES.md",
     ".cursor/rules/soma/MCP.md",
     ".cursor/rules/soma/ACTIVE_VSA.md",
   ]);
@@ -416,7 +419,8 @@ test("installs codex home projection into a substrate home", async () => {
 
     expect(result.substrate).toBe("codex");
     expect(result.rootDir).toBe(join(homeDir, ".codex"));
-    expect(result.files).toHaveLength(20);
+    // +1 for the working method (memories/soma/principles.md).
+    expect(result.files).toHaveLength(21);
 
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
     const hooks = await readFile(join(homeDir, ".codex/hooks.json"), "utf8");
@@ -536,8 +540,8 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(result.substrate).toBe("pi-dev");
     expect(result.rootDir).toBe(join(homeDir, ".pi"));
     // #43 — +1 file (soma-algorithm.ts) projected alongside existing
-    // pi-dev home bundle.
-    expect(result.files).toHaveLength(13);
+    // pi-dev home bundle; +1 for the working method (agent/soma/principles.md).
+    expect(result.files).toHaveLength(14);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");

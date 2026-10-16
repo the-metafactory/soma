@@ -10,6 +10,7 @@ import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
 import {
   communicationContractFile,
+  workingMethodFile,
   projectableSkills,
   renderAssistantCore,
   renderMemoryLayout,
@@ -39,6 +40,7 @@ function renderInstructions(input: ProjectionInput): string {
     "",
     "## Operating Rules",
     "- Read `communication.md` beside this file, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases. (In the home projection the Soma extension injects the same contract into the system prompt; this workspace overlay has no extension, so read it.)",
+    "- Read `principles.md` beside this file, when present: the principles and playbooks that apply to every task. (The home extension injects it into the system prompt like the contract.)",
     "- Use Soma tools for VSA, memory, learning, and policy operations when available.",
     "- Keep model-provider settings outside the Soma core.",
     "- Prefer file-backed memory paths from the bundle over substrate-local hidden state.",
@@ -142,6 +144,14 @@ function renderHomeExtension(somaHome: string, homeDir: string): string {
     "function communicationContract(): string {",
     "\tcachedCommunication ??= readOptional(`${PI_SOMA_HOME}/communication.md`);",
     "\treturn cachedCommunication;",
+    "}",
+    "",
+    "// The working method (principles and playbooks) follows the same per-session cache.",
+    "let cachedWorkingMethod: string | undefined;",
+    "",
+    "function workingMethod(): string {",
+    "\tcachedWorkingMethod ??= readOptional(`${PI_SOMA_HOME}/principles.md`);",
+    "\treturn cachedWorkingMethod;",
     "}",
     "",
     `const SOMA_HOME = ${JSON.stringify(somaHome)};`,
@@ -420,6 +430,8 @@ function renderHomeExtension(somaHome: string, homeDir: string): string {
     "\t\t// session, so a reproject since the last session is actually picked up.",
     "\t\tcachedCommunication = undefined;",
     "\t\tcommunicationContract();",
+    "\t\tcachedWorkingMethod = undefined;",
+    "\t\tworkingMethod();",
     "\t\tscheduleWorkIndexRefresh();",
     '\t\tctx.ui?.setStatus?.("soma", "Soma ready");',
     "\t});",
@@ -440,6 +452,7 @@ function renderHomeExtension(somaHome: string, homeDir: string): string {
     // reads once here — one read per session, not one per turn, which is the
     // cost soma#475 was about.
     "\t\tconst communication = communicationContract();",
+    "\t\tconst principles = workingMethod();",
     "\t\t// Local, synchronous, and about THIS prompt.",
     "\t\tconst promptClassification = renderPromptClassificationContext(prompt, ctx ? sessionId(ctx) : undefined);",
     '\t\tconst somaPrompt = `',
@@ -453,6 +466,8 @@ function renderHomeExtension(somaHome: string, homeDir: string): string {
     "Pi has no SessionEnd digest hook: when wrapping up substantial work, author ONE session digest and run \\`cd $(cat ~/.pi/agent/soma/soma-repo.txt) && bun run soma memory digest --session <session-id> --body \"8-15 lines\"\\`. This capture is agent-invoked.",
     "",
     "${communication}",
+    "",
+    "${principles}",
     "",
     "${startupContext}",
     "",
@@ -642,6 +657,8 @@ export function projectPiDev(input: ProjectionInput): Projection {
       },
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, ".pi/extensions/soma-core/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, ".pi/extensions/soma-core/principles.md"),
     ],
   };
 }
@@ -705,6 +722,8 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string, homeD
       },
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, "agent/soma/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, "agent/soma/principles.md"),
       {
         path: "agent/extensions/soma-path-guard.ts",
         content: renderPathGuardExtension(somaHome),

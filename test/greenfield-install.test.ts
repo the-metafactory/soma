@@ -292,6 +292,10 @@ function isTextProjectionPath(path: string): boolean {
  *   learnings, created when the first Algorithm run completes — a fresh
  *   install has run none (documented in lifecycle.md's "Source Files" list
  *   as "Completed Algorithm learnings").
+ * - `<somaHome>/skills/the-algorithm/references/principles.local.md` and
+ *   `principles-local/`: the principal's own principle overrides, named by the
+ *   projected working method and never shipped by install
+ *   (src/skills/the-algorithm/references/principles.md).
  */
 function isKnownOnDemandOrCrossSubstrateReference(
   ref: string,
@@ -319,6 +323,11 @@ function isKnownOnDemandOrCrossSubstrateReference(
       "memory/RAW/untrusted",
       "memory/SECURITY/inbound-content",
       "memory/LEARNING/ALGORITHM",
+      // The principal's local principle overrides: principles.local.md and the
+      // principles-local/ files it points at. The projected working method names
+      // them; `soma install` never creates either (references/principles.md).
+      "skills/the-algorithm/references/principles.local.md",
+      "skills/the-algorithm/references/principles-local",
     ];
     if (onDemandPrefixes.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`))) return true;
   }

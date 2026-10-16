@@ -93,6 +93,12 @@ export interface SomaProfile {
    * substrate then simply projects no contract.
    */
   communication?: CommunicationContract;
+  /**
+   * The Algorithm's principles and playbooks indexes, rendered for an
+   * always-loaded rules file (`src/home/working-method.ts`). Omitted when the
+   * home has no installed the-algorithm skill.
+   */
+  workingMethod?: WorkingMethod;
 }
 
 export interface ProjectionInput {
@@ -132,4 +138,9 @@ export interface ProjectionInput {
    * the principal did not write is worse than projecting none.
    */
   behavior?: BehaviorPolicy;
+}
+
+/** The rendered working-method rules file; read by `src/home/working-method.ts`. */
+export interface WorkingMethod {
+  readonly content: string;
 }

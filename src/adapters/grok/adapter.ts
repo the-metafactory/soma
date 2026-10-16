@@ -22,6 +22,7 @@ import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import {
   buildPortableSkillFiles,
   communicationContractFile,
+  workingMethodFile,
   renderAlgorithmRenderingContract,
   renderAssistantCore,
   renderMemoryLayout,
@@ -436,6 +437,7 @@ function renderGrokSomaExploreAgent(): string {
     "- Read `~/.grok/skills/soma/memory-layout.md` for the persistent memory tree before reasoning about durable facts.",
     "- Read `~/.grok/skills/soma/context.md` for assistant identity, principal, and purpose.",
     "- Read `~/.grok/skills/soma/communication.md` for how to communicate — patterns, banned phrases, reference codes, aliases — when present.",
+    "- Read `~/.grok/skills/soma/principles.md`, when present: the principles and playbooks that apply to every task.",
     "- Read `~/.grok/skills/soma/active-vsa.md` for the active VSA verification contract when present.",
     "- Use the `the-algorithm` skill when exploration should run under Soma Algorithm mode.",
     "",
@@ -517,6 +519,7 @@ function renderGrokHomeSkill(input: ProjectionInput, somaHome: string): string {
     "- Read `~/.grok/skills/soma/skills.md` for the declared Soma skills.",
     "- Read `~/.grok/skills/soma/policy.md` for the substrate policy projection.",
     "- Read `~/.grok/skills/soma/communication.md` for how to communicate — patterns, banned phrases, reference codes, aliases — when that file is present.",
+    "- Read `~/.grok/skills/soma/principles.md`, when present: the principles and playbooks that apply to every task.",
     "- Read `~/.grok/skills/soma/active-vsa.md` for the active VSA verification contract when that file is present.",
     "- Read `~/.grok/skills/soma/startup-context.md` for lifecycle-generated active work and recent learning context when present; the Soma session-start hook refreshes it.",
     "- Use the `the-algorithm` skill when work should run through Soma Algorithm mode.",
@@ -546,6 +549,7 @@ function renderGrokRulesReadme(): string {
     "- `skills.md` — discovered Soma skills",
     "- `policy.md` — substrate policy projection",
     "- `communication.md` — how the assistant talks (omitted when the home has no contract)",
+    "- `principles.md` — principles and playbooks that apply to every task (omitted when the-algorithm is not installed)",
     "",
     "Do not edit these files by hand; rerun `soma install grok --apply` after changing Soma source context.",
   ].join("\n");
@@ -572,6 +576,8 @@ export function projectGrok(input: ProjectionInput): Projection {
       { path: ".grok/rules/soma/policy.md", content: renderGrokPolicy(input) },
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, ".grok/rules/soma/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, ".grok/rules/soma/principles.md"),
     ],
   };
 }
@@ -614,6 +620,8 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
       { path: "skills/soma/policy.md", content: withProvenance("grok", renderGrokPolicy(input)) },
       // Communication contract — omitted when the home has none. Verbatim bytes.
       ...communicationContractFile(input, "skills/soma/communication.md"),
+      // Working method (principles + playbooks): omitted when the home has no installed the-algorithm skill.
+      ...workingMethodFile(input, "skills/soma/principles.md"),
       // JSON cannot carry comments; hooks registration stays unwrapped.
       { path: "hooks/soma-lifecycle.json", content: renderGrokHooksJson(grokHome, bunPath) },
       // Shipped verbatim; the install-time facts live in the colocated
