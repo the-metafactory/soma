@@ -174,6 +174,8 @@ export const components: ComponentManifest<ComponentName> = {
       "src/goal-outline",
       "src/goal-announce",
       "src/goal-sweep",
+      "src/goal-propose",
+      "src/goal-accept",
       "src/goal-kinds/**",
       "src/tools/learning/session-harvester",
       "src/execution/algorithm-loop-executor",

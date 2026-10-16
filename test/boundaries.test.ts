@@ -10,8 +10,8 @@ import {
   checkBoundaries,
   closureCeiling,
   formatReport,
-  repositoryBaseRevision,
 } from "../scripts/check-boundaries";
+import { repositoryBaseRevision } from "../scripts/git-base";
 import { fixtureManifest, publicMemoryManifest } from "./fixtures/boundaries/manifest";
 import { withTempHome } from "./fixtures/temp-home";
 

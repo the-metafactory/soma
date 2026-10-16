@@ -6,6 +6,7 @@ export interface BackendDetectionOptions {
   commandExists?: (command: string) => Promise<boolean>;
   allowNetwork?: boolean;
   includesAutoState?: boolean;
+  privateCall?: boolean;
 }
 
 async function defaultCommandExists(command: string): Promise<boolean> {
@@ -19,7 +20,7 @@ async function defaultCommandExists(command: string): Promise<boolean> {
 export async function createAutoInferenceBackend(options: BackendDetectionOptions = {}): Promise<InferenceBackend> {
   const commandExists = options.commandExists ?? defaultCommandExists;
   if (await commandExists("claude")) {
-    return createClaudeCodeBackend();
+    return createClaudeCodeBackend({ privateCall: options.privateCall });
   }
   if (options.includesAutoState && !options.allowNetwork) {
     throw new Error("Advisor auto-state requires Claude Code or explicit network opt-in via --allow-network.");

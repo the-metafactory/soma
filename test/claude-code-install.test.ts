@@ -12,8 +12,6 @@ import { expect, test } from "bun:test";
 import {
   bootstrapSomaHome,
   projectClaudeCodeHome,
-  installSomaForClaudeCode,
-  installSomaForCursor,
   planSomaForClaudeCodeInstall,
   scaffoldVsa,
   setActiveVsa,
@@ -28,6 +26,7 @@ import { stripProvenance } from "../src/adapters/shared/provenance";
 import { datePrefixSlug } from "../src/core/index";
 import { expectReprojectPrunesStaleTelos, portableProjectionInput } from "./fixtures";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { installSomaForClaudeCode, installSomaForCursor } from "./fixtures/shared-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-29-"));

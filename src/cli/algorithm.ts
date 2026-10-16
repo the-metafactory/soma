@@ -48,6 +48,7 @@ import { readNodeForBridge } from "../work-graph-bridge";
 import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../run-ledger";
 import { resolveSubstrateSessionEnv } from "../adapters/session-env";
 import { hashJudgmentInput, recordJudgment, regexClassifierVersion } from "../judge";
+import { ALGORITHM_REFERENCE_VERDICTS } from "../types";
 import type {
   AlgorithmBatchOperation,
   AlgorithmEffortTier,
@@ -281,14 +282,12 @@ function parsePlanStep(value: string): AlgorithmPlanStep {
   };
 }
 
-const REFERENCE_VERDICTS = ["kept", "rejected", "answered", "done", "dropped"] as const;
-
 function parseReferenceVerdict(value: string): AlgorithmReferenceVerdict {
   const normalized = value.trim().toLowerCase();
-  if ((REFERENCE_VERDICTS as readonly string[]).includes(normalized)) {
+  if ((ALGORITHM_REFERENCE_VERDICTS as readonly string[]).includes(normalized)) {
     return normalized as AlgorithmReferenceVerdict;
   }
-  throw new Error(`--verdict must be one of ${REFERENCE_VERDICTS.join("|")}, got: ${value}`);
+  throw new Error(`--verdict must be one of ${ALGORITHM_REFERENCE_VERDICTS.join("|")}, got: ${value}`);
 }
 
 function parseBatchOperation(value: string): AlgorithmBatchOperation {

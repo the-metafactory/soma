@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeVsaProjectionPath, SomaInstallError } from "../src/index";
+import { bootstrapSomaHome, planSomaForGrokInstall, projectGrokHome, activeVsaProjectionPath, SomaInstallError } from "../src/index";
 import { smokeTestInstalledGrokHookCommand } from "../src/adapters/grok/hook-smoke";
 import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
@@ -27,6 +27,7 @@ import {
   parseUpgradeArgs,
 } from "../src/cli/substrate-lifecycle";
 import { expectPlanCoversApplyModuloBundledSkills, portableProjectionInput } from "./fixtures";
+import { installSomaForGrok } from "./fixtures/shared-runtime";
 
 async function withTempDir<T>(prefix: string, fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), prefix));

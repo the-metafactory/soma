@@ -1,0 +1,437 @@
+{
+  "src/adapters/anthropic-cowork.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/claude-code/hook-runner.mjs": {
+    "soma/no-discarded-error": {
+      "count": 7
+    }
+  },
+  "src/adapters/claude-code/hooks.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/claude-code/mode-classifier-hook.mjs": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/adapters/claude-code/policy-guard-hook.mjs": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/claude-code/precompact-hook.mjs": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/adapters/claude-code/session-digest.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/adapters/codex/config.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/codex/hooks/codex-hook-entry.mjs": {
+    "soma/no-discarded-error": {
+      "count": 6
+    }
+  },
+  "src/adapters/codex/install.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/codex/session-digest.ts": {
+    "soma/no-discarded-error": {
+      "count": 5
+    }
+  },
+  "src/adapters/doctor.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/grok/adapter.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/grok/doctor.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/adapters/grok/hook-smoke.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/grok/hooks/grok-hook-entry.mjs": {
+    "soma/no-discarded-error": {
+      "count": 8
+    }
+  },
+  "src/adapters/grok/hooks/shell-policy-core.mjs": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/grok/version.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/pi-dev/version.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/shared/lifecycle-home-binding.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/shared/portable-skill-manifest.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/adapters/skill-stub-doctor.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/algorithm-capabilities.ts": {
+    "soma/no-discarded-error": {
+      "count": 4
+    }
+  },
+  "src/algorithm-reflection-import.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/algorithm-store.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/algorithm-vsa-bridge.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/algorithm-vsa-sync.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/bundled-skills.ts": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/claude-skills-migrator.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/cli/algorithm.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/cli/graph.ts": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/cli/policy.ts": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/core/judge-ledger.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/core/path-utils.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/errata.ts": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/events/event-log.ts": {
+    "soma/no-discarded-error": {
+      "count": 8
+    }
+  },
+  "src/execution/claude-code-executor.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/execution/codex-executor.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/execution/command-output.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/execution/kernel.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/goal-announce.ts": {
+    "soma/no-discarded-error": {
+      "count": 4
+    }
+  },
+  "src/goal-outline.ts": {
+    "soma/no-discarded-error": {
+      "count": 5
+    }
+  },
+  "src/goal-records.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/goal-reference.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/goal-resources.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/goal-sense.ts": {
+    "soma/no-discarded-error": {
+      "count": 5
+    }
+  },
+  "src/goal-sweep.ts": {
+    "soma/no-discarded-error": {
+      "count": 4
+    }
+  },
+  "src/home-migration.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/learning-readback.ts": {
+    "soma/no-discarded-error": {
+      "count": 12
+    }
+  },
+  "src/lifecycle.ts": {
+    "soma/no-discarded-error": {
+      "count": 6
+    }
+  },
+  "src/memory-audit.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/memory-backfill.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/memory-consolidate.ts": {
+    "soma/no-discarded-error": {
+      "count": 10
+    }
+  },
+  "src/memory-index.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/memory-journal.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/memory-projection-reproject.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/memory-promotion.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/memory-write.ts": {
+    "soma/no-discarded-error": {
+      "count": 5
+    }
+  },
+  "src/memory.ts": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/policy-path-guard.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/policy-targets.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/policy.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/projected-skill-links.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/projection-reconcile.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/projection-self-repair.ts": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/proposal-file.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/result-capture.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/router-corpus.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/router-embed.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/run-ledger.ts": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/runtime-artifact.ts": {
+    "soma/no-discarded-error": {
+      "count": 10
+    }
+  },
+  "src/runtime-policy.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/skill-projection.ts": {
+    "soma/no-discarded-error": {
+      "count": 9
+    }
+  },
+  "src/soma-config.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/soma-home.ts": {
+    "soma/no-discarded-error": {
+      "count": 4
+    }
+  },
+  "src/tools/inference/index.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/tools/learning/failure-capture.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/tools/learning/session-harvester.ts": {
+    "soma/no-discarded-error": {
+      "count": 6
+    }
+  },
+  "src/vsa-reconcile.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/vsa-skill-installer.ts": {
+    "soma/no-discarded-error": {
+      "count": 3
+    }
+  },
+  "src/vsa.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/work-graph-attestation.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/work-graph-bridge.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/work-graph-github.ts": {
+    "soma/no-discarded-error": {
+      "count": 1
+    }
+  },
+  "src/work-graph-gitlab.ts": {
+    "soma/no-discarded-error": {
+      "count": 4
+    }
+  },
+  "src/work-graph-probe-registry.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  },
+  "src/work-graph-ref.ts": {
+    "soma/no-discarded-error": {
+      "count": 2
+    }
+  }
+}

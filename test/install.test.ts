@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, experimentalAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, experimentalAnthropicCowork, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
 import { codexInstallSpec, configureCodexAgentsImport } from "../src/adapters/codex/install";
 import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/adapters/anthropic-cowork";
 import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
@@ -17,9 +17,9 @@ import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/proje
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 import { expectPlanCoversApplyModuloBundledSkills, expectReprojectPrunesStaleTelos } from "./fixtures";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { installSomaForAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev } from "./fixtures/shared-runtime";
 
 const {
-  installSomaForAnthropicCowork,
   planSomaForAnthropicCoworkInstall,
   uninstallSomaForAnthropicCowork,
 } = experimentalAnthropicCowork;

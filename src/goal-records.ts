@@ -1,6 +1,6 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { GoalRecord } from "./types";
+import { GOAL_STATUSES, type GoalRecord } from "./types";
 
 /**
  * Goal records (soma#784 D2–D5, D7–D9): one file per goal at
@@ -12,7 +12,6 @@ import type { GoalRecord } from "./types";
  * not named `G<n>.md` are ignored here.
  */
 
-export const GOAL_STATUSES = ["draft", "active", "paused", "achieved", "dropped"] as const;
 
 const GOAL_FILE = /^(G\d+)\.md$/;
 const MISSION_CODE = /^(M\d+)\b/;
@@ -174,35 +173,44 @@ export interface AddGoalOptions {
   wording: string;
   sensor?: string;
   reviewBy?: string;
+  /** Private text following the wording line. */
+  body?: string;
 }
 
-/** Allocate from file names, including invalid records; never fill a gap. */
-export async function addGoalRecord(goalsDir: string, options: AddGoalOptions): Promise<string> {
+function validateGoalOptions(options: AddGoalOptions): void {
   if (!options.wording.trim() || /[\r\n]/.test(options.wording)) {
     throw new Error("wording must be a non-empty single line");
   }
   if (options.supports.some((code) => !/^M\d+$/.test(code))) {
     throw new Error("supports must contain M<n> mission codes");
   }
+}
+
+/** Allocate from file names, including invalid records; never fill a gap.
+ * A factory binds dependent activation ids to the exclusively allocated id.
+ */
+export async function addGoalRecord(goalsDir: string, input: AddGoalOptions | ((id: string) => AddGoalOptions)): Promise<string> {
+  if (typeof input !== "function") validateGoalOptions(input);
   const schema = await goalFrontmatterSchema();
-  const fields = {
-    id: "G5", status: "draft", supports: options.supports,
-    ...(options.sensor === undefined ? {} : { sensor: options.sensor }),
-    ...(options.reviewBy === undefined ? {} : { review_by: options.reviewBy }),
-  };
-  const parsed = schema.safeParse(fields);
-  if (!parsed.success) throw new Error(`Invalid goal field: ${parsed.error.issues[0].path.join(".")}`);
-  await mkdir(goalsDir, { recursive: true, mode: 0o700 });
   for (;;) {
     const ids = (await readGoalFiles(goalsDir)).map((file) => BigInt(file.slice(1, -3)));
     const next = ids.reduce((max, id) => id > max ? id : max, 4n) + 1n;
     const id = `G${next}`;
+    const options = typeof input === "function" ? input(id) : input;
+    validateGoalOptions(options);
+    const parsed = schema.safeParse({
+      id, status: "draft", supports: options.supports,
+      ...(options.sensor === undefined ? {} : { sensor: options.sensor }),
+      ...(options.reviewBy === undefined ? {} : { review_by: options.reviewBy }),
+    });
+    if (!parsed.success) throw new Error(`Invalid goal field: ${parsed.error.issues[0].path.join(".")}`);
+    await mkdir(goalsDir, { recursive: true, mode: 0o700 });
     // JSON string literals are YAML-safe, even for sensor ids with punctuation.
     const lines = [`id: ${id}`, "status: draft", `supports: ${JSON.stringify(options.supports)}`];
     if (options.sensor !== undefined) lines.push(`sensor: ${JSON.stringify(options.sensor)}`);
     if (options.reviewBy !== undefined) lines.push(`review_by: ${options.reviewBy}`);
     try {
-      await writeFile(join(goalsDir, `${id}.md`), `---\n${lines.join("\n")}\n---\n${options.wording}\n`, {
+      await writeFile(join(goalsDir, `${id}.md`), `---\n${lines.join("\n")}\n---\n${options.wording}\n${options.body ?? ""}`, {
         encoding: "utf8", flag: "wx", mode: 0o600,
       });
       return id;
@@ -284,33 +292,76 @@ async function blueprintSensorIds(activationsDir: string): Promise<Set<string>> 
   } catch {
     throw new Error(`Cannot read Reflex activations directory: ${activationsDir}`);
   }
+  const ids = new Set<string>();
+  for (const file of files) {
+    for (const id of await blueprintActivationIds(join(activationsDir, file))) ids.add(id);
+  }
+  return ids;
+}
+
+async function blueprintActivationIds(path: string): Promise<string[]> {
   const { z } = await import("zod");
   const schema = z.object({
     schema: z.literal("metafactory/activation/v1"),
     activations: z.array(z.object({ id: z.string().min(1) })),
   });
-  const ids = new Set<string>();
-  for (const file of files) {
-    const path = join(activationsDir, file);
-    let raw: unknown;
-    try {
-      raw = Bun.YAML.parse(await readFile(path, "utf8"));
-    } catch {
-      throw new Error(`Unparseable or unreadable Reflex blueprint: ${path}`);
-    }
-    const parsed = schema.safeParse(raw);
-    if (!parsed.success) throw new Error(`Invalid Reflex blueprint (expected metafactory/activation/v1 with activations[].id): ${path}`);
-    for (const activation of parsed.data.activations) ids.add(activation.id);
+  let raw: unknown;
+  try {
+    raw = Bun.YAML.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    throw new Error(`Unparseable or unreadable Reflex blueprint: ${path}`, { cause: error });
   }
-  return ids;
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) throw new Error(`Invalid Reflex blueprint (expected metafactory/activation/v1 with activations[].id): ${path}`);
+  return parsed.data.activations.map(({ id }) => id);
 }
 
-export async function activateGoalRecord(goalsDir: string, id: string, activationsDir: string): Promise<void> {
+/** Install staged blueprints before validating the sensor; return their activation ids. */
+export async function activateGoalRecord(goalsDir: string, id: string, activationsDir: string): Promise<string[]> {
   const goal = await readGoalRecord(goalsDir, id);
   if (!goal.data.sensor) throw new Error(`Goal ${id} is missing sensor: ${goal.path}`);
   if (!goal.data.review_by) throw new Error(`Goal ${id} is missing review_by: ${goal.path}`);
-  if (!(await blueprintSensorIds(activationsDir)).has(goal.data.sensor)) {
-    throw new Error(`Goal ${id} sensor is absent from Reflex blueprints: ${activationsDir}`);
+
+  const stagePath = join(goalsDir, `${id}.activations.yaml`);
+  let staged: Buffer | undefined;
+  try {
+    staged = await readFile(stagePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(`Cannot read staged Reflex blueprint: ${stagePath}`, { cause: error });
+    }
   }
-  await writeGoalStatus(goal, "active");
+
+  const target = join(activationsDir, `${id.toLowerCase()}.yaml`);
+  let created = false;
+  try {
+    if (staged !== undefined) {
+      await mkdir(activationsDir, { recursive: true, mode: 0o700 });
+      const file = await open(target, "wx", 0o600).catch(async (error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!(await readFile(target)).equals(staged)) {
+          throw new Error(`Reflex blueprint already exists with different content: ${target}`);
+        }
+        return undefined;
+      });
+      if (file !== undefined) {
+        created = true;
+        try {
+          await file.writeFile(staged);
+        } finally {
+          await file.close();
+        }
+      }
+    }
+    if (!(await blueprintSensorIds(activationsDir)).has(goal.data.sensor)) {
+      throw new Error(`Goal ${id} sensor is absent from Reflex blueprints: ${activationsDir}`);
+    }
+    const activationIds = staged === undefined ? [] : await blueprintActivationIds(target);
+    await writeGoalStatus(goal, "active");
+    return activationIds;
+  } catch (error) {
+    // An identical pre-existing blueprint belongs to its earlier install.
+    if (created) await unlink(target);
+    throw error;
+  }
 }

@@ -188,7 +188,7 @@ async function collectRuntimeFrames(sourceRoot: string): Promise<RuntimeFrame[]>
 }
 
 /** Hash the framed payload so that an ambiguous path layout or a changed dependency changes the digest. */
-async function hashRuntimeFrames(root: string, frames: RuntimeFrame[]): Promise<string> {
+async function hashRuntimeFrames(root: string, frames: readonly RuntimeFrame[]): Promise<string> {
   const hash = createHash("sha256");
   const frame = (type: string, path: string, bytes: Uint8Array = new Uint8Array()): void => {
     hash.update(`${type.length}:${type}${path.length}:${path}${bytes.byteLength}:`, "utf8");
@@ -208,7 +208,7 @@ async function sourceHash(sourceRoot: string): Promise<string> {
 }
 
 /** Replay `frames` from `from` under `to`, cloning file data where the filesystem supports it. */
-async function materializeRuntime(from: string, to: string, frames: RuntimeFrame[]): Promise<void> {
+async function materializeRuntime(from: string, to: string, frames: readonly RuntimeFrame[]): Promise<void> {
   await mkdir(to, { recursive: true });
   for (let start = 0; start < frames.length; start += 32) {
     await Promise.all(frames.slice(start, start + 32).map(async (entry) => {
@@ -321,43 +321,73 @@ async function pruneUnreferencedArtifacts(somaHome: string): Promise<void> {
   }
 }
 
+/** A runtime source walked and hashed once, so one install can stage every target from it (node #929). */
+export interface RuntimeSource {
+  readonly root: string;
+  readonly frames: readonly RuntimeFrame[];
+  readonly hash: string;
+}
+
+export async function prepareRuntimeSource(sourceRoot: string): Promise<RuntimeSource> {
+  const frames = await collectRuntimeFrames(sourceRoot);
+  return { root: sourceRoot, frames, hash: await hashRuntimeFrames(sourceRoot, frames) };
+}
+
+export interface StagedRuntimeArtifact { path: string; hash: string; previous?: string }
+
 /** Stages a source-complete, content-addressed policy runtime and atomically activates one substrate. */
-export async function stageRuntimeArtifact(input: { somaHome: string; target: RuntimeArtifactTarget; sourceRoot: string }): Promise<{ path: string; hash: string; previous?: string }> {
-  const frames = await collectRuntimeFrames(input.sourceRoot);
-  const hash = await hashRuntimeFrames(input.sourceRoot, frames);
+export async function stageRuntimeArtifact(input: { somaHome: string; target: RuntimeArtifactTarget; sourceRoot: string }): Promise<StagedRuntimeArtifact> {
+  const [staged] = await stageRuntimeArtifacts({ somaHome: input.somaHome, targets: [input.target], source: await prepareRuntimeSource(input.sourceRoot) });
+  return staged;
+}
+
+/**
+ * Verifies or stages `source`'s artifact once, then activates it for each
+ * target, returning one result per target in the order given. An existing
+ * artifact is reused only when its payload still hashes to the source's hash;
+ * anything else is re-staged.
+ */
+export async function stageRuntimeArtifacts(input: { somaHome: string; targets: readonly RuntimeArtifactTarget[]; source: RuntimeSource }): Promise<StagedRuntimeArtifact[]> {
+  const { hash } = input.source;
   const store = runtimeArtifactStoreRoot(input.somaHome);
-  const target = join(store, hash);
+  const artifactPath = join(store, hash);
   await mkdir(store, { recursive: true });
   // Only installation mutates the shared artifact store. Hooks never hash it.
   await chmod(store, 0o755);
   try {
-    const targetExists = await assertArtifactTargetRoot(target);
-    const existingHash = targetExists ? await sourceHash(target).catch(() => undefined) : undefined;
+    const targetExists = await assertArtifactTargetRoot(artifactPath);
+    const existingHash = targetExists ? await sourceHash(artifactPath).catch(() => undefined) : undefined;
     if (existingHash !== hash) {
       const staging = join(store, ".staging-" + hash);
       const displaced = join(store, ".replaced-" + hash);
       await rm(staging, { recursive: true, force: true });
       await rm(displaced, { recursive: true, force: true });
-      await materializeRuntime(input.sourceRoot, staging, frames);
+      await materializeRuntime(input.source.root, staging, input.source.frames);
       if (await sourceHash(staging) !== hash) throw new Error("runtime artifact staging hash mismatch");
       if (!(await loadArtifact(staging))) throw new Error("runtime artifact load check failed");
       await sealArtifact(staging);
-      if (targetExists) await rename(target, displaced);
+      if (targetExists) await rename(artifactPath, displaced);
       try {
-        await rename(staging, target);
+        await rename(staging, artifactPath);
       } catch (error) {
-        if (targetExists) await rename(displaced, target).catch(() => undefined);
+        if (targetExists) await rename(displaced, artifactPath).catch(() => undefined);
         throw error;
       }
       await rm(displaced, { recursive: true, force: true });
     }
-    const current = await readRuntimeArtifactState(input.somaHome, input.target);
-    const previous = current?.active === hash ? current.previous : current?.active;
-    const state: RuntimeArtifactState = { active: hash, ...(previous ? { previous } : {}) };
-    await activateRuntimeArtifact(input.somaHome, input.target, hash);
-    await writeRuntimeArtifactState(input.somaHome, input.target, state);
+    const staged: StagedRuntimeArtifact[] = [];
+    for (const target of input.targets) {
+      const current = await readRuntimeArtifactState(input.somaHome, target);
+      const previous = current?.active === hash ? current.previous : current?.active;
+      const state: RuntimeArtifactState = { active: hash, ...(previous ? { previous } : {}) };
+      await activateRuntimeArtifact(input.somaHome, target, hash);
+      await writeRuntimeArtifactState(input.somaHome, target, state);
+      staged.push({ path: runtimeArtifactActivePath(input.somaHome, target), hash, ...(state.previous ? { previous: state.previous } : {}) });
+    }
+    // Every target's state is written before pruning, so each one's active and
+    // predecessor artifacts are retained.
     await pruneUnreferencedArtifacts(input.somaHome);
-    return { path: runtimeArtifactActivePath(input.somaHome, input.target), hash, ...(state.previous ? { previous: state.previous } : {}) };
+    return staged;
   } finally {
     // The shared store stays writable between installs; individual payload files
     // are read-only. Same-UID permissions are best-effort hardening, not a

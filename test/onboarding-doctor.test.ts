@@ -5,9 +5,10 @@ import { PAI_MIGRATION_REMOVED_NOTICE, planSomaInit, diagnoseSomaDoctor } from "
 import { withProvenance } from "../src/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
 import { DOCTOR_SUPPORTED_SUBSTRATES, isDoctorSubstrate } from "../src/adapters/doctor";
-import { bootstrapSomaHome, installSomaForClaudeCode, installSomaForCodex } from "../src/index";
+import { bootstrapSomaHome, installSomaForCodex as installSomaForCodexUnshared } from "../src/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
+import { installSomaForClaudeCode, installSomaForCodex } from "./fixtures/shared-runtime";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-onboarding-");
@@ -529,14 +530,15 @@ test("DOCTOR_SUPPORTED_SUBSTRATES / isDoctorSubstrate still gate a genuinely unk
   // anthropic-cowork and any other bogus value earlier, with a different
   // message) — this pins the underlying guard directly so the rejection
   // path itself stays covered.
-  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "claude-code", "cursor", "grok", "pi-dev", "dsh"]);
+  expect(DOCTOR_SUPPORTED_SUBSTRATES).toEqual(["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh"]);
   expect(isDoctorSubstrate("anthropic-cowork")).toBe(false);
   expect(isDoctorSubstrate("bogus")).toBe(false);
 });
 
 test("soma doctor reports a dependency missing from the active CLI runtime artifact (node #866)", async () => {
   await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+    // Unshared: this test removes a dependency from the staged payload.
+    await installSomaForCodexUnshared({ homeDir });
     const somaHome = join(homeDir, ".soma");
     const intact = await diagnoseSomaDoctor({ homeDir });
     expect(intact.findings.map((finding) => finding.id)).not.toContain("runtime-artifact-unloadable");

@@ -297,7 +297,7 @@ A goal's sensor reports its state on the run ledger (see [Run ledger](#run-ledge
 `soma goal sense feed` is the feed sensor, meant to be run by a Reflex activation:
 
 ```bash
-soma goal sense feed --goal G5 --url https://example.org/feed.xml [--window-days 7] [--min 1]
+soma goal sense feed --goal G5 --url https://example.org/feed.xml [--window-days 7] [--min 1] [--link-match <substring>]
 ```
 
 It fetches one RSS 2.0 or Atom feed over `https:` (10 s limit for the whole
@@ -306,7 +306,11 @@ items dated in the last `--window-days` days (RSS `<pubDate>`; Atom
 `<published>`, else `<updated>`; items dated after now do not count), and
 publishes one `execution.run.finished` with `ran.kind = job`, `ran.ref =
 goal-sense/G<n>`, `serves.goal = G<n>` and `state {subject: G<n>, value}`. At
-least `--min` items is `on-track`, fewer (including none) is `off-track`. An
+least `--min` items is `on-track`, fewer (including none) is `off-track`.
+With `--link-match <substring>`, only items whose link contains that literal,
+case-sensitive substring count; items without a link do not count.
+For example, `--link-match /shorts/` counts YouTube Shorts while excluding
+`/watch?v=` entries. Without the flag, every item in the window counts. An
 item with a missing or unparseable date is skipped with one stderr warning
 naming its position. A failed fetch (network, timeout, non-2xx, a redirect off
 `https:` or past 5 hops, a body over 2 MiB) or a body with
@@ -320,24 +324,92 @@ never followed and entities never resolved. stdout prints the value, the count
 and the ledger result; with `SOMA_PRINCIPAL` unset nothing is published and the
 exit code is 0 (1 on a failed fetch).
 
+### Proposing a goal
+
+```bash
+soma goal propose --wording "<private wording>" [--hint "<revision guidance>"] \
+  [--param url=https://example.org/feed.xml] [--json]
+```
+
+The session assistant shows the proposal and asks the principal to accept it.
+On a yes, the next step is `soma goal add --accept <hash>`. It verifies the
+proposal's content hash and 24-hour lifetime, writes a private draft record and
+`profile/goals/G<n>.activations.yaml` (0600), then deletes the proposal. Resource
+values are resolved locally; stdout prints only the goal and activation ids.
+Nothing is installed into Reflex by acceptance. An edit
+means re-proposing with `--hint`, producing a new hash. Activation requires a
+separate yes naming the goal id. Proposing creates neither a goal record nor an
+activation and reserves no goal id; `params.goal: G0` is an acceptance placeholder.
+
+The proposer uses standard-level `soma inference` over mission bullets,
+existing goal ids, statuses, kinds and wording for overlap, the kind catalog,
+and resource names and types. Wording and hints go to the inference provider;
+resource values never do. Replies are validated locally against kind Zod
+schemas, with one retry carrying value-free validation errors. A second invalid
+reply becomes `no_fit`. Schedules and sensor state rules come from kinds;
+`review_by` defaults to today plus 13 weeks. Zero mechanisms is allowed, with a
+warning that nothing moves the goal and the sweep's pursuit check will flag it.
+
+Private params use `<resource:name>`. Values come from `profile/resources.yaml`
+or `--param key=value`: use a private parameter name, `kind.parameter`, resource
+name or resource type (in that precedence order). Values may be JSON for
+structured inputs, such as a channel array. Overrides stay local and are stored
+only in the successful proposal for later staging. Missing required resources
+return `needs_input: [<resource type>]` and create no file. A single matching
+resource type can fill an omitted private param; ambiguous resources need a
+named reference or override.
+
+A valid proposal is written only to
+`<soma-home>/profile/goals/proposals/<sha256>.yaml`, mode `0600`. The hash covers
+the full YAML bytes. Local output shows the design, state rule, schedules, drop
+line, review date, overlaps and any mechanism gap, followed by the hash;
+`--json` returns the same result as JSON. Proposal files older than 24 hours are
+pruned on every invocation. Calls create no log or publication; the Claude
+backend disables session persistence, hooks and tools for this private call.
+
+On `no_fit` or a mechanism gap, show the generic needed-kind description to the
+principal. Only on a yes, file that generic description with
+`soma graph add 781 --kind grilling --title "<generic kind>" --autonomy approve --checkpoint <checkpoint-id> --body "<generic description>"`.
+Keep wording, hints, drop text and resource values out of the tracker. Proposing
+does not file that node itself.
+
 `soma goal kinds --json` lists the goal-kind catalog for inference; without
 `--json` it prints a compact ID, role and description list. The registry lives
 in `src/goal-kinds/registry.ts`. Each kind lives in
 `src/goal-kinds/<kind>.ts` and declares a strict Zod parameter object, public
 parameters, private parameter resource types, its existing command and argv
-mapping, a Cortex Reflex target, and a fixed default schedule. Sensors own a
+mapping, a Reflex target, and a fixed default schedule. Sensors own a
 state rule rendered from their threshold parameters. Unknown fields and missing
 required fields fail `params.safeParse`; JSON output uses JSON Schema for public
-parameters and only `{resourceType: "feed"}` for the private `url` parameter.
+parameters and only `{resourceType: "..."}` for private parameters.
 Catalog listing never reads private resources. There is no `soma goal run`.
 
 The first kind is `feed`: `goal` and `url` are required; `window_days` defaults
 to 7 and `min` to 1, both positive integers. Its argv maps to `--goal`, `--url`,
-`--window-days` and `--min` on `soma goal sense feed`. Its default schedule is
+`--window-days` and `--min` on `soma goal sense feed`. Optional `link_match`
+is a string mapped to `--link-match`. Its default schedule is
 `30 6 * * *`, timezone `Europe/Zurich`; the proposer must keep it. The declared
 target `@jc/goal-sense-feed` uses Cortex's existing `process` handler. Binding
 that target to a process spec on the personal stack belongs to goal activation
 setup; listing a kind does not install a route or activation.
+
+Two mechanism kinds register the landed draft commands. Their default schedules
+use `Europe/Zurich`, and private values are resolved locally before execution:
+
+| Kind | Parameters | Private resource types | Schedule | Target |
+| --- | --- | --- | --- | --- |
+| `outline` | Required `goal`, `tana_tag`, `drafts_dir`; `days` defaults to 7; optional positive integer `slot_minutes` | `tana_tag`: `tana-tag`, `drafts_dir`: `directory` | Monday 06:00 (`0 6 * * 1`) | `@jc/g5-outline` |
+| `announce` | Required `goal`, `url`, `channels` (nonempty list of channel names) | `url`: `feed`, `channels`: `channels` | Daily 06:35 (`35 6 * * *`) | `@jc/g5-announce` |
+
+`outline` maps to `soma goal outline --goal ... --tana-tag ... --drafts-dir ...
+--days ...`, adding `--slot-minutes` only when supplied. Both numeric parameters
+are positive integers. The slot proposal is part of `outline`, with no separate
+kind. Its existing target kickstarts the Calendar-granted launchd runner from
+node #845: a Cortex-spawned process is silently denied calendar access.
+`announce` maps to `soma goal announce --goal ... --url ... --channels ...`,
+joining the channel list with commas. Feed URLs must use HTTPS; private parameters
+also accept `<resource:name>` references for local resolution. Neither mechanism
+publishes a post or writes a calendar event.
 
 Private resources live only at `<soma-home>/profile/resources.yaml`, as one
 YAML sequence of entries. For example, using a generic placeholder URL:
