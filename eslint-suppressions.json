@@ -211,7 +211,7 @@
   },
   "src/goal-records.ts": {
     "soma/no-discarded-error": {
-      "count": 3
+      "count": 2
     }
   },
   "src/goal-reference.ts": {

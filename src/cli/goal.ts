@@ -317,11 +317,18 @@ export async function runGoalCli(
       }
       return addGoalRecord(goalsDir, options.add);
     }
-    case "activate":
+    case "activate": {
       if (!options.id) throw new Error("Goal id must match G<n>");
-      await activateGoalRecord(goalsDir, options.id, dependencies.activationsDir
+      const activationIds = await activateGoalRecord(goalsDir, options.id, dependencies.activationsDir
         ?? (dependencies.env ?? process.env).REFLEX_ACTIVATIONS_DIR ?? await goalActivationsDir(options));
-      return `${options.id}: active`;
+      return [
+        ...(activationIds.length === 0 ? [] : [
+          `Installed activations: ${activationIds.join(", ")}`,
+          "Warning: the first reading may send a text.",
+        ]),
+        `${options.id}: active`,
+      ].join("\n");
+    }
     case "set-status":
       if (!options.id) throw new Error("Goal id must match G<n>");
       if (!options.status) throw new Error("Goal status is required");
