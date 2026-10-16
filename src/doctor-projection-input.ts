@@ -3,7 +3,7 @@ import { loadActiveVsaForBundle } from "./vsa/index";
 import { isFsUtilsEnoent as isEnoent } from "./core/index";
 import { loadMemoryIndexForProjection } from "./memory/index";
 import { loadSomaHome } from "./home/index";
-import type { ProjectionInput } from "./home/index";
+import type { ProjectionInput } from "./home/types";
 
 export interface LoadProjectionInputForDoctorOptions {
   somaHome: string;

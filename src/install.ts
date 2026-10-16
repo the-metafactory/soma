@@ -45,7 +45,7 @@ import type {
 } from "./types";
 import type {
   ProjectionInput,
-} from "./home/index";
+} from "./home/types";
 
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 

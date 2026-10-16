@@ -16,7 +16,7 @@ import {
   ReservedReferenceLetterError,
   isReservedReferenceLetter,
   requireReferenceCode,
-} from "./home/index";
+} from "./home/communication-contract";
 import { compactSmarterRun } from "./algorithm-reflection-digest";
 import {
   buildVsaArtifact,

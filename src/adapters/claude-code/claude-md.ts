@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { isFsUtilsEnoent as isEnoent } from "../../core/index";
 import { loadSomaHome } from "../../home/index";
 import type { InstallPostProjectionContext } from "../../install-spec";
-import type { ProjectionInput } from "../../home/index";
+import type { ProjectionInput } from "../../home/types";
 import {
   extractOverlay,
   hasProvenanceHeader,

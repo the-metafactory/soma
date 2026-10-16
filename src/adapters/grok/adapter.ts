@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { SomaAdapter, Projection } from "../../types";
-import type { ProjectionInput } from "../../home/index";
+import type { ProjectionInput } from "../../home/types";
 import { activeVsaBundleFile } from "../../vsa/index";
 import { resolveBunExecutable } from "../../core/index";
 import { defaultInboundContentSecurityConfig } from "../../policy/inbound-security";

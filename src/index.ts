@@ -248,7 +248,7 @@ export type { BridgedNodeReport } from "./algorithm";
 // ONLY, because `ProjectionInput`/`SomaProfile` name them and a caller building
 // a projection input needs to spell them. Their parsers and helpers stay module-
 // local: every real consumer (six adapters, `soma-home.ts`, the tests) imports
-// from `./policy/behavior-policy` or `./communication-contract` directly, and
+// from `./policy/behavior-policy` or `./home/communication-contract` directly, and
 // `BehaviorPolicyEntry` changed shape three times while this branch was in
 // review. This is the same call `src/policy/self-healing-doctrine.ts` already
 // makes — it exports nothing here — and the one this file makes for

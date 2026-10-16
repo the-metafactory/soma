@@ -7,7 +7,7 @@ import { loadMemoryIndexForProjection, reindexMemoryIfStale } from "./memory/ind
 import { appendSomaMemoryEvent } from "./events/index";
 import { loadSomaHome } from "./home/index";
 import type { SubstrateId } from "./types";
-import type { ProjectionInput } from "./home/index";
+import type { ProjectionInput } from "./home/types";
 
 /**
  * Note-pointer count for the `memory.projection` event: the rendered index lists

@@ -44,13 +44,59 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
-  test("another component may import home's index, but no home internal", async () => {
+  test("shared types reach home types without its runtime barrel", () => {
+    const report = checkBoundaries({ root: repoRoot });
+    const reachable = new Set<string>();
+    const pending = ["src/types.ts"];
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (reachable.has(file)) continue;
+      reachable.add(file);
+      for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
+    }
+    expect([...reachable].filter((file) => file.startsWith("src/home/")).sort()).toEqual([
+      "src/home/communication-contract.ts",
+      "src/home/types.ts",
+    ]);
+  });
+
+  test.each([
+    "src/algorithm.ts",
+    "src/adapters/claude-code/session-digest.ts",
+    "src/adapters/codex/session-digest.ts",
+  ])("%s reaches only home's dependency-light entries", (entry) => {
+    const report = checkBoundaries({ root: repoRoot });
+    const reachable = new Set<string>();
+    const pending: string[] = [entry];
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (reachable.has(file)) continue;
+      reachable.add(file);
+      for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
+    }
+    const homeFiles = [...reachable].filter((file) => file.startsWith("src/home/"));
+    expect(homeFiles.length).toBeGreaterThan(0);
+    for (const file of homeFiles) {
+      expect([
+        "src/home/types.ts",
+        "src/home/communication-contract.ts",
+        "src/home/lifecycle-registry.ts",
+      ]).toContain(file);
+    }
+  });
+
+  test("another component may import home's public entries, but no home internal", async () => {
     expect(components.home.files).toEqual(["src/home/**"]);
-    expect(components.home.publicEntries).toEqual(["src/home/index.ts"]);
+    expect(components.home.publicEntries).toEqual([
+      "src/home/index.ts",
+      "src/home/types.ts",
+      "src/home/communication-contract.ts",
+      "src/home/lifecycle-registry.ts",
+    ]);
     await withRepoFixture("soma-boundaries-home-", async (root) => {
       const importer = join(root, "src/cli/home-entry-fixture.ts");
       const internals = (await readdir(join(root, "src/home")))
-        .filter((name) => name.endsWith(".ts") && name !== "index.ts");
+        .filter((name) => name.endsWith(".ts") && !components.home.publicEntries!.includes(`src/home/${name}`));
       expect(internals.length).toBeGreaterThan(0);
       await writeFile(importer, internals.map((name) => `import "../home/${name.slice(0, -3)}";\n`).join(""));
       const internal = checkBoundaries({ root, updateBaseline: true });
@@ -64,7 +110,12 @@ describe("component boundaries on the repository", () => {
           rule: "public-entry",
         }));
       }
-      await writeFile(importer, 'import { loadSomaHome } from "../home/index";\n');
+      await writeFile(importer, [
+        'import { loadSomaHome } from "../home/index";',
+        'import type { ProjectionInput } from "../home/types";',
+        'import { requireReferenceCode } from "../home/communication-contract";',
+        'import { registerSessionEndTranscriptHandler } from "../home/lifecycle-registry";',
+      ].join("\n"));
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.violations.filter((v) => v.fromComponent === "home" && v.toComponent !== "legacy")).toEqual([]);

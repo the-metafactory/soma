@@ -7,7 +7,7 @@ import type {
   SomaSnapshotListOptions,
   SomaSnapshotOptions,
   SomaSnapshotRollbackOptions,
-} from "../home/index";
+} from "../home/types";
 import { readOption } from "./parse-utils";
 
 export const SNAPSHOT_USAGE =

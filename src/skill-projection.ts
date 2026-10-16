@@ -11,7 +11,7 @@ import { extractSkillFrontmatter, SKILL_MD } from "./skill-frontmatter";
 import { loadSomaHome } from "./home/index";
 import { VSA_SKILL_NAME } from "./vsa-skill-installer";
 import type { SomaHomeProjectionOptions } from "./types";
-import type { ProjectionInput } from "./home/index";
+import type { ProjectionInput } from "./home/types";
 
 /**
  * soma#354 slice 1 — the projection primitive.

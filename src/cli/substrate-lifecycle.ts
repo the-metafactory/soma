@@ -43,7 +43,7 @@ import { isGuardedRuntimeSubstrate } from "../runtime-artifact";
 import { loadSomaHome } from "../home/index";
 import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";
 import { SHIPPED_SUBSTRATES, type ShippedSubstrate, type SomaInstallOptions, type SomaInstallPlan, type SomaInstallResult } from "../types";
-import { type ProjectionInput } from "../home/index";
+import { type ProjectionInput } from "../home/types";
 import { type InstallSubstrate } from "../policy/types";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";

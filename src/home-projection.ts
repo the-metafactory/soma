@@ -5,7 +5,7 @@ import type { HomeProjectionBuildContext } from "./install-spec";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./core/index";
 import type { Projection, ProjectionSubstrate, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "./types";
-import type { ProjectionInput } from "./home/index";
+import type { ProjectionInput } from "./home/types";
 import type { InstallSubstrate } from "./policy/types";
 
 export function resolveHomeProjectionPaths(

@@ -116,7 +116,14 @@ export const components: ComponentManifest<ComponentName> = {
   },
   home: {
     files: ["src/home/**"],
-    publicEntries: ["src/home/index.ts"],
+    // Leaf entries keep type, reference-code and hook-registration consumers
+    // from loading the profile, snapshots and resource readers through index.
+    publicEntries: [
+      "src/home/index.ts",
+      "src/home/types.ts",
+      "src/home/communication-contract.ts",
+      "src/home/lifecycle-registry.ts",
+    ],
     mayImport: ["core", "events", "memory", "purpose", "policy", "legacy"],
   },
   algorithm: {
