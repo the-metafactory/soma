@@ -1,7 +1,16 @@
 import { expect, test } from "bun:test";
-import { WorkGraphError, WorkGraph, checkGitLabConfinement, createGitLabGraphStore, type GitLabApiRequest } from "../../src/graph/index";
-import { gitLabCliEnvironment, glabApiArgs, parseGitLabCreateData, parseGlabApiOutput } from "../../src/graph/index";
-import { parseNodeSpec } from "../../src/graph/index";
+import {
+  WorkGraphError,
+  WorkGraph,
+  checkGitLabConfinement,
+  createGitLabGraphStore,
+  type GitLabApiRequest,
+  gitLabCliEnvironment,
+  glabApiArgs,
+  parseGitLabCreateData,
+  parseGlabApiOutput,
+  parseNodeSpec,
+} from "../../src/graph/index";
 
 const REF = { id: "saca/secacademy#12" };
 const REPO = "saca/secacademy";

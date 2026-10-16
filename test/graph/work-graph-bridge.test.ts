@@ -1,8 +1,8 @@
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { expect, test } from "bun:test";
-import { WorkGraphError } from "../../src/graph/index";
 import {
+  WorkGraphError,
   classifyHost,
   createGraphStore,
   localBlockerId,
@@ -13,8 +13,9 @@ import {
   resolveNodeTarget,
   type FetchLike,
   type RepoResolutionDeps,
+  type Forge,
+  type RepoRef,
 } from "../../src/graph/index";
-import type { Forge, RepoRef } from "../../src/graph/index";
 
 const SOMA: RepoRef = { forge: "github", host: "github.com", path: "the-metafactory/soma" };
 

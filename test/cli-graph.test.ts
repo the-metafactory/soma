@@ -12,12 +12,15 @@ import {
   selectRatification,
   type GraphCliDeps,
 } from "../src/cli/graph";
-import type { ConfinementResult } from "../src/graph/index";
-import type { RepoRef } from "../src/graph/index";
-// Receipt-rendering helpers are deliberately not on the public barrel (sage on
-// #584): they are internals of `renderCloseReceipt`, so the test reaches for
-// them where they live.
-import { collapseHome, describeProbeTree } from "../src/graph/index";
+import {
+  type ConfinementResult,
+  type RepoRef,
+  decodeNodeBlock,
+  encodeNodeBlock,
+} from "../src/graph/index";
+// Receipt-rendering tests reach the defining module directly (sage on
+// #584); collapseHome stays internal to graph.
+import { collapseHome, describeProbeTree } from "../src/graph/work-graph";
 import {
   WorkGraphError,
   renderCloseReceipt,
@@ -42,7 +45,6 @@ import {
   type WorkGraphNode,
 } from "../src/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
-import { decodeNodeBlock, encodeNodeBlock } from "../src/graph/index";
 
 const SERVES_CHART = ["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map"];
 

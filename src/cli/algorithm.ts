@@ -27,7 +27,10 @@ import { parsePaiReflections } from "../algorithm/algorithm-reflection-import";
 import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm/algorithm-capabilities";
 import { runSomaLifecycleAlgorithmUpdated } from "../lifecycle";
 import { appendSomaMemoryEvent } from "../events/index";
-import type { BridgedNodeReport } from "../graph/index";
+import {
+  type BridgedNodeReport,
+  readNodeForBridge,
+} from "../graph/index";
 // VerificationGateError is a CLI-only classification detail — imported straight
 // from its defining module, deliberately NOT re-exported through the public
 // barrel (Sage review, PR #455): keeping it off ../index leaves the internal
@@ -44,7 +47,6 @@ import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa/index";
 import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
-import { readNodeForBridge } from "../graph/index";
 import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../run-ledger";
 import { resolveSubstrateSessionEnv } from "../adapters/session-env";
 import { hashJudgmentInput, recordJudgment } from "../core/index";

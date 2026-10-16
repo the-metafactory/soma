@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { allProbesPassed, assertClosable, authorizeProbeTree, boundObserved, isProbeRefusal, resolvedProbePaths, runProbe, runProbes, PROBE_ESCAPED_PREFIX, type CloseReceipt, type CommandOutcome, type CommandRequest, type DeclaredCommand, type Probe, type ProbeRegistry, type ProbeRunnerOptions, type WorkGraphNode } from "../../src/graph/index";
 // Not on the public barrel — publication-rendering helpers, reached for where
 // they live, the way `cli-graph.test.ts` reaches for the receipt internals.
-import { collapseHome, redactHome } from "../../src/graph/index";
+import { collapseHome, redactHome } from "../../src/graph/work-graph";
 
 const AT = new Date("2026-08-04T09:00:00.000Z");
 const REPO = "github.com/the-metafactory/soma";

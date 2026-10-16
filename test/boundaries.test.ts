@@ -8,6 +8,7 @@ import {
   CLOSURE_STEP,
   VIOLATIONS_PATH,
   checkBoundaries,
+  collectSpecifiers,
   closureCeiling,
   formatReport,
 } from "../scripts/check-boundaries";
@@ -44,6 +45,16 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("algorithm's graph dependency is type-only despite its static barrel closure", async () => {
+    const source = await Bun.file(join(repoRoot, "src/algorithm/algorithm.ts")).text();
+    const edges = collectSpecifiers("algorithm.ts", source).filter(({ specifier }) => specifier.includes("graph/"));
+    expect(edges).toEqual([{ specifier: "../graph/index", kind: "type-import" }]);
+    // The closure check intentionally includes type edges. Bun must still erase
+    // this contract import so pure algorithm calls do not evaluate the backends.
+    const emitted = new Bun.Transpiler({ loader: "ts" }).transformSync(source);
+    expect(collectSpecifiers("algorithm.js", emitted).filter(({ specifier }) => specifier.includes("graph/"))).toEqual([]);
+  });
+
   test("graph public entry rejects every internal and has no outward violations", async () => {
     expect(components.graph.files).toEqual(["src/graph/**"]);
     expect(components.graph.publicEntries).toEqual(["src/graph/index.ts"]);

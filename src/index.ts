@@ -224,21 +224,6 @@ export type { BridgedNodeReport } from "./algorithm/algorithm";
 // `VerificationGateError`: off the barrel, free to change.
 export type { CommunicationContract } from "./home/index";
 export type { BehaviorPolicy } from "./policy/index";
-// The planSteps bridge's READ half (§2.7), beside the write half on purpose: a
-// consumer that can reach `syncBridgedPlanStep` but not the reader must
-// re-implement repo resolution, becoming the second reader the bridge forbids.
-//
-// Only the reader. `resolveGraphRepo` and `parseRemoteUrl` stay off the
-// barrel — a remote-URL parser is not part of the bridge contract, and putting
-// them here would drag a GitHub-shaped transport concern into the import graph of
-// every consumer of the pure algorithm functions. Same reasoning excludes
-// `markUnbridgedPlanStepsDone`: one production consumer, which imports it directly.
-export { readNodeForBridge } from "./graph/index";
-export type { ReadNodeForBridgeOptions } from "./graph/index";
-// The ref grammar is contract (#536 D1) — `ReadNodeForBridgeOptions` and
-// `GraphCliDeps` take a `RepoRef` — so it is on the barrel; the remote parser is not.
-export { FORGES, formatQualifiedNodeRef, formatRepoRef, parseQualifiedNodeRef, parseRepoRef } from "./graph/index";
-export type { Forge, QualifiedNodeRef, RepoRef } from "./graph/index";
 export {
   assertAlgorithmCapabilitiesSatisfied,
   getAlgorithmCapabilityDefinition,
@@ -627,9 +612,19 @@ export {
   type CompletenessReport,
 } from "./vsa/index";
 
-// Work graph (#497, DD-16): typed cross-session effort topology. The contract
-// layer and the store seam are public; backends are imported by name.
+// Work graph (#497, DD-16): preserve the root compatibility surface until the
+// final seams node. Graph owns its contract, bridge reader, refs and backends.
 export {
+  readNodeForBridge,
+  type ReadNodeForBridgeOptions,
+  FORGES,
+  formatQualifiedNodeRef,
+  formatRepoRef,
+  parseQualifiedNodeRef,
+  parseRepoRef,
+  type Forge,
+  type QualifiedNodeRef,
+  type RepoRef,
   WorkGraph,
   WorkGraphError,
   UnreadableBlockersError,
@@ -686,8 +681,6 @@ export {
   type WorkGraphEvidenceKind,
   type WorkGraphNode,
   type WorkGraphNodeBase,
-} from "./graph/index";
-export {
   checkGitHubConfinement,
   createGhCliTransport,
   createGitHubGraphStore,
@@ -703,8 +696,6 @@ export {
   type GitHubApiRequest,
   type GitHubApiTransport,
   type GitHubGraphStoreOptions,
-} from "./graph/index";
-export {
   checkGitLabConfinement,
   createGlabCliTransport,
   createGitLabGraphStore,
@@ -712,8 +703,6 @@ export {
   type GitLabApiTransport,
   type GitLabGraphStoreOptions,
   type GlabCliTransportOptions,
-} from "./graph/index";
-export {
   allProbesPassed,
   authorizeProbeTree,
   boundObserved,
@@ -730,8 +719,6 @@ export {
   type ProbeRunnerDeps,
   type ProbeRunnerOptions,
   type ResolvedProbePath,
-} from "./graph/index";
-export {
   authorizeProbe,
   isProbeRefusal,
   loadProbeRegistry,
@@ -746,8 +733,6 @@ export {
   type ProbeAuthorization,
   type ProbeRegistry,
   type ProbeRegistryHomeOptions,
-} from "./graph/index";
-export {
   deriveAttestation,
   findGraphRoot,
   type AttestationInputs,

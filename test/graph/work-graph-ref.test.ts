@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { WorkGraphError } from "../../src/graph/index";
 import {
+  WorkGraphError,
   displayRepo,
   formatQualifiedNodeRef,
   formatRepoRef,
