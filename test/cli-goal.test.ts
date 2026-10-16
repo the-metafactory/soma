@@ -243,6 +243,18 @@ test.each(["\n", "\r\n"])("activate preserves all bytes except the status scalar
   expect(await readFile(sensorPath, "utf8")).toBe(blueprint());
 });
 
+test("activate installs staged activations and prints their ids and the first-reading warning", async () => {
+  const f = await fixture();
+  await writeFile(join(f.goalsDir, "G8.md"), record());
+  const staged = blueprint() + "  - id: g8-outline\n    payload: {private: secret-resource}\n";
+  await writeFile(join(f.goalsDir, "G8.activations.yaml"), staged);
+  const result = f.invoke("activate", "G8");
+  expect(result).toEqual({ code: 0, err: "", out:
+    "Installed activations: feed-check, g8-outline\nWarning: the first reading may send a text.\nG8: active\n" });
+  expect(await readFile(join(f.activationsDir, "g8.yaml"), "utf8")).toBe(staged);
+  expect(await readFile(join(f.goalsDir, "G8.md"), "utf8")).toBe(record().replace("status: draft", "status: active"));
+});
+
 test.each([
   ["absent sensor", "sensor: absent\nreview_by: 2026-12-31\n", "sensor is absent"],
   ["missing sensor", "review_by: 2026-12-31\n", "missing sensor"],
