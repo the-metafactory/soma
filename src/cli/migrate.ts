@@ -8,7 +8,7 @@ import {
   REASON_PREFIX_SLASH_COMMAND,
 } from "../claude-skills-migrator";
 import { createProgressEmitter } from "../claude-skills-progress";
-import { createSomaSnapshot } from "../snapshots";
+import { createSomaSnapshot } from "../home/index";
 import type {
   ClaudeSkillOutcome,
   ClaudeSkillsMigrationManifest,

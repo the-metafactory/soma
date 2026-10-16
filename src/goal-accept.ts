@@ -7,7 +7,7 @@ import { isEnoent } from "./core";
 import { goalKinds } from "./goal-kinds/registry";
 import type { GoalKind } from "./goal-kinds/types";
 import { addGoalRecord } from "./goal-records";
-import { loadGoalResources, parseGoalResources, resolveGoalResource, type GoalResource } from "./goal-resources";
+import { loadGoalResources, parseGoalResources, resolveGoalResource, type GoalResource } from "./home/index";
 
 const DAY_MS = 86_400_000;
 const RESOURCE_REF = /^<resource:([a-z][a-z0-9_-]*)>$/;

@@ -1,11 +1,13 @@
 import { resolve } from "node:path";
 import type {
   Projection,
-  ProjectionInput,
   SomaHomeProjection,
   SomaHomeProjectionOptions,
   WrittenProjection,
 } from "./types";
+import type {
+  ProjectionInput,
+} from "./home/types";
 
 import type { InstallSubstrate, PrivateRootOptions } from "./policy/types";
 export type { InstallSubstrate, PrivateRootOptions } from "./policy/types";

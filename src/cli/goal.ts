@@ -9,7 +9,7 @@ import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from ".
 import { announceRefusal, runGoalAnnounce, type GoalAnnounceDeps, type GoalAnnounceOptions } from "../goal-announce";
 import { runGoalSweep, type GoalSweepDeps } from "../goal-sweep";
 import { defaultSomaHome, type SomaPathsOptions } from "../core/index";
-import { loadSomaConfig } from "../soma-config";
+import { loadSomaConfig } from "../home/index";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 import type { GoalProposeDeps, GoalProposeOptions } from "../goal-propose";

@@ -7,7 +7,7 @@ import {
   resolveAlgorithmReference,
 } from "../src/index";
 import { loadAlgorithmRun } from "../src/algorithm-store";
-import { ReservedReferenceLetterError } from "../src/communication-contract";
+import { ReservedReferenceLetterError } from "../src/home/index";
 import type { AlgorithmRun } from "../src/types";
 
 function newRun(): AlgorithmRun {

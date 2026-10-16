@@ -25,7 +25,7 @@ import {
   RESERVED_REFERENCE_LETTERS,
   isReservedReferenceLetter,
   parseReferenceCode,
-} from "../src/communication-contract";
+} from "../src/home/index";
 import { portableProjectionInput } from "./fixtures";
 
 const CONTRACT = `# Communication Contract

@@ -3,17 +3,10 @@ import { constants as fsConstants } from "node:fs";
 import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { beginEventRollback, compressEventSegment, eventArchiveDir, eventArchiveVersion, eventCountsIndexPath, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock, writeCumulativeEventCounts } from "./events/index";
-import packageJson from "../package.json";
-import { createPaths } from "./core/index";
-import type {
-  SomaSnapshotEntry,
-  SomaSnapshotListOptions,
-  SomaSnapshotOptions,
-  SomaSnapshotResult,
-  SomaSnapshotRollbackOptions,
-  SomaSnapshotRollbackResult,
-} from "./types";
+import { beginEventRollback, compressEventSegment, eventArchiveDir, eventArchiveVersion, eventCountsIndexPath, eventIndexPath, ensureCompressedEventSegments, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, waitForEventReaders, withEventLogLock, writeCumulativeEventCounts } from "../events/index";
+import packageJson from "../../package.json";
+import { createPaths } from "../core/index";
+import type { SomaSnapshotEntry, SomaSnapshotListOptions, SomaSnapshotOptions, SomaSnapshotResult, SomaSnapshotRollbackOptions, SomaSnapshotRollbackResult } from "./types";
 
 interface GitResult {
   stdout: string;

@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { appendEventBatch, ensureCompressedEventSegments, eventArchiveDir, eventIndexPath, eventSegmentPath, compressEventSegment, streamEventLines, streamEventRecords, withEventLogLock } from "../src/events/index";
-import { createSomaSnapshot, rollbackSomaSnapshot } from "../src/snapshots";
+import { appendEventBatch, ensureCompressedEventSegments, eventArchiveDir, eventIndexPath, eventSegmentPath, compressEventSegment, streamEventLines, streamEventRecords, withEventLogLock } from "../../src/events/index";
+import { createSomaSnapshot, rollbackSomaSnapshot } from "../../src/home/index";
 
 const homes: string[] = [];
 async function home(): Promise<{ root: string; events: string }> {
@@ -28,7 +28,7 @@ afterEach(async () => { await Promise.all(homes.splice(0).map((root) => rm(root,
 
 test("cross-process append rotates complete ordered segments without duplicates", async () => {
   const { events } = await home();
-  const modulePath = join(import.meta.dir, "../src/events/index.ts");
+  const modulePath = join(import.meta.dir, "../../src/events/index.ts");
   const processes = Array.from({ length: 4 }, (_, worker) => Bun.spawn([
     "bun", "-e",
     `import { appendEventBatch } from ${JSON.stringify(modulePath)}; for(let i=0;i<20;i++) await appendEventBatch(${JSON.stringify(events)}, Buffer.from(JSON.stringify({worker:${worker},i})+'\\n'), 120);`,

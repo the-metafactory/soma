@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { streamEventLines } from "../../events/index";
-import { listSomaWorkRegistryEntries, type SomaCurrentWorkPointer, type SomaWorkRegistryEntry } from "../../work-registry";
+import { listSomaWorkRegistryEntries, type SomaCurrentWorkPointer, type SomaWorkRegistryEntry } from "../../home/index";
 import { isoTimestamp, pathsForLearningOptions, safeFileToken } from "../index";
 import { transcriptContentToText } from "../index";
 import type { HarvestOptions, HarvestedLearning } from "./index";

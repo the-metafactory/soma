@@ -115,7 +115,15 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "events", "tools", "legacy"],
   },
   home: {
-    files: ["src/soma-home", "src/soma-config", "src/goal-resources", "src/snapshots", "src/work-registry", "src/communication-contract", "src/lifecycle-registry"],
+    files: ["src/home/**"],
+    // Leaf entries keep type, reference-code and hook-registration consumers
+    // from loading the profile, snapshots and resource readers through index.
+    publicEntries: [
+      "src/home/index.ts",
+      "src/home/types.ts",
+      "src/home/communication-contract.ts",
+      "src/home/lifecycle-registry.ts",
+    ],
     mayImport: ["core", "events", "memory", "purpose", "policy", "legacy"],
   },
   algorithm: {

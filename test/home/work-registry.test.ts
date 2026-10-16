@@ -7,7 +7,7 @@ import {
   readSomaWorkRegistry,
   somaWorkRegistryPaths,
   upsertSomaWorkRegistryEntry,
-} from "../src";
+} from "../../src/home/index";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-work-registry-"));

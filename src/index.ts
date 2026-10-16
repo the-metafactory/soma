@@ -31,7 +31,6 @@ export type {
   AlgorithmRunInput,
   AlgorithmRunSummary,
   AlgorithmWorkIndex,
-  AssistantIdentity,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional back-compat re-export of the deprecated alias (soma#329)
   IdealStateCriterion,
   IdeateParameters,
@@ -40,23 +39,12 @@ export type {
   VsaSkillInstallAction,
   VsaSkillInstallOptions,
   VsaSkillInstallResult,
-  PrincipalIdentity,
   SomaSkillBaseline,
   SomaSkillBaselines,
   SomaAdapter,
   Projection,
-  ProjectionInput,
-  SomaMemoryLayout,
-  SomaProfile,
   SomaSkill,
-  SomaSnapshotEntry,
-  SomaSnapshotListOptions,
-  SomaSnapshotOptions,
-  SomaSnapshotResult,
-  SomaSnapshotRollbackOptions,
-  SomaSnapshotRollbackResult,
   SubstrateId,
-  Purpose,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- re-exported for back-compat (soma#329)
   Telos,
   SomaHomeProjection,
@@ -146,6 +134,20 @@ export type {
   SomaTask,
   WrittenProjection,
 } from "./types";
+export type {
+  AssistantIdentity,
+  PrincipalIdentity,
+  ProjectionInput,
+  SomaMemoryLayout,
+  SomaProfile,
+  SomaSnapshotEntry,
+  SomaSnapshotListOptions,
+  SomaSnapshotOptions,
+  SomaSnapshotResult,
+  SomaSnapshotRollbackOptions,
+  SomaSnapshotRollbackResult,
+  Purpose,
+} from "./home/index";
 export type { AlgorithmLogEntry, AuthoredFrontmatter, DerivedFrontmatter, VerificationStateArtifact, Checkpoint, VsaFrontmatter, VsaSection, SomaActiveVsaState } from "./vsa/index";
 export type {
   SomaMemoryRecallOptions,
@@ -246,12 +248,12 @@ export type { BridgedNodeReport } from "./algorithm";
 // ONLY, because `ProjectionInput`/`SomaProfile` name them and a caller building
 // a projection input needs to spell them. Their parsers and helpers stay module-
 // local: every real consumer (six adapters, `soma-home.ts`, the tests) imports
-// from `./policy/behavior-policy` or `./communication-contract` directly, and
+// from `./policy/behavior-policy` or `./home/communication-contract` directly, and
 // `BehaviorPolicyEntry` changed shape three times while this branch was in
 // review. This is the same call `src/policy/self-healing-doctrine.ts` already
 // makes — it exports nothing here — and the one this file makes for
 // `VerificationGateError`: off the barrel, free to change.
-export type { CommunicationContract } from "./communication-contract";
+export type { CommunicationContract } from "./home/index";
 export type { BehaviorPolicy } from "./policy/index";
 // The planSteps bridge's READ half (§2.7), beside the write half on purpose: a
 // consumer that can reach `syncBridgedPlanStep` but not the reader must
@@ -521,8 +523,8 @@ export {
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
 } from "./lifecycle";
-export { registerSessionEndTranscriptHandler, registerProjectionRepairProvider } from "./lifecycle-registry";
-export type { SessionEndTranscriptHandler, ProjectionRepairProvider } from "./lifecycle-registry";
+export { registerSessionEndTranscriptHandler, registerProjectionRepairProvider } from "./home/index";
+export type { SessionEndTranscriptHandler, ProjectionRepairProvider } from "./home/index";
 export { buildLearningReadback } from "./learning-readback";
 export type { LearningReadbackOptions } from "./learning-readback";
 export { repairProjectedArtifacts } from "./projection-self-repair";
@@ -557,7 +559,7 @@ export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memor
 // (docs/architecture.md#Core; sage m5b r2).
 export { consolidateMemory } from "./memory/index";
 export { auditMemory } from "./memory/index";
-export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
+export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./home/index";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./events/index";
 export {
   listSomaWorkRegistryEntries,
@@ -574,7 +576,7 @@ export {
   type UpsertSomaCurrentWorkPointerOptions,
   type UpsertSomaWorkRegistryEntryOptions,
   type UpsertSomaWorkRegistryEntryResult,
-} from "./work-registry";
+} from "./home/index";
 export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
 export { promoteAlgorithmRunMemory } from "./memory-promotion";
 export { planMemoryBackfill, runMemoryBackfill } from "./memory/index";
@@ -607,7 +609,7 @@ export {
   type ToolCallPolicyGuardDecision,
 } from "./policy/tool-policy-guard";
 export { bootstrapSomaHome } from "./home-bootstrap";
-export { loadSomaHome, loadSomaProfile } from "./soma-home";
+export { loadSomaHome, loadSomaProfile } from "./home/index";
 // Algorithm ↔ VSA bridge (#39) — advisory, non-blocking.
 export {
   markVsaVerifiedFromCriteria,

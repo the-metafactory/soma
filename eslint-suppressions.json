@@ -219,7 +219,7 @@
       "count": 1
     }
   },
-  "src/goal-resources.ts": {
+  "src/home/goal-resources.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
@@ -364,12 +364,12 @@
       "count": 9
     }
   },
-  "src/soma-config.ts": {
+  "src/home/soma-config.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/soma-home.ts": {
+  "src/home/soma-home.ts": {
     "soma/no-discarded-error": {
       "count": 4
     }

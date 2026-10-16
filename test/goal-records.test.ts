@@ -12,7 +12,8 @@ import { projectGrok } from "../src/adapters/grok/adapter";
 import { projectPiDev } from "../src/adapters/pi-dev/adapter";
 import { renderAssistantCore } from "../src/adapters/shared";
 import type { GoalRecordWarning } from "../src/goal-records";
-import type { GoalRecord, ProjectionInput } from "../src/types";
+import type { GoalRecord } from "../src/types";
+import type { ProjectionInput } from "../src/home/index";
 import { portableProjectionInput } from "./fixtures";
 
 // soma#784 D2–D5, D7–D9: typed goal records in `profile/goals/G<n>.md`.

@@ -1,6 +1,6 @@
 import { rename, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { createSomaSnapshot } from "./snapshots";
+import { createSomaSnapshot } from "./home/index";
 
 async function dirExists(path: string): Promise<boolean> {
   try {

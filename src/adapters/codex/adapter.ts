@@ -1,7 +1,8 @@
 import { CODEX_LIFECYCLE_CONFIG_PATH } from "./projection-constants";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
+import type { SomaAdapter, Projection } from "../../types";
+import type { ProjectionInput } from "../../home/types";
 import { defaultSomaRepoPath } from "../../core/index";
 import { resolveBunExecutable } from "../../core/index";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";

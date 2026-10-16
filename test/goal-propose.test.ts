@@ -7,7 +7,7 @@ import { parse } from "yaml";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { proposeGoal, formatGoalProposal, type GoalProposeDeps } from "../src/goal-propose";
 import { goalKinds, listGoalKinds } from "../src/goal-kinds/registry";
-import type { GoalResource } from "../src/goal-resources";
+import type { GoalResource } from "../src/home/index";
 import type { InferenceBackend, InferenceRequest } from "../src/tools/inference";
 
 const now = new Date("2026-10-16T12:00:00Z");
