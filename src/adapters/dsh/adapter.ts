@@ -13,7 +13,7 @@ import {
   SELF_HEALING_DOCTRINE_ADVISORY,
   withProvenance,
 } from "../shared";
-import { behaviorPolicyAdvisory } from "../../policy/index";
+import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 
 /** The repo-CLI invocation every projected command uses — one definition,
  * interpolated by both the entry skill and the lifecycle projection, so a

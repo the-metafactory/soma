@@ -17,8 +17,8 @@ export {
   SELF_HEALING_DOCTRINE_TITLE,
   SELF_HEALING_ROUTES,
   renderSelfHealingRoute,
-} from "../../policy/index";
-export type { SelfHealingRoute } from "../../policy/index";
+} from "../../policy/self-healing-doctrine";
+export type { SelfHealingRoute } from "../../policy/self-healing-doctrine";
 export {
   OVERLAY_BEGIN,
   OVERLAY_END,

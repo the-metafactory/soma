@@ -49,6 +49,13 @@ describe("component boundaries on the repository", () => {
     expect(components.policy.publicEntries).toEqual([
       "src/policy/index.ts",
       "src/policy/types.ts",
+      "src/policy/behavior-policy.ts",
+      "src/policy/self-healing-doctrine.ts",
+      "src/policy/private-roots.ts",
+      "src/policy/projection-private-roots.ts",
+      "src/policy/policy.ts",
+      "src/policy/policy-path-guard.ts",
+      "src/policy/policy-targets.ts",
       "src/policy/policy-audit.ts",
       "src/policy/inbound-security.ts",
       "src/policy/runtime-policy.ts",

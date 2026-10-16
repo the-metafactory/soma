@@ -1,10 +1,10 @@
-import { parseBashDestructivePaths } from "../../../policy/index";
+import { parseBashDestructivePaths } from "../../../policy/policy-path-guard";
 import {
   extractToolCallPolicyTargets as extractNormalizedToolCallPolicyTargets,
   somaPolicyActionForToolAction,
   type SomaToolPolicyAction,
   type SomaToolPolicyExtraction,
-} from "../../../policy/index";
+} from "../../../policy/policy-targets";
 
 export { somaPolicyActionForToolAction };
 

@@ -7,7 +7,7 @@ import {
   extractWritePolicyTargets,
   type SomaPolicyTargetConfig,
   type SomaPolicyToolInvocation,
-} from "../../policy/index";
+} from "../../policy/policy-targets";
 import type { SomaPolicyBatchTarget } from "../../policy/types";
 
 function resolveToolPath(path: string, cwd: string): string {

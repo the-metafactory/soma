@@ -184,3 +184,12 @@ test("the claude-code hook assets stay OUT of the pi.dev extension graph", () =>
   expect(reachable).not.toContain("src/adapters/claude-code/hooks.ts");
   expect(reachable).not.toContain("src/adapters/claude-code/hook-runner.mjs");
 });
+
+test("generated pi.dev policy extensions reach defining modules without the policy barrel", () => {
+  const reachable = [...walkImportGraph(generatedExtensionSeeds()).visited].map((path) => relative(REPO_ROOT, path));
+
+  expect(reachable).toContain("src/policy/policy-path-guard.ts");
+  expect(reachable).toContain("src/policy/policy-targets.ts");
+  expect(reachable).not.toContain("src/policy/index.ts");
+  expect(reachable).not.toContain("src/index.ts");
+});

@@ -8,10 +8,10 @@ import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } f
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import { buildPortableSkillFiles, communicationContractFile, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, renderSubstrateInstructions, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
 import { activeVsaBundleFile } from "../../vsa/index";
-import { somaPolicyPrivateMarkers } from "../../policy/index";
-import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../policy/index";
+import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
+import { somaPolicyPrivateMarkers } from "../../policy/policy";
+import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../policy/projection-private-roots";
 import { defaultInboundContentSecurityConfig } from "../../policy/inbound-security";
-import { behaviorPolicyAdvisory } from "../../policy/index";
 
 export function isCodexSkillProjectionPath(path: string): boolean {
   return path.startsWith("skills/");
