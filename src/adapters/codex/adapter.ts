@@ -7,7 +7,7 @@ import { resolveBunExecutable } from "../../core/index";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
 import { buildPortableSkillFiles, communicationContractFile, renderAlgorithmRenderingContract, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, renderSubstrateInstructions, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "../shared";
-import { activeVsaBundleFile } from "../../adapter-active-vsa";
+import { activeVsaBundleFile } from "../../vsa/index";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";

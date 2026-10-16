@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { Projection, ProjectionInput, SomaAdapter } from "../types";
-import { activeVsaBundleFile, activeVsaProjectionPath } from "../adapter-active-vsa";
+import { activeVsaBundleFile, activeVsaProjectionPath } from "../vsa/index";
 import {
   communicationContractFile,
   renderAssistantCore,

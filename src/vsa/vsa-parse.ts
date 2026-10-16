@@ -1,15 +1,7 @@
-import type {
-  AlgorithmEffortTier,
-  AlgorithmMode,
-  AlgorithmPhase,
-  AuthoredFrontmatter,
-  DerivedFrontmatter,
-  VerificationStateArtifact,
-  VsaFrontmatter,
-  VsaSection,
-} from "./types";
+import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase } from "../types";
+import type { AuthoredFrontmatter, DerivedFrontmatter, VerificationStateArtifact, VsaFrontmatter, VsaSection } from "./types";
 import { getCriteria, progressFromCriteria, verifiedFromCriteria } from "./vsa-accessors";
-import { warnServes, type ServesOptions } from "./goal-reference";
+import { warnServes, type ServesOptions } from "../goal-reference";
 
 /**
  * Round-trip contract: parseVsa → serializeVsa produces **semantic equivalence**

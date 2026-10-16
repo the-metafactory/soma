@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migrateVsaStorageDir } from "../src/home-migration";
 import { bootstrapSomaHome } from "../src/home-bootstrap";
-import { vsaDir } from "../src/vsa";
+import { vsaDir } from "../src/vsa/vsa";
 
 async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "soma-home-migration-"));

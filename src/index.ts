@@ -11,7 +11,6 @@ export type {
   AlgorithmCapabilitySelectionStatus,
   AlgorithmCriteriaPartition,
   AlgorithmGatesFired,
-  AlgorithmLogEntry,
   AlgorithmMetaReflection,
   AlgorithmObservation,
   AlgorithmReference,
@@ -33,22 +32,15 @@ export type {
   AlgorithmRunSummary,
   AlgorithmWorkIndex,
   AssistantIdentity,
-  AuthoredFrontmatter,
-  DerivedFrontmatter,
-  VerificationStateArtifact,
-  Checkpoint,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional back-compat re-export of the deprecated alias (soma#329)
   IdealStateCriterion,
   IdeateParameters,
   IdeatePresetName,
   VsaUpdatePayload,
-  VsaFrontmatter,
-  VsaSection,
   VsaSkillInstallAction,
   VsaSkillInstallOptions,
   VsaSkillInstallResult,
   PrincipalIdentity,
-  SomaActiveVsaState,
   SomaSkillBaseline,
   SomaSkillBaselines,
   SomaAdapter,
@@ -154,6 +146,7 @@ export type {
   SomaTask,
   WrittenProjection,
 } from "./types";
+export type { AlgorithmLogEntry, AuthoredFrontmatter, DerivedFrontmatter, VerificationStateArtifact, Checkpoint, VsaFrontmatter, VsaSection, SomaActiveVsaState } from "./vsa/index";
 export type {
   SomaMemoryRecallOptions,
   SomaMemoryRecallResult,
@@ -318,12 +311,13 @@ export {
   getGoal,
   getSection,
   getVerification,
+  parseVsa,
   recomputeProgress,
   recomputeVerified,
   setSection,
+  serializeVsa,
   updateCriterion,
-} from "./vsa-accessors";
-export { parseVsa, serializeVsa } from "./vsa-parse";
+} from "./vsa/index";
 export {
   abandonAlgorithmRun,
   completeAlgorithmRun,
@@ -511,7 +505,7 @@ export {
   loadActiveVsaForBundle,
   renderActiveVsaFile,
   type LoadActiveVsaOptions,
-} from "./adapter-active-vsa";
+} from "./vsa/index";
 // Public VSA-skill installer API — cohesive surface only.
 // Implementation details (vsaSkillRuntimeDir, vsaSkillSourceDir,
 // parseSkillFrontmatter, skillBaselinesPath, compareSkillVersions) stay in
@@ -651,8 +645,6 @@ export {
   type ScaffoldVsaInput,
   type SetActiveVsaResult,
   type WriteVsaResult,
-} from "./vsa";
-export {
   reconcileVsa,
   reconcileVsaArtifacts,
   type VsaConflictPolicy,
@@ -660,8 +652,9 @@ export {
   type VsaReconcileReport,
   type VsaReconcileResult,
   type ReconcileVsaOptions,
-} from "./vsa-reconcile";
-export { type CompletenessGap, type CompletenessReport } from "./vsa-schema";
+  type CompletenessGap,
+  type CompletenessReport,
+} from "./vsa/index";
 
 // Work graph (#497, DD-16): typed cross-session effort topology. The contract
 // layer and the store seam are public; backends are imported by name.

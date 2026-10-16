@@ -1,17 +1,6 @@
-import type {
-  AlgorithmCriteriaPartition,
-  AlgorithmLoopIterationResult,
-  AlgorithmLoopState,
-  AlgorithmNotificationEvent,
-  AlgorithmPhase,
-  AlgorithmRun,
-  Checkpoint,
-  IdeateParameters,
-  IdeatePresetName,
-  OptimizeParameters,
-  OptimizePresetName,
-} from "./types";
-import { getCriteria } from "./vsa-accessors";
+import type { AlgorithmCriteriaPartition, AlgorithmLoopIterationResult, AlgorithmLoopState, AlgorithmNotificationEvent, AlgorithmPhase, AlgorithmRun, IdeateParameters, IdeatePresetName, OptimizeParameters, OptimizePresetName } from "./types";
+import type { Checkpoint } from "./vsa/index";
+import { getCriteria } from "./vsa/index";
 
 export const DEFAULT_ALGORITHM_LOOP_STATE: AlgorithmLoopState = {
   status: "paused",

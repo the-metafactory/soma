@@ -13,7 +13,7 @@ master document wholesale.
 
 ## Interface
 
-The file-backed function lives in `src/vsa-reconcile.ts`:
+The file-backed function lives in `src/vsa/vsa-reconcile.ts`:
 
 ```ts
 reconcileVsa(slug, feature, options)

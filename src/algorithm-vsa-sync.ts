@@ -43,17 +43,9 @@ import {
 import { readAlgorithmRunById, writeAlgorithmRun } from "./algorithm-store";
 import { datePrefixSlug } from "./core/index";
 import { getRunPhase } from "./algorithm-lifecycle";
-import { parseVsa, serializeVsa } from "./vsa-parse";
-import { getCriteria, getDecisions, getGoal, isClosedCriterion } from "./vsa-accessors";
+import { getCriteria, getDecisions, getGoal, isClosedCriterion, parseVsa, serializeVsa, type VerificationStateArtifact, type Checkpoint } from "./vsa/index";
 import { _promoteAlgorithmRunMemoryWithCallback } from "./memory-promotion";
-import type {
-  AlgorithmPhase,
-  AlgorithmPlanStep,
-  AlgorithmRun,
-  VerificationStateArtifact,
-  Checkpoint,
-  SubstrateId,
-} from "./types";
+import type { AlgorithmPhase, AlgorithmPlanStep, AlgorithmRun, SubstrateId } from "./types";
 
 export interface SyncAlgorithmRunFromVsaOptions {
   /** Absolute path to the VSA markdown file. */

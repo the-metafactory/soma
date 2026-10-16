@@ -5,7 +5,7 @@ import { expect, spyOn, test } from "bun:test";
 import { syncAlgorithmRunFromVsa } from "../src/algorithm-vsa-sync";
 import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm-store";
 import { syncBridgedPlanStep } from "../src/algorithm";
-import { getCriteria } from "../src/vsa-accessors";
+import { getCriteria } from "../src/vsa/vsa-accessors";
 import { getRunPhase } from "../src/algorithm-lifecycle";
 
 async function withSomaHome<T>(fn: (somaHome: string, dir: string) => Promise<T>): Promise<T> {

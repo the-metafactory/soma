@@ -20,7 +20,7 @@ import { createPaths } from "./core/index";
 import { pruneLegacyVsaSkill } from "./legacy-skill-prune";
 import { installBundledSkillsIntoHome } from "./bundled-skills";
 import { installVsaSkillProjection } from "./vsa-skill-installer";
-import { loadActiveVsaForBundle } from "./adapter-active-vsa";
+import { loadActiveVsaForBundle } from "./vsa/index";
 import { loadMemoryIndexForProjection } from "./memory/index";
 import { isUnderOrEqual, reconcileOwnedDir } from "./projection-reconcile";
 import { isEnoent } from "./core/index";

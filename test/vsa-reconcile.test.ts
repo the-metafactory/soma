@@ -13,8 +13,8 @@ import {
   somaMemoryEventsPath,
   writeVsa,
 } from "../src/index";
-import { SECTION_NAME_MAP, getDecisions, getGoal, renderCriteriaMarkdown, renderLogEntries, setSection } from "../src/vsa-accessors";
-import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint } from "../src/types";
+import { SECTION_NAME_MAP, getDecisions, getGoal, renderCriteriaMarkdown, renderLogEntries, setSection } from "../src/vsa/vsa-accessors";
+import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint } from "../src/vsa/index";
 
 async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-vsa-reconcile-"));

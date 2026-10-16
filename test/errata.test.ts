@@ -8,7 +8,8 @@ import {
 } from "../src/errata";
 import { createAlgorithmRun, verifyAlgorithmCriterion } from "../src/algorithm";
 import { writeAlgorithmRun } from "../src/algorithm-store";
-import type { AlgorithmLogEntry, ErrataInput } from "../src/types";
+import type { AlgorithmLogEntry } from "../src/vsa/index";
+import type { ErrataInput } from "../src/types";
 
 const homes: string[] = [];
 async function home() { const dir = await mkdtemp(join(tmpdir(), "soma-errata-")); homes.push(dir); return dir; }

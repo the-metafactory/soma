@@ -1,0 +1,7 @@
+export { SECTION_NAME_MAP, appendCriterion, appendVsaChangelog, appendVsaDecision, appendVsaVerification, buildVsaArtifact, defaultEvidenceKind, getChangelog, getCriteria, getDecisions, getGoal, getSection, getVerification, isClosedCriterion, isHollowPass, progressFromCriteria, recomputeProgress, recomputeVerified, setSection, updateCriterion, updateCriterionWithResult, verificationGateViolation, verifiedFromCriteria } from "./vsa-accessors";
+export { activeVsaBundleFile, activeVsaProjectionPath, loadActiveVsaForBundle, renderActiveVsaFile, type LoadActiveVsaOptions } from "./adapter-active-vsa";
+export { applyVsaUpdate, checkCompleteness, getActiveVsa, listAvailableTiers, listVsas, readVsa, recordVsaChangelog, recordVsaDecision, recordVsaVerification, resolveSomaHome, scaffoldVsa, setActiveVsa, type EffortTier, type ScaffoldVsaInput, type SetActiveVsaResult, type VsaLibraryOptions, type VsaListEntry, type VsaUpdateEntry, type VsaUpdateSection, type WriteVsaResult, vsaDir, vsaPath, writeVsa } from "./vsa";
+export { parseVsa, serializeVsa } from "./vsa-parse";
+export { reconcileVsa, reconcileVsaArtifacts, type ReconcileVsaOptions, type VsaConflictPolicy, type VsaReconcileConflict, type VsaReconcileReport, type VsaReconcileResult } from "./vsa-reconcile";
+export { type CompletenessGap, type CompletenessReport } from "./vsa-schema";
+export type { AlgorithmLogEntry, AuthoredFrontmatter, Checkpoint, CriterionStatus, DerivedFrontmatter, SomaActiveVsaState, VerificationStateArtifact, VsaFrontmatter, VsaSection } from "./types";

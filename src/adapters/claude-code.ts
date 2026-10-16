@@ -1,7 +1,7 @@
 import type { SkillsDiscoveryMode } from "../install-spec";
 import type { SomaAdapter, Projection, ProjectionInput } from "../types";
 import { buildPortableSkillFiles, communicationContractFile, projectedRulesFiles, skillCatalogFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
-import { activeVsaBundleFile } from "../adapter-active-vsa";
+import { activeVsaBundleFile } from "../vsa/index";
 import { behaviorPolicyAdvisory } from "../policy/behavior-policy";
 
 // Every `skills/<name>/` file claude-code's home projection emits is a portable

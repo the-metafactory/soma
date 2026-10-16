@@ -1,17 +1,9 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type {
-  AlgorithmEffortSource,
-  AlgorithmEffortTier,
-  AlgorithmMode,
-  AlgorithmPhase,
-  AlgorithmRun,
-  AlgorithmRunSummary,
-  VerificationStateArtifact,
-  Checkpoint,
-} from "./types";
-import { buildVsaArtifact, getCriteria, getGoal } from "./vsa-accessors";
+import type { AlgorithmEffortSource, AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase, AlgorithmRun, AlgorithmRunSummary } from "./types";
+import type { VerificationStateArtifact, Checkpoint } from "./vsa/index";
+import { buildVsaArtifact, getCriteria, getGoal } from "./vsa/index";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { DEFAULT_ALGORITHM_LOOP_STATE } from "./algorithm-execution-modes";
 

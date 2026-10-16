@@ -12,7 +12,7 @@ import {
   SOMA_MEMORY_BACKFILL_TYPE_MAP,
   type WritableNoteType,
 } from "./memory/index";
-import { getCriteria, getGoal } from "./vsa-accessors";
+import { getCriteria, getGoal } from "./vsa/index";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "./core/index";
 import type {

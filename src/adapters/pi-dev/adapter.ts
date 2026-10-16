@@ -18,7 +18,7 @@ import {
   SELF_HEALING_DOCTRINE_ADVISORY,
   withProvenance,
 } from "../shared";
-import { activeVsaBundleFile } from "../../adapter-active-vsa";
+import { activeVsaBundleFile } from "../../vsa/index";
 import { SOMA_VERSION } from "../../core/index";
 import { regexClassifierVersion } from "../../judge";
 import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";

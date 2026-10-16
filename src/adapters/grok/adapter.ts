@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput } from "../../types";
-import { activeVsaBundleFile } from "../../adapter-active-vsa";
+import { activeVsaBundleFile } from "../../vsa/index";
 import { resolveBunExecutable } from "../../core/index";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
 import { somaPolicyPrivateMarkers } from "../../policy";

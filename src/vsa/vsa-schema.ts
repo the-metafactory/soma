@@ -1,4 +1,5 @@
-import type { AlgorithmEffortTier, VerificationStateArtifact } from "./types";
+import type { AlgorithmEffortTier } from "../types";
+import type { VerificationStateArtifact } from "./types";
 import { TWELVE_SECTIONS, getSection, SECTION_NAME_MAP } from "./vsa-accessors";
 
 /**

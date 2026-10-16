@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { applyVsaUpdate, getActiveVsa, vsaPath } from "./vsa";
+import { applyVsaUpdate, getActiveVsa, vsaPath } from "./vsa/index";
 import { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "./events/index";
 import { checkSomaPolicy } from "./policy-audit";
 import type { SomaMemoryEventInput } from "./events/index";

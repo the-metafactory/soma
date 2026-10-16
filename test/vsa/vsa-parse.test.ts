@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { parseVsa, serializeVsa } from "../src/index";
-import { SECTION_NAME_MAP } from "../src/vsa-accessors";
+import { parseVsa, serializeVsa } from "../../src/vsa/vsa-parse";
+import { SECTION_NAME_MAP } from "../../src/vsa/vsa-accessors";
 
 test("serves is authored frontmatter and survives a fresh render", () => {
   const warnings: string[] = [];
@@ -110,7 +110,7 @@ Something
 });
 
 test("serializeVsa re-renders after structural mutation via accessor", async () => {
-  const { setSection: setSectionFn, SECTION_NAME_MAP: SNM } = await import("../src/vsa-accessors");
+  const { setSection: setSectionFn, SECTION_NAME_MAP: SNM } = await import("../../src/vsa/vsa-accessors");
   const isa = parseVsa(SAMPLE);
   const mutated = setSectionFn(isa, SNM.goal, "Different goal text");
   const serialized = serializeVsa(mutated);

@@ -1,19 +1,5 @@
-import type {
-  AlgorithmGatesFired,
-  AlgorithmLogEntry,
-  AlgorithmBatchOperation,
-  AlgorithmMetaReflection,
-  AlgorithmObservation,
-  AlgorithmPhase,
-  AlgorithmPlanStep,
-  AlgorithmReference,
-  AlgorithmReferenceVerdict,
-  AlgorithmRun,
-  AlgorithmRunInput,
-  EvidenceKind,
-  VerificationStateArtifact,
-  Checkpoint,
-} from "./types";
+import type { AlgorithmGatesFired, AlgorithmBatchOperation, AlgorithmMetaReflection, AlgorithmObservation, AlgorithmPhase, AlgorithmPlanStep, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRun, AlgorithmRunInput, EvidenceKind } from "./types";
+import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint } from "./vsa/index";
 import {
   assertAlgorithmCapabilitiesSatisfied,
   recordAlgorithmCapabilityInvocation,
@@ -42,7 +28,7 @@ import {
   updateCriterionWithResult,
   verificationGateViolation,
   verifiedFromCriteria,
-} from "./vsa-accessors";
+} from "./vsa/index";
 
 /**
  * The criteria that block entry to LEARN, split by reason. Single source of truth

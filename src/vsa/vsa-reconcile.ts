@@ -13,9 +13,10 @@ import {
   setSection,
 } from "./vsa-accessors";
 import { readVsa, resolveSomaHome, vsaDir, writeVsa, type VsaLibraryOptions } from "./vsa";
-import { appendSomaMemoryEvent } from "./events/index";
+import { appendSomaMemoryEvent } from "../events/index";
 import { parseVsa } from "./vsa-parse";
-import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint, VsaSection, SubstrateId } from "./types";
+import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint, VsaSection } from "./types";
+import type { SubstrateId } from "../types";
 
 export type VsaConflictPolicy = "error" | "prefer-master" | "prefer-feature";
 

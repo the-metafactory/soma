@@ -1,14 +1,5 @@
-import type {
-  AlgorithmEffortTier,
-  AlgorithmLogEntry,
-  AlgorithmMode,
-  AlgorithmPhase,
-  CriterionStatus,
-  EvidenceKind,
-  VerificationStateArtifact,
-  Checkpoint,
-  VsaSection,
-} from "./types";
+import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase, EvidenceKind } from "../types";
+import type { AlgorithmLogEntry, CriterionStatus, VerificationStateArtifact, Checkpoint, VsaSection } from "./types";
 
 /**
  * Canonical section names for the twelve-section VSA schema.

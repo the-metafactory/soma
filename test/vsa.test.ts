@@ -19,8 +19,8 @@ import {
 } from "../src/index";
 // Path helpers are intentionally internal (#34 Sage round-2 finding) —
 // tests import them directly from the implementation module.
-import { activeStatePath, vsaPath } from "../src/vsa";
-import { parseVsa, serializeVsa } from "../src/vsa-parse";
+import { activeStatePath, vsaPath } from "../src/vsa/vsa";
+import { parseVsa, serializeVsa } from "../src/vsa/vsa-parse";
 
 async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-vsa-lib-"));
@@ -52,7 +52,7 @@ test("AC-7 Anti: reconcileVsa is NOT exported from the library", () => {
   // Import the namespace object and assert reconcileVsa is absent
   // (it lives in deferred issue #35 only).
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const lib = require("../src/vsa") as Record<string, unknown>;
+  const lib = require("../src/vsa/vsa") as Record<string, unknown>;
   expect(lib.reconcileVsa).toBeUndefined();
 });
 
