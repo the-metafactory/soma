@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { createPaths } from "../src/core/index";
-import type { RouterCorpusRow } from "../src/router-corpus";
+import type { RouterCorpusRow } from "../src/router/index";
 import {
   type FetchLike,
   assertLoopbackHost,
@@ -16,7 +16,7 @@ import {
   routerEmbeddingCachePath,
   textKey,
   writeEmbeddingCache,
-} from "../src/router-embed";
+} from "../src/router/index";
 
 const DIGEST = "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab";
 const DIM = 8;
@@ -134,7 +134,7 @@ test("an environment proxy never sees the prompt, whatever NO_PROXY says or when
   });
   // The script also rewrites the proxy exemptions at runtime: Bun fixes them at
   // startup, which is what defeated a check of the environment (Sage, #727 round 6).
-  const script = `import { connectOllamaEmbedder } from ${JSON.stringify(join(import.meta.dir, "..", "src", "router-embed.ts"))};
+  const script = `import { connectOllamaEmbedder } from ${JSON.stringify(join(import.meta.dir, "..", "src", "router", "index.ts"))};
 process.env.NO_PROXY = "127.0.0.1"; process.env.no_proxy = "127.0.0.1";
 try { const e = await connectOllamaEmbedder({ host: "http://127.0.0.1:${ollama.port}" }); console.log((await e.embed(["PRIVATE"])).length); }
 catch (error) { console.log("failed: " + error.message); }`;

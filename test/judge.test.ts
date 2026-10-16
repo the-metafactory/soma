@@ -3,16 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
-import {
-  JUDGE_REGISTRY,
-  hashJudgmentInput,
-  judgeLedgerPath,
-  readJudgments,
-  recordJudgment,
-  regexClassifierVersion,
-  summarizeJudgments,
-  type JudgmentRecord,
-} from "../src/judge";
+import { JUDGE_REGISTRY, regexClassifierVersion, summarizeJudgments } from "../src/router/index";
+import { hashJudgmentInput, judgeLedgerPath, readJudgments, recordJudgment, type JudgmentRecord } from "../src/core/index";
 
 async function withTempSomaHome(action: (somaHome: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "soma-judge-"));

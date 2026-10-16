@@ -1,4 +1,5 @@
-import { JUDGE_REGISTRY, judgeLedgerPath, readJudgments, summarizeJudgments } from "../judge";
+import { JUDGE_REGISTRY, summarizeJudgments } from "../router/index";
+import { judgeLedgerPath, readJudgments } from "../core/index";
 import { defaultSomaHome } from "../core/index";
 import { readOption } from "./parse-utils";
 

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createPaths, defaultSomaHome } from "../core/index";
-import { type CombinerExample, crossValidateCombiner, trainCombiner } from "../router-combiner";
+import { type CombinerExample, crossValidateCombiner, trainCombiner } from "../router/index";
 import {
   ROUTER_CORPUS_DEFAULT_SAMPLE,
   ROUTER_CORPUS_DEFAULT_SEED,
@@ -13,7 +13,7 @@ import {
   routerCorpusPath,
   writePrivateJsonl,
   writeRouterCorpus,
-} from "../router-corpus";
+} from "../router/index";
 import {
   ROUTER_EMBED_DEFAULT_HOST,
   ROUTER_EMBED_DEFAULT_MODEL,
@@ -24,7 +24,7 @@ import {
   routerEmbedTexts,
   routerEmbeddingCachePath,
   writeEmbeddingCache,
-} from "../router-embed";
+} from "../router/index";
 import { readOption } from "./parse-utils";
 
 const ROUTER_ACTIONS = ["corpus", "embed", "train"] as const;

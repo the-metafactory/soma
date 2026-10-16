@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "../src/events/index";
 import { readErrata } from "../src/errata";
-import { readJudgments } from "../src/judge";
+import { readJudgments } from "../src/core/index";
 import { ERRATA_TRIAGE_MODEL } from "../src/errata-classifier";
 
 const homes: string[] = [];

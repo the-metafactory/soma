@@ -339,12 +339,12 @@
       "count": 1
     }
   },
-  "src/router-corpus.ts": {
+  "src/router/router-corpus.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/router-embed.ts": {
+  "src/router/router-embed.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }

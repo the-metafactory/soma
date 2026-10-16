@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { createPaths } from "./core/index";
-import type { AlgorithmMode } from "./types";
+import { createPaths } from "../core/index";
+import type { AlgorithmMode } from "../types";
 
 /**
  * Router corpus: the prompts the principal actually typed, each with the tail of

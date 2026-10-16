@@ -58,7 +58,7 @@ No goal records or transcript content enter the classifier prompt.
 Every verdict is recorded under caller `errata-triage` in the judge ledger,
 with event ID, input hash, backend, CLI version (for `claude-p`) and link status.
 The shared filesystem ledger lives in core (`src/judge-ledger.ts`); caller
-registration and measurement remain in `src/judge.ts` behind the router boundary.
+registration and measurement remain in `src/router/judge.ts` behind the router boundary.
 The caller starts in `shadow` for measurement; promotion is autonomous as
 settled for node #849. Classification of the entire batch precedes any writes:
 missing Claude, a nonzero exit or invalid output fails the run and leaves all
