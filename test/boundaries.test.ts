@@ -20,6 +20,15 @@ const fixture = (name: string): string => join(import.meta.dir, "fixtures", "bou
 const check = (name: string, manifest: ComponentManifest = fixtureManifest) =>
   checkBoundaries({ root: fixture(name), manifest });
 
+async function withRepoFixture<T>(prefix: string, fn: (root: string) => Promise<T>): Promise<T> {
+  return withTempHome(async (root) => {
+    await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
+    await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+    await mkdir(join(root, "src/cli"), { recursive: true });
+    return fn(root);
+  }, prefix);
+}
+
 function commitFixture(root: string): string {
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
   git("init");
@@ -53,11 +62,8 @@ describe("component boundaries on the repository", () => {
   });
 
   test("another component may import memory's runtime and types entries, but no memory internal", async () => {
-    await withTempHome(async (root) => {
-      await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
-      await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+    await withRepoFixture("soma-boundaries-memory-", async (root) => {
       const importer = join(root, "src/cli/memory-entry-fixture.ts");
-      await mkdir(join(root, "src/cli"), { recursive: true });
       const internals = (await readdir(join(root, "src/memory")))
         .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
       expect(internals.length).toBeGreaterThan(0);
@@ -85,15 +91,12 @@ describe("component boundaries on the repository", () => {
         .filter((edge) => edge.from === "src/types.ts" && edge.to.startsWith("src/memory/"))
         .map((edge) => edge.to)))
         .toEqual(new Set(["src/memory/types.ts"]));
-    }, "soma-boundaries-memory-");
+    });
   }, { timeout: 30_000 });
 
   test("another component may import events' public entry, but not its value or type implementation files", async () => {
-    await withTempHome(async (root) => {
-      await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
-      await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+    await withRepoFixture("soma-boundaries-events-", async (root) => {
       const importer = join(root, "src/cli/events-entry-fixture.ts");
-      await mkdir(join(root, "src/cli"), { recursive: true });
       for (const [declaration, target] of [
         ['import { appendSomaMemoryEvent } from "../events/event-journal";\n', "src/events/event-journal.ts"],
         ['import type { SomaMemoryEvent } from "../events/types";\n', "src/events/types.ts"],
@@ -114,15 +117,12 @@ describe("component boundaries on the repository", () => {
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
-    }, "soma-boundaries-events-");
+    });
   }, { timeout: 30_000 });
 
   test("another component may import core's public entry, but not a core implementation file", async () => {
-    await withTempHome(async (root) => {
-      await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
-      await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
+    await withRepoFixture("soma-boundaries-core-", async (root) => {
       const importer = join(root, "src/cli/core-entry-fixture.ts");
-      await mkdir(join(root, "src/cli"), { recursive: true });
       await writeFile(importer, 'import { createPaths } from "../core/paths";\n');
       const internal = checkBoundaries({ root, updateBaseline: true });
       expect(internal.ok).toBe(false);
@@ -138,7 +138,7 @@ describe("component boundaries on the repository", () => {
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
-    }, "soma-boundaries-core-");
+    });
   }, { timeout: 30_000 });
 
   test(
