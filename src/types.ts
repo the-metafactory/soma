@@ -8,7 +8,7 @@ import type { SomaMemoryPromotionStore } from "./core/index";
 export type { SomaPaths, SomaMemoryPromotionStore } from "./core/index";
 export { SOMA_MEMORY_PROMOTION_STORE_DIRS, SOMA_MEMORY_PROMOTION_STORES } from "./core/index";
 
-import type { InferenceBackend, InferenceLevel } from "./tools/inference/types";
+import type { InferenceBackend, InferenceLevel } from "./tools/inference";
 import type { BehaviorPolicy } from "./policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
 

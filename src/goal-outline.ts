@@ -5,7 +5,7 @@ import { join, relative } from "node:path";
 import { isEnoent } from "./core/index";
 import { publishRunFinished, type RunFinishedPublisher, type RunFinishedResult, type RunLedgerEnv } from "./run-ledger";
 import { inference } from "./tools/inference";
-import { createAutoInferenceBackend } from "./tools/inference/factory";
+import { createAutoInferenceBackend } from "./tools/index";
 
 export const OUTLINE_INFERENCE_TIMEOUT_MS = 30_000;
 export const OUTLINE_CAPTURE_TIMEOUT_MS = 10_000;
