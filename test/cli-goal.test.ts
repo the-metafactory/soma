@@ -441,6 +441,20 @@ test("goal sense feed is wired: flags reach the sensor, stdout is the value line
   expect(output).toContain("G5: on-track");
   expect(output).toContain("last 5 days");
   expect(await runSomaCli(["goal", "sense", "feed", "--help"])).toContain("soma goal sense feed --goal G<n> --url <https-url>");
+  expect(await runSomaCli(["goal", "sense", "feed", "--help"])).toContain("--link-match <substring>");
+});
+
+test("goal sense feed forwards --link-match to the sensor", async () => {
+  const f = await fixture();
+  const parsed = parseGoalArgs(["goal", "sense", "feed", "--goal", "G5", "--url", SENSE_URL,
+    "--link-match", "/shorts/", "--soma-home", f.somaHome]);
+  const output = await runGoalCli(parsed, {
+    feedSensor: {
+      env: {}, now: () => new Date("2026-10-12T06:30:00Z"),
+      fetch: () => Promise.resolve(new Response(SENSE_RSS)),
+    },
+  });
+  expect(output).toContain("G5: off-track (0 items");
 });
 
 test.each([
@@ -449,6 +463,7 @@ test.each([
   ["a missing --url", ["--goal", "G5"]],
   ["a non-integer --window-days", ["--goal", "G5", "--url", SENSE_URL, "--window-days", "1.5"]],
   ["a zero --min", ["--goal", "G5", "--url", SENSE_URL, "--min", "0"]],
+  ["a missing --link-match value", ["--goal", "G5", "--url", SENSE_URL, "--link-match"]],
   ["an unknown flag", ["--goal", "G5", "--url", SENSE_URL, "--title", "x"]],
 ])("CLI goal sense feed refuses %s with exit 2 and empty stdout", async (_label, args) => {
   const f = await fixture();

@@ -46,6 +46,7 @@ export interface FeedSensorOptions {
   url: string;
   windowDays: number;
   min: number;
+  linkMatch?: string;
 }
 
 export type FeedFetch = (url: string, init: { signal: AbortSignal; redirect: "manual" }) => Promise<Response>;
@@ -135,8 +136,8 @@ export function scanFeed(body: string): FeedScan | undefined {
   return { kind, dates: items.map((item) => item.date), items };
 }
 
-/** Items dated in `[now - windowDays, now]`. An undated or unparseable item is skipped with one warning naming its position. */
-export function countInWindow(scan: FeedScan, now: Date, windowDays: number, warn: (line: string) => void): number {
+/** Items dated in `[now - windowDays, now]`, optionally restricted by a link substring. Invalid dates warn by position. */
+export function countInWindow(scan: FeedScan, now: Date, windowDays: number, warn: (line: string) => void, linkMatch?: string): number {
   const end = now.getTime();
   const start = end - windowDays * DAY_MS;
   const noun = scan.kind === "rss" ? "item" : "entry";
@@ -148,7 +149,8 @@ export function countInWindow(scan: FeedScan, now: Date, windowDays: number, war
       warn(`soma goal sense feed: ${noun} ${index + 1}: ${missing ? "no date" : "date does not parse"}; skipped`);
       return;
     }
-    if (instant >= start && instant <= end) count++;
+    if (instant >= start && instant <= end &&
+      (linkMatch === undefined || scan.items[index]?.link?.includes(linkMatch))) count++;
   });
   return count;
 }
@@ -274,7 +276,7 @@ export async function runFeedSensor(options: FeedSensorOptions, deps: FeedSensor
   let error: string | undefined;
   try {
     const scan = await readFeed(options, deps);
-    const count = countInWindow(scan, now(), options.windowDays, stderr);
+    const count = countInWindow(scan, now(), options.windowDays, stderr, options.linkMatch);
     measured = { count, value: goalState(count, options.min) };
   } catch (failure) {
     error = `soma goal sense feed: ${failure instanceof FeedReadError ? failure.message : String(failure)}`;

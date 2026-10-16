@@ -24,10 +24,11 @@ function rss(...pubDates: (string | undefined)[]): string {
   return `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>${items}</channel></rss>`;
 }
 
-function atom(...entries: { published?: string; updated?: string }[]): string {
+function atom(...entries: { published?: string; updated?: string; link?: string }[]): string {
   const body = entries.map((entry) => `<entry><title>E</title>${
     entry.published === undefined ? "" : `<published>${entry.published}</published>`}${
-    entry.updated === undefined ? "" : `<updated>${entry.updated}</updated>`}</entry>`).join("");
+    entry.updated === undefined ? "" : `<updated>${entry.updated}</updated>`}${
+    entry.link === undefined ? "" : `<link rel="alternate" href="${entry.link}"/>`}</entry>`).join("");
   return `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>T</title>${body}</feed>`;
 }
 
@@ -162,6 +163,48 @@ describe("soma goal sense feed", () => {
     const result = await runFeedSensor(DEFAULTS, h.deps);
     expect(result).toMatchObject({ exitCode: 0, count: 0, value: "off-track" });
     expect(h.events[0].input.payload.state).toEqual({ subject: "G5", value: "off-track" });
+  });
+
+  const short = { published: daysAgo(1).toISOString(), link: "https://www.youtube.com/shorts/short-id" };
+  const long = { published: daysAgo(1).toISOString(), link: "https://www.youtube.com/watch?v=long-id" };
+
+  test("--link-match /shorts/ counts only the Short in a mixed Atom feed", async () => {
+    const h = await harness(atom(short, long));
+    expect(await runFeedSensor({ ...DEFAULTS, linkMatch: "/shorts/" }, h.deps))
+      .toMatchObject({ exitCode: 0, count: 1, value: "on-track" });
+    expect(h.events[0].input.payload.state).toEqual({ subject: "G5", value: "on-track" });
+    expect(JSON.stringify(await buildRunFinishedEnvelope(h.events[0]))).not.toContain("/shorts/");
+  });
+
+  test.each([
+    ["only a long video", [long]],
+    ["an entry without a link", [{ published: daysAgo(1).toISOString() }]],
+    ["matching links outside the window", [
+      { ...short, published: daysAgo(8).toISOString() },
+      { ...short, published: daysAgo(-1).toISOString() },
+    ]],
+    ["a different case", [{ ...short, link: short.link.replace("shorts", "SHORTS") }]],
+  ])("--link-match excludes %s without failing", async (_label, entries) => {
+    const h = await harness(atom(...entries));
+    expect(await runFeedSensor({ ...DEFAULTS, linkMatch: "/shorts/" }, h.deps))
+      .toMatchObject({ exitCode: 0, count: 0, value: "off-track" });
+    expect(h.events[0].input.payload).toMatchObject({ outcome: "succeeded", state: { subject: "G5", value: "off-track" } });
+    expect(h.stderr).toEqual([]);
+  });
+
+  test("without --link-match both video types and entries without links count", async () => {
+    const h = await harness(atom(short, long, { published: daysAgo(1).toISOString() }));
+    expect(await runFeedSensor(DEFAULTS, h.deps)).toMatchObject({ exitCode: 0, count: 3, value: "on-track" });
+  });
+
+  test("--link-match also filters RSS links", async () => {
+    const h = await harness(`<rss><channel>
+      <item><link>https://example.test/posts/one</link><pubDate>${rfc822(daysAgo(1))}</pubDate></item>
+      <item><link>https://example.test/other</link><pubDate>${rfc822(daysAgo(1))}</pubDate></item>
+      <item><pubDate>${rfc822(daysAgo(1))}</pubDate></item>
+    </channel></rss>`);
+    expect(await runFeedSensor({ ...DEFAULTS, linkMatch: "/posts/" }, h.deps))
+      .toMatchObject({ exitCode: 0, count: 1, value: "on-track" });
   });
 
   test("--min 2 with one item inside the window is off-track", async () => {
