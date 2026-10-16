@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendErrata, clusterErrata, dropErrata, errataLedgerPath, readErrata, readErrataClusters, type ErrataClusterDeps } from "../src/errata";
 import { themeQuotesComplaint, validateErrataTheme, type ErrataThemeInput, type ErrataThemeVerdict } from "../src/errata-classifier";
-import { readJudgments, type JudgmentRecord } from "../src/judge";
+import { readJudgments, type JudgmentRecord } from "../src/core/index";
 import type { ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord } from "../src/types";
 
 const homes: string[] = [];

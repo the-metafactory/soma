@@ -117,7 +117,7 @@ test("the generated extension records one hashed judgment per prompt, like the C
   const { join } = await import("node:path");
   const { createHash } = await import("node:crypto");
   const { renderAlgorithmClassifierSource } = await import("../src/adapters/shared/algorithm-classifier-source");
-  const { regexClassifierVersion } = await import("../src/judge");
+  const { regexClassifierVersion } = await import("../src/router/index");
 
   const root = await mkdtemp(join(tmpdir(), "soma-pi-judge-"));
   try {

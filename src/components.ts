@@ -144,7 +144,8 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "home", "vsa", "graph", "legacy"],
   },
   router: {
-    files: ["src/router-*", "src/judge"],
+    files: ["src/router/**"],
+    publicEntries: ["src/router/index.ts"],
     mayImport: ["core", "algorithm", "legacy"],
   },
   graph: {

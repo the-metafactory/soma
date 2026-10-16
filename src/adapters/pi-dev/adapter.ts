@@ -21,7 +21,7 @@ import {
 } from "../shared";
 import { activeVsaBundleFile } from "../../vsa/index";
 import { SOMA_VERSION } from "../../core/index";
-import { regexClassifierVersion } from "../../judge";
+import { regexClassifierVersion } from "../../router/index";
 import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 
 export function isPiDevSkillProjectionPath(path: string): boolean {

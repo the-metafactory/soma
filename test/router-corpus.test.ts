@@ -10,7 +10,7 @@ import {
   routerCorpusPath,
   sampleRouterCorpus,
   type RouterCorpusRow,
-} from "../src/router-corpus";
+} from "../src/router/index";
 
 let counter = 0;
 const nextId = (): string => `u-${(counter += 1).toString().padStart(4, "0")}`;

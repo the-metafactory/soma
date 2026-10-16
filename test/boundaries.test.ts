@@ -44,6 +44,32 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("router public entry rejects every internal and has no outward violations", async () => {
+    expect(components.router.files).toEqual(["src/router/**"]);
+    expect(components.router.publicEntries).toEqual(["src/router/index.ts"]);
+    await withRepoFixture("soma-boundaries-router-", async (root) => {
+      const importer = join(root, "src/cli/router-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/router")))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts");
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../router/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/router-entry-fixture.ts",
+          to: `src/router/${name}`,
+          toComponent: "router",
+          rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, 'import "../router/index";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "router" && v.toComponent !== "legacy")).toEqual([]);
+    });
+  }, { timeout: 30_000 });
+
   test("algorithm public entries reject internals and keep classify unbarrelled", async () => {
     expect(components.algorithm.files).toEqual(["src/algorithm/**"]);
     expect(components.algorithm.publicEntries).toContain("src/algorithm/index.ts");

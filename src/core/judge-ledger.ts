@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { createPaths } from "./paths";
 
-/** Shared judgment storage; caller policy and measurement belong to src/judge.ts. */
+/** Shared judgment storage; caller policy and measurement belong to src/router/judge.ts. */
 export interface JudgmentRecord {
   v: 1;
   ts: string;

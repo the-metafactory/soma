@@ -6,7 +6,7 @@ import {
   predictCombiner,
   sessionFolds,
   trainCombiner,
-} from "../src/router-combiner";
+} from "../../src/router/index";
 
 // Deterministic synthetic data: three classes around three centres in 6 dimensions,
 // 12 sessions of 10 examples each, plus a constant feature and a pure-noise one.
