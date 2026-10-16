@@ -2,7 +2,7 @@ import { cp, mkdir, readdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
-import type { ComponentManifest } from "../src/components";
+import { components, type ComponentManifest } from "../src/components";
 import {
   BASELINE_PATH,
   CLOSURE_STEP,
@@ -35,6 +35,23 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("shared types reach only memory's types entry, even transitively", () => {
+    expect(components.memory.publicEntries).toEqual(["src/memory/index.ts", "src/memory/types.ts"]);
+    const report = checkBoundaries({ root: repoRoot });
+    const reachable = new Set<string>();
+    const pending = ["src/types.ts"];
+    while (pending.length > 0) {
+      const file = pending.pop()!;
+      if (reachable.has(file)) continue;
+      reachable.add(file);
+      for (const edge of report.edges) {
+        if (edge.from === file) pending.push(edge.to);
+      }
+    }
+    expect([...reachable].filter((file) => file.startsWith("src/memory/")))
+      .toEqual(["src/memory/types.ts"]);
+  });
+
   test("another component may import memory's runtime and types entries, but no memory internal", async () => {
     await withTempHome(async (root) => {
       await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
