@@ -70,7 +70,7 @@ export const components: ComponentManifest<ComponentName> = {
   memory: {
     files: ["src/memory/**"],
     mayImport: ["core", "events", "legacy"],
-    publicEntries: ["src/memory/index.ts"],
+    publicEntries: ["src/memory/index.ts", "src/memory/types.ts"],
   },
   // Typed goal records (soma#784): Soma owns Purpose (docs/boundaries.md).
   purpose: {

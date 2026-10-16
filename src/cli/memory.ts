@@ -14,9 +14,7 @@ import {
   writeSessionDigest,
   type ReprojectSubstrateMemoryProjectionResult,
 } from "../index";
-import { WRITABLE_NOTE_TYPES, isWritableNoteType } from "../memory/index";
-import { sanitizeNoteText } from "../memory/index";
-import { SOMA_MEMORY_ACTION_APPROVALS } from "../memory/index";
+import { WRITABLE_NOTE_TYPES, isWritableNoteType, sanitizeNoteText, SOMA_MEMORY_ACTION_APPROVALS } from "../memory/index";
 import { SOMA_MEMORY_PROMOTION_STORES } from "../core/index";
 import type {
   SomaMemoryPromotionOptions,
@@ -49,7 +47,6 @@ import type {
   SomaMemoryWriteResult,
   SomaMemoryWriteTrigger,
 } from "../memory/index";
-
 import type { SomaMemoryPromotionStore } from "../core/index";
 
 /** Parsed `soma memory reindex` — home overrides only; rebuild uses the real clock. */

@@ -1,4 +1,4 @@
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -35,32 +35,39 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
-  test("another component may import memory's public entry, but not its value or type implementation files", async () => {
+  test("another component may import memory's runtime and types entries, but no memory internal", async () => {
     await withTempHome(async (root) => {
       await cp(join(repoRoot, "src"), join(root, "src"), { recursive: true });
       await cp(join(repoRoot, "scripts/boundaries"), join(root, "scripts/boundaries"), { recursive: true });
       const importer = join(root, "src/cli/memory-entry-fixture.ts");
       await mkdir(join(root, "src/cli"), { recursive: true });
-      for (const [declaration, target] of [
-        ['import { parseMemoryNote } from "../memory/memory-note";\n', "src/memory/memory-note.ts"],
-        ['import type { SomaMemoryNote } from "../memory/types";\n', "src/memory/types.ts"],
-      ]) {
-        await writeFile(importer, declaration);
-        const internal = checkBoundaries({ root, updateBaseline: true });
-        expect(internal.ok).toBe(false);
+      const internals = (await readdir(join(root, "src/memory")))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../memory/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
         expect(internal.newViolations).toContainEqual(expect.objectContaining({
           from: "src/cli/memory-entry-fixture.ts",
-          to: target,
+          to: `src/memory/${name}`,
           fromComponent: "cli",
           toComponent: "memory",
           rule: "public-entry",
         }));
       }
 
-      await writeFile(importer, 'import { parseMemoryNote, type SomaMemoryNote } from "../memory/index";\n');
+      await writeFile(importer, [
+        'import { parseMemoryNote } from "../memory/index";',
+        'import { SOMA_MEMORY_NOTE_TYPES, type SomaMemoryNote } from "../memory/types";',
+      ].join("\n"));
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
+      expect(new Set(publicEntry.edges
+        .filter((edge) => edge.from === "src/types.ts" && edge.to.startsWith("src/memory/"))
+        .map((edge) => edge.to)))
+        .toEqual(new Set(["src/memory/types.ts"]));
     }, "soma-boundaries-memory-");
   }, { timeout: 30_000 });
 
