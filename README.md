@@ -312,6 +312,32 @@ CLI parsing with exit 2, before any journal read. The path is fixed, with no
 path parameter. The run ledger carries the goal ID and state, never escalation
 titles or contents, using the same envelope shape as `feed` below.
 
+`soma goal sense rate` measures Ranger escalation closures:
+
+```bash
+soma goal sense rate --goal G8 --source ranger-escalations --min 2 --window-workdays 3 [--timezone Europe/Zurich] [--route escalate-hitl|provisioning]
+```
+
+It opens the same fixed journal read-only and counts rows whose `status` is
+`closed`, whose `route` matches (default: `escalate-hitl`), and whose non-null
+`closed_at` instant lies between the window start and now, inclusive. The
+shared workday module starts the window at local midnight on the Nth most
+recent Monday–Friday date, including today when it is a weekday. The timezone
+defaults to `Europe/Zurich`; `--timezone` accepts an IANA zone. For example,
+on Wednesday, three workdays start on Monday at 00:00. Weekends inside the
+window count; holidays are ordinary weekdays. A weekend run anchors its
+window on the preceding Friday.
+
+A count at or above the nonnegative integer `--min` is `on-track`; fewer is
+`off-track`, without an `at-risk` band. A missing journal, table or `closed_at`
+column (older Ranger), or another journal read failure, publishes
+`outcome: failed` with no state and exits 1. The sensor never creates, migrates
+or writes the journal. Invalid sources, routes, timezones, minima or workday
+counts are refused before reading, with exit 2. Workday counts must be positive
+integers. There are no private parameters or mechanism. Closures predating
+Ranger's `closed_at` recording do not count, so early windows may read short.
+The run ledger uses the same ID-only envelope as the other sensors.
+
 `soma goal sense feed` is the feed sensor, meant to be run by a Reflex activation:
 
 ```bash
