@@ -40,7 +40,7 @@ test("feed kind owns its schema, runner, schedule and state rule", () => {
 });
 
 test("mechanism kinds own their schemas, schedules and settled runners without a slot kind", () => {
-  expect(Object.keys(goalKinds)).toEqual(["feed", "outline", "announce", "queue"]);
+  expect(Object.keys(goalKinds)).toEqual(["feed", "outline", "announce", "queue", "rate"]);
   expect(outlineKind).toMatchObject({
     id: "outline", role: "mechanism", private: { tana_tag: "tana-tag", drafts_dir: "directory" },
     schedule: { schedule: "0 6 * * 1", timezone: "Europe/Zurich" },

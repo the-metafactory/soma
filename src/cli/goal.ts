@@ -6,6 +6,8 @@ import {
 } from "../goal-records";
 import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../goal-sense";
 import { runQueueSensor, type QueueSensorDeps, type QueueSensorOptions } from "../goal-sense-queue";
+import { runRateSensor, type RateSensorDeps, type RateSensorOptions } from "../goal-sense-rate";
+import { rateParams } from "../goal-kinds/rate";
 import { queueParams } from "../goal-kinds/queue";
 import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from "../goal-outline";
 import { announceRefusal, runGoalAnnounce, type GoalAnnounceDeps, type GoalAnnounceOptions } from "../goal-announce";
@@ -30,6 +32,7 @@ export interface ParsedGoalArgs {
     json?: boolean;
     feed?: FeedSensorOptions;
     queue?: QueueSensorOptions;
+    rate?: RateSensorOptions;
     outline?: GoalOutlineOptions;
     announce?: GoalAnnounceOptions;
     propose?: GoalProposeOptions;
@@ -49,7 +52,7 @@ export const GOAL_COMMAND_HELP = {
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
     kinds: "Usage: soma goal kinds [--json] [--home-dir <dir>] [--soma-home <dir>]",
     sweep: `Usage: soma goal sweep [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP} (SOMA_PRINCIPAL unset: print checks without publishing)`,
-    sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--link-match <substring>] [--home-dir <dir>] [--soma-home <dir>]\n       soma goal sense queue --goal G<n> --source ranger-escalations --max <n> [--route escalate-hitl|provisioning] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
+    sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--link-match <substring>] [--home-dir <dir>] [--soma-home <dir>]\n       soma goal sense queue --goal G<n> --source ranger-escalations --max <n> [--route escalate-hitl|provisioning] [--home-dir <dir>] [--soma-home <dir>]\n       soma goal sense rate --goal G<n> --source ranger-escalations --min <n> --window-workdays <n> [--timezone <iana>] [--route escalate-hitl|provisioning] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
     outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--slot-minutes <n>] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
     announce: "Usage: soma goal announce --goal G<n> --url <https-url> --channels <a,b,...> [--home-dir <dir>] [--soma-home <dir>] (drafts only; SOMA_PRINCIPAL unset: no ledger publication)",
   },
@@ -172,9 +175,34 @@ function parseQueueArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
   options.queue = parsed.data;
 }
 
+/** Usage errors exit 2, like the sensor's own refusals. */
+function parseRateArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
+  const usage = (reason: string) => new SomaCliError(`soma goal sense rate: ${reason}. ${GOAL_COMMAND_HELP.subcommands.sense}`, 2);
+  const rate: Record<string, unknown> = {};
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index];
+    if (!["--goal", "--source", "--min", "--window-workdays", "--timezone", "--route", "--home-dir", "--soma-home"].includes(arg)) throw usage("unsupported argument");
+    const value = rest[++index];
+    if (!value || value.startsWith("--")) throw usage(`${arg} requires a value`);
+    if (arg === "--home-dir") options.homeDir = value;
+    else if (arg === "--soma-home") options.somaHome = value;
+    else rate[arg.slice(2).replaceAll("-", "_")] = arg === "--min" || arg === "--window-workdays" ? Number(value) : value;
+  }
+  const parsed = rateParams.safeParse(rate);
+  if (!parsed.success) {
+    const fields = [...new Set(parsed.error.issues.map((issue) => issue.path[0] ?? "params"))];
+    throw usage(`invalid or missing ${fields.map((field) => `--${String(field).replaceAll("_", "-")}`).join(", ")}`);
+  }
+  options.rate = parsed.data;
+}
+
 function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
   const usage = (reason: string) => new SomaCliError(`soma goal sense feed: ${reason}. ${GOAL_COMMAND_HELP.subcommands.sense}`, 2);
   const kind = rest.shift();
+  if (kind === "rate") {
+    parseRateArgs(rest, options);
+    return;
+  }
   if (kind === "queue") {
     parseQueueArgs(rest, options);
     return;
@@ -268,7 +296,7 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
 
 export async function runGoalCli(
   parsed: ParsedGoalArgs,
-  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; queueSensor?: Partial<QueueSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps>; sweep?: Partial<GoalSweepDeps>; propose?: Partial<GoalProposeDeps>; accept?: GoalAcceptDeps } = {},
+  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; rateSensor?: Partial<RateSensorDeps>; queueSensor?: Partial<QueueSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps>; sweep?: Partial<GoalSweepDeps>; propose?: Partial<GoalProposeDeps>; accept?: GoalAcceptDeps } = {},
 ): Promise<string> {
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
@@ -329,6 +357,16 @@ export async function runGoalCli(
         : kinds.map((kind) => `${kind.id}\t${kind.role}\t${kind.description}`).join("\n");
     }
     case "sense": {
+      if (options.rate) {
+        const lines: string[] = [];
+        const result = await runRateSensor(options.rate, join(options.homeDir ?? homedir(), ".config", "ranger", "state.sqlite"), {
+          somaHome: defaultSomaHome(options),
+          ...dependencies.rateSensor,
+          stdout: (line) => lines.push(line),
+        });
+        if (result.exitCode !== 0) throw new SomaCliError(result.error ?? "soma goal sense rate failed", result.exitCode);
+        return lines.join("\n");
+      }
       if (options.queue) {
         const lines: string[] = [];
         const result = await runQueueSensor(options.queue, join(options.homeDir ?? homedir(), ".config", "ranger", "state.sqlite"), {

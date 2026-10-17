@@ -209,6 +209,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/run-ledger-env",
       "src/goal-sense",
       "src/goal-sense-queue",
+      "src/goal-sense-rate",
       "src/goal-outline",
       "src/goal-announce",
       "src/goal-sweep",
