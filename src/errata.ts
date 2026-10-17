@@ -12,6 +12,7 @@ import {
   type ErrataThemeInput, type ErrataThemeVerdict, type ErrataTriageVerdict,
 } from "./errata-classifier";
 import { publishRunFinished, type RunFinishedInput, type RunLedgerDeps } from "./run-ledger";
+import { localDate } from "./workdays";
 
 function stringField(data: Record<string, unknown>, key: string, allowEmpty = false): string {
   const value = data[key];
@@ -144,10 +145,7 @@ function foldEvents(events: readonly ErrataEvent[]): ErrataRecord[] {
 
 /** Zurich calendar day as a day count, so "within 30 days" is counted in the principal's dates. */
 function zurichDay(iso: string): number {
-  const parts = new Intl.DateTimeFormat("en", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit" })
-    .formatToParts(new Date(iso));
-  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value);
-  return Math.round(Date.UTC(part("year"), part("month") - 1, part("day")) / 86_400_000);
+  return Date.parse(`${localDate("Europe/Zurich", new Date(iso))}T00:00:00Z`) / 86_400_000;
 }
 
 export const ERRATA_CLUSTER_WINDOW_DAYS = 30;

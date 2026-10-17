@@ -212,6 +212,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/goal-outline",
       "src/goal-announce",
       "src/goal-sweep",
+      "src/workdays",
       "src/goal-propose",
       "src/goal-accept",
       "src/goal-kinds/**",
