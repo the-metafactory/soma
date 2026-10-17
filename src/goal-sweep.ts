@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { listGoalRecords } from "./goal-records";
+import { localDate } from "./workdays";
 import { publishRunFinished, type RunFinishedPublisher, type RunFinishedResult, type RunLedgerEnv } from "./run-ledger";
 import type { GoalRecord } from "./types";
 import type { GraphStore } from "./graph/index";
@@ -103,14 +104,6 @@ async function readGoalSweepVsas(somaHome: string): Promise<GoalSweepVsa[]> {
   }));
 }
 
-function zurichDate(date: Date): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(date);
-  const part = (name: string) => parts.find((part) => part.type === name)?.value;
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
 /** Three independent checks per active goal; failed reads never become regressions. */
 export async function runGoalSweep(deps: GoalSweepDeps): Promise<GoalSweepResult> {
   const now = deps.now ?? (() => new Date());
@@ -123,7 +116,7 @@ export async function runGoalSweep(deps: GoalSweepDeps): Promise<GoalSweepResult
   if (goals.length === 0) return { exitCode: 0, checks };
 
   const started = now();
-  const today = zurichDate(started);
+  const today = localDate("Europe/Zurich", started);
   const [vsas, blueprints, repos] = await Promise.allSettled([
     Promise.resolve().then(() => deps.listVsas?.() ?? readGoalSweepVsas(deps.somaHome)),
     Promise.resolve().then(() => deps.readBlueprints?.() ?? readGoalSweepBlueprints(deps.activationsDir)),

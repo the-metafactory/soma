@@ -6,6 +6,7 @@ import { isEnoent } from "./core/index";
 import { publishRunFinished, type RunFinishedPublisher, type RunFinishedResult, type RunLedgerEnv } from "./run-ledger";
 import { inference } from "./tools/inference";
 import { createAutoInferenceBackend } from "./tools/index";
+import { localDate } from "./workdays";
 
 export const OUTLINE_INFERENCE_TIMEOUT_MS = 30_000;
 export const OUTLINE_CAPTURE_TIMEOUT_MS = 10_000;
@@ -57,21 +58,8 @@ export interface GoalOutlineResult {
   error?: string;
 }
 
-/** Use the Zurich calendar date, even across UTC midnight and DST changes. */
-function zurichDate(now: Date): string {
-  const parts = new Intl.DateTimeFormat("en", {
-    timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit",
-  }).formatToParts(now);
-  const part = (type: string) => {
-    const value = parts.find((item) => item.type === type)?.value;
-    if (value === undefined) throw new Error("Zurich date could not be formatted");
-    return value;
-  };
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
 export function zurichIsoWeek(now: Date): string {
-  const date = new Date(`${zurichDate(now)}T00:00:00Z`);
+  const date = new Date(`${localDate(ZURICH, now)}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
   const year = date.getUTCFullYear();
   const week = Math.ceil(((date.getTime() - Date.UTC(year, 0, 1)) / DAY_MS + 1) / 7);
@@ -186,7 +174,7 @@ function intersect(a: Interval[], b: Interval[]): Interval[] {
 /** Working hours, Europe/Zurich, of the next five weekdays starting today. */
 function slotWindows(now: Date): Interval[] {
   const windows: Interval[] = [];
-  for (let day = new Date(`${zurichDate(now)}T12:00:00Z`); windows.length < SLOT_WEEKDAYS; day = new Date(day.getTime() + DAY_MS)) {
+  for (let day = new Date(`${localDate(ZURICH, now)}T12:00:00Z`); windows.length < SLOT_WEEKDAYS; day = new Date(day.getTime() + DAY_MS)) {
     if (day.getUTCDay() === 0 || day.getUTCDay() === 6) continue;
     const date = day.toISOString().slice(0, 10);
     const start = wallTimeToInstant(date, SLOT_HOURS.start, ZURICH);
@@ -201,7 +189,7 @@ function zurichSlotText(slot: Interval): string {
   const format = (instant: number, options: Intl.DateTimeFormatOptions) =>
     new Intl.DateTimeFormat("en-GB", { timeZone: ZURICH, ...options }).format(new Date(instant));
   const time = (instant: number) => format(instant, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-  return `${format(slot.start, { weekday: "long" })} ${zurichDate(new Date(slot.start))}, `
+  return `${format(slot.start, { weekday: "long" })} ${localDate(ZURICH, new Date(slot.start))}, `
     + `${time(slot.start)}–${time(slot.end)} (${ZURICH})`;
 }
 
@@ -371,7 +359,7 @@ export async function runGoalOutline(deps: GoalOutlineDeps): Promise<GoalOutline
   let error: string | undefined;
   let stage = "capture reader";
   try {
-    const createdAfter = zurichDate(new Date(started.getTime() - days * DAY_MS));
+    const createdAfter = localDate(ZURICH, new Date(started.getTime() - days * DAY_MS));
     const captures = await (deps.readCaptures ?? readSupertagCaptures)({ tag: deps.tanaTag, createdAfter });
     stage = "draft reader";
     const drafts = await readOpenDrafts(deps.draftsDir);
