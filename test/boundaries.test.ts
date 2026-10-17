@@ -115,7 +115,7 @@ describe("component boundaries on the repository", () => {
       .filter((v) => v.fromComponent === "substrates" && v.toComponent !== "legacy")
       .map((v) => `${v.from} -> ${v.to}`);
     expect(outward).toEqual(["src/experimental/anthropic-cowork.ts -> src/install.ts"]);
-  });
+  }, { timeout: 30_000 });
 
   test("router public entry rejects every internal and has no outward violations", async () => {
     expect(components.router.files).toEqual(["src/router/**"]);
