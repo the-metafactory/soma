@@ -147,6 +147,56 @@ test("a revised sensor kind gets its own baseline and a final off-track warning 
   });
 });
 
+test.each([false, true])("resource-name overrides survive a threshold-only calibration revision (json=%s)", async (json) => {
+  await withHome(async (home) => {
+    const override = "https://override.example.org/feed?key=private-value";
+    const channels = ["private-channel"];
+    const backend = new FixtureBackend([{ ...fit, sensor: { ...fit.sensor, params: { ...fit.sensor.params, min: 2 } } }]);
+    const originalInvoke = backend.invoke.bind(backend);
+    backend.invoke = async (prompt, request) => {
+      const initial = await originalInvoke(prompt, request);
+      if (backend.calls.length === 1) return initial;
+      const note = JSON.parse(prompt.slice(prompt.indexOf('{"previous_reply":')));
+      note.previous_reply.sensor.params.min = 1;
+      return JSON.stringify(note.previous_reply);
+    };
+    const thresholds: unknown[] = [];
+    const output = await runGoalCli(parseGoalArgs([
+      "goal", "propose", "--wording", wording, "--soma-home", home,
+      "--param", `blog=${override}`, "--param", `social=${JSON.stringify(channels)}`,
+      ...(json ? ["--json"] : []),
+    ]), { propose: {
+      ...deps(home, backend), baselineReaders: { feed: async (params) => {
+        thresholds.push(params.min);
+        expect(params.url).toBe(override);
+        expect(await proposalFiles(home)).toEqual([]);
+        return { state: params.min === 1 ? "on-track" : "off-track", summary: `1 item in 7 days, min ${Number(params.min)}` };
+      } },
+    } });
+    expect(thresholds).toEqual([2, 1]);
+    expect(backend.calls).toHaveLength(2);
+    for (const text of [output, ...backend.calls.map(({ prompt }) => prompt)]) {
+      expect(text).not.toContain(override);
+      expect(text).not.toContain(channels[0]);
+    }
+    const files = await proposalFiles(home);
+    expect(files).toHaveLength(1);
+    const proposal = parse(await readFile(join(home, "profile", "goals", "proposals", files[0]), "utf8"));
+    expect(proposal).toMatchObject({
+      sensor: { params: { min: 1, url: "<resource:param-feed-url>" } },
+      mechanisms: [{ params: { url: "<resource:param-announce-url>", channels: "<resource:param-announce-channels>" } }],
+      baseline: { state: "on-track" }, warnings: [],
+    });
+    expect(proposal.resources).toEqual([
+      { name: "param-feed-url", type: "feed", value: override },
+      { name: "param-announce-url", type: "feed", value: override },
+      { name: "param-announce-channels", type: "channels", value: channels },
+    ]);
+    if (json) expect(JSON.parse(output)).toMatchObject({ outcome: "fit", proposal: { baseline: { state: "on-track" } } });
+    else expect(output).toContain("Baseline: on-track");
+  });
+});
+
 test("calibration has its own bounded turn after a validation retry", async () => {
   await withHome(async (home) => {
     const backend = new FixtureBackend([{ ...queueFit, drop: undefined }, queueFit, queueFit]);
