@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ClaudeCodeExecutor, ExecutorRegistry, outputFromText, registerClaudeCodeExecutor, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance, runSubstrateExecution, type ExecutionConformanceScenario } from "../src/index";
+import { ClaudeCodeExecutor, ExecutorRegistry, outputFromText, registerClaudeCodeExecutor, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance, runSubstrateExecution, type ExecutionConformanceScenario } from "../../src/execution/index";
 
 function result(exitCode: number, stdout: string, stderr = "") {
   return { exitCode, stdout: outputFromText(stdout), stderr };

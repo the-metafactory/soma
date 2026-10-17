@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CodexExecutor, ExecutorRegistry, outputFromText, registerCodexExecutor, runExecutionConformance, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, type ExecutionConformanceScenario } from "../src/index";
-import { runSubstrateExecution } from "../src/index";
+import { CodexExecutor, ExecutorRegistry, outputFromText, registerCodexExecutor, runExecutionConformance, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, type ExecutionConformanceScenario } from "../../src/execution/index";
+import { runSubstrateExecution } from "../../src/execution/index";
 
 function result(exitCode: number, stdout: string, stderr = "") {
   return { exitCode, stdout: outputFromText(stdout), stderr };

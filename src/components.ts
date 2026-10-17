@@ -158,6 +158,7 @@ export const components: ComponentManifest<ComponentName> = {
   execution: {
     files: ["src/execution/**"],
     exclude: ["src/execution/algorithm-loop-executor"],
+    publicEntries: ["src/execution/index.ts"],
     mayImport: ["core", "legacy"],
   },
   substrates: {

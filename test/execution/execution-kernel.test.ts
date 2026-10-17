@@ -7,7 +7,7 @@ import {
   type SomaExecutionEvent,
   type SomaExecutionRequest,
   type SubstrateExecutor,
-} from "../src/index";
+} from "../../src/execution/index";
 
 const timestamp = "2026-07-10T12:00:00.000Z";
 
@@ -250,7 +250,7 @@ test("bounds retained artifact paths and rejects oversized event payloads", asyn
 });
 
 test("kernel is substrate-neutral and does not import a memory write surface", () => {
-  const source = readFileSync(join(import.meta.dirname, "..", "src", "execution", "kernel.ts"), "utf8");
+  const source = readFileSync(join(import.meta.dirname, "..", "..", "src", "execution", "kernel.ts"), "utf8");
   expect(source).not.toContain("memory-write");
   expect(source).not.toMatch(/from\s+["'][^"']*memory/);
   expect(source).not.toContain("child_process");

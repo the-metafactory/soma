@@ -2,8 +2,7 @@ import { diagnoseClaudeCodeInstallArtifactDrift } from "./claude-code/doctor";
 import { diagnoseContentCompareDrift } from "./content-compare-doctor";
 import { diagnoseGrokProjectionDrift } from "./grok/doctor";
 import { diagnoseSkillStubDrift } from "./skill-stub-doctor";
-import type { ExecutorRegistry } from "../execution/registry";
-import type { ExecutionCapabilities } from "../execution/types";
+import type { ExecutorRegistry, ExecutionCapabilities } from "../execution/index";
 import { SHIPPED_SUBSTRATES, type SomaDoctorFinding } from "../types";
 
 // The substrates `soma doctor` can diagnose, and the error strings shown when

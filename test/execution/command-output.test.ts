@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { boundedJsonlSummaries, collectProbeOutput, outputFromText, type CommandOutput } from "../src/execution/command-output";
+import { boundedJsonlSummaries, collectProbeOutput, outputFromText, type CommandOutput } from "../../src/execution/command-output";
 
 function output(...chunks: string[]): CommandOutput {
   return {
