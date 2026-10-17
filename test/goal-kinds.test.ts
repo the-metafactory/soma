@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { runSomaCli } from "../src/cli";
 import { feedKind } from "../src/goal-kinds/feed";
+import { queueKind } from "../src/goal-kinds/queue";
 import { outlineKind } from "../src/goal-kinds/outline";
 import { announceKind } from "../src/goal-kinds/announce";
 import { goalKinds, listGoalKinds } from "../src/goal-kinds/registry";
@@ -16,6 +17,8 @@ test("directory exports preserve the registry and kind APIs", () => {
   expect(goalKindsExports.listGoalKinds).toBe(listGoalKinds);
   expect(goalKindsExports.feedKind).toBe(feedKind);
   expect(goalKindsExports.feedParams).toBe(feedKind.params);
+  expect(goalKindsExports.queueKind).toBe(queueKind);
+  expect(goalKindsExports.queueParams).toBe(queueKind.params);
   expect(goalKindsExports.outlineKind).toBe(outlineKind);
   expect(goalKindsExports.outlineParams).toBe(outlineKind.params);
   expect(goalKindsExports.announceKind).toBe(announceKind);
@@ -37,7 +40,7 @@ test("feed kind owns its schema, runner, schedule and state rule", () => {
 });
 
 test("mechanism kinds own their schemas, schedules and settled runners without a slot kind", () => {
-  expect(Object.keys(goalKinds)).toEqual(["feed", "outline", "announce"]);
+  expect(Object.keys(goalKinds)).toEqual(["feed", "outline", "announce", "queue"]);
   expect(outlineKind).toMatchObject({
     id: "outline", role: "mechanism", private: { tana_tag: "tana-tag", drafts_dir: "directory" },
     schedule: { schedule: "0 6 * * 1", timezone: "Europe/Zurich" },
@@ -49,6 +52,39 @@ test("mechanism kinds own their schemas, schedules and settled runners without a
     target: "@jc/g5-announce", command: ["soma", "goal", "announce"],
   });
   expect(outlineKind.params.parse({ goal: outline.goal, tana_tag: outline.tana_tag, drafts_dir: outline.drafts_dir })).toEqual(outline);
+});
+
+test("queue kind owns public strict params, defaults, argv, schedule and state rule", async () => {
+  const input = { goal: "G8", source: "ranger-escalations", max: 2 } as const;
+  const params = queueKind.params.parse(input);
+  expect(params).toEqual({ ...input, route: "escalate-hitl" });
+  expect(goalKinds.queue).toBe(queueKind);
+  expect(queueKind).toMatchObject({
+    role: "sensor", private: {}, target: "@jc/goal-sense-queue",
+    schedule: { schedule: "30 6 * * *", timezone: "Europe/Zurich" },
+    command: ["soma", "goal", "sense", "queue"],
+  });
+  for (const route of ["escalate-hitl", "provisioning"] as const) {
+    const p = { ...params, route };
+    expect(parseGoalArgs([...queueKind.command.slice(1), ...queueKind.argv(p)]).options.queue).toEqual(p);
+    expect(queueKind.stateRule(p)).toBe(`At most 2 open ${route} escalations: on-track; more: off-track; failed journal read: no state.`);
+  }
+  for (const invalid of [{ source: "github" }, { max: -1 }, { max: 0.5 }, { max: "2" }, { route: "other" }, { goal: "wording" }, { path: "/private/journal" }]) {
+    expect(queueKind.params.safeParse({ ...input, ...invalid }).success).toBe(false);
+  }
+  for (const field of ["goal", "source", "max"]) {
+    expect(queueKind.params.safeParse(Object.fromEntries(Object.entries(input).filter(([key]) => key !== field))).success).toBe(false);
+  }
+  expect(queueKind.params.safeParse({ ...input, max: 0 }).success).toBe(true);
+  const catalog = JSON.parse(await runSomaCli(["goal", "kinds", "--json"]));
+  expect(catalog.find((kind: { id: string }) => kind.id === "queue")).toMatchObject({
+    id: "queue", private: {}, params: {
+      additionalProperties: false, required: ["goal", "source", "max"],
+      properties: { source: { enum: ["ranger-escalations"] }, max: { type: "integer", minimum: 0 }, route: { default: "escalate-hitl" } },
+    },
+  });
+  expect(await runSomaCli(["goal", "kinds"])).toContain("queue\tsensor\t");
+  expect(await runSomaCli(["goal", "sense", "--help"])).toContain("--source ranger-escalations --max <n>");
 });
 
 test.each([undefined, 60])("outline argv round trips through the landed parser with slot_minutes=%j", (slot_minutes) => {

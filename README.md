@@ -294,6 +294,24 @@ prints ID-only results to stdout and exits 0. Scheduling this command in
 Reflex is an operator task.
 
 A goal's sensor reports its state on the run ledger (see [Run ledger](#run-ledger)).
+`soma goal sense queue` measures the current open Ranger escalation queue:
+
+```bash
+soma goal sense queue --goal G8 --source ranger-escalations --max 2 [--route escalate-hitl|provisioning]
+```
+
+It opens `~/.config/ranger/state.sqlite` read-only and counts `escalations`
+whose `status` is `open` and whose `route` matches the flag (default:
+`escalate-hitl`). A count at or below the nonnegative integer `--max` is
+`on-track`; above it is `off-track`. An empty queue counts as zero. There is
+no time window or `at-risk` band. A missing or unreadable journal, including
+a missing `escalations` table, publishes `outcome: failed` with no state and
+exits 1. The sensor never creates, migrates or writes the journal. Unsupported
+sources, invalid routes and negative or noninteger maxima are refused during
+CLI parsing with exit 2, before any journal read. The path is fixed, with no
+path parameter. The run ledger carries the goal ID and state, never escalation
+titles or contents, using the same envelope shape as `feed` below.
+
 `soma goal sense feed` is the feed sensor, meant to be run by a Reflex activation:
 
 ```bash
@@ -412,6 +430,13 @@ is a string mapped to `--link-match`. Its default schedule is
 target `@jc/goal-sense-feed` uses Cortex's existing `process` handler. Binding
 that target to a process spec on the personal stack belongs to goal activation
 setup; listing a kind does not install a route or activation.
+
+The `queue` sensor kind requires public `goal`, `source` (only
+`ranger-escalations`) and nonnegative integer `max` parameters. Optional `route`
+defaults to `escalate-hitl`; `provisioning` is the other accepted value. It has
+no private parameters. Its default schedule is `30 6 * * *`, timezone
+`Europe/Zurich`, and target is `@jc/goal-sense-queue`, bound during activation
+setup in the same way as the feed target.
 
 Two mechanism kinds register the landed draft commands. Their default schedules
 use `Europe/Zurich`, and private values are resolved locally before execution:
