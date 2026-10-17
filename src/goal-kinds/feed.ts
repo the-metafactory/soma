@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { FEED_SENSOR_DEFAULTS } from "../goal-sense";
-import type { GoalKind } from "./types";
+import { FEED_SENSOR_DEFAULTS, readFeed, countInWindow, goalState } from "../goal-sense";
+import type { GoalBaselineDeps, GoalBaseline, GoalKind } from "./types";
 
 export const feedParams = z.strictObject({
   goal: z.string().regex(/^G\d+$/),
@@ -28,6 +28,12 @@ export const feedKind = {
     const p = feedParams.parse(params);
     return ["--goal", p.goal, "--url", p.url, "--window-days", String(p.window_days), "--min", String(p.min),
       ...(p.link_match === undefined ? [] : ["--link-match", p.link_match])];
+  },
+  baseline: async (params: FeedParams, deps: GoalBaselineDeps): Promise<GoalBaseline> => {
+    const p = feedParams.parse(params);
+    const scan = await readFeed({ url: p.url }, deps);
+    const count = countInWindow(scan, (deps.now ?? (() => new Date()))(), p.window_days, () => undefined, p.link_match);
+    return { state: goalState(count, p.min), summary: `${count} items in ${p.window_days} days, min ${p.min}` };
   },
   stateRuleTemplate: "At least {min} items in the last {window_days} days: on-track; fewer: off-track; failed fetch: no state. When link_match is set, only items whose link contains it count.",
   stateRule: (params: FeedParams): string => {

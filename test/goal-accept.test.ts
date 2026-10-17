@@ -207,7 +207,7 @@ test("the real CLI accepts a producer's proposal, prints ids only, and never ins
     mechanisms: p.mechanisms.map(({ kind, params }) => ({ kind, params })), rationale: "A design",
   })) };
   await writeFile(join(f.home, "profile", "resources.yaml"), stringify(resources));
-  const proposed = await proposeGoal({ wording, somaHome: f.home, backend, resources, clock: () => new Date(), missions: ["M0 Mission", "M1 Mission"], goals: [] });
+  const proposed = await proposeGoal({ wording, somaHome: f.home, backend, resources, baselineReaders: { feed: async () => ({ state: "on-track", summary: "2 items" }) }, clock: () => new Date(), missions: ["M0 Mission", "M1 Mission"], goals: [] });
   expect(proposed.outcome).toBe("fit");
   if (proposed.outcome !== "fit") throw new Error("Expected fit");
   const reflex = join(f.root, "reflex");
@@ -219,6 +219,27 @@ test("the real CLI accepts a producer's proposal, prints ids only, and never ins
   expect(result.stdout.toString()).toBe("G5\ng5-feed\ng5-outline\ng5-announce\n");
   expect(await readdir(f.root)).toEqual(["soma"]);
   await expect(runGoalCli(parseGoalArgs(["goal", "add", "--accept", proposed.hash, "--soma-home", f.home]))).rejects.toThrow("does not exist");
+});
+
+test("accept covers the baseline the principal saw and refuses a changed reading", async () => {
+  const f = await fixture();
+  const p = { ...proposal(), baseline: { state: "off-track", summary: "0 items in 14 days, min 2" },
+    warnings: ["Warning: This goal reads off-track from its first run."] };
+  const saved = await f.save(p);
+  await writeFile(saved.path, stringify({ ...p, baseline: { ...p.baseline, state: "on-track" } }));
+  await expect(acceptGoalProposal(f.goalsDir, saved.hash, deps)).rejects.toThrow("hash mismatch");
+  expect(await readdir(f.goalsDir)).toEqual(["proposals"]);
+  await writeFile(saved.path, saved.content);
+  expect(await acceptGoalProposal(f.goalsDir, saved.hash, deps)).toMatchObject({ goalId: "G5" });
+});
+
+test.each([
+  { state: "unknown" },
+  { state: "on-track", summary: "2 items in 14 days, min 2" },
+])("accept permits a version-one proposal with baseline %j", async (baseline) => {
+  const f = await fixture();
+  const saved = await f.save({ ...proposal(), baseline });
+  expect(await acceptGoalProposal(f.goalsDir, saved.hash, deps)).toMatchObject({ goalId: "G5" });
 });
 
 test("accept CLI supports home-dir and dependency injection", async () => {

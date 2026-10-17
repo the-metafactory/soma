@@ -404,6 +404,18 @@ schemas, with one retry carrying value-free validation errors. A second invalid
 reply becomes `validation_failed`, carrying the last value-free validation error
 and no `needed_kind`. The CLI exits 1 and writes that failure to stderr in both
 text and `--json` modes. `no_fit` is reserved for a validated catalog mismatch.
+Before writing a fit, sensor kinds with a baseline (`queue`, `rate`, `feed`)
+read their source once without publishing goal state, writing the run ledger or
+reaching the bus. The proposal includes `baseline: {state, summary}`, shown next
+to the threshold. An off-track reading sends the validated reply and reading
+back for one calibration turn; the revised sensor is read against its own
+parameters. If it still reads off-track, a warning appears next to the hash.
+A failed read records `unknown` and warns without blocking the proposal; a kind
+without a baseline warns that its threshold is uncalibrated. Baselines and
+warnings are covered by the acceptance hash. Private resources resolve only
+locally; baseline summaries and CLI output omit their values, including override
+values retained on disk for staging.
+
 Schedules and sensor state rules come from kinds;
 `review_by` defaults to today plus 13 weeks. Zero mechanisms is allowed, with a
 warning that nothing moves the goal and the sweep's pursuit check will flag it.
@@ -422,7 +434,7 @@ A valid proposal is written only to
 `<soma-home>/profile/goals/proposals/<sha256>.yaml`, mode `0600`. The hash covers
 the full YAML bytes. Local output shows the design, state rule, schedules, drop
 line, review date, overlaps and any mechanism gap, followed by the hash;
-`--json` returns the same result as JSON. Proposal files older than 24 hours are
+`--json` returns the design as JSON, with resource names and types only. Proposal files older than 24 hours are
 pruned on every invocation. Calls create no log or publication; the Claude
 backend disables session persistence, hooks and tools for this private call.
 

@@ -5,6 +5,7 @@ import { stringify } from "yaml";
 import { z } from "zod";
 import { isEnoent } from "./core";
 import { goalKinds } from "./goal-kinds/registry";
+import { goalBaselineSchema } from "./goal-kinds/types";
 import type { GoalKind } from "./goal-kinds/types";
 import { addGoalRecord } from "./goal-records";
 import { loadGoalResources, parseGoalResources, resolveGoalResource, type GoalResource } from "./home/index";
@@ -34,6 +35,7 @@ const proposalSchema = z.strictObject({
   needed_kind: z.string().optional(),
   resources: z.array(z.unknown()).default([]),
   warnings: z.array(z.string()).default([]),
+  baseline: goalBaselineSchema.optional(),
 });
 
 export interface GoalAcceptDeps {

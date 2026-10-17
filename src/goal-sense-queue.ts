@@ -30,7 +30,7 @@ export interface QueueSensorResult {
 }
 
 /** Read Ranger's journal without importing its store, migrating or creating it. */
-function countOpenEscalations(journalPath: string, route: QueueParams["route"]): number {
+export function countOpenEscalations(journalPath: string, route: QueueParams["route"]): number {
   const journal = new Database(journalPath, { readonly: true, create: false, strict: true });
   try {
     const row = journal.query<{ count: number }, [string]>(
