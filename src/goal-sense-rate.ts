@@ -31,7 +31,7 @@ export interface RateSensorResult {
 }
 
 /** Read Ranger's journal without importing its store, migrating or creating it. */
-function countClosedEscalations(journalPath: string, route: RateParams["route"], start: Date, end: Date): number {
+export function countClosedEscalations(journalPath: string, route: RateParams["route"], start: Date, end: Date): number {
   const journal = new Database(journalPath, { readonly: true, create: false, strict: true });
   try {
     const rows = journal.query<{ closed_at: string }, [string]>(

@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { queueParams } from "./queue";
-import type { GoalKind } from "./types";
+import { workdayWindowStart } from "../workdays";
+import { queueParams, rangerJournalPath } from "./queue";
+import type { GoalBaselineDeps, GoalBaseline, GoalKind } from "./types";
 
 export const rateParams = z.strictObject({
   goal: queueParams.shape.goal,
@@ -34,6 +35,15 @@ export const rateKind = {
     const p = rateParams.parse(params);
     return ["--goal", p.goal, "--source", p.source, "--min", String(p.min),
       "--window-workdays", String(p.window_workdays), "--timezone", p.timezone, "--route", p.route];
+  },
+  baseline: async (params: RateParams, deps: GoalBaselineDeps): Promise<GoalBaseline> => {
+    const p = rateParams.parse(params);
+    const instant = (deps.now ?? (() => new Date()))();
+    const start = workdayWindowStart(p.window_workdays, p.timezone, instant);
+    const { countClosedEscalations } = await import("../goal-sense-rate");
+    const count = countClosedEscalations(rangerJournalPath(deps), p.route, start, instant);
+    return { state: count >= p.min ? "on-track" : "off-track",
+      summary: `${count} closed ${p.route} escalations, min ${p.min} in ${p.window_workdays} workdays (${p.timezone})` };
   },
   stateRuleTemplate: "At least {min} closed {route} escalations in the last {window_workdays} workdays in {timezone}: on-track; fewer: off-track; failed journal read: no state.",
   stateRule: (params: RateParams): string => {

@@ -303,11 +303,12 @@ export async function runGoalCli(
   switch (action) {
     case "propose": {
       if (!options.propose) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.propose, 2);
-      const { proposeGoal, formatGoalProposal } = await import("../goal-propose");
+      const { proposeGoal, formatGoalProposal, formatGoalProposalJson } = await import("../goal-propose");
       const result = await proposeGoal({
         ...dependencies.propose, ...options.propose, somaHome: defaultSomaHome(options),
+        baselineDeps: { homeDir: options.homeDir, ...dependencies.propose?.baselineDeps },
       });
-      const output = options.json ? JSON.stringify(result, null, 2) : formatGoalProposal(result);
+      const output = options.json ? formatGoalProposalJson(result) : formatGoalProposal(result);
       if (result.outcome === "validation_failed") throw new SomaCliError(output, 1);
       return output;
     }

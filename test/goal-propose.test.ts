@@ -66,7 +66,7 @@ async function withHome(work: (home: string) => Promise<void>) {
 
 function deps(home: string, backend = new FixtureBackend([fit])): GoalProposeDeps {
   return {
-    somaHome: home, wording, hint, backend, clock: () => now, registry: goalKinds, resources,
+    somaHome: home, wording, hint, backend, baselineReaders: { feed: async () => ({ state: "on-track", summary: "1 item in 7 days, min 1" }) }, clock: () => now, registry: goalKinds, resources,
     missions: ["M0 — Create useful things"],
     goals: [{ id: "G5", status: "paused", wording: "Existing private wording", supports: ["M0"], sensor: "g5-feed", body: "g5-announce" }],
   };
@@ -79,6 +79,167 @@ async function proposalFiles(home: string) {
     throw error;
   }
 }
+
+const queueFit = { ...fit, sensor: { kind: "queue", params: { goal: "G0", source: "ranger-escalations", max: 3 } } };
+
+test("an on-track baseline reads the validated resolved params once before writing", async () => {
+  await withHome(async (home) => {
+    let reads = 0;
+    const result = await proposeGoal({ ...deps(home), baselineReaders: { feed: async (params, readDeps) => {
+      reads++;
+      expect(params).toMatchObject({ goal: "G0", url: resources[0].value, min: 1, window_days: 7 });
+      expect(readDeps.now?.()).toEqual(now);
+      expect(readDeps).not.toHaveProperty("publish");
+      expect(await proposalFiles(home)).toEqual([]);
+      return { state: "on-track", summary: "1 items in 7 days, min 1" };
+    } } });
+    expect(reads).toBe(1);
+    expect(result).toMatchObject({ outcome: "fit", proposal: { baseline: { state: "on-track", summary: "1 items in 7 days, min 1" } } });
+    const printed = formatGoalProposal(result);
+    expect(printed).toContain("Baseline: on-track (1 items in 7 days, min 1)");
+    expect(printed.indexOf("Baseline:")).toBeGreaterThan(printed.indexOf("State rule:"));
+    expect(await proposalFiles(home)).toHaveLength(1);
+  });
+});
+
+test("209 open escalations calibrates once with the validated reply and reading before any write", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([queueFit, { ...queueFit, sensor: { ...queueFit.sensor, params: { ...queueFit.sensor.params, max: 210 } } }]);
+    const thresholds: unknown[] = [];
+    const originalInvoke = backend.invoke.bind(backend);
+    backend.invoke = async (prompt, request) => {
+      expect(await proposalFiles(home)).toEqual([]);
+      return originalInvoke(prompt, request);
+    };
+    const result = await proposeGoal({ ...deps(home, backend), baselineReaders: { queue: async (params) => {
+      thresholds.push(params.max);
+      return { state: Number(params.max) >= 209 ? "on-track" : "off-track", summary: `209 open escalate-hitl escalations, max ${Number(params.max)}` };
+    } } });
+    expect(thresholds).toEqual([3, 210]);
+    expect(backend.calls).toHaveLength(2);
+    expect(backend.calls[1].prompt).toContain("Calibration note:");
+    expect(backend.calls[1].prompt).toContain("209 open escalate-hitl escalations, max 3");
+    expect(backend.calls[1].prompt).toContain('"previous_reply"');
+    expect(result).toMatchObject({ outcome: "fit", proposal: { sensor: { params: { max: 210 } }, baseline: { state: "on-track" }, warnings: [] } });
+    expect(await proposalFiles(home)).toHaveLength(1);
+  });
+});
+
+test("a revised sensor kind gets its own baseline and a final off-track warning beside the hash", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([queueFit, fit]);
+    const reads: string[] = [];
+    const result = await proposeGoal({ ...deps(home, backend), baselineReaders: {
+      queue: async () => { reads.push("queue"); return { state: "off-track", summary: "209 open, max 3" }; },
+      feed: async (params) => {
+        reads.push("feed");
+        expect(params.url).toBe(resources[0].value);
+        return { state: "off-track", summary: "0 items in 7 days, min 1" };
+      },
+    } });
+    expect(reads).toEqual(["queue", "feed"]);
+    expect(backend.calls).toHaveLength(2);
+    expect(result).toMatchObject({ outcome: "fit", proposal: { baseline: { state: "off-track", summary: "0 items in 7 days, min 1" } } });
+    const lines = formatGoalProposal(result).split("\n");
+    expect(lines.at(-2)).toBe("Warning: This goal reads off-track from its first run.");
+    if (result.outcome !== "fit") throw new Error("Expected fit");
+    expect(lines.at(-1)).toBe(result.hash);
+  });
+});
+
+test("calibration has its own bounded turn after a validation retry", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([{ ...queueFit, drop: undefined }, queueFit, queueFit]);
+    let reads = 0;
+    const result = await proposeGoal({ ...deps(home, backend), baselineReaders: { queue: async () => {
+      reads++; return { state: "off-track", summary: "209 open, max 3" };
+    } } });
+    expect(result.outcome).toBe("fit");
+    expect(reads).toBe(2);
+    expect(backend.calls).toHaveLength(3);
+    expect(backend.calls[1].prompt).toContain("Validation error:");
+    expect(backend.calls[2].prompt).toContain("Calibration note:");
+    expect(backend.calls[2].prompt).not.toContain("Validation error:");
+  });
+});
+
+test("two invalid calibration replies still fail validation without writing", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([queueFit, { ...queueFit, drop: undefined }]);
+    let reads = 0;
+    const result = await proposeGoal({ ...deps(home, backend), baselineReaders: { queue: async () => {
+      reads++; return { state: "off-track", summary: "209 open, max 3" };
+    } } });
+    expect(result.outcome).toBe("validation_failed");
+    expect(reads).toBe(1);
+    expect(backend.calls).toHaveLength(3);
+    expect(await proposalFiles(home)).toEqual([]);
+  });
+});
+
+test.each(["queue", "rate", "feed"])("a real %s read failure writes unknown with a warning", async (kind) => {
+  await withHome(async (home) => {
+    const sensor = kind === "feed" ? fit.sensor : { kind, params: kind === "queue" ? queueFit.sensor.params
+      : { goal: "G0", source: "ranger-escalations", min: 2, window_workdays: 3 } };
+    const backend = new FixtureBackend([{ ...fit, sensor }]);
+    const result = await proposeGoal({ ...deps(home, backend), baselineReaders: {}, baselineDeps: {
+      journalPath: join(home, "absent.sqlite"), fetch: async () => { throw new Error(resources[0].value as string); },
+    } });
+    expect(result).toMatchObject({ outcome: "fit", proposal: { baseline: { state: "unknown" } } });
+    expect(formatGoalProposal(result)).toContain("Warning: Sensor baseline is unknown; the threshold is uncalibrated.");
+    expect(JSON.stringify(result)).not.toContain(resources[0].value as string);
+    expect(backend.calls).toHaveLength(1);
+    expect(await readdir(home)).toEqual(["profile"]);
+  });
+});
+
+test("a kind without a baseline remains usable and warns that its threshold is uncalibrated", async () => {
+  await withHome(async (home) => {
+    const result = await proposeGoal({ ...deps(home), registry: { ...goalKinds, feed: { ...goalKinds.feed, baseline: undefined } }, baselineReaders: {} });
+    expect(result.outcome).toBe("fit");
+    if (result.outcome !== "fit") throw new Error("Expected fit");
+    expect(result.proposal).not.toHaveProperty("baseline");
+    expect(formatGoalProposal(result)).toContain("Warning: Sensor has no baseline; the threshold is uncalibrated.");
+  });
+});
+
+test("a baseline without evidence cannot claim on-track", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([fit]);
+    const result = await proposeGoal({ ...deps(home, backend), baselineReaders: { feed: async () => ({ state: "on-track" }) } });
+    expect(result).toMatchObject({ outcome: "fit", proposal: { baseline: {
+      state: "unknown", summary: "Sensor returned an invalid baseline.",
+    } } });
+    expect(formatGoalProposal(result)).toContain("Warning: Sensor baseline is unknown");
+    expect(backend.calls).toHaveLength(1);
+  });
+});
+
+test("private summary values stay out of calibration, text and JSON including local overrides", async () => {
+  await withHome(async (home) => {
+    const override = "https://override.example.org/feed?key=private-value";
+    const args = ["goal", "propose", "--wording", wording, "--soma-home", home, "--home-dir", home, "--param", `url=${override}`];
+    for (const json of [false, true]) {
+      const backend = new FixtureBackend([fit]);
+      const result = await runGoalCli(parseGoalArgs([...args, ...(json ? ["--json"] : [])]), { propose: {
+        ...deps(home, backend), baselineReaders: { feed: async (params, readDeps) => {
+          expect(params.url).toBe(override);
+          expect(readDeps.homeDir).toBe(home);
+          return { state: "off-track", summary: `0 items from ${override} or ${resources[0].value as string}, min 1` };
+        } },
+      } });
+      expect(backend.calls).toHaveLength(2);
+      for (const text of [result, backend.calls[1].prompt]) {
+        expect(text).not.toContain(override);
+        expect(text).not.toContain(resources[0].value as string);
+        expect(text).toContain("<private>");
+      }
+      if (json) expect(JSON.parse(result)).toMatchObject({ outcome: "fit", proposal: { baseline: { state: "off-track" }, resources: [
+        { name: "param-feed-url", type: "feed" }, { name: "param-announce-url", type: "feed" },
+      ] } });
+    }
+  });
+});
 
 test("fit hashes the entire private YAML; prints the design and creates no other artifact", async () => {
   await withHome(async (home) => {
