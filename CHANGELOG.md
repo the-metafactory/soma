@@ -7,13 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-17
+
+
 ### Added
+
+- Goals become records: `profile/goals/<id>.md` loads and projects the active goals, Purpose's string goals are renamed missions (`## Goals` stays a load alias), and VSAs and work-graph roots carry `serves: G<n>`. `soma goal add` and `soma goal activate` write a goal and install its Reflex activations, and activation is refused without a real sensor. (#824, #826, #827, #828, #868, #873)
+- Goal-kind catalog: kinds declare zod params, private `<resource:name>` params resolve from `profile/resources.yaml`, and `soma goal kinds` lists them. Sensors: `feed` (with `--link-match`), `queue` (open ranger escalations against a `max`) and `rate` (ranger escalations closed over a Monday–Friday workday window against a `min`). Mechanisms: `outline` and `announce`. (#869, #870, #838, #906, #962, #964)
+- `soma goal propose` drafts a validated goal design from the catalog into a hashed private proposal, and `soma goal add --accept` writes the record and stages its activations. A literal in a private param is `needs_input`, and on a missing kind propose drafts a build brief from a checked-in infrastructure manifest. (#871, #872, #957, #961)
+- `soma goal sweep` runs the daily pursuit, review and sensor checks per active goal; `soma goal outline` writes a weekly outline with a free slot from both calendars; `soma goal announce` drafts announcements for new feed items. (#829, #839, #840, #841)
+- Run ledger: Algorithm runs and `soma run finished` emit `execution.run.finished`, and Algorithm runs record their sessions with `criterionId`, `outcome` and `sessionId` on verify entries. (#820, #821, #847)
+- Errata: a ledger linking a rejected turn to its artifacts and the check that passed it, deterministic clustering, a daily `soma errata triage`, and `/retro` reads the session's Errata first. (#848, #849, #851, #854)
+- `GraphStore` lists a repo's open roots serving a goal, and each node carries its last update. (#887)
+- Agent capability rows may name a model role. (#925)
+- The Algorithm gains playbook cards and a principles vocabulary under its effort tier. (#922)
 
 - The working method (the Algorithm's principles and playbooks indexes) now projects into every substrate's always-loaded rules: `rules/soma/PRINCIPLES.md` on Claude Code, `.cursor/rules/soma/PRINCIPLES.md` on Cursor, `principles.md` beside `communication.md` elsewhere, imported from codex `AGENTS.md` and injected into the pi-dev system prompt. Pointers resolve to absolute paths in the installed the-algorithm skill. A NATIVE turn now sees the principles and routes to a card, as pstack's poteto-mode does. The vocabulary grows from 22 to 39 principles: 17 more ported from pstack (MIT, commit `f713f14`), with prove-it-works, fix-root-causes and never-block-on-the-human merged into existing files. The principal's behavioral policy still wins over every principle.
 
 - `soma graph file-proposal <proposal_ref>` files the node a `<soma-home>/proposals/<ref>.md` proposal describes under its `landing#map_root`: a `deterministic-check` as `kind: build, autonomy: propose`, every other kind as `kind: grilling, autonomy: approve`. It refuses a ref outside `proposals/` (after realpath and percent-decoding), a missing file, front-matter that fails the schema and a body `build-brief-not-ready` would flag, and files nothing. The node body carries a `<!-- soma:proposal-ref: <ref> -->` marker, so a second run returns the node already filed. `--json` prints `{ "ref", "created" }`. (node #908)
 
 ### Changed
+
+- Source reorganised into components with public entries (`src/memory`, `src/events`, `src/vsa`, `src/policy`, `src/home`, `src/algorithm`, `src/router`, `src/graph`, tools, execution), enforced by a boundary check with a component manifest in CI. (#795, #797–#811)
+- One workday module computes local dates and Mon–Fri windows per timezone, replacing three copies of `zurichDate`. (#963)
+- Feedback capture keeps session, actor and transcript path, and no longer captures machine prompts. (#846)
+- eslint passes and runs in CI; four recurring review findings are enforced as checks. (#796, #933)
+- An install stages its runtime once, and tests share one staged runtime per process. (#914, #929)
+- `algorithm.md` shrinks under 300 lines now that playbooks and principles carry its prose. (#924)
 
 - `bun run harness-eval` reports rejected passes per check (with `errata_unlinked`) and Errata fix closure (proposed clusters fixed), both derived from the Errata ledger and `n/a` when it holds nothing in the window. The `feedback_closure_rate` proxy is retired from the metrics, the baseline and `docs/harness-objective-function.md`; the silent-capture guard in `--check` now counts `feedback.candidate` events directly. (node #853)
 

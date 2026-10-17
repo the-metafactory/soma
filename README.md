@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.26.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.27.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,18 @@
 
 ---
 
-## Current release: 0.26.0
+## Current release: 0.27.0
+
+[0.27.0](https://github.com/the-metafactory/soma/releases/tag/v0.27.0) turns
+goals into records that pursue themselves: a goal-kind catalog with `feed`,
+`queue` and `rate` sensors, `soma goal propose`, `add --accept`, `activate` and
+a daily `sweep`, run-ledger emits, and an Errata ledger with daily triage. The
+working method now loads in every substrate, and the source is split into
+components behind public entries. Breaking: PAI migration and `soma import` are
+removed. See the [changelog](CHANGELOG.md#0270---2026-10-17) for the complete
+changes. GitHub releases and Arc registry publication are verified separately.
+
+### 0.26.0
 
 [0.26.0](https://github.com/the-metafactory/soma/releases/tag/v0.26.0) adds
 selected-section graph reads and safe node editing, preserves Resolution
