@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendErrata, errataLedgerPath } from "../src/errata";
 import { parseErrataArgs } from "../src/cli/errata";
-import { stageRuntimeArtifact } from "../src/runtime-artifact";
+import { stageRuntimeArtifact } from "../src/substrates/runtime-artifact";
 import type { ErrataInput } from "../src/types";
 
 const homes: string[] = [];

@@ -20,7 +20,7 @@ import {
   PROJECTION_LIFECYCLE_SUBSTRATES,
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
 } from "../src/cli/substrate-lifecycle";
-import { installSpecFor } from "../src/install-spec-registry";
+import { installSpecFor } from "../src/substrates/install-spec-registry";
 import { STUB_RUNTIME } from "./fixtures/stub-runtime";
 
 const INSTALL_SUBSTRATE_USAGE = INSTALL_SUBSTRATES.join("|");

@@ -135,8 +135,8 @@ InstallSubstrate, …>` tables make missing rows compile errors):
 1. `src/types.ts` — `SubstrateId` (5–13) and `InstallSubstrate` extract (17).
 2. `src/adapters/private-roots.ts` — `DSH_DEFAULT_HOME = ".dsh"`; registered in
    `src/projection-private-roots.ts` (`Record<InstallSubstrate, …>`).
-3. `src/install-spec-registry.ts` — `dshInstallSpec` in `INSTALL_SPECS`.
-4. `src/home-projection.ts` — `"dsh"` in `HOME_PROJECTION_INSTALL_SUBSTRATES`
+3. `src/substrates/install-spec-registry.ts` — `dshInstallSpec` in `INSTALL_SPECS`.
+4. `src/substrates/home-projection.ts` — `"dsh"` in `HOME_PROJECTION_INSTALL_SUBSTRATES`
    (21) + `buildDshHomeProjection`/`installDshHomeProjection` + the
    `buildSubstrateHomeProjection` switch (184–197).
 5. `src/install.ts` — `planSomaForDshInstall` / `installSomaForDsh` /

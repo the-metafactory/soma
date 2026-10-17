@@ -1,8 +1,8 @@
-import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
-import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../substrates/install-spec";
+import { vsaSiblingPrunePrepare } from "../../substrates/legacy-skill-prune";
 import { defaultSomaHome } from "../../core/index";
 import { removePortableSkillProjection } from "../shared/portable-skill-manifest";
-import { removeProjectedSkillLinks } from "../../projected-skill-links";
+import { removeProjectedSkillLinks } from "../../substrates/projected-skill-links";
 import { CLAUDE_CODE_PROJECTED_RULES_FILES, CLAUDE_CODE_SKILLS_DISCOVERY } from "../claude-code";
 import {
   SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
@@ -24,7 +24,7 @@ import { CLAUDE_CODE_CLAUDE_MD_RELATIVE_PATH, installClaudeCodeClaudeMd } from "
 import { isClaudeCodeInstallOptions } from "./install-options";
 import { projectClaudeCodeHome, isClaudeCodeSkillProjectionPath } from "../claude-code";
 import { reconcilePortableSkillProjection, writePortableSkillManifest } from "../shared/portable-skill-manifest";
-import { writeProjection } from "../../projection";
+import { writeProjection } from "../../substrates/projection";
 
 export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
   substrate: "claude-code",

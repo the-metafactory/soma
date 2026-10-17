@@ -134,7 +134,7 @@
       "count": 2
     }
   },
-  "src/bundled-skills.ts": {
+  "src/substrates/bundled-skills.ts": {
     "soma/no-discarded-error": {
       "count": 3
     }
@@ -314,17 +314,17 @@
       "count": 1
     }
   },
-  "src/projected-skill-links.ts": {
+  "src/substrates/projected-skill-links.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/projection-reconcile.ts": {
+  "src/substrates/projection-reconcile.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/projection-self-repair.ts": {
+  "src/substrates/projection-self-repair.ts": {
     "soma/no-discarded-error": {
       "count": 3
     }
@@ -354,12 +354,12 @@
       "count": 3
     }
   },
-  "src/runtime-artifact.ts": {
+  "src/substrates/runtime-artifact.ts": {
     "soma/no-discarded-error": {
       "count": 10
     }
   },
-  "src/skill-projection.ts": {
+  "src/substrates/skill-projection.ts": {
     "soma/no-discarded-error": {
       "count": 9
     }
@@ -389,7 +389,7 @@
       "count": 6
     }
   },
-  "src/vsa-skill-installer.ts": {
+  "src/substrates/vsa-skill-installer.ts": {
     "soma/no-discarded-error": {
       "count": 3
     }

@@ -9,7 +9,7 @@ import {
   buildDshHomeProjection,
   buildGrokHomeProjection,
   buildPiDevHomeProjection,
-} from "../home-projection";
+} from "../substrates/home-projection";
 import {
   installSomaForAnthropicCowork,
   installSomaForClaudeCode,
@@ -36,12 +36,12 @@ import {
   type UninstallGrokResult,
 } from "../install";
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
-import { projectVsaSkillBundleFiles } from "../vsa-skill-installer";
-import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
+import { projectVsaSkillBundleFiles } from "../substrates/vsa-skill-installer";
+import { defaultSubstrateHome, installSpecFor } from "../substrates/install-spec-registry";
 import { invocationCwd } from "../core/index";
-import { isGuardedRuntimeSubstrate } from "../runtime-artifact";
+import { isGuardedRuntimeSubstrate } from "../substrates/runtime-artifact";
 import { loadSomaHome } from "../home/index";
-import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../skill-projection";
+import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../substrates/skill-projection";
 import { SHIPPED_SUBSTRATES, type ShippedSubstrate, type SomaInstallOptions, type SomaInstallPlan, type SomaInstallResult } from "../types";
 import { type ProjectionInput } from "../home/types";
 import { type InstallSubstrate } from "../policy/types";

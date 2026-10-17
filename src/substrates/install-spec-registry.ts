@@ -1,10 +1,10 @@
-import { anthropicCoworkInstallSpec } from "./adapters/anthropic-cowork/install";
-import { codexInstallSpec } from "./adapters/codex/install";
-import { claudeCodeInstallSpec } from "./adapters/claude-code/install";
-import { cursorInstallSpec } from "./adapters/cursor/install";
-import { dshInstallSpec } from "./adapters/dsh/install";
-import { grokInstallSpec } from "./adapters/grok/install";
-import { piDevInstallSpec } from "./adapters/pi-dev/install";
+import { anthropicCoworkInstallSpec } from "../adapters/anthropic-cowork/install";
+import { codexInstallSpec } from "../adapters/codex/install";
+import { claudeCodeInstallSpec } from "../adapters/claude-code/install";
+import { cursorInstallSpec } from "../adapters/cursor/install";
+import { dshInstallSpec } from "../adapters/dsh/install";
+import { grokInstallSpec } from "../adapters/grok/install";
+import { piDevInstallSpec } from "../adapters/pi-dev/install";
 import type { InstallSubstrate, SubstrateInstallSpec } from "./install-spec";
 
 type InstallSpecRegistry = { [S in InstallSubstrate]: SubstrateInstallSpec<S> };

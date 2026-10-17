@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSomaCli } from "../src/cli";
 import { installSomaForCodex } from "../src/index";
-import { inspectRuntimeArtifact, stageRuntimeArtifact } from "../src/runtime-artifact";
+import { inspectRuntimeArtifact, stageRuntimeArtifact } from "../src/substrates/runtime-artifact";
 import { STUB_RUNTIME, STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 async function withHome<T>(fn: (home: string) => Promise<T>): Promise<T> {

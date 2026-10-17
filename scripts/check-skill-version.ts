@@ -16,7 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { parseSkillFrontmatter } from "../src/vsa-skill-installer";
+import { parseSkillFrontmatter } from "../src/substrates/vsa-skill-installer";
 
 const SKILL_DIR = "src/skills/VSA";
 const SKILL_MD = `${SKILL_DIR}/SKILL.md`;

@@ -150,7 +150,7 @@ export default tseslint.config(
   },
   {
     files: ["src/**/*.{ts,mjs}"],
-    ignores: ["src/adapters/codex/**", "src/adapters/pi-dev/**", "src/adapters/shared/**", "src/install-spec-registry.ts"],
+    ignores: ["src/adapters/codex/**", "src/adapters/pi-dev/**", "src/adapters/shared/**", "src/substrates/install-spec-registry.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

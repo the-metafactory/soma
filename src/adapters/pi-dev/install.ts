@@ -1,5 +1,5 @@
 import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
-import { skillsLoaderUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { skillsLoaderUnder, type SubstrateInstallSpec } from "../../substrates/install-spec";
 import { PI_DEV_DEFAULT_HOME, piDevProjectionPrivateRoots } from "../../policy/private-roots";
 import {
   PI_DEV_VSA_SKILL_ID,

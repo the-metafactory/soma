@@ -3,7 +3,7 @@ import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { stageRuntimeArtifact } from "../src/runtime-artifact";
+import { stageRuntimeArtifact } from "../src/substrates/runtime-artifact";
 
 const launcher = new URL("../src/cli-launcher.ts", import.meta.url).pathname;
 

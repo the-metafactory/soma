@@ -76,11 +76,11 @@ re-specify shipped work:
 | Registry entry format | **Shipped** | `renderSkillRegistryEntry()`, `src/adapters/shared/skill-registry.ts:173` |
 | Registry line budget | **Shipped** | `SKILL_REGISTRY_LINE_BUDGET = 300`, `skill-registry.ts:31` |
 | Trigger / anti-trigger extraction | **Shipped** | `extractUseWhenTriggers()`, `extractAntiTriggers()`, `skill-registry.ts:85,110` |
-| Catalog auto-refresh on projection | **Shipped** | `refreshSkillCatalogs()`, `src/skill-projection.ts:316` |
-| Per-substrate loader root | **Shipped** | `skillsLoaderDir()`, `src/install-spec.ts:107`, 6 adapters |
-| Body projection (on-demand) | **Shipped as symlink** | `ensureSymlink()`, `src/skill-projection.ts` |
-| `skillsLoading` capability | **Shipped** (#550) | `SkillsLoadingMode`, `src/install-spec.ts`; 6 adapters |
-| Stub generation for eager loaders | **Shipped** (#550) | `ensureSkillStub()`, `src/skill-projection.ts`; `renderSkillStub()`, `src/adapters/shared/skill-stub.ts` |
+| Catalog auto-refresh on projection | **Shipped** | `refreshSkillCatalogs()`, `src/substrates/skill-projection.ts:316` |
+| Per-substrate loader root | **Shipped** | `skillsLoaderDir()`, `src/substrates/install-spec.ts:107`, 6 adapters |
+| Body projection (on-demand) | **Shipped as symlink** | `ensureSymlink()`, `src/substrates/skill-projection.ts` |
+| `skillsLoading` capability | **Shipped** (#550) | `SkillsLoadingMode`, `src/substrates/install-spec.ts`; 6 adapters |
+| Stub generation for eager loaders | **Shipped** (#550) | `ensureSkillStub()`, `src/substrates/skill-projection.ts`; `renderSkillStub()`, `src/adapters/shared/skill-stub.ts` |
 | Trigger-time promotion (pi-dev) | **Shipped** (#551) | `soma_context action=skill_body`, `src/adapters/pi-dev/adapter.ts` |
 | Stub-integrity drift check | **Shipped** (#552) | `diagnoseSkillStubDrift()`, `src/adapters/skill-stub-doctor.ts` |
 | `SomaSkillManifest` | **Typed, not materialized** | `src/types.ts:958`; **0** `soma-skill.json` files on disk |
@@ -174,7 +174,7 @@ loads bodies on demand — its session receives the registry plus a name and
 description listing, not 18,644 lines. Pi does not. Same registry, same
 symlinks, different loader. Nothing about any skill changed.
 
-Add one field to `SubstrateInstallSpec` (`src/install-spec.ts:79`), beside the
+Add one field to `SubstrateInstallSpec` (`src/substrates/install-spec.ts:79`), beside the
 loader root it already owns (`:107`, soma#356):
 
 ```ts

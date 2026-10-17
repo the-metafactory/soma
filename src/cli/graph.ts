@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import packageJson from "../../package.json";
-import { assertActiveCliRuntime } from "../runtime-artifact";
+import { assertActiveCliRuntime } from "../substrates/runtime-artifact";
 // Repo resolution and the bridge's node read live in the graph component,
 // not here: a seam only `src/cli/` can import forces a library/MCP/daemon consumer
 // to re-implement it, becoming the second reader §2.7 forbids. No re-export — the

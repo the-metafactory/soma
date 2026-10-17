@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { caseFoldedEntryName, ensureSymlink, isSameFilesystemEntry, planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../src/skill-projection";
-import { bootstrapSomaHome } from "../src/index";
-import { runSomaCli } from "../src/cli";
-import { STUB_RUNTIME } from "./fixtures/stub-runtime";
+import { caseFoldedEntryName, ensureSymlink, isSameFilesystemEntry, planProjectSkill, planUnprojectSkill, projectSkill, projectSkills, unprojectSkill } from "../../src/substrates/skill-projection";
+import { bootstrapSomaHome } from "../../src/home-bootstrap";
+import { runSomaCli } from "../../src/cli";
+import { STUB_RUNTIME } from "../fixtures/stub-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-skill-projection-"));

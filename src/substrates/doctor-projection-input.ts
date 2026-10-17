@@ -1,9 +1,9 @@
 import { listBundledSkills } from "./bundled-skills";
-import { loadActiveVsaForBundle } from "./vsa/index";
-import { isFsUtilsEnoent as isEnoent } from "./core/index";
-import { loadMemoryIndexForProjection } from "./memory/index";
-import { loadSomaHome } from "./home/index";
-import type { ProjectionInput } from "./home/types";
+import { loadActiveVsaForBundle } from "../vsa";
+import { isFsUtilsEnoent as isEnoent } from "../core";
+import { loadMemoryIndexForProjection } from "../memory";
+import { loadSomaHome } from "../home";
+import type { ProjectionInput } from "../home/types";
 
 export interface LoadProjectionInputForDoctorOptions {
   somaHome: string;

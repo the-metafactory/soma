@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promi
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { readBundledSkill, type BundledSkillFile } from "./bundled-skill-source";
-import { defaultSomaRepoPath } from "./core/index";
+import { defaultSomaRepoPath } from "../core";
 import { SKILL_MD, rewriteSkillNameFrontmatter } from "./skill-frontmatter";
 import { rewriteSubstrateProjectionContent } from "./substrate-projection-rewrites";
 import type {
@@ -12,7 +12,7 @@ import type {
   SomaSkillBaseline,
   SomaSkillBaselines,
   ProjectionSubstrate,
-} from "./types";
+} from "../types";
 
 interface InternalVsaSkillInstallOptions extends VsaSkillInstallOptions {
   skillNameOverride?: string;

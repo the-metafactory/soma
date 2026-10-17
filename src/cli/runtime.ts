@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { inspectRuntimeArtifact, isRuntimeArtifactTarget, rollbackRuntimeArtifact, type RuntimeArtifactTarget } from "../runtime-artifact";
+import { inspectRuntimeArtifact, isRuntimeArtifactTarget, rollbackRuntimeArtifact, type RuntimeArtifactTarget } from "../substrates/runtime-artifact";
 
 export interface ParsedRuntimeArgs { command: "runtime"; action: "status" | "rollback"; target: RuntimeArtifactTarget; somaHome?: string; }
 export const RUNTIME_COMMAND_HELP = { usage: "Usage: soma runtime <status|rollback> --target <cli|claude-code|codex|grok> [--soma-home <dir>]", subcommands: { status: "Usage: soma runtime status --target <cli|claude-code|codex|grok> [--soma-home <dir>]", rollback: "Usage: soma runtime rollback --target <cli|claude-code|codex|grok> [--soma-home <dir>]" } };

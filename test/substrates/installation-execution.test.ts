@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { SomaInstallError } from "../src/installation-execution";
-import { SOMA_INSTALL_OPERATIONS } from "../src/installation-executor";
+import { SomaInstallError } from "../../src/substrates/installation-execution";
+import { SOMA_INSTALL_OPERATIONS } from "../../src/substrates/installation-executor";
 
 test("installation errors preserve a redacted snapshot of completed operations", () => {
   const somaHome = { filesWritten: 1 };

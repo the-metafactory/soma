@@ -1,7 +1,7 @@
 import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { defaultSubstrateHome } from "../../install-spec-registry";
+import { defaultSubstrateHome } from "../../substrates/install-spec-registry";
 import { SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH } from "../claude-code/hooks";
 import { CODEX_LIFECYCLE_CONFIG_PATH } from "../codex/projection-constants";
 import { GROK_LIFECYCLE_CONFIG_PATH } from "../grok/projection-constants";

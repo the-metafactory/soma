@@ -2,14 +2,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import {
-  projectClaudeCode,
-  projectCodex,
-  projectPiDev,
-  type Projection,
-  writeProjection,
-} from "../src/index";
-import { portableProjectionInput } from "./fixtures";
+import { projectClaudeCode, projectCodex, projectPiDev } from "../../src/adapters";
+import { writeProjection } from "../../src/substrates/projection";
+import { type Projection } from "../../src/types";
+import { portableProjectionInput } from "../fixtures";
 
 async function withTempDir<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
   const rootDir = await mkdtemp(join(tmpdir(), "soma-context-"));

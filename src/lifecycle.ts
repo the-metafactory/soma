@@ -8,7 +8,7 @@ import { appendAlgorithmProvenance } from "./algorithm/algorithm-provenance";
 import { buildLearningReadback } from "./learning-readback";
 import { appendSomaMemoryEvent } from "./events/index";
 import { reprojectSubstrateMemoryProjection } from "./memory-projection-reproject";
-import { repairProjectedArtifacts } from "./projection-self-repair";
+import { repairProjectedArtifacts } from "./substrates/projection-self-repair";
 import { getProjectionRepairProvider, getSessionEndTranscriptHandler } from "./home/lifecycle-registry";
 import { loadSomaProfile, normalizeSomaWorkRegistryArtifacts, upsertSomaCurrentWorkPointer } from "./home/index";
 import { SECTION_NAME_MAP, getCriteria, getGoal } from "./vsa/index";

@@ -3,10 +3,10 @@ import { join, resolve } from "node:path";
 import { installSpecFor, isRegisteredInstallSubstrate } from "./install-spec-registry";
 import type { HomeProjectionBuildContext } from "./install-spec";
 import { writeProjection } from "./projection";
-import { defaultSomaRepoPath } from "./core/index";
-import type { Projection, ProjectionSubstrate, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "./types";
-import type { ProjectionInput } from "./home/types";
-import type { InstallSubstrate } from "./policy/types";
+import { defaultSomaRepoPath } from "../core";
+import type { Projection, ProjectionSubstrate, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "../types";
+import type { ProjectionInput } from "../home/types";
+import type { InstallSubstrate } from "../policy/types";
 
 export function resolveHomeProjectionPaths(
   substrate: ProjectionSubstrate,

@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { bundledSkillNames, readBundledSkill } from "./bundled-skill-source";
-import { defaultSomaHome } from "./core/index";
+import { defaultSomaHome } from "../core";
 import { VSA_SKILL_NAME } from "./vsa-skill-installer";
 
 /**
  * Directory names of the skills bundled in the repo under `src/skills`, sorted.
  * Soma's own skills are embedded, so this holds inside a compiled binary too
- * (see src/bundled-skill-source.ts). Empty trees return []; invalid explicit
+ * (see src/substrates/bundled-skill-source.ts). Empty trees return []; invalid explicit
  * roots throw filesystem errors (ENOENT, ENOTDIR, etc.).
  */
 export { bundledSkillNames as listBundledSkills } from "./bundled-skill-source";

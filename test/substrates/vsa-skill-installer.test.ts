@@ -2,15 +2,15 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
-import { installVsaSkill } from "../src/index";
-import type { SomaSkillBaselines } from "../src/index";
-import { SOMA_SKILL_DESCRIPTION_MAX_LENGTH } from "../src/skill-content-normalizer";
+import { installVsaSkill } from "../../src/substrates/vsa-skill-installer";
+import { type SomaSkillBaselines } from "../../src/types";
+import { SOMA_SKILL_DESCRIPTION_MAX_LENGTH } from "../../src/substrates/skill-content-normalizer";
 import {
   compareSkillVersions,
   vsaSkillRuntimeDir,
   parseSkillFrontmatter,
   skillBaselinesPath,
-} from "../src/vsa-skill-installer";
+} from "../../src/substrates/vsa-skill-installer";
 
 async function withTempHome<T>(fn: (homeDir: string, somaRepoPath: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-vsa-skill-"));
@@ -301,7 +301,7 @@ test("source SKILL.md missing version frontmatter throws", async () => {
 });
 
 test("ship config: real src/skills/VSA carries version + pack-id frontmatter", async () => {
-  const repoSkill = join(import.meta.dirname, "..", "src", "skills", "VSA", "SKILL.md");
+  const repoSkill = join(import.meta.dirname, "..", "..", "src", "skills", "VSA", "SKILL.md");
   const content = await readFile(repoSkill, "utf8");
   const fm = parseSkillFrontmatter(content);
   expect(fm).not.toBeNull();
@@ -310,7 +310,7 @@ test("ship config: real src/skills/VSA carries version + pack-id frontmatter", a
 });
 
 test("ship config: real src/skills/VSA description fits portable metadata limit", async () => {
-  const repoSkill = join(import.meta.dirname, "..", "src", "skills", "VSA", "SKILL.md");
+  const repoSkill = join(import.meta.dirname, "..", "..", "src", "skills", "VSA", "SKILL.md");
   const content = await readFile(repoSkill, "utf8");
   const description = /^description:\s*"([\s\S]*?)"$/m.exec(content)?.[1];
   expect(description).toBeDefined();

@@ -8,9 +8,9 @@ import { runSomaLifecycleSessionEnd, resolveLifecycleHomeDir, SCRATCH_SUBSTRATE_
 import { registerSessionEndTranscriptHandler } from "../src/home/index";
 import { memoryNotePath, type WritableType } from "../src/memory/index";
 import { resolveInstalledLifecycleHomeDir } from "../src/adapters/shared/lifecycle-home-binding";
-import { buildCodexHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection } from "../src/home-projection";
+import { buildCodexHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection } from "../src/substrates/home-projection";
 import { portableProjectionInput } from "./fixtures";
-import { defaultSubstrateHome } from "../src/install-spec-registry";
+import { defaultSubstrateHome } from "../src/substrates/install-spec-registry";
 import { CODEX_LIFECYCLE_CONFIG_PATH } from "../src/adapters/codex/projection-constants";
 import { GROK_LIFECYCLE_CONFIG_PATH } from "../src/adapters/grok/projection-constants";
 import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "../src/adapters/pi-dev/projection-constants";

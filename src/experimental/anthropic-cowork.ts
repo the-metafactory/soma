@@ -5,7 +5,7 @@ export {
 export {
   buildAnthropicCoworkHomeProjection,
   installAnthropicCoworkHomeProjection,
-} from "../home-projection";
+} from "../substrates/home-projection";
 export {
   installSomaForAnthropicCowork,
   planSomaForAnthropicCoworkInstall,

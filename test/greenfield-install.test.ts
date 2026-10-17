@@ -57,7 +57,7 @@ import {
   runSubstrateLifecycleCli,
   type InstallSubstrate,
 } from "../src/cli/substrate-lifecycle";
-import { defaultSubstrateHome, installSpecFor } from "../src/install-spec-registry";
+import { defaultSubstrateHome, installSpecFor } from "../src/substrates/install-spec-registry";
 
 async function withGreenfieldHomes<T>(
   fn: (homeDir: string, somaHome: string) => Promise<T>,

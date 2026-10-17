@@ -4,8 +4,8 @@ import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile 
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, locateRuntimeArtifact, prepareRuntimeSource, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact, stageRuntimeArtifacts } from "../src/runtime-artifact";
-import { runRuntimeCli } from "../src/cli/runtime";
+import { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, locateRuntimeArtifact, prepareRuntimeSource, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifact, stageRuntimeArtifacts } from "../../src/substrates/runtime-artifact";
+import { runRuntimeCli } from "../../src/cli/runtime";
 
 const roots: string[] = [];
 test("CLI is a runtime target, not a substrate", () => {
@@ -287,7 +287,7 @@ test("reports a dependency missing from the active artifact by name", async () =
 });
 
 test("an artifact built from this checkout resolves myelin and its outbox with no auto-install, and its run-ledger emit passes the load stage", async () => {
-  const checkout = resolve(import.meta.dir, "..");
+  const checkout = resolve(import.meta.dir, "..", "..");
   const root = await mkdtemp(join(tmpdir(), "soma-runtime-artifact-checkout-")); roots.push(root);
   const home = join(root, "home");
   const staged = await stageRuntimeArtifact({ somaHome: home, target: "cli", sourceRoot: checkout });
