@@ -5,7 +5,7 @@
     "": {
       "name": "soma",
       "dependencies": {
-        "@the-metafactory/myelin": "https://github.com/the-metafactory/myelin.git#v0.10.0",
+        "@the-metafactory/myelin": "https://github.com/the-metafactory/myelin.git#v0.11.0",
         "yaml": "^2.9.1",
         "zod": "^4.6.7",
       },
@@ -61,7 +61,7 @@
 
     "@noble/ed25519": ["@noble/ed25519@3.2.0", "", {}, "sha512-criDgRlnUA09hchYrTy/JUWPIEap5rZxQe6wDWzRx51oWWpDRcUpuNzlgPxDJaOK6AsW9c0wKcj3rKRv6t+bPQ=="],
 
-    "@the-metafactory/myelin": ["@the-metafactory/myelin@github:the-metafactory/myelin#849691b", { "dependencies": { "@msgpack/msgpack": "^3.1.3", "@nats-io/jetstream": "^3.4.0", "@nats-io/kv": "^3.4.0", "@nats-io/nats-core": "^3.4.0", "@nats-io/transport-node": "^3.4.0", "@noble/ed25519": "^3.1.0", "ajv": "8.20.0", "ajv-formats": "3.0.1" } }, "the-metafactory-myelin-849691b", "sha512-zQHu7sNR87UUCOAJAYqNEj9375PK4IhRr1WRgLQee5ZvuEjeUDwyBfNNLETuO0YMpGjxmoYFqJCs4qLUeSyh3w=="],
+    "@the-metafactory/myelin": ["@the-metafactory/myelin@github:the-metafactory/myelin#aaaab17", { "dependencies": { "@msgpack/msgpack": "^3.1.3", "@nats-io/jetstream": "^3.4.0", "@nats-io/kv": "^3.4.0", "@nats-io/nats-core": "^3.4.0", "@nats-io/transport-node": "^3.4.0", "@noble/ed25519": "^3.1.0", "ajv": "8.20.0", "ajv-formats": "3.0.1" } }, "the-metafactory-myelin-aaaab17", "sha512-I8dqSM53WOA6NYIvphF3Gvl5NLO3fk6IQY11w/rZsEBj/Ry+h/NjYRnyNP8qA6EWvjYNnzx8+30UPSgWkBVOZA=="],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 

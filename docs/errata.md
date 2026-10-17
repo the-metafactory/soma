@@ -123,10 +123,83 @@ with one member whose `passedBy` is not null, or with two members whose
 Dropped Errata are never clustered, drop out of their cluster's members and count
 toward no threshold; a cluster with no active member is not reported.
 `readErrataClusters(somaHome)` returns the folded clusters; the triage report and
-`soma errata triage` output add `clustered` and `ripe` counts. Turning a ripe
-cluster into a Vigil proposal is a later node.
+`soma errata triage` output add `clustered`, `ripe`, `proposed` and `unroutable` counts.
 
 `clusterErrata(deps)` accepts an injected clock, ledger reader and appender,
 theme judge and judgment writer. `runErrataTriage(deps)` accepts an injected clock, event reader, classifier,
 linker, Errata append, judge reader/writer and run publisher for deterministic
 testing. Classifier input is only the redacted feedback string.
+
+## Proposals
+
+A ripe cluster becomes one proposal file the principal can answer (soma#785 Q17/Q20,
+soma#903 D2/D3/D9). Triage proposes after clustering, so a cluster this batch made ripe is
+drafted in the same run.
+
+The ref is `errata-<cluster-key>-g<generation>` and it is the dedup key: the same ref while
+Vigil's item is open updates that item, and a new generation is the producer's act. The
+cluster key is the cluster's own spelling — `check-<passedBy kind>-<run or repo>-<criterion>`,
+`artifact-<path>`, or `theme-<label>` — folded to `[A-Za-z0-9._-]`: accented letters to their
+base, anything else to one `-`, runs of separators collapsed, ends trimmed. Past 80 characters
+it keeps its head plus a hash of the whole spelling. The fold is a legible key, not a digest:
+keys differing only in punctuation share a slug. The file sits at
+`<soma-home>/proposals/<ref>.md` with front-matter that `soma graph file-proposal` reads —
+`proposal_kind`, `landing`, `map_root`, `title`, `checkpoint: errata-<cluster-key>` and
+`cites` — and it is validated through that same schema before anything is written. A
+`deterministic-check` body is a build brief naming the check that should have caught the miss;
+every other kind is the question that settles the standard. Triage never files the node: on
+approve, cortex runs `soma graph file-proposal`.
+
+The retro-style reading (soma#785 Q22) runs only for ripe clusters, over the turn each member
+rejected: the principal's prompt and that turn's own words and tool calls, redacted and capped.
+The transcript path is the one the session's capture recorded, since an Errata keeps only the
+session and the turn. The call is the same isolated `claude -p` as the verdict and the theme —
+an empty working directory, a replacement system prompt, no tools, no MCP servers, no hooks, no
+session persistence — and no goal records or Soma home instructions enter it. The draft is
+refused locally when its kind is not one of the five, when a `deterministic-check` lacks its
+check or its brief or another kind lacks its question, when any field carries 41 or more
+folded characters of a member's complaint (soma#785 Q23), or when a field names the Soma home
+or a cluster session's working directory. Every cluster of a batch is drafted before any file
+is written, so one refused draft leaves the whole batch for the next run with nothing
+half-written.
+
+What a cluster is owed is folded from the ledger, never stored:
+
+| Last mint | Answer after it | Newer Errata joined | Triage writes |
+| --- | --- | --- | --- |
+| none | — | — | generation 1 |
+| `proposed` | none | any | nothing: the item is still open |
+| `proposed` | `expired`, `dismissed` or `resolved` | yes | the next generation |
+| `unroutable` | — | yes | the report again |
+
+Triage appends the `proposed` and `unroutable` events. The answer kinds — `resolved`,
+`dismissed`, `expired` — are appended by the answer reader that drains Vigil's resolution
+records; triage only reads them to decide what a cluster is owed.
+
+The run carries every ref it minted as `proposal_refs` on its `execution.run.finished`, in the
+`soma:proposals/<ref>.md` form myelin requires, and only on a run that succeeded. Delivery
+keeps the run ledger's rules: an unreachable bus spools the envelope in the outbox, and the
+proposal file stays written once.
+
+`proposeFromCluster(deps)` is the seam for one cluster: injected transcript reader, repo
+resolver, draft judge, clock, ledger reader and appender. `planClusterProposal` decides and
+drafts without writing; `commitClusterProposal` writes the file and appends the event.
+
+### Landing maps
+
+Soma's config registers the maps a proposal may land on (soma#903 D11):
+
+```yaml
+errata:
+  landing:
+    the-metafactory/soma: 781
+```
+
+Each row has to read the way the proposal front-matter reads: `owner/repo` and a positive
+integer root. The landing repo comes from evidence before any model runs — a member's close
+receipt names its repo, otherwise the rejected turn's working directory answers with its
+`origin` remote, and only a github.com remote names one. A ripe cluster whose repo the registry
+does not register, or whose sessions name no repo at all, gets no proposal and costs no
+inference. The run instead writes `<soma-home>/outputs/errata-unroutable-<date>.md` naming
+every cluster still waiting for a landing map, carries it as the run's `result_ref`, and
+appends `unroutable` so the same cluster is not reported again until a newer Errata joins it.

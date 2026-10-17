@@ -73,6 +73,12 @@ export interface RunFinishedInput {
   detailRef?: string;
   /** Private output waiting for the principal; absent on a failed run. */
   resultRef?: string;
+  /**
+   * Proposal files waiting for the principal's answer (soma#903 D2), as `soma:`
+   * refs. Callers omit them on a run that did not succeed, as with `resultRef`.
+   * An empty list is omitted: myelin requires `proposal_refs` to be non-empty.
+   */
+  proposalRefs?: readonly string[];
   /** Overrides `MF_SERVES_GOAL` / `MF_SERVES_NODE` when set. */
   serves?: ExecutionRunServes;
   /** What the run measured, e.g. `{ subject: "soma:harness", value: "ok" }`. */
@@ -273,6 +279,7 @@ async function emit(input: RunFinishedInput, config: RunLedgerConfig, publish: R
         ...(config.correlationId === undefined ? {} : { correlation_id: config.correlationId }),
         ...(input.detailRef === undefined ? {} : { detail_ref: input.detailRef }),
         ...(input.resultRef === undefined ? {} : { result_ref: input.resultRef }),
+        ...(input.proposalRefs === undefined || input.proposalRefs.length === 0 ? {} : { proposal_refs: [...input.proposalRefs] }),
       },
     });
   } catch (error) {
