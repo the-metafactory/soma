@@ -75,7 +75,8 @@ export interface GoalProposal {
 export type GoalProposeResult =
   | { outcome: "fit"; proposal: GoalProposal; hash: string }
   | { outcome: "needs_input"; needs_input: string[] }
-  | { outcome: "no_fit"; needed_kind: string; rationale: string; error?: string };
+  | { outcome: "no_fit"; needed_kind: string; rationale: string }
+  | { outcome: "validation_failed"; error: string };
 
 /** Only controlled diagnostics cross the CLI boundary, never caught exception text. */
 class ProposalError extends Error {}
@@ -181,10 +182,11 @@ function validateSelection(
       params[name] = `<resource:${resource.name}>`;
     } else if (ref) {
       value = resolveGoalResource(resources, ref, type);
-    } else if (params[name] !== undefined) {
-      throw new ProposalError(`${role} params: private parameters must name resources`);
     } else {
-      // A single resource of this type is unambiguous even if omitted by the model.
+      // Discard model-supplied private literals, including optional ones.
+      Reflect.deleteProperty(params, name);
+      Reflect.deleteProperty(resolved, name);
+      // A single resource of this type is unambiguous even if omitted or literal.
       const candidates = resources.filter((resource) => resource.type === type);
       if (candidates.length === 1) {
         value = candidates[0].value;
@@ -290,7 +292,7 @@ async function propose(deps: GoalProposeDeps): Promise<GoalProposeResult> {
     }),
   ].join("\n\n");
   const backend = deps.backend ?? await createAutoInferenceBackend({ privateCall: true });
-  let validationError: string | undefined;
+  let validationError = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     let raw: unknown;
     try {
@@ -344,15 +346,13 @@ async function propose(deps: GoalProposeDeps): Promise<GoalProposeResult> {
       validationError = error.message;
     }
   }
-  return {
-    outcome: "no_fit", error: validationError, rationale: "The design failed validation twice; no proposal written.",
-    needed_kind: genericNeededKind(undefined, deps, resources),
-  };
+  return { outcome: "validation_failed", error: validationError };
 }
 
 export function formatGoalProposal(result: GoalProposeResult): string {
   if (result.outcome === "needs_input") return `needs_input: [${result.needs_input.join(", ")}]`;
-  if (result.outcome === "no_fit") return ["no_fit", result.rationale, `Needed kind: ${result.needed_kind}`, ...(result.error ? [`Validation error: ${result.error}`] : [])].join("\n");
+  if (result.outcome === "no_fit") return ["no_fit", result.rationale, `Needed kind: ${result.needed_kind}`].join("\n");
+  if (result.outcome === "validation_failed") return ["validation_failed", "The design failed validation twice; no proposal written.", `Validation error: ${result.error}`].join("\n");
   const p = result.proposal;
   const kindLine = (kind: ProposedGoalKind) => `${kind.kind} ${JSON.stringify(kind.params)}; schedule: ${kind.schedule.schedule} (${kind.schedule.timezone})`;
   return [

@@ -4,6 +4,7 @@ import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { parse } from "yaml";
+import { z } from "zod";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { proposeGoal, formatGoalProposal, type GoalProposeDeps } from "../src/goal-propose";
 import { goalKinds, listGoalKinds } from "../src/goal-kinds/registry";
@@ -101,7 +102,6 @@ test.each([
   { sensor: { ...fit.sensor, schedule: "every second" } },
   { mechanisms: [{ kind: "feed", params: fit.sensor.params }] },
   { mechanisms: [fit.mechanisms[0], fit.mechanisms[0]] },
-  { sensor: { kind: "feed", params: { goal: "G0", url: "https://literal.example.org/feed" } } },
   { review_by: "not a date" },
   { supports: ["M42"] },
   { drop: undefined },
@@ -168,11 +168,40 @@ test("invalid JSON replies retry once with controlled feedback", async () => {
   });
 });
 
-test("invalid twice returns no_fit with sanitized error and no proposal", async () => {
+test.each([false, true])("executable CLI exits nonzero on exhausted validation (json=%s)", async (json) => {
   await withHome(async (home) => {
-    const backend = new FixtureBackend([{ ...fit, sensor: { kind: wording, params: { [hint]: resources[0].value } } }]);
+    const profile = join(home, "profile");
+    const bin = join(home, "bin");
+    await mkdir(profile);
+    await mkdir(bin);
+    for (const file of ["assistant", "principal", "purpose"]) await writeFile(join(profile, `${file}.md`), "Fixture\n");
+    const invalid = { ...fit, sensor: { kind: wording, params: { url: resources[0].value } } };
+    await writeFile(join(bin, "claude"), `#!${process.execPath}\nawait Bun.stdin.text();\nprocess.stdout.write(${JSON.stringify(JSON.stringify(invalid))});\n`, { mode: 0o755 });
+    const proc = Bun.spawn([process.execPath, join(import.meta.dir, "..", "src", "cli.ts"), "goal", "propose",
+      "--wording", wording, "--soma-home", home, ...(json ? ["--json"] : [])], {
+      env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` }, stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    if (json) expect(JSON.parse(stderr)).toEqual({ outcome: "validation_failed", error: "sensor: kind is not registered for this role" });
+    else {
+      expect(stderr).toContain("validation_failed");
+      expect(stderr).toContain("sensor: kind is not registered for this role");
+    }
+    for (const text of [wording, resources[0].value as string, "needed_kind", "Needed kind:"]) expect(stderr).not.toContain(text);
+    expect(await proposalFiles(home)).toEqual([]);
+  });
+});
+
+test("invalid twice returns validation_failed with the last sanitized error and no proposal", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([
+      { ...fit, sensor: { kind: "feed", params: { ...fit.sensor.params, min: 0 } } },
+      { ...fit, sensor: { kind: wording, params: { [hint]: resources[0].value } } },
+    ]);
     const result = await proposeGoal(deps(home, backend));
-    expect(result).toMatchObject({ outcome: "no_fit", error: "sensor: kind is not registered for this role" });
+    expect(result).toEqual({ outcome: "validation_failed", error: "sensor: kind is not registered for this role" });
     expect(backend.calls).toHaveLength(2);
     const printed = formatGoalProposal(result);
     for (const text of [wording, hint, resources[0].value as string]) expect(printed).not.toContain(text);
@@ -184,7 +213,7 @@ test("invalid twice returns no_fit with sanitized error and no proposal", async 
 test("even a no_fit reply cannot name an unregistered kind without validation", async () => {
   await withHome(async (home) => {
     const backend = new FixtureBackend([{ outcome: "no_fit", rationale: "Unsupported", sensor: { kind: "invented", params: {} } }]);
-    expect(await proposeGoal(deps(home, backend))).toMatchObject({ outcome: "no_fit", error: "sensor: kind is not registered for this role" });
+    expect(await proposeGoal(deps(home, backend))).toEqual({ outcome: "validation_failed", error: "sensor: kind is not registered for this role" });
     expect(backend.calls).toHaveLength(2);
     expect(await readdir(home)).toEqual([]);
   });
@@ -229,12 +258,62 @@ test("sensor-only fit explicitly warns that nothing moves it", async () => {
   });
 });
 
-test.each([undefined, "<resource:absent>"])("missing required private value %j returns needs_input without a file", async (url) => {
+test.each([undefined, "<resource:absent>", "https://literal.example.org/feed?token=secret"])("missing required private value %j returns needs_input without a file", async (url) => {
   await withHome(async (home) => {
     const backend = new FixtureBackend([{ ...fit, sensor: { kind: "feed", params: { goal: "G0", ...(url ? { url } : {}) } }, mechanisms: [] }]);
     const result = await proposeGoal({ ...deps(home, backend), resources: [] });
     expect(result).toEqual({ outcome: "needs_input", needs_input: ["feed"] });
+    if (url) {
+      expect(JSON.stringify(result)).not.toContain(url);
+      expect(formatGoalProposal(result)).not.toContain(url);
+    }
     expect(backend.calls).toHaveLength(1);
+    expect(await readdir(home)).toEqual([]);
+  });
+});
+
+test.each([1, 2])("a private literal is discarded with %i matching resources", async (count) => {
+  await withHome(async (home) => {
+    const literal = "https://literal.example.org/feed?token=secret";
+    const backend = new FixtureBackend([{ ...fit, sensor: { kind: "feed", params: { url: literal } }, mechanisms: [] }]);
+    const result = await proposeGoal({ ...deps(home, backend), resources: [resources[0],
+      ...(count === 2 ? [{ name: "other", type: "feed", value: "https://other.example.org/feed" }] : []),
+    ] });
+    if (count === 1) {
+      expect(result.outcome).toBe("fit");
+      if (result.outcome !== "fit") throw new Error("Expected fit");
+      expect(result.proposal.sensor.params.url).toBe("<resource:blog>");
+      const content = await readFile(join(home, "profile", "goals", "proposals", `${result.hash}.yaml`), "utf8");
+      expect(content).not.toContain(literal);
+    } else {
+      expect(result).toEqual({ outcome: "needs_input", needs_input: ["feed"] });
+      expect(await readdir(home)).toEqual([]);
+    }
+    expect(JSON.stringify(result)).not.toContain(literal);
+    expect(formatGoalProposal(result)).not.toContain(literal);
+    expect(backend.calls).toHaveLength(1);
+  });
+});
+
+test("optional private literals are discarded rather than stored in a fit", async () => {
+  await withHome(async (home) => {
+    const literal = "https://literal.example.org/feed?token=secret";
+    const kind = { ...goalKinds.feed, params: goalKinds.feed.params.extend({ url: z.string().optional() }), stateRule: () => "Fixture rule" };
+    const backend = new FixtureBackend([{ ...fit, sensor: { kind: "feed", params: { url: literal } }, mechanisms: [] }]);
+    const result = await proposeGoal({ ...deps(home, backend), registry: { feed: kind }, resources: [] });
+    expect(result.outcome).toBe("fit");
+    if (result.outcome !== "fit") throw new Error("Expected fit");
+    expect(result.proposal.sensor.params).not.toHaveProperty("url");
+    expect(JSON.stringify(result)).not.toContain(literal);
+    expect(await readFile(join(home, "profile", "goals", "proposals", `${result.hash}.yaml`), "utf8")).not.toContain(literal);
+  });
+});
+
+test("a missing private resource does not hide invalid public params", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([{ ...fit, sensor: { kind: "feed", params: { url: "https://literal.example.org/feed", min: 0 } }, mechanisms: [] }]);
+    expect(await proposeGoal({ ...deps(home, backend), resources: [] })).toEqual({ outcome: "validation_failed", error: "sensor params: min: too_small" });
+    expect(backend.calls).toHaveLength(2);
     expect(await readdir(home)).toEqual([]);
   });
 });
@@ -282,7 +361,7 @@ test.each(["http://private.invalid/secret", "<resource:blog>"])("local resource 
   await withHome(async (home) => {
     const backend = new FixtureBackend([fit]);
     const result = await proposeGoal({ ...deps(home, backend), resources: [{ name: "blog", type: "feed", value }, resources[1]] });
-    expect(result.outcome).toBe("no_fit");
+    expect(result.outcome).toBe("validation_failed");
     expect(backend.calls).toHaveLength(2);
     expect(formatGoalProposal(result)).not.toContain(value);
     const feedback = backend.calls[1].prompt.slice(backend.calls[0].prompt.length);
@@ -311,6 +390,7 @@ test.each(["no_fit", "mechanism_gap"])("%s supplies a generic needed kind withou
     const reply = mode === "no_fit" ? { outcome: "no_fit", rationale: "No catalog fit", needed_kind: needed }
       : { ...fit, mechanism_gap: needed, needed_kind: needed };
     const result = await proposeGoal(deps(home, new FixtureBackend([reply])));
+    if (mode === "no_fit") expect(result).toEqual({ outcome: "no_fit", rationale: "No catalog fit", needed_kind: needed });
     expect(formatGoalProposal(result)).toContain(`Needed kind: ${needed}`);
     expect(await proposalFiles(home)).toHaveLength(mode === "no_fit" ? 0 : 1);
     const bad = await proposeGoal(deps(home, new FixtureBackend([{ outcome: "no_fit", rationale: "No catalog fit", needed_kind: wording }])));

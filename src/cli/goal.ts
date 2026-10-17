@@ -251,7 +251,9 @@ export async function runGoalCli(
       const result = await proposeGoal({
         ...dependencies.propose, ...options.propose, somaHome: defaultSomaHome(options),
       });
-      return options.json ? JSON.stringify(result, null, 2) : formatGoalProposal(result);
+      const output = options.json ? JSON.stringify(result, null, 2) : formatGoalProposal(result);
+      if (result.outcome === "validation_failed") throw new SomaCliError(output, 1);
+      return output;
     }
     case "sweep": {
       const lines: string[] = [];
