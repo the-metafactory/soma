@@ -371,11 +371,27 @@ line, review date, overlaps and any mechanism gap, followed by the hash;
 pruned on every invocation. Calls create no log or publication; the Claude
 backend disables session persistence, hooks and tools for this private call.
 
-On `no_fit` or a mechanism gap, show the generic needed-kind description to the
-principal. Only on a yes, file that generic description with
-`soma graph add 781 --kind grilling --title "<generic kind>" --autonomy approve --checkpoint <checkpoint-id> --body "<generic description>"`.
-Keep wording, hints, drop text and resource values out of the tracker. Proposing
-does not file that node itself.
+On `no_fit` or a fit with a mechanism gap, a second standard-level call to the
+same private backend drafts a `build_brief` from the checked-in infrastructure
+manifest (`src/goal-kinds/infrastructure.ts`). It lists documented parts from
+reflex, pulse, cortex, myelin and soma goal kinds. The brief includes Deliverable,
+Acceptance criteria, Touches, Assumptions, Out of scope, a kind sketch, slices
+naming their repos, and open questions. Text and `--json` both show it beside the
+result; the brief is outside the saved proposal and its hash. A fit without a
+gap still uses only one call.
+
+Every string in a brief passes the generic description's private-text check.
+Invalid briefs retry once with value-free diagnostics; inference failure,
+missing JSON, exhausted validation or copied private text falls back to `no_fit`
+with a fixed generic `needed_kind` and no brief. A component beyond the manifest
+requires an explicit `new_component` and justification; text output names it as
+a breach of the reuse constraint for the principal to decide.
+
+Show the brief to the principal. Only on a yes, file each slice as an unclaimed
+`build` node on its repo's map. File each open question as a `grilling` node and
+make the build `--blocked-by` it. If no brief is available, use the generic
+needed-kind description for grilling. Keep wording, hints, drop text and resource
+values out of the tracker. Proposing files no nodes itself.
 
 `soma goal kinds --json` lists the goal-kind catalog for inference; without
 `--json` it prints a compact ID, role and description list. The registry lives

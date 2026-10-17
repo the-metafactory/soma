@@ -6,7 +6,8 @@ import { expect, test } from "bun:test";
 import { parse } from "yaml";
 import { z } from "zod";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
-import { proposeGoal, formatGoalProposal, type GoalProposeDeps } from "../src/goal-propose";
+import { proposeGoal, formatGoalProposal, type GoalProposeDeps, type GoalBuildBrief } from "../src/goal-propose";
+import { goalInfrastructure, listGoalInfrastructure } from "../src/goal-kinds/infrastructure";
 import { goalKinds, listGoalKinds } from "../src/goal-kinds/registry";
 import type { GoalResource } from "../src/home/index";
 import type { InferenceBackend, InferenceRequest } from "../src/tools/inference";
@@ -25,6 +26,24 @@ const fit = {
   sensor: { kind: "feed", params: { goal: "G0", url: "<resource:blog>" } },
   mechanisms: [{ kind: "announce", params: { goal: "G0", url: "<resource:blog>", channels: "<resource:social>" } }],
   overlaps: ["G5 may overlap"],
+};
+const noFit = { outcome: "no_fit", rationale: "No catalog fit", needed_kind: "A reusable sensor that measures completed media exports" };
+const genericNeeded = "A new sensor or mechanism kind beyond the registered catalog, with typed inputs, a runner and a sensor state rule where applicable.";
+const buildBrief: GoalBuildBrief = {
+  deliverable: "Add a reusable export-count sensor",
+  acceptance_criteria: ["Counts completed exports within a rolling window", "Unreadable input produces failed state"],
+  touches: ["src/goal-kinds/export-count.ts", "src/cli/goal.ts", "test/goal-export-count.test.ts"],
+  assumptions: ["The local export index has timestamps"],
+  out_of_scope: ["Generating exports"],
+  kind: {
+    id: "export-count", role: "sensor", params: { goal: "Goal ID", index: "Path reference", min: "Positive integer" },
+    private_resource_types: { index: "export-index" }, command: ["soma", "goal", "sense", "export-count"],
+    target: "soma.goal.sense.export-count", schedule: { schedule: "0 6 * * *", timezone: "UTC" },
+    state_rule: "on-track when the count meets min; otherwise behind; read errors are failed",
+  },
+  slices: [{ repo: "the-metafactory/soma", deliverable: "Register the kind and implement its runner", components: ["soma-goal-kinds"] },
+    { repo: "the-metafactory/reflex", deliverable: "Document an Activation Blueprint using the sensor target", components: ["reflex"] }],
+  open_questions: ["Which timestamp marks a completed export?"],
 };
 
 class FixtureBackend implements InferenceBackend {
@@ -389,12 +408,194 @@ test.each(["no_fit", "mechanism_gap"])("%s supplies a generic needed kind withou
     const needed = "A reusable sensor that measures completed media exports";
     const reply = mode === "no_fit" ? { outcome: "no_fit", rationale: "No catalog fit", needed_kind: needed }
       : { ...fit, mechanism_gap: needed, needed_kind: needed };
-    const result = await proposeGoal(deps(home, new FixtureBackend([reply])));
-    if (mode === "no_fit") expect(result).toEqual({ outcome: "no_fit", rationale: "No catalog fit", needed_kind: needed });
+    const backend = new FixtureBackend([reply, buildBrief]);
+    const result = await proposeGoal(deps(home, backend));
+    if (mode === "no_fit") expect(result).toEqual({ outcome: "no_fit", rationale: "No catalog fit", needed_kind: needed, build_brief: buildBrief });
+    expect(result).toHaveProperty("build_brief", buildBrief);
+    expect(backend.calls).toHaveLength(2);
     expect(formatGoalProposal(result)).toContain(`Needed kind: ${needed}`);
     expect(await proposalFiles(home)).toHaveLength(mode === "no_fit" ? 0 : 1);
     const bad = await proposeGoal(deps(home, new FixtureBackend([{ outcome: "no_fit", rationale: "No catalog fit", needed_kind: wording }])));
     expect(formatGoalProposal(bad)).not.toContain(wording);
+  });
+});
+
+test("infrastructure manifest is unique, documented and JSON safe", () => {
+  expect(goalInfrastructure.map(({ id }) => id)).toEqual(["reflex", "pulse", "cortex", "myelin", "soma-goal-kinds"]);
+  expect(new Set(goalInfrastructure.map(({ id }) => id)).size).toBe(goalInfrastructure.length);
+  for (const component of goalInfrastructure) {
+    expect(component.repo).toMatch(/^the-metafactory\/[a-z-]+$/);
+    expect(component.source).toMatch(/^(?:docs\/.+|README)\.md$/);
+    expect(component.extension_point.length).toBeGreaterThan(0);
+    expect(component.capabilities.length).toBeGreaterThan(0);
+  }
+  const listing = listGoalInfrastructure();
+  expect(JSON.parse(JSON.stringify(listing))).toEqual(goalInfrastructure);
+  listing[0].capabilities.length = 0;
+  expect(listGoalInfrastructure()[0].capabilities.length).toBeGreaterThan(0);
+});
+
+test("gap prompt uses documented manifest and same standard backend without private resource values", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([noFit, buildBrief]);
+    const result = await proposeGoal(deps(home, backend));
+    expect(result).toMatchObject({ outcome: "no_fit", needed_kind: noFit.needed_kind, build_brief: buildBrief });
+    const { prompt, request } = backend.calls[1];
+    expect(request).toMatchObject({ level: "standard", json: true });
+    const context = JSON.parse(prompt.split("\n\n").at(-1)!) as Record<string, unknown>;
+    expect(context).toMatchObject({ needed_kind: noFit.needed_kind, infrastructure: listGoalInfrastructure(), wording, hint });
+    for (const resource of resources) for (const value of typeof resource.value === "string" ? [resource.value] : resource.value as string[]) {
+      expect(prompt).not.toContain(value);
+    }
+    const printed = formatGoalProposal(result);
+    for (const text of ["Build brief:", buildBrief.deliverable, ...buildBrief.acceptance_criteria, ...buildBrief.touches,
+      ...buildBrief.assumptions, ...buildBrief.out_of_scope, JSON.stringify(buildBrief.kind), ...buildBrief.open_questions,
+      ...buildBrief.slices.flatMap((slice) => [slice.repo, slice.deliverable])]) expect(printed).toContain(text);
+    expect(JSON.parse(JSON.stringify(result)).build_brief).toEqual(buildBrief);
+    expect(await readdir(home)).toEqual([]);
+  });
+});
+
+test("fit with a gap keeps the proposal shape and hashes only its YAML", async () => {
+  await withHome(async (home) => {
+    const plain = await proposeGoal(deps(home));
+    const backend = new FixtureBackend([{ ...fit, mechanism_gap: noFit.needed_kind }, buildBrief]);
+    const result = await proposeGoal(deps(home, backend));
+    if (plain.outcome !== "fit" || result.outcome !== "fit") throw new Error("Expected fits");
+    expect(result.proposal).toEqual({ ...plain.proposal, mechanism_gap: noFit.needed_kind, needed_kind: noFit.needed_kind });
+    expect(result.build_brief).toEqual(buildBrief);
+    const content = await readFile(join(home, "profile", "goals", "proposals", `${result.hash}.yaml`), "utf8");
+    expect(parse(content)).toEqual(result.proposal);
+    expect(content).not.toContain("build_brief");
+    expect(createHash("sha256").update(content).digest("hex")).toBe(result.hash);
+    const changedBrief = await proposeGoal(deps(home, new FixtureBackend([{ ...fit, mechanism_gap: noFit.needed_kind },
+      { ...buildBrief, deliverable: "An alternative reusable export sensor" }])));
+    expect(changedBrief).toMatchObject({ outcome: "fit", hash: result.hash, proposal: result.proposal });
+    expect(formatGoalProposal(result).split("\n").at(-1)).toBe(result.hash);
+  });
+});
+
+test.each([
+  ["unknown component", { ...buildBrief, slices: [{ ...buildBrief.slices[0], components: ["invented-component"] }] }],
+  ["unjustified new component", { ...buildBrief, slices: [{ ...buildBrief.slices[0], components: [{ new_component: "new-runner", justification: "" }] }] }],
+  ["missing sensor rule", { ...buildBrief, kind: { ...buildBrief.kind, state_rule: undefined } }],
+  ["unowned repo", { ...buildBrief, slices: [{ ...buildBrief.slices[0], repo: "the-metafactory/invented" }] }],
+])("invalid brief retries once then falls back with no artifacts: %s", async (_label, invalid) => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([noFit, invalid]);
+    const result = await proposeGoal(deps(home, backend));
+    expect(result).toMatchObject({ outcome: "no_fit", needed_kind: genericNeeded });
+    expect(result).not.toHaveProperty("build_brief");
+    expect(backend.calls).toHaveLength(3);
+    expect(backend.calls[2].prompt).toContain("Validation error: build brief:");
+    expect(await readdir(home)).toEqual([]);
+  });
+});
+
+test("corrected brief succeeds after value-free validation feedback", async () => {
+  await withHome(async (home) => {
+    const invalid = { ...buildBrief, slices: [{ ...buildBrief.slices[0], components: ["unknown-component"] }] };
+    const backend = new FixtureBackend([noFit, invalid, buildBrief]);
+    expect(await proposeGoal(deps(home, backend))).toMatchObject({ outcome: "no_fit", build_brief: buildBrief });
+    const feedback = backend.calls[2].prompt.slice(backend.calls[1].prompt.length);
+    expect(feedback).toContain("Validation error:");
+    expect(feedback).not.toContain("unknown-component");
+  });
+});
+
+test("explicit new component with justification surfaces a reuse breach", async () => {
+  await withHome(async (home) => {
+    const component = { new_component: "export-reader", justification: "The manifest has no export-index parser" };
+    const brief = { ...buildBrief, slices: [{ repo: "the-metafactory/export-reader", deliverable: "Read an export index", components: [component] }] };
+    const result = await proposeGoal(deps(home, new FixtureBackend([noFit, brief])));
+    expect(result).toMatchObject({ outcome: "no_fit", build_brief: brief });
+    expect(formatGoalProposal(result)).toContain(`Breach of reuse constraint: ${component.new_component} — ${component.justification}`);
+  });
+});
+
+test.each([
+  wording, hint, "M0 — Create useful things", "Existing private wording", ...resources.flatMap(({ value }) => typeof value === "string" ? [value] : value as string[]),
+  "private-override-value", "prefix A PRIVATE FIXTURE OUTCOME suffix", "prefix the hidden mission phrase suffix",
+  "prefix earlier private goal wording suffix", "prefix hint contains four private suffix",
+])("brief private text is refused without retry: %s", async (privateText) => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([noFit, { ...buildBrief, open_questions: [privateText] }]);
+    const result = await proposeGoal({ ...deps(home, backend),
+      hint: `${hint} this hint contains four private words`,
+      missions: ["M0 — Create useful things", "M1 — the hidden mission phrase continues"],
+      goals: [...deps(home).goals!, { id: "G9", status: "paused", wording: "The earlier private goal wording continues", supports: [], sensor: "g9-feed", body: "" }],
+      params: { url: "private-override-value" },
+    });
+    expect(result).toMatchObject({ outcome: "no_fit", needed_kind: genericNeeded });
+    expect(result).not.toHaveProperty("build_brief");
+    expect(JSON.stringify(result)).not.toContain(privateText);
+    expect(backend.calls).toHaveLength(2);
+    expect(await readdir(home)).toEqual([]);
+  });
+});
+
+test("privacy check includes nested record keys and decoded structured overrides", async () => {
+  await withHome(async (home) => {
+    for (const brief of [
+      { ...buildBrief, kind: { ...buildBrief.kind, params: { [wording]: "string" } } },
+      { ...buildBrief, kind: { ...buildBrief.kind, private_resource_types: { index: "nested-secret-value" } } },
+      { ...buildBrief, slices: [{ ...buildBrief.slices[0], components: [{ new_component: "reader", justification: hint }] }] },
+    ]) {
+      const backend = new FixtureBackend([noFit, brief]);
+      const result = await proposeGoal({ ...deps(home, backend), params: { channels: '{"nested":["nested-secret-value"]}' } });
+      expect(result).toMatchObject({ outcome: "no_fit", needed_kind: genericNeeded });
+      expect(result).not.toHaveProperty("build_brief");
+    }
+  });
+});
+
+test.each(["no_fit", "mechanism_gap"])("%s brief backend failures and missing JSON fall back without backend text", async (mode) => {
+  await withHome(async (home) => {
+    for (const failure of ["throw", "no-json"]) {
+      const backend = new FixtureBackend([]);
+      backend.invoke = async (prompt, request) => {
+        backend.calls.push({ prompt, request });
+        if (backend.calls.length === 1) return JSON.stringify(mode === "no_fit" ? noFit : { ...fit, mechanism_gap: noFit.needed_kind });
+        if (failure === "throw") throw new Error(`${wording} ${hint}`);
+        return `${wording} ${hint}`;
+      };
+      const result = await proposeGoal(deps(home, backend));
+      expect(result).toMatchObject({ outcome: "no_fit", needed_kind: genericNeeded });
+      expect(result).not.toHaveProperty("build_brief");
+      expect(formatGoalProposal(result)).not.toContain(wording);
+      expect(JSON.stringify(result)).not.toContain(hint);
+      expect(backend.calls).toHaveLength(2);
+      expect(await readdir(home)).toEqual([]);
+    }
+  });
+});
+
+test("a private fit-gap brief falls back without writing a fit proposal", async () => {
+  await withHome(async (home) => {
+    const backend = new FixtureBackend([{ ...fit, mechanism_gap: noFit.needed_kind }, { ...buildBrief, deliverable: wording }]);
+    const result = await proposeGoal(deps(home, backend));
+    expect(result).toMatchObject({ outcome: "no_fit", needed_kind: genericNeeded });
+    expect(result).not.toHaveProperty("build_brief");
+    expect(result).not.toHaveProperty("proposal");
+    expect(await readdir(home)).toEqual([]);
+  });
+});
+
+test.each(["no_fit", "mechanism_gap"])("CLI text and JSON expose the %s brief and reuse breach", async (mode) => {
+  await withHome(async (home) => {
+    const brief = { ...buildBrief, slices: [{ repo: "the-metafactory/export-reader", deliverable: "Parse an export index",
+      components: [{ new_component: "export-reader", justification: "No manifest component parses this index" }] }] };
+    const args = ["goal", "propose", "--wording", wording, "--soma-home", home];
+    const first = mode === "no_fit" ? noFit : { ...fit, mechanism_gap: noFit.needed_kind };
+    const dependency = () => ({ propose: deps(home, new FixtureBackend([first, brief])) });
+    const text = await runGoalCli(parseGoalArgs(args), dependency());
+    expect(text).toContain(`Deliverable: ${brief.deliverable}`);
+    expect(text).toContain("Open question: Which timestamp marks a completed export?");
+    expect(text).toContain("Breach of reuse constraint: export-reader");
+    const json = JSON.parse(await runGoalCli(parseGoalArgs([...args, "--json"]), dependency()));
+    expect(json).toMatchObject({ outcome: mode === "no_fit" ? "no_fit" : "fit", build_brief: brief });
+    if (mode === "mechanism_gap") expect(text.split("\n").at(-1)).toBe(json.hash);
+    expect(await proposalFiles(home)).toHaveLength(mode === "no_fit" ? 0 : 1);
   });
 });
 
