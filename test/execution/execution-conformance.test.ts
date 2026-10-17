@@ -7,7 +7,7 @@ import {
   isKnownExecutionSubstrate,
   runExecutionConformance,
   type ExecutionConformanceScenario,
-} from "../src/index";
+} from "../../src/execution/index";
 
 const cwd = "/tmp/soma-conformance";
 const timestamp = "2026-07-10T12:00:00.000Z";

@@ -45,6 +45,32 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("execution public entry rejects every internal and has no outward violations", async () => {
+    await withRepoFixture("soma-boundaries-execution-", async (root) => {
+      const importer = join(root, "src/cli/execution-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/execution")))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "algorithm-loop-executor.ts");
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../execution/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/execution-entry-fixture.ts",
+          to: `src/execution/${name}`,
+          toComponent: "execution",
+          rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, 'import "../execution/index";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "execution" && v.toComponent !== "legacy")).toEqual([]);
+    });
+    expect(components.execution.files).toEqual(["src/execution/**"]);
+    expect(components.execution.publicEntries).toEqual(["src/execution/index.ts"]);
+  }, { timeout: 30_000 });
+
   test("algorithm's graph dependency is type-only despite its static barrel closure", async () => {
     const source = await Bun.file(join(repoRoot, "src/algorithm/algorithm.ts")).text();
     const edges = collectSpecifiers("algorithm.ts", source).filter(({ specifier }) => specifier.includes("graph/"));

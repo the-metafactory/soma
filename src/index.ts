@@ -150,25 +150,25 @@ export type {
   SomaExecutionRequest,
   SomaExecutionResult,
   SubstrateExecutor,
-} from "./execution/types";
-export { runSubstrateExecution } from "./execution/kernel";
-export { outputFromText } from "./execution/command-output";
-export type { CommandOutput } from "./execution/command-output";
-export type { ExecutionKernelOptions, SubstrateExecutionRun } from "./execution/kernel";
+} from "./execution/index";
+export { runSubstrateExecution } from "./execution/index";
+export { outputFromText } from "./execution/index";
+export type { CommandOutput } from "./execution/index";
+export type { ExecutionKernelOptions, SubstrateExecutionRun } from "./execution/index";
 export { SubstrateExecutionAlgorithmLoopExecutor } from "./execution/algorithm-loop-executor";
 export type { SubstrateExecutionAlgorithmLoopExecutorOptions } from "./execution/algorithm-loop-executor";
-export { MockSubstrateExecutor } from "./execution/mock-executor";
-export type { MockExecutionScript } from "./execution/mock-executor";
-export { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance } from "./execution/conformance";
-export type { ExecutionConformanceReport, ExecutionConformanceResult, ExecutionConformanceScenario, ExecutionConformanceScenarioId } from "./execution/conformance";
-export { ExecutorRegistry, isKnownExecutionSubstrate, isKnownSubstrate, KNOWN_EXECUTION_SUBSTRATES, KNOWN_SUBSTRATES } from "./execution/registry";
-export type { ExecutorRegistryResolution, RegisteredSubstrateExecutor } from "./execution/registry";
+export { MockSubstrateExecutor } from "./execution/index";
+export type { MockExecutionScript } from "./execution/index";
+export { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance } from "./execution/index";
+export type { ExecutionConformanceReport, ExecutionConformanceResult, ExecutionConformanceScenario, ExecutionConformanceScenarioId } from "./execution/index";
+export { ExecutorRegistry, isKnownExecutionSubstrate, isKnownSubstrate, KNOWN_EXECUTION_SUBSTRATES, KNOWN_SUBSTRATES } from "./execution/index";
+export type { ExecutorRegistryResolution, RegisteredSubstrateExecutor } from "./execution/index";
 export { diagnoseExecutionReadiness } from "./adapters/doctor";
 export type { ExecutionReadiness } from "./adapters/doctor";
-export { CodexExecutor, registerCodexExecutor } from "./execution/codex-executor";
-export type { CodexCommandResult, CodexCommandRunner, CodexExecutorOptions } from "./execution/codex-executor";
-export { ClaudeCodeExecutor, registerClaudeCodeExecutor } from "./execution/claude-code-executor";
-export type { ClaudeCodeCommandResult, ClaudeCodeCommandRunner, ClaudeCodeExecutorOptions } from "./execution/claude-code-executor";
+export { CodexExecutor, registerCodexExecutor } from "./execution/index";
+export type { CodexCommandResult, CodexCommandRunner, CodexExecutorOptions } from "./execution/index";
+export { ClaudeCodeExecutor, registerClaudeCodeExecutor } from "./execution/index";
+export type { ClaudeCodeCommandResult, ClaudeCodeCommandRunner, ClaudeCodeExecutorOptions } from "./execution/index";
 export { SOMA_RESULT_EVENT_KINDS } from "./types";
 export { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS } from "./memory/index";
 export { SOMA_MEMORY_WRITE_TRIGGERS, SOMA_MEMORY_TRIGGER_TRUST } from "./memory/index";
