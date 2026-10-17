@@ -346,7 +346,10 @@ existing goal ids, statuses, kinds and wording for overlap, the kind catalog,
 and resource names and types. Wording and hints go to the inference provider;
 resource values never do. Replies are validated locally against kind Zod
 schemas, with one retry carrying value-free validation errors. A second invalid
-reply becomes `no_fit`. Schedules and sensor state rules come from kinds;
+reply becomes `validation_failed`, carrying the last value-free validation error
+and no `needed_kind`. The CLI exits 1 and writes that failure to stderr in both
+text and `--json` modes. `no_fit` is reserved for a validated catalog mismatch.
+Schedules and sensor state rules come from kinds;
 `review_by` defaults to today plus 13 weeks. Zero mechanisms is allowed, with a
 warning that nothing moves the goal and the sweep's pursuit check will flag it.
 
@@ -356,8 +359,9 @@ name or resource type (in that precedence order). Values may be JSON for
 structured inputs, such as a channel array. Overrides stay local and are stored
 only in the successful proposal for later staging. Missing required resources
 return `needs_input: [<resource type>]` and create no file. A single matching
-resource type can fill an omitted private param; ambiguous resources need a
-named reference or override.
+resource type can fill an omitted private param or replace a model-supplied
+literal. Model-supplied private literals are discarded; ambiguous resources need
+a named reference or override.
 
 A valid proposal is written only to
 `<soma-home>/profile/goals/proposals/<sha256>.yaml`, mode `0600`. The hash covers
