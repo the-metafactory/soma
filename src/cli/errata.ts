@@ -45,7 +45,7 @@ export async function runErrataCli(parsed: ParsedErrataArgs, deps: Omit<ErrataTr
   if (parsed.action === "triage") {
     const result = await runErrataTriage({ ...deps, somaHome });
     const counts = `${result.promoted} promoted, ${result.dropped} dropped, ${result.skipped} skipped, ${result.unlinkable} unlinkable, `
-      + `${result.clustered} clustered, ${result.ripe} ripe`;
+      + `${result.clustered} clustered, ${result.ripe} ripe, ${result.proposed} proposed, ${result.unroutable} unroutable`;
     if (result.outcome === "failed") throw new Error(`Errata triage failed: ${counts}. Unjudged candidates and unclustered Errata will be retried.`);
     return `Errata triage: ${counts}.`;
   }

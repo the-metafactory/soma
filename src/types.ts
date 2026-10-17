@@ -123,10 +123,28 @@ export interface ErrataCluster {
   createdAt: string;
 }
 
+/** The answers a proposal can receive (soma#785 Q11, soma#903 D4). */
+export type ErrataAnswerKind = "expired" | "dismissed" | "resolved";
+
+/**
+ * What the ledger records about one cluster after it was clustered. `proposed` and
+ * `unroutable` are appended by triage (node #852); the answer kinds are appended by
+ * the answer reader, which reads Vigil's `vigil.attention.resolved` records, and
+ * triage only reads them. `ref` is the proposal ref the answer is about, so a
+ * generation can be counted against the proposals that came before it.
+ */
+export type ErrataClusterEvent =
+  | { kind: "proposed"; clusterId: string; ref: string; generation: number; landing: string; proposalKind: string; at: string }
+  | { kind: "unroutable"; clusterId: string; repo: string | null; at: string }
+  | { kind: "resolved"; clusterId: string; ref: string; nodeRef?: string; at: string }
+  | { kind: "dismissed"; clusterId: string; ref: string; at: string }
+  | { kind: "expired"; clusterId: string; ref: string; at: string };
+
 export type ErrataEvent =
   | { kind: "created"; record: ErrataRecord }
   | { kind: "dropped"; id: string; at: string }
-  | { kind: "clustered"; id: string; clusterId: string; key: ErrataClusterKey; at: string };
+  | { kind: "clustered"; id: string; clusterId: string; key: ErrataClusterKey; at: string }
+  | ErrataClusterEvent;
 
 export interface SomaSkill {
   name: string;

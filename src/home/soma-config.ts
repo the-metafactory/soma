@@ -4,6 +4,13 @@ import { isEnoent, defaultSomaHome, type SomaPathsOptions } from "../core/index"
 
 export interface SomaConfig {
   goals?: { activations_dir?: string };
+  /**
+   * Landing maps an Errata proposal may file against (soma#903 D11): `owner/repo` to
+   * that map's root node id. The registry is the router; a ripe cluster whose repo is not
+   * registered is reported instead of proposed. The key and value grammar is checked where
+   * the registry is read, against the `soma graph file-proposal` front-matter schema.
+   */
+  errata?: { landing?: Record<string, number> };
 }
 
 /** Missing configuration uses defaults; unreadable or invalid configuration is an error. */
@@ -26,6 +33,9 @@ export async function loadSomaConfig(options: SomaPathsOptions = {}): Promise<So
   const result = z.object({
     goals: z.object({
       activations_dir: z.string().refine((value) => value.trim().length > 0).optional(),
+    }).optional(),
+    errata: z.object({
+      landing: z.record(z.string().refine((value) => value.trim().length > 0), z.number().int().positive()).optional(),
     }).optional(),
   }).safeParse(raw);
   if (!result.success) {

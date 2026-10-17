@@ -1,15 +1,24 @@
-import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { join, normalize, relative, isAbsolute } from "node:path";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { dirname, join, normalize, relative, isAbsolute } from "node:path";
 import { listAlgorithmRuns } from "./algorithm/algorithm-store";
 import { redactSomaFeedbackText } from "./feedback";
-import type { ErrataCluster, ErrataClusterKey, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord, SomaMemoryEvent } from "./types";
+import type {
+  ErrataAnswerKind, ErrataCluster, ErrataClusterEvent, ErrataClusterKey, ErrataEvent, ErrataInput,
+  ErrataPassedBy, ErrataRecord, SomaMemoryEvent,
+} from "./types";
 import type { AlgorithmRun } from "./algorithm/types";
 import { parseTelemetryEventLine, somaMemoryEventsPath, streamEventLines } from "./events/index";
-import { hashJudgmentInput, readJudgments, recordJudgment, type JudgmentRecord } from "./core/index";
+import { hashJudgmentInput, isEnoent, readJudgments, recordJudgment, type JudgmentRecord } from "./core/index";
+import { loadSomaConfig } from "./home/index";
 import {
-  classifyErrataThemeWithClaude, classifyErrataWithClaude, validateErrataTheme, validateErrataVerdict,
-  type ErrataThemeInput, type ErrataThemeVerdict, type ErrataTriageVerdict,
+  GITHUB_DOTCOM, PROPOSAL_KINDS, parseProposal, parseRemoteUrl, proposalFrontMatterSchema, runCommand,
+  type ProposalKind,
+} from "./graph/index";
+import {
+  classifyErrataProposalWithClaude, classifyErrataThemeWithClaude, classifyErrataWithClaude,
+  validateErrataProposal, validateErrataTheme, validateErrataVerdict,
+  type ErrataProposalInput, type ErrataProposalVerdict, type ErrataThemeInput, type ErrataThemeVerdict, type ErrataTriageVerdict,
 } from "./errata-classifier";
 import { publishRunFinished, type RunFinishedInput, type RunLedgerDeps } from "./run-ledger";
 import { localDate } from "./workdays";
@@ -68,12 +77,60 @@ function parseInput(raw: unknown): ErrataInput {
   };
 }
 
+function isAnswerKind(kind: unknown): kind is ErrataAnswerKind {
+  return kind === "expired" || kind === "dismissed" || kind === "resolved";
+}
+
+/** The ref's own alphabet, one path segment: what `soma graph file-proposal` can resolve. */
+function proposalRefField(data: Record<string, unknown>): string {
+  const ref = stringField(data, "ref");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(ref)) throw new Error("Invalid Errata proposal ref.");
+  return ref;
+}
+
+/**
+ * A cluster event after clustering: the `proposed` and `unroutable` mints triage appends
+ * (node #852), and the answers the answer reader appends from Vigil's resolution record.
+ * A record this function cannot read fails the ledger read rather than going unnoticed.
+ */
+function parseClusterEvent(data: Record<string, unknown>): ErrataClusterEvent | undefined {
+  const kind = data.kind;
+  if (kind !== "proposed" && kind !== "unroutable" && !isAnswerKind(kind)) return undefined;
+  const clusterId = clusterIdField(data);
+  const at = timestampField(data, "at");
+  if (kind === "unroutable") {
+    let repo: string | null = null;
+    if (data.repo !== null) {
+      const parsed = proposalFrontMatterSchema.shape.landing.safeParse(data.repo);
+      if (!parsed.success) throw new Error("Invalid Errata unroutable repo.");
+      repo = parsed.data;
+    }
+    return { kind, clusterId, repo, at };
+  }
+  const ref = proposalRefField(data);
+  if (isAnswerKind(kind)) {
+    const nodeRef = data.nodeRef;
+    if (nodeRef !== undefined && typeof nodeRef !== "string") throw new Error("Invalid Errata answer nodeRef.");
+    return { kind, clusterId, ref, ...(typeof nodeRef === "string" ? { nodeRef } : {}), at };
+  }
+  const generation = data.generation;
+  if (typeof generation !== "number" || !Number.isSafeInteger(generation) || generation < 1) throw new Error("Invalid Errata proposal generation.");
+  const landing = proposalFrontMatterSchema.shape.landing.parse(data.landing);
+  const proposalKind = data.proposalKind;
+  if (typeof proposalKind !== "string" || !(PROPOSAL_KINDS as readonly string[]).includes(proposalKind)) {
+    throw new Error("Invalid Errata proposal kind.");
+  }
+  return { kind: "proposed", clusterId, ref, generation, landing, proposalKind, at };
+}
+
 function parseEvent(raw: unknown): ErrataEvent {
   const data = object(raw);
   if (data.kind === "dropped") return { kind: data.kind, id: idField(data), at: timestampField(data, "at") };
   if (data.kind === "clustered") {
     return { kind: data.kind, id: idField(data), clusterId: clusterIdField(data), key: parseClusterKey(data.key), at: timestampField(data, "at") };
   }
+  const cluster = parseClusterEvent(data);
+  if (cluster !== undefined) return cluster;
   if (data.kind !== "created") throw new Error("Invalid Errata event kind.");
   const record = object(data.record);
   if (record.status !== "active") throw new Error("Errata creation must be active.");
@@ -127,6 +184,9 @@ function foldLedger(events: readonly ErrataEvent[]): FoldedLedger {
       records.set(event.record.id, event.record);
       continue;
     }
+    // A mint or an answer speaks about its cluster and turns no Errata record.
+    if (event.kind === "proposed" || event.kind === "unroutable"
+      || event.kind === "resolved" || event.kind === "dismissed" || event.kind === "expired") continue;
     const record = records.get(event.id);
     if (!record) throw new Error(`Unknown Errata id in ledger: ${event.id}`);
     if (event.kind === "dropped") { records.set(event.id, { ...record, status: "dropped" }); continue; }
@@ -529,6 +589,440 @@ export async function clusterErrata(deps: ErrataClusterDeps): Promise<ErrataClus
   });
 }
 
+// ---------------------------------------------------------------------------
+// Proposals: a ripe cluster becomes a file the principal can answer (node #852)
+// ---------------------------------------------------------------------------
+
+/** How long a cluster key's slug may run before it keeps its head and gains a hash. */
+export const ERRATA_CLUSTER_SLUG_MAX = 80;
+const ERRATA_CLUSTER_SLUG_HASH = 8;
+/** Transcript reads per cluster: a ripe cluster is small, and the draft needs only its shape. */
+const ERRATA_PROPOSAL_TURN_MAX = 8;
+/** Characters of one turn the draft may read. The delivered bytes themselves stay in the transcript. */
+const ERRATA_PROPOSAL_EXCERPT_MAX = 1_200;
+const ERRATA_PROPOSAL_PROMPT_MAX = 400;
+
+function sha256Hex(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+/**
+ * The one spelling of a cluster key: compact, in the check's words or Ivy's, never the
+ * complaint's. It keys the slug and enters the draft prompt as `cluster`.
+ */
+function clusterKeySpelling(key: ErrataClusterKey): string {
+  if (key.kind === "artifact") return `artifact-${key.path}`;
+  if (key.kind === "theme") return `theme-${key.label}`;
+  const passedBy = key.passedBy;
+  return passedBy.kind === "algorithm-verify"
+    ? `check-${passedBy.kind}-${passedBy.runId}-${passedBy.criterionId}`
+    : `check-${passedBy.kind}-${passedBy.repo}-${passedBy.nodeId}-${passedBy.receiptCommentId}`;
+}
+
+function passedBySpelling(passedBy: ErrataPassedBy | null): string | null {
+  if (passedBy === null) return null;
+  return passedBy.kind === "algorithm-verify"
+    ? `algorithm-verify ${passedBy.runId} ${passedBy.criterionId}`
+    : `close-receipt ${passedBy.repo} ${passedBy.nodeId}`;
+}
+
+/**
+ * `errata-<cluster-key>`: the checkpoint id, and the middle of the proposal ref. Both
+ * `soma graph file-proposal` grammars allow only `[A-Za-z0-9._-]`, so accented letters are
+ * folded to their base and anything else becomes one `-`, with runs of separators collapsed
+ * and the ends trimmed. A spelling past the budget keeps its head plus a hash of the whole
+ * spelling, so two long keys never mint the same ref, and the head never ends on a separator.
+ * The fold is a legible key, not a digest: keys differing only in punctuation share a slug.
+ */
+export function errataClusterSlug(key: ErrataClusterKey): string {
+  const spelling = clusterKeySpelling(key);
+  const folded = spelling.normalize("NFKD").replace(/\p{Mn}/gu, "");
+  const slug = folded.replace(/[^\w.-]+/gu, "-").replace(/[-.]{2,}/gu, "-").replace(/^[-.]+|[-.]+$/gu, "");
+  const hash = sha256Hex(spelling).slice(0, ERRATA_CLUSTER_SLUG_HASH);
+  if (slug.length <= ERRATA_CLUSTER_SLUG_MAX) return slug.length > 0 ? slug : hash;
+  const head = slug.slice(0, ERRATA_CLUSTER_SLUG_MAX - ERRATA_CLUSTER_SLUG_HASH - 1).replace(/[-.]+$/gu, "");
+  return head.length > 0 ? `${head}-${hash}` : hash;
+}
+
+/** The envelope's form of a ref: myelin wants a `soma:` path relative to soma-home (soma#903 D2). */
+export function proposalEnvelopeRef(ref: string): string {
+  return `soma:proposals/${ref}.md`;
+}
+
+/** What triage still owes a cluster, read off the ledger rather than from stored state. */
+interface ClusterProposalHistory {
+  /** Proposals the cluster has already minted: the next one is generation `generations + 1`. */
+  generations: number;
+  /** The last mint — a proposal or an unroutable report — with its place in the ledger. */
+  mint?: { kind: "proposed"; at: string; index: number } | { kind: "unroutable"; at: string; index: number; repo: string | null };
+  /** An answer that came after that mint. */
+  answered?: { kind: ErrataAnswerKind; at: string };
+  /** When the cluster's newest member joined it. */
+  joinedAt?: string;
+}
+
+function foldClusterHistory(events: readonly ErrataEvent[], cluster: ErrataCluster): ClusterProposalHistory {
+  const members = new Set(cluster.errataIds);
+  const history: ClusterProposalHistory = { generations: 0 };
+  events.forEach((event, index) => {
+    if (event.kind === "created" || event.kind === "dropped") return;
+    if (event.clusterId !== cluster.id) return;
+    if (event.kind === "clustered") {
+      if (members.has(event.id)) history.joinedAt = event.at;
+      return;
+    }
+    if (event.kind === "proposed") {
+      history.generations++;
+      history.mint = { kind: event.kind, at: event.at, index };
+      history.answered = undefined;
+      return;
+    }
+    if (event.kind === "unroutable") {
+      history.mint = { kind: event.kind, at: event.at, index, repo: event.repo };
+      history.answered = undefined;
+      return;
+    }
+    if (history.mint !== undefined && index > history.mint.index) history.answered = { kind: event.kind, at: event.at };
+  });
+  return history;
+}
+
+/**
+ * What a ripe cluster is owed (soma#785 Q20, soma#903 D3). An unanswered proposal is still
+ * open in Vigil, so nothing new is written for it even when more Errata join. A proposal an
+ * answer closed, and an unroutable report, stand until a newer Errata joins the cluster:
+ * that new evidence mints the next generation, or reports the missing landing map again.
+ */
+function proposalDecision(history: ClusterProposalHistory): { action: "mint"; generation: number } | { action: "wait" } {
+  const mint = history.mint;
+  if (mint === undefined) return { action: "mint", generation: 1 };
+  if (mint.kind === "proposed" && history.answered === undefined) return { action: "wait" };
+  const since = Date.parse(history.answered?.at ?? mint.at);
+  if (history.joinedAt === undefined || Date.parse(history.joinedAt) <= since) return { action: "wait" };
+  return { action: "mint", generation: history.generations + 1 };
+}
+
+/** Redacted transcript evidence for the turn one Errata rejected. */
+export interface ErrataTurnEvidence {
+  sessionId: string;
+  /** The working directory of the rejected turn, when the transcript names one. */
+  cwd?: string;
+  excerpt: string;
+}
+
+export interface ErrataProposalDeps {
+  somaHome: string;
+  cluster: ErrataCluster;
+  /** Active members, in id order. Defaults to the ledger's records assigned to this cluster. */
+  members?: readonly ErrataRecord[];
+  /** Registered landing maps; defaults to `errata.landing` in soma's config (soma#903 D11). */
+  landing?: Readonly<Record<string, number>>;
+  now?: () => Date;
+  readLedger?: () => Promise<readonly ErrataEvent[]>;
+  appendEvent?: (event: ErrataEvent) => Promise<void>;
+  /** Reads the rejected turn of one Errata. Defaults to the session's transcript. */
+  readTurn?: (sessionId: string, rejectedTurnUuid: string) => Promise<ErrataTurnEvidence | null>;
+  /** The `owner/repo` a working directory's `origin` remote points at. */
+  resolveRepo?: (cwd: string) => Promise<string | undefined>;
+  classify?: (input: ErrataProposalInput) => Promise<ErrataProposalVerdict>;
+}
+
+/** What proposing one cluster decided, before anything is written. */
+export type ErrataProposalPlan =
+  | { status: "propose"; ref: string; envelopeRef: string; path: string; content: string; generation: number; proposalKind: ProposalKind; event: ErrataEvent }
+  | { status: "unroutable"; repo: string | null; event: ErrataEvent }
+  | { status: "waiting" };
+
+export type ErrataProposalResult =
+  | { status: "proposed"; ref: string; envelopeRef: string; path: string; generation: number; proposalKind: ProposalKind }
+  | { status: "unroutable"; repo: string | null }
+  | { status: "waiting" };
+
+/** `errata.landing` as soma's config declares it, checked against the proposal front-matter grammar. */
+export async function readErrataLandingRegistry(somaHome: string): Promise<Record<string, number>> {
+  const registry = (await loadSomaConfig({ somaHome })).errata?.landing ?? {};
+  for (const [repo, mapRoot] of Object.entries(registry)) {
+    const row = proposalFrontMatterSchema.pick({ landing: true, map_root: true }).safeParse({ landing: repo, map_root: mapRoot });
+    // A registry row is configuration: name the row, never its contents.
+    if (!row.success) throw new Error(`Invalid errata.landing entry: ${repo}`);
+  }
+  return registry;
+}
+
+/** A turn's own words and tool calls, collapsed to one line and redacted like feedback. */
+function turnExcerpt(entry: Record<string, unknown>, budget: number): string {
+  const content = object(entry.message).content;
+  const parts: string[] = [];
+  if (typeof content === "string") parts.push(content);
+  else if (Array.isArray(content)) {
+    for (const raw of content) {
+      const block = object(raw);
+      if (block.type === "text" && typeof block.text === "string") parts.push(block.text);
+      else if (block.type === "tool_use") {
+        const input = object(block.input);
+        const path = input.file_path ?? input.notebook_path ?? input.path;
+        parts.push(typeof path === "string" ? `${String(block.name)} ${path}` : String(block.name));
+      }
+    }
+  }
+  return redactSomaFeedbackText(parts.join(" ")).replace(/\s+/gu, " ").trim().slice(0, budget);
+}
+
+/** The transcript a session's candidates named: capture keeps the path, the Errata keeps only the session. */
+async function findTranscriptPath(somaHome: string, sessionId: string): Promise<string | undefined> {
+  let found: { path: string; at: number } | undefined;
+  for await (const line of streamEventLines(somaMemoryEventsPath(somaHome))) {
+    const event = parseTelemetryEventLine(line);
+    if (event?.kind !== "feedback.candidate") continue;
+    const metadata = event.metadata ?? {};
+    if (metadata.sessionId !== sessionId || typeof metadata.transcriptPath !== "string" || !metadata.transcriptPath.trim()) continue;
+    const at = Date.parse(event.timestamp);
+    if (found === undefined || at > found.at) found = { path: metadata.transcriptPath, at };
+  }
+  return found?.path;
+}
+
+function transcriptEntries(text: string): Record<string, unknown>[] {
+  return text.split("\n").flatMap((line) => {
+    if (!line.trim()) return [];
+    try { return [object(JSON.parse(line))]; }
+    catch (error) {
+      // A transcript is a live file: a torn line is skipped, any other failure is real.
+      if (error instanceof SyntaxError) return [];
+      throw error;
+    }
+  });
+}
+
+function defaultReadTurn(somaHome: string): (sessionId: string, rejectedTurnUuid: string) => Promise<ErrataTurnEvidence | null> {
+  const paths = new Map<string, string | null>();
+  return async (sessionId, rejectedTurnUuid) => {
+    if (!paths.has(sessionId)) paths.set(sessionId, (await findTranscriptPath(somaHome, sessionId)) ?? null);
+    const path = paths.get(sessionId);
+    if (path === null || path === undefined) return null;
+    let text: string;
+    try { text = await readFile(path, "utf8"); }
+    catch (error) {
+      if (isEnoent(error)) return null;
+      throw error;
+    }
+    const entries = transcriptEntries(text).filter((entry) => entry.sessionId === undefined || entry.sessionId === sessionId);
+    const index = entries.findIndex((entry) => entry.uuid === rejectedTurnUuid);
+    if (index < 0) return null;
+    const promptIndex = lastIndex(entries.slice(0, index), isPrompt);
+    const excerpt = [
+      ...(promptIndex >= 0 ? [`Principal asked: ${turnExcerpt(entries[promptIndex], ERRATA_PROPOSAL_PROMPT_MAX)}`] : []),
+      `Delivered: ${turnExcerpt(entries[index], ERRATA_PROPOSAL_EXCERPT_MAX)}`,
+    ].join("\n");
+    const cwd = entries[index].cwd;
+    return { sessionId, ...(typeof cwd === "string" && cwd.trim() ? { cwd } : {}), excerpt };
+  };
+}
+
+/** Which repo a working directory belongs to. Only github.com answers in the `owner/repo` form the schema allows. */
+async function defaultResolveRepo(cwd: string): Promise<string | undefined> {
+  const outcome = await runCommand({ argv: ["git", "remote", "get-url", "origin"], timeoutSec: 30, cwd });
+  if (outcome.exitCode !== 0) return undefined;
+  const location = parseRemoteUrl(outcome.stdout.trim());
+  return location === undefined ? undefined : location.host === GITHUB_DOTCOM ? location.path : undefined;
+}
+
+function proposalBody(verdict: ErrataProposalVerdict, cites: readonly string[]): string {
+  const evidence = `Cites: ${cites.join(", ")}.`;
+  return verdict.proposal_kind === "deterministic-check"
+    ? [
+      "## Deliverable", "", verdict.deliverable ?? "", "",
+      "## Acceptance criteria", "", ...(verdict.criteria ?? []).map((criterion) => `- ${criterion}`), "",
+      "## The miss", "", verdict.defect, "",
+      "## The check that should have caught it", "", verdict.check ?? "", "",
+      evidence,
+    ].join("\n")
+    : ["## Question", "", verdict.question ?? "", "", "## The miss", "", verdict.defect, "", evidence].join("\n");
+}
+
+/**
+ * Read one ripe cluster and decide what it is owed, writing nothing (soma#785 Q22). The
+ * landing repo comes from evidence before any model runs: a close receipt names its repo,
+ * otherwise the rejected turn's working directory does. A repo `errata.landing` does not
+ * register is reported rather than proposed, and costs no inference. The draft is validated
+ * twice: as a verdict, and again as the file `soma graph file-proposal` will read.
+ */
+export async function planClusterProposal(deps: ErrataProposalDeps): Promise<ErrataProposalPlan> {
+  const now = deps.now ?? (() => new Date());
+  const events = [...(await (deps.readLedger ?? (() => readEvents(deps.somaHome)))())];
+  const decision = proposalDecision(foldClusterHistory(events, deps.cluster));
+  if (decision.action === "wait") return { status: "waiting" };
+
+  const members = (deps.members ?? foldLedger(events).records
+    .filter((record) => record.clusterId === deps.cluster.id && record.status === "active"))
+    .slice().sort((a, b) => errataNumber(a.id) - errataNumber(b.id));
+  if (members.length === 0) throw new Error(`Errata cluster ${deps.cluster.id} has no active member.`);
+
+  const readTurn = deps.readTurn ?? defaultReadTurn(deps.somaHome);
+  const resolveRepo = deps.resolveRepo ?? defaultResolveRepo;
+  const turns = new Map<string, ErrataTurnEvidence | null>();
+  const workingDirs = new Set<string>();
+  let landing = members.flatMap((record) => record.passedBy?.kind === "close-receipt" ? [record.passedBy.repo] : []).at(0);
+  for (const record of members.slice(0, ERRATA_PROPOSAL_TURN_MAX)) {
+    if (turns.has(record.id)) continue;
+    const turn = await readTurn(record.sessionId, record.rejectedTurnUuid);
+    turns.set(record.id, turn);
+    if (turn?.cwd === undefined) continue;
+    workingDirs.add(turn.cwd);
+    landing ??= await resolveRepo(turn.cwd);
+  }
+
+  const at = now().toISOString();
+  const registry = deps.landing ?? await readErrataLandingRegistry(deps.somaHome);
+  const mapRoot = landing === undefined ? undefined : registry[landing];
+  if (landing === undefined || mapRoot === undefined) {
+    return { status: "unroutable", repo: landing ?? null, event: { kind: "unroutable", clusterId: deps.cluster.id, repo: landing ?? null, at } };
+  }
+
+  const input: ErrataProposalInput = {
+    cluster: clusterKeySpelling(deps.cluster.key),
+    landing,
+    members: members.map((record) => ({
+      id: record.id,
+      complaint: redactSomaFeedbackText(record.complaint),
+      artifacts: record.artifacts,
+      passedBy: passedBySpelling(record.passedBy),
+    })),
+    sessions: members.flatMap((record) => {
+      const turn = turns.get(record.id);
+      return turn ? [{ errataId: record.id, sessionId: record.sessionId, excerpt: turn.excerpt }] : [];
+    }),
+    // A proposal becomes a public node body, so no local path may survive into it.
+    privateStrings: [deps.somaHome, ...workingDirs],
+  };
+  const verdict = await (deps.classify ?? classifyErrataProposalWithClaude)(input);
+  // The draft is untrusted content even through an injected classifier.
+  validateErrataProposal(verdict, input);
+
+  const slug = errataClusterSlug(deps.cluster.key);
+  const ref = `errata-${slug}-g${decision.generation}`;
+  const cites = members.map((record) => record.id);
+  const frontMatter = proposalFrontMatterSchema.safeParse({
+    proposal_kind: verdict.proposal_kind,
+    landing,
+    map_root: mapRoot,
+    title: verdict.title,
+    checkpoint: `errata-${slug}`,
+    cites,
+  });
+  if (!frontMatter.success) {
+    const fields = frontMatter.error.issues.map((issue) => issue.path.join(".") || "front-matter").join(", ");
+    throw new Error(`Errata proposal ${ref} fails the proposal schema: ${fields}`);
+  }
+  const content = `---\n${Bun.YAML.stringify(frontMatter.data).trimEnd()}\n---\n\n${proposalBody(verdict, cites)}\n`;
+  // The parser `soma graph file-proposal` runs on approve: a file it would refuse is never written.
+  parseProposal(ref, content);
+  return {
+    status: "propose", ref, envelopeRef: proposalEnvelopeRef(ref), generation: decision.generation, proposalKind: verdict.proposal_kind,
+    path: join(deps.somaHome, "proposals", `${ref}.md`), content,
+    event: { kind: "proposed", clusterId: deps.cluster.id, ref, generation: decision.generation, landing, proposalKind: verdict.proposal_kind, at },
+  };
+}
+
+/** The file first, then the event: a write that dies midway leaves the cluster unproposed, so the next run retries. */
+export async function commitClusterProposal(
+  plan: Exclude<ErrataProposalPlan, { status: "waiting" }>,
+  deps: Pick<ErrataProposalDeps, "somaHome" | "appendEvent">,
+): Promise<void> {
+  const append = deps.appendEvent ?? ((event: ErrataEvent) => writeEvent(deps.somaHome, event));
+  if (plan.status === "propose") {
+    await mkdir(dirname(plan.path), { recursive: true, mode: 0o700 });
+    const temporary = `${plan.path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, plan.content, { flag: "wx", mode: 0o600 });
+      await rename(temporary, plan.path);
+    } finally { await rm(temporary, { force: true }); }
+  }
+  await append(plan.event);
+}
+
+/**
+ * Propose one ripe cluster: draft it, write the file under `<soma-home>/proposals/`, and
+ * append the mint to the ledger. Triage calls the plan and commit halves apart, so every
+ * draft of a batch is judged before any of them is written, as themes are.
+ */
+export async function proposeFromCluster(deps: ErrataProposalDeps): Promise<ErrataProposalResult> {
+  const plan = await planClusterProposal(deps);
+  if (plan.status === "waiting") return plan;
+  await commitClusterProposal(plan, deps);
+  return plan.status === "unroutable"
+    ? { status: "unroutable", repo: plan.repo }
+    : { status: "proposed", ref: plan.ref, envelopeRef: plan.envelopeRef, path: plan.path, generation: plan.generation, proposalKind: plan.proposalKind };
+}
+
+/**
+ * The waiting result for clusters whose landing repo is not registered (soma#903 D11, #842):
+ * one private file naming each of them, carried as the run's `result_ref`.
+ */
+export function unroutableReportText(date: string, rows: { cluster: string; repo: string | null }[]): string {
+  return [
+    `# Errata proposals without a landing map — ${date}`,
+    "",
+    "These ripe Errata clusters have no landing map registered under `errata.landing` in",
+    "`<soma-home>/config.yaml`, so nothing was proposed for them and the check that should",
+    "have caught the rejection stays unbuilt. Register the repo and its map root, or settle",
+    "the check another way.",
+    "",
+    ...rows.map((row) => `- \`${row.cluster}\` — ${row.repo === null ? "the cluster's sessions name no repo." : `repo \`${row.repo}\` is not registered.`}`),
+    "",
+  ].join("\n");
+}
+
+export interface ErrataProposalRun {
+  /** Envelope refs of the proposals this run minted, in cluster order. */
+  refs: string[];
+  proposed: number;
+  unroutable: number;
+  resultRef?: string;
+}
+
+/**
+ * Propose every ripe cluster of a triage run. Every cluster is planned before any file is
+ * written, so one refused draft leaves the whole batch for the next run instead of half of
+ * it on disk. A run that reported an unroutable cluster writes that day's summary naming
+ * every cluster still waiting for a landing map, and carries it as its `result_ref`.
+ */
+async function proposeRipeClusters(
+  deps: Omit<ErrataProposalDeps, "cluster">,
+  clusters: readonly ErrataCluster[],
+  now: () => Date,
+): Promise<ErrataProposalRun> {
+  const run: ErrataProposalRun = { refs: [], proposed: 0, unroutable: 0 };
+  if (clusters.length === 0) return run;
+  const plans = await Promise.all(clusters.map((cluster) => planClusterProposal({ ...deps, cluster })));
+  let reported = 0;
+  for (const plan of plans) {
+    if (plan.status === "waiting") continue;
+    await commitClusterProposal(plan, deps);
+    if (plan.status === "unroutable") {
+      run.unroutable++;
+      reported++;
+      continue;
+    }
+    run.proposed++;
+    run.refs.push(plan.envelopeRef);
+  }
+  if (reported === 0) return run;
+  // One file for the day naming every cluster still unrouted, so it is reported only once.
+  const events = [...await (deps.readLedger ?? (() => readEvents(deps.somaHome)))()];
+  const day = localDate("Europe/Zurich", now());
+  const rows = clusters.flatMap((cluster) => {
+    const mint = foldClusterHistory(events, cluster).mint;
+    return mint?.kind === "unroutable" ? [{ cluster: `errata-${errataClusterSlug(cluster.key)}`, repo: mint.repo }] : [];
+  });
+  const filename = `errata-unroutable-${day}.md`;
+  const path = join(deps.somaHome, "outputs", filename);
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, unroutableReportText(day, rows), { mode: 0o600 });
+  run.resultRef = `soma:outputs/${filename}`;
+  return run;
+}
+
 export interface ErrataTriageDeps extends RunLedgerDeps {
   somaHome: string;
   now?: () => Date;
@@ -541,6 +1035,13 @@ export interface ErrataTriageDeps extends RunLedgerDeps {
   readJudgments?: () => Promise<{ records: JudgmentRecord[]; malformed: number }>;
   recordJudgment?: (record: JudgmentRecord) => Promise<boolean>;
   publishRun?: (input: RunFinishedInput) => Promise<unknown>;
+  /** Registered landing maps for the proposals of this run; defaults to soma's config. */
+  landing?: Readonly<Record<string, number>>;
+  /** Transcript reader, repo resolver and draft judge for a ripe cluster; see `ErrataProposalDeps`.
+   * They are the proposal seams, so a triage run can be driven without Claude or git. */
+  readTurn?: (sessionId: string, rejectedTurnUuid: string) => Promise<ErrataTurnEvidence | null>;
+  resolveRepo?: (cwd: string) => Promise<string | undefined>;
+  classifyProposal?: (input: ErrataProposalInput) => Promise<ErrataProposalVerdict>;
 }
 
 export interface ErrataTriageResult {
@@ -552,6 +1053,9 @@ export interface ErrataTriageResult {
   /** Errata assigned a cluster by this run, and ripe clusters after it (soma#785 Q15/Q16). */
   clustered: number;
   ripe: number;
+  /** Proposal files this run minted, and ripe clusters it reported without a landing map (node #852). */
+  proposed: number;
+  unroutable: number;
   detailRef: string;
 }
 
@@ -571,7 +1075,9 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
   const startedAt = now().toISOString();
   const runId = randomUUID();
   const detailRef = join(deps.somaHome, "memory", "STATE", "errata", "triage-runs", `${runId}.json`);
-  const result: ErrataTriageResult = { outcome: "succeeded", promoted: 0, dropped: 0, skipped: 0, unlinkable: 0, clustered: 0, ripe: 0, detailRef };
+  const result: ErrataTriageResult = { outcome: "succeeded", promoted: 0, dropped: 0, skipped: 0, unlinkable: 0, clustered: 0, ripe: 0, proposed: 0, unroutable: 0, detailRef };
+  let proposalRefs: readonly string[] = [];
+  let resultRef: string | undefined;
   try {
     await withLedgerLock(deps.somaHome, async () => {
       const ledger = await (deps.readJudgments ?? (() => readJudgments(deps.somaHome, { caller: "errata-triage" })))();
@@ -636,7 +1142,18 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
       // Clustering runs after every promotion of this batch so a pair promoted together shares a key without a judge.
       const clustered = await clusterErrata({ somaHome: deps.somaHome, now, classifyTheme: deps.classifyTheme, recordJudgment: deps.recordJudgment });
       result.clustered = clustered.clustered;
-      result.ripe = clustered.clusters.filter((cluster) => cluster.status === "ripe").length;
+      const ripe = clustered.clusters.filter((cluster) => cluster.status === "ripe");
+      result.ripe = ripe.length;
+      if (ripe.length === 0) return;
+      // Proposals follow clustering, so a cluster this batch made ripe is drafted in the same run.
+      const proposals = await proposeRipeClusters({
+        somaHome: deps.somaHome, now, landing: deps.landing ?? await readErrataLandingRegistry(deps.somaHome),
+        readTurn: deps.readTurn, resolveRepo: deps.resolveRepo, classify: deps.classifyProposal,
+      }, ripe, now);
+      result.proposed = proposals.proposed;
+      result.unroutable = proposals.unroutable;
+      proposalRefs = proposals.refs;
+      resultRef = proposals.resultRef;
     }, ".triage-lock");
   } catch {
     // Neither subprocess output nor complaint text belongs in CLI logs or the run report.
@@ -647,7 +1164,12 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
     await mkdir(join(deps.somaHome, "memory", "STATE", "errata", "triage-runs"), { recursive: true, mode: 0o700 });
     await writeFile(detailRef, `${JSON.stringify({ ...result, runId, startedAt, endedAt })}\n`, { mode: 0o600 });
   } catch { result.outcome = "failed"; }
-  const report: RunFinishedInput = { kind: "job", ref: "errata-triage", runId, startedAt, endedAt, outcome: result.outcome, detailRef };
+  const report: RunFinishedInput = {
+    kind: "job", ref: "errata-triage", runId, startedAt, endedAt, outcome: result.outcome, detailRef,
+    // myelin takes both fields only on a run that succeeded, so a failed run carries neither.
+    ...(result.outcome === "succeeded" && resultRef !== undefined ? { resultRef } : {}),
+    ...(result.outcome === "succeeded" && proposalRefs.length > 0 ? { proposalRefs } : {}),
+  };
   await (deps.publishRun ?? ((input) => publishRunFinished(input, {
     somaHome: deps.somaHome, substrate: "custom", env: deps.env, publish: deps.publishRunFinished,
   })))(report);
