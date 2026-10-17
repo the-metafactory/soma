@@ -107,6 +107,16 @@ describe("component boundaries on the repository", () => {
     });
   }, { timeout: 30_000 });
 
+  test("substrates files outside adapters and experimental live in src/substrates/, and its one outward violation is the edge #800 kept", () => {
+    expect(components.substrates.files).toEqual(["src/adapters/**", "src/experimental/**", "src/substrates/**"]);
+    const report = checkBoundaries({ root: repoRoot });
+    if (!report.ok) throw new Error(formatReport(report));
+    const outward = report.violations
+      .filter((v) => v.fromComponent === "substrates" && v.toComponent !== "legacy")
+      .map((v) => `${v.from} -> ${v.to}`);
+    expect(outward).toEqual(["src/experimental/anthropic-cowork.ts -> src/install.ts"]);
+  }, { timeout: 30_000 });
+
   test("router public entry rejects every internal and has no outward violations", async () => {
     expect(components.router.files).toEqual(["src/router/**"]);
     expect(components.router.publicEntries).toEqual(["src/router/index.ts"]);

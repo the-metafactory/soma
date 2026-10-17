@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { buildSubstrateHomeProjection } from "../home-projection";
+import { buildSubstrateHomeProjection } from "../substrates/home-projection";
 import { CURSOR_RULES_BLOCK_BEGIN } from "./cursor";
 import { mergeCursorRulesContent } from "./cursor/install";
-import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../doctor-projection-input";
+import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../substrates/doctor-projection-input";
 import { defaultSomaRepoPath } from "../core/index";
 import { isFsUtilsEnoent as isEnoent, pathExists } from "../core/index";
-import { runtimeArtifactActivePath, type GuardedRuntimeSubstrate } from "../runtime-artifact";
+import { runtimeArtifactActivePath, type GuardedRuntimeSubstrate } from "../substrates/runtime-artifact";
 import { CURSOR_RULES_PATH } from "./cursor";
 import { hasProvenanceHeader } from "./shared";
 import type { ShippedSubstrate, SomaDoctorFinding } from "../types";

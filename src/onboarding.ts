@@ -5,7 +5,7 @@ import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift, isDoctorSubs
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForDsh, installSomaForGrok, installSomaForPiDev } from "./install";
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./home-bootstrap";
-import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate, readRuntimeArtifactState } from "./runtime-artifact";
+import { inspectRuntimeArtifact, isGuardedRuntimeSubstrate, readRuntimeArtifactState } from "./substrates/runtime-artifact";
 import { isFsUtilsEnoent as isEnoent, pathExists } from "./core/index";
 import type {
   SomaDoctorDiagnosis,

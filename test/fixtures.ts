@@ -3,8 +3,8 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Projection, ProjectionInput } from "../src/index";
 import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/vsa/vsa-accessors";
-import { listBundledSkills } from "../src/bundled-skills";
-import { VSA_SKILL_NAME } from "../src/vsa-skill-installer";
+import { listBundledSkills } from "../src/substrates/bundled-skills";
+import { VSA_SKILL_NAME } from "../src/substrates/vsa-skill-installer";
 
 /**
  * Repo-bundled portable skills (`src/skills/*` except VSA — the-algorithm,

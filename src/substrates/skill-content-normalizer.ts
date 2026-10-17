@@ -16,7 +16,7 @@
 import type {
   SkillNormalizationAction,
   SkillNormalizationWarning,
-} from "./types";
+} from "../types";
 
 export interface NormalizeContentResult {
   content: string;

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { normalizeSkillContent } from "../src/skill-content-normalizer";
+import { normalizeSkillContent } from "../../src/substrates/skill-content-normalizer";
 
 test("normalizeSkillContent strips MANDATORY notification heading + curl invocation", () => {
   const content = [

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { installSpecFor } from "../src/install-spec-registry";
+import { installSpecFor } from "../src/substrates/install-spec-registry";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/policy/projection-private-roots";
 import { projectCodexHome } from "../src/adapters/codex/adapter";
 import { projectGrokHome } from "../src/adapters/grok/adapter";

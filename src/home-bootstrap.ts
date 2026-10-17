@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { allInstallSpecs } from "./install-spec-registry";
+import { allInstallSpecs } from "./substrates/install-spec-registry";
 import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory/index";
 import { createPaths } from "./core/index";

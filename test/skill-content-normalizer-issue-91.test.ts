@@ -18,7 +18,7 @@
  *         pins the new contract).
  */
 import { expect, test } from "bun:test";
-import { normalizeSkillContent } from "../src/skill-content-normalizer";
+import { normalizeSkillContent } from "../src/substrates/skill-content-normalizer";
 
 // ─── AC-1 + AC-4: per-class deterministic rewrites ─────────────────────
 //

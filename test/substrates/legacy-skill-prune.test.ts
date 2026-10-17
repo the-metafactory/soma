@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { pruneLegacyVsaSkill } from "../src/legacy-skill-prune";
-import { installSomaForClaudeCode, installSomaForCodex } from "../src/index";
-import { createPaths } from "../src/core/index";
-import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
+import { pruneLegacyVsaSkill } from "../../src/substrates/legacy-skill-prune";
+import { installSomaForClaudeCode, installSomaForCodex } from "../../src/install";
+import { createPaths } from "../../src/core";
+import { STUB_RUNTIME_SOURCE } from "../fixtures/stub-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-prune-"));

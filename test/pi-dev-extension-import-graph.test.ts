@@ -167,7 +167,7 @@ test("the detector still fires on the import that actually broke pi", () => {
   // because the graph is clean.
   const seed = {
     label: "<synthetic>",
-    source: `import "file://${REPO_ROOT}/src/install-spec-registry.ts";`,
+    source: `import "file://${REPO_ROOT}/src/substrates/install-spec-registry.ts";`,
     importerPath: REPO_ROOT,
   };
 

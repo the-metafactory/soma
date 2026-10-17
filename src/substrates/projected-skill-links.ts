@@ -7,7 +7,7 @@ import { dirname, join, resolve, sep } from "node:path";
  *
  * soma#638: uninstall needs this, so the callers are `SubstrateInstallSpec`
  * definitions. Those specs ARE the registry's members, so anything they import
- * must not import the registry back: `src/skill-projection.ts` does (for
+ * must not import the registry back: `src/substrates/skill-projection.ts` does (for
  * `installSpecFor`), and importing it from a spec closes a cycle that TDZ-errors
  * at module init — silently, for whichever spec the registry happens to
  * initialise second. Taking `loaderDir` as a parameter removes the need for the

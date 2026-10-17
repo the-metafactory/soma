@@ -10,8 +10,8 @@ import {
   installCursorHomeProjection,
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
-} from "../src/index";
-import { portableProjectionInput } from "./fixtures";
+} from "../../src/substrates/home-projection";
+import { portableProjectionInput } from "../fixtures";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-home-"));

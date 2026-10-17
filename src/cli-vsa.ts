@@ -13,7 +13,7 @@ import {
   type EffortTier,
   type VsaListEntry,
 } from "./vsa/index";
-import { installVsaSkill } from "./vsa-skill-installer";
+import { installVsaSkill } from "./substrates/vsa-skill-installer";
 import { datePrefixSlug } from "./core/index";
 
 /**

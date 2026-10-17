@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../core/index";
-import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
-import { removeProjectedSkillLinks } from "../../projected-skill-links";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../substrates/install-spec";
+import { removeProjectedSkillLinks } from "../../substrates/projected-skill-links";
 import { GROK_DEFAULT_HOME, grokProjectionPrivateRoots } from "../../policy/private-roots";
 import {
   GROK_LIFECYCLE_CONFIG_PATH,
@@ -24,7 +24,7 @@ import { removeGrokPortableSkillProjection } from "./install-manifest";
 import { validateGrokInstallRuntime } from "./version";
 import { isGrokSkillProjectionPath, projectGrokHome } from "./adapter";
 import { reconcileGrokPortableSkillProjection, writeGrokInstallManifest } from "./install-manifest";
-import { writeProjection } from "../../projection";
+import { writeProjection } from "../../substrates/projection";
 
 /**
  * Static file set emitted by `projectGrokHome`, relative to `~/.grok` —

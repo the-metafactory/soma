@@ -17,7 +17,7 @@ import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { PROJECTION_LIFECYCLE_SUBSTRATES, type InstallSubstrate } from "../src/cli/substrate-lifecycle";
 import { diagnoseContentCompareDrift } from "../src/adapters/content-compare-doctor";
-import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../src/doctor-projection-input";
+import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../src/substrates/doctor-projection-input";
 import { defaultSomaRepoPath } from "../src/core/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";

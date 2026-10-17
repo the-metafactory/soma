@@ -12,7 +12,7 @@ import {
   configureGrokConfigPatch,
   removeConfigPatchBlock,
 } from "../src/adapters/grok/config-patch";
-import { writeProjection } from "../src/projection";
+import { writeProjection } from "../src/substrates/projection";
 import { runSomaCli } from "../src/cli";
 import { portableProjectionInput } from "./fixtures";
 import { installSomaForGrok } from "./fixtures/shared-runtime";

@@ -170,7 +170,7 @@ test("the embedded skill module is current: same files, same bytes as src/skills
   // Stale after adding, removing or renaming a skill file: `bun run generate-bundled-skill-files`.
   expect(readFileSync(BUNDLED_SKILL_FILES_MODULE, "utf8")).toBe(renderBundledSkillFilesModule());
 
-  const { BUNDLED_SKILL_FILES } = await import("../src/bundled-skill-files.generated");
+  const { BUNDLED_SKILL_FILES } = await import("../src/substrates/bundled-skill-files.generated");
   const disk = new Map([...tree(SKILLS_ROOT, true)].filter(([path]) => path.includes("/")));
   const embedded = new Map(Object.entries(BUNDLED_SKILL_FILES).map(([path, content]) => [path, Buffer.from(content, "utf8")]));
   // A text import decodes UTF-8, so a non-UTF-8 asset (or a BOM) would ship altered. Fail here instead.
@@ -189,7 +189,7 @@ test("the skill generator excludes hidden checkout files, hidden directories and
   writeFileSync(join(root, ".hidden-skill", "SKILL.md"), "ignored\n");
   symlinkSync(join(skill, "SKILL.md"), join(skill, "linked.md"));
   expect(bundledSkillFilePaths(root)).toEqual(["fixture/SKILL.md"]);
-  expect(renderBundledSkillFilesModule(root)).toContain('import file0 from "./skills/fixture/SKILL.md" with { type: "text" };');
+  expect(renderBundledSkillFilesModule(root)).toContain('import file0 from "../skills/fixture/SKILL.md" with { type: "text" };');
   expect(renderBundledSkillFilesModule(root)).not.toContain("file1");
 });
 
@@ -253,9 +253,9 @@ test("only bundled-skill-source.ts loads the embedded skill text, and only dynam
     .filter((path) => /\.(?:ts|mts|mjs|js)$/u.test(path) && !path.endsWith(".generated.ts"))
     .filter((path) => readFileSync(path, "utf8").includes("bundled-skill-files.generated"))
     .map((path) => toPosixRelative(REPO_ROOT, path));
-  expect(loaders).toEqual(["src/bundled-skill-source.ts"]);
+  expect(loaders).toEqual(["src/substrates/bundled-skill-source.ts"]);
 
-  const source = readFileSync(join(REPO_ROOT, "src", "bundled-skill-source.ts"), "utf8");
+  const source = readFileSync(join(REPO_ROOT, "src", "substrates", "bundled-skill-source.ts"), "utf8");
   expect(source).toMatch(/await import\("\.\/bundled-skill-files\.generated"\)/u);
   expect(source).not.toMatch(/\bfrom\s*["']\.\/bundled-skill-files\.generated["']/u);
 });

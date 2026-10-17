@@ -8,7 +8,7 @@
  * - AC-2: PAI Customization block stripped via named action kind.
  */
 import { expect, test } from "bun:test";
-import { normalizeSkillContent } from "../src/skill-content-normalizer";
+import { normalizeSkillContent } from "../src/substrates/skill-content-normalizer";
 
 
 test("AC-2: normalizeSkillContent strips the PAI Customization block", () => {

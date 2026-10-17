@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isFsUtilsEnoent as isEnoent } from "../../core/index";
 import { loadSomaHome } from "../../home/index";
-import type { InstallPostProjectionContext } from "../../install-spec";
+import type { InstallPostProjectionContext } from "../../substrates/install-spec";
 import type { ProjectionInput } from "../../home/types";
 import {
   extractOverlay,

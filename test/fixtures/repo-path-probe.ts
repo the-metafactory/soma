@@ -1,12 +1,12 @@
 import { bootstrapSomaHome } from "../../src/home-bootstrap";
 import { prepareSomaInstallSkillContext } from "../../src/install";
-import { SomaInstallExecution } from "../../src/installation-executor";
-import { installCodexHomeProjection, buildGrokHomeProjection } from "../../src/home-projection";
+import { SomaInstallExecution } from "../../src/substrates/installation-executor";
+import { installCodexHomeProjection, buildGrokHomeProjection } from "../../src/substrates/home-projection";
 import { diagnoseContentCompareDrift } from "../../src/adapters/content-compare-doctor";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { installBundledSkillsIntoHome, listBundledSkills } from "../../src/bundled-skills";
-import { installVsaSkill } from "../../src/vsa-skill-installer";
+import { installBundledSkillsIntoHome, listBundledSkills } from "../../src/substrates/bundled-skills";
+import { installVsaSkill } from "../../src/substrates/vsa-skill-installer";
 import { defaultSomaRepoPath } from "../../src/core/index";
 
 // The compile regression runs this fixture both as source and as a binary.

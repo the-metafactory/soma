@@ -1,8 +1,8 @@
 import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { isEnoent } from "../../core/index";
-import { rewriteSkillNameFrontmatter } from "../../skill-frontmatter";
-import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
+import { rewriteSkillNameFrontmatter } from "../../substrates/skill-frontmatter";
+import { rewriteSubstrateProjectionContent } from "../../substrates/substrate-projection-rewrites";
 import type { Projection, SomaSkill } from "../../types";
 
 export const PI_DEV_VSA_SKILL_ID = "vsa";

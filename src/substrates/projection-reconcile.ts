@@ -1,6 +1,6 @@
 import { readdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
-import { isEnoent } from "./core/index";
+import { isEnoent } from "../core";
 
 async function listFilesRecursive(root: string): Promise<string[]> {
   const out: string[] = [];

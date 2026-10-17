@@ -7,7 +7,7 @@ import {
   type SkillProjectionPlan,
   type SkillProjectionResult,
   type UnprojectSkillOptions,
-} from "../skill-projection";
+} from "../substrates/skill-projection";
 import { INSTALL_SUBSTRATES, isInstallSubstrate, type InstallSubstrate } from "./substrate-lifecycle";
 import { readOption } from "./parse-utils";
 

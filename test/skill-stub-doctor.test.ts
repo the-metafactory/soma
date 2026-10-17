@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { diagnoseSkillStubDrift } from "../src/adapters/skill-stub-doctor";
 import { bootstrapSomaHome, diagnoseSomaDoctor } from "../src/index";
-import { projectSkill } from "../src/skill-projection";
+import { projectSkill } from "../src/substrates/skill-projection";
 
 /**
  * soma#542 — a projected stub is a pointer, so the thing that rots is the

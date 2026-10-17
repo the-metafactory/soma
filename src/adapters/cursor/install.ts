@@ -1,8 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../core/index";
-import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
-import { writeProjection } from "../../projection";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../substrates/install-spec";
+import { writeProjection } from "../../substrates/projection";
 import { CURSOR_HOME_FILE_PATHS, CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH, isCursorSkillProjectionPath, projectCursorHome } from "../cursor";
 import { stripProvenance } from "../shared";
 

@@ -4,13 +4,13 @@ import type {
   SomaHomeProjection,
   SomaHomeProjectionOptions,
   WrittenProjection,
-} from "./types";
+} from "../types";
 import type {
   ProjectionInput,
-} from "./home/types";
+} from "../home/types";
 
-import type { InstallSubstrate, PrivateRootOptions } from "./policy/types";
-export type { InstallSubstrate, PrivateRootOptions } from "./policy/types";
+import type { InstallSubstrate, PrivateRootOptions } from "../policy/types";
+export type { InstallSubstrate, PrivateRootOptions } from "../policy/types";
 
 export interface LifecycleProjectionSpec {
   startupContextPath: string;

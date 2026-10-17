@@ -18,8 +18,8 @@ import {
   uninstallSomaForClaudeCode,
 } from "../src/index";
 import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-code/hooks";
-import { installSpecFor } from "../src/install-spec-registry";
-import type { InstallSubstrate, SkillsDiscoveryMode } from "../src/install-spec";
+import { installSpecFor } from "../src/substrates/install-spec-registry";
+import type { InstallSubstrate, SkillsDiscoveryMode } from "../src/substrates/install-spec";
 import { SOMA_SKILLS_HEADING } from "../src/adapters/shared";
 import { writePortableSkillManifest } from "../src/adapters/shared/portable-skill-manifest";
 import { stripProvenance } from "../src/adapters/shared/provenance";

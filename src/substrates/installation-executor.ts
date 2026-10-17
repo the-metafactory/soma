@@ -1,6 +1,6 @@
 import { SomaInstallError, snapshotSomaPartialInstallResult, type SomaInstallStage, type SomaPartialInstallResult } from "./installation-execution";
-import type { InstalledSkill, SomaHomeBootstrapResult, SomaInstallResult, UninstallableSkillReport, WrittenProjection } from "./types";
-import type { InstallSubstrate } from "./policy/types";
+import type { InstalledSkill, SomaHomeBootstrapResult, SomaInstallResult, UninstallableSkillReport, WrittenProjection } from "../types";
+import type { InstallSubstrate } from "../policy/types";
 
 export const SOMA_INSTALL_OPERATION_STAGES = {
   "require-bun": "environment",

@@ -7,7 +7,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, lstat, mkdtemp, readFile, readlink, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runtimeArtifactActivePath } from "../src/runtime-artifact";
+import { runtimeArtifactActivePath } from "../src/substrates/runtime-artifact";
 import { installSomaForCodex } from "./fixtures/shared-runtime";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 

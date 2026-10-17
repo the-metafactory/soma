@@ -1,9 +1,9 @@
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { installSpecFor } from "../../install-spec-registry";
+import { installSpecFor } from "../../substrates/install-spec-registry";
 import { registerProjectionRepairProvider } from "../../home/lifecycle-registry";
 import { SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH, renderClaudeCodeStatusLineScript } from "./hooks";
-import type { ProjectedArtifact } from "../../projection-self-repair";
+import type { ProjectedArtifact } from "../../substrates/projection-self-repair";
 
 /**
  * Claude Code's projection self-repair surface (soma#460): the projected

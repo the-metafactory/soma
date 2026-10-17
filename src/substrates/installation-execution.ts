@@ -1,4 +1,4 @@
-import type { InstallSubstrate } from "./policy/types";
+import type { InstallSubstrate } from "../policy/types";
 
 /** Stable category for an installation failure. */
 export type SomaInstallStage = "environment" | "soma-home" | "substrate" | "projection" | "skills";

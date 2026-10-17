@@ -328,9 +328,9 @@ export {
 // runtime shape in the follow-up PR. Tests can import the helpers
 // directly from the substrate path.
 export { harvestSessions } from "./tools/learning/session-harvester";
-export { writeProjection } from "./projection";
-export { SomaInstallError } from "./installation-execution";
-export type { SomaHomeInstallReceipt, SomaInstallStage, SomaPartialInstallResult, SomaRuntimeArtifactReceipt, SomaSubstrateInstallReceipt } from "./installation-execution";
+export { writeProjection } from "./substrates/projection";
+export { SomaInstallError } from "./substrates/installation-execution";
+export type { SomaHomeInstallReceipt, SomaInstallStage, SomaPartialInstallResult, SomaRuntimeArtifactReceipt, SomaSubstrateInstallReceipt } from "./substrates/installation-execution";
 export { createPaths, type SomaPathsOptions } from "./core/index";
 export {
   advisor,
@@ -428,7 +428,7 @@ export {
   installGrokHomeProjection,
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
-} from "./home-projection";
+} from "./substrates/home-projection";
 export {
   installSomaForClaudeCode,
   installSomaForCodex,
@@ -452,7 +452,7 @@ export {
   type UninstallGrokOptions,
   type UninstallGrokResult,
 } from "./install";
-export { inspectRuntimeArtifact, rollbackRuntimeArtifact } from "./runtime-artifact";
+export { inspectRuntimeArtifact, rollbackRuntimeArtifact } from "./substrates/runtime-artifact";
 export * as experimentalAnthropicCowork from "./experimental/anthropic-cowork";
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 // Adapter active-VSA projection helpers (#37).
@@ -465,8 +465,8 @@ export {
 // Public VSA-skill installer API — cohesive surface only.
 // Implementation details (vsaSkillRuntimeDir, vsaSkillSourceDir,
 // parseSkillFrontmatter, skillBaselinesPath, compareSkillVersions) stay in
-// `./vsa-skill-installer` and are imported directly by tests and scripts.
-export { installVsaSkill } from "./vsa-skill-installer";
+// `./substrates/vsa-skill-installer` and are imported directly by tests and scripts.
+export { installVsaSkill } from "./substrates/vsa-skill-installer";
 export {
   buildSomaStartupContext,
   captureCompletedAlgorithmLearnings,
@@ -481,13 +481,13 @@ export { registerSessionEndTranscriptHandler, registerProjectionRepairProvider }
 export type { SessionEndTranscriptHandler, ProjectionRepairProvider } from "./home/index";
 export { buildLearningReadback } from "./learning-readback";
 export type { LearningReadbackOptions } from "./learning-readback";
-export { repairProjectedArtifacts } from "./projection-self-repair";
+export { repairProjectedArtifacts } from "./substrates/projection-self-repair";
 export type {
   ProjectedArtifact,
   ProjectionRepairFinding,
   ProjectionRepairFindingKind,
   ProjectionRepairResult,
-} from "./projection-self-repair";
+} from "./substrates/projection-self-repair";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./events/index";
 export { searchSomaMemory } from "./memory/index";

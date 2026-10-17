@@ -14,7 +14,7 @@ import {
   SOMA_PAI_BOUND_MEMORY_CATEGORIES,
 } from "../src/memory/index";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../src/policy/projection-private-roots";
-import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
+import { allInstallSpecs, installSpecFor } from "../src/substrates/install-spec-registry";
 import { expectPlanCoversApplyModuloBundledSkills, expectReprojectPrunesStaleTelos } from "./fixtures";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 import { installSomaForAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev } from "./fixtures/shared-runtime";

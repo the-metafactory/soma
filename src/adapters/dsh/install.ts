@@ -1,4 +1,4 @@
-import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../substrates/install-spec";
 import { DSH_DEFAULT_HOME } from "../../policy/private-roots";
 import { configureDshAgentsPointer } from "./config-patch";
 import { installDshHostPlugin } from "./plugin";

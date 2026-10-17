@@ -1,4 +1,4 @@
-import type { SkillsDiscoveryMode } from "../install-spec";
+import type { SkillsDiscoveryMode } from "../substrates/install-spec";
 import type { SomaAdapter, Projection } from "../types";
 import type { ProjectionInput } from "../home/types";
 import { buildPortableSkillFiles, communicationContractFile, workingMethodFile, projectedRulesFiles, skillCatalogFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared";
