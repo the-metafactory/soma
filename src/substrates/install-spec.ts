@@ -5,7 +5,6 @@ import type {
 } from "../home/types";
 
 import type { InstallSubstrate, PrivateRootOptions } from "../policy/types";
-export type { InstallSubstrate, PrivateRootOptions } from "../policy/types";
 
 export interface LifecycleProjectionSpec {
   startupContextPath: string;

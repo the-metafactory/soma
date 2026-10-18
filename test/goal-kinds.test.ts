@@ -6,24 +6,10 @@ import { queueKind } from "../src/flows/goal-kinds/queue";
 import { outlineKind } from "../src/flows/goal-kinds/outline";
 import { announceKind } from "../src/flows/goal-kinds/announce";
 import { goalKinds, listGoalKinds } from "../src/flows/goal-kinds/registry";
-import * as goalKindsExports from "../src/flows/goal-kinds";
 
 const params = { goal: "G5", url: "<resource:blog>", window_days: 7, min: 1 };
 const outline = { goal: "G5", tana_tag: "capture", drafts_dir: "/private/open drafts", days: 7 };
 const announce = { goal: "G5", url: "https://example.org/feed.xml", channels: ["linkedin", "mastodon"] };
-
-test("directory exports preserve the registry and kind APIs", () => {
-  expect(goalKindsExports.goalKinds).toBe(goalKinds);
-  expect(goalKindsExports.listGoalKinds).toBe(listGoalKinds);
-  expect(goalKindsExports.feedKind).toBe(feedKind);
-  expect(goalKindsExports.feedParams).toBe(feedKind.params);
-  expect(goalKindsExports.queueKind).toBe(queueKind);
-  expect(goalKindsExports.queueParams).toBe(queueKind.params);
-  expect(goalKindsExports.outlineKind).toBe(outlineKind);
-  expect(goalKindsExports.outlineParams).toBe(outlineKind.params);
-  expect(goalKindsExports.announceKind).toBe(announceKind);
-  expect(goalKindsExports.announceParams).toBe(announceKind.params);
-});
 
 test("feed kind owns its schema, runner, schedule and state rule", () => {
   expect(goalKinds.feed).toBe(feedKind);

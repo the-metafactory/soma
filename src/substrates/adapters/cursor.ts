@@ -2,7 +2,9 @@ import { resolve } from "node:path";
 import type { SomaAdapter, Projection } from "../types";
 import type { ProjectionInput } from "../../home/types";
 import { activeVsaBundleFile } from "../../vsa/index";
-import { buildPortableSkillFiles, communicationContractFile, workingMethodFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills, SELF_HEALING_DOCTRINE_ADVISORY, withProvenance } from "./shared/index";
+import { buildPortableSkillFiles, communicationContractFile, workingMethodFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills } from "./shared/index";
+import { SELF_HEALING_DOCTRINE_ADVISORY } from "../../policy/self-healing-doctrine";
+import { withProvenance } from "./shared/provenance";
 import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 
 export const CURSOR_RULES_PATH = ".cursorrules";

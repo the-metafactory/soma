@@ -4,7 +4,7 @@ import { isEnoent } from "../../../core/index";
 import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { writeProjection } from "../../projection";
 import { CURSOR_HOME_FILE_PATHS, CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH, isCursorSkillProjectionPath, projectCursorHome } from "../cursor";
-import { stripProvenance } from "../shared/index";
+import { stripProvenance } from "../shared/provenance";
 
 function renderCursorRulesBlock(content: string): string {
   return `${CURSOR_RULES_BLOCK_BEGIN}\n${content.trimEnd()}\n${CURSOR_RULES_BLOCK_END}`;

@@ -10,7 +10,7 @@
  * - public entries: into a component that declares them, only those;
  * - units: no edge between two units of one component;
  * - tests: `test/<c>/` may import its own component freely, only public
- *   entries of components that declare them, and never `src/index.ts`;
+ *   entries of components that declare them;
  * - barrels: only a declared public entry may contain `export … from`, and
  *   only from files of its own component (node #816).
  *
@@ -45,7 +45,7 @@ export const VIOLATIONS_PATH = "scripts/boundaries/violations.json";
 export const BASELINE_PATH = "scripts/boundaries/closure-baseline.json";
 
 export type EdgeKind = "import" | "type-import" | "re-export" | "dynamic-import";
-export type ViolationRule = "direction" | "public-entry" | "unit" | "test-index" | "test-public-entry" | "barrel";
+export type ViolationRule = "direction" | "public-entry" | "unit" | "test-public-entry" | "barrel";
 
 export interface Edge {
   from: string;
@@ -435,9 +435,7 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
     if (!srcFiles.has(edge.from)) {
       // Test file: test/<component>/...
       const fromComponent = edge.from.split("/")[1];
-      if (stemOf(edge.to) === "src/index") {
-        flag(edge, `test/${fromComponent}`, toComponent, "test-index", "tests may never import src/index.ts");
-      } else if (toComponent !== fromComponent && !isPublic(toSpec, edge.to)) {
+      if (toComponent !== fromComponent && !isPublic(toSpec, edge.to)) {
         flag(edge, `test/${fromComponent}`, toComponent, "test-public-entry", `not a public entry of ${toComponent}`);
       }
       continue;

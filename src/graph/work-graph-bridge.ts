@@ -7,7 +7,7 @@
  * argument is that a second reader means a second answer to "which node backs
  * this step", and a seam only the CLI can import forces a library, MCP or daemon
  * consumer — every one of which can already reach the *write* half through
- * `src/index.ts` — to re-implement repo resolution and become exactly that second
+ * the component public entries — to re-implement repo resolution and become exactly that second
  * reader.
  *
  * It is also where a ref turns into a store (#535 D1): the ref names forge, host

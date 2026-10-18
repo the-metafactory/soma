@@ -4,17 +4,8 @@ import { resolve } from "node:path";
 import type { Projection, SomaAdapter } from "../types";
 import type { ProjectionInput } from "../../home/types";
 import { activeVsaBundleFile, activeVsaProjectionPath } from "../../vsa/index";
-import {
-  communicationContractFile,
-  workingMethodFile,
-  renderAssistantCore,
-  renderPolicyProjection,
-  renderProfilePointer,
-  renderSkills,
-  SELF_HEALING_DOCTRINE_ADVISORY,
-  SOMA_POLICY_PROJECTION_HEADING,
-  SOMA_SKILLS_HEADING,
-} from "./shared/index";
+import { communicationContractFile, workingMethodFile, renderAssistantCore, renderPolicyProjection, renderProfilePointer, renderSkills, SOMA_POLICY_PROJECTION_HEADING, SOMA_SKILLS_HEADING } from "./shared/index";
+import { SELF_HEALING_DOCTRINE_ADVISORY } from "../../policy/self-healing-doctrine";
 import { behaviorPolicyAdvisory } from "../../policy/behavior-policy";
 import { activeGoalLines } from "../../goal-records";
 
@@ -30,9 +21,6 @@ export const ANTHROPIC_COWORK_PRINCIPLES_PATH = "soma/principles.md";
 export const ANTHROPIC_COWORK_MEMORY_SNAPSHOT_PATH = "soma/memory-snapshot.md";
 export const ANTHROPIC_COWORK_ACTIVE_VSA_PATH = activeVsaProjectionPath("anthropic-cowork");
 export const ANTHROPIC_COWORK_CAPTURE_README_PATH = "capture/README.md";
-// Owned by the leaf `policy/private-roots` module (which must not import an
-// adapter) and re-exported here so existing importers are unchanged.
-export { ANTHROPIC_COWORK_DEFAULT_HOME } from "../../policy/private-roots";
 export const ANTHROPIC_COWORK_SKILLS_ROOT_PATH = "skills";
 
 const COWORK_README_HEADING = "# Soma Anthropic Cowork Projection";

@@ -9,10 +9,8 @@ import type { AlgorithmRun } from "../algorithm/types";
 import { parseTelemetryEventLine, somaMemoryEventsPath, streamEventLines } from "../events/index";
 import { hashJudgmentInput, isEnoent, readJudgments, recordJudgment, type JudgmentRecord } from "../core/index";
 import { loadSomaConfig } from "../home/index";
-import {
-  GITHUB_DOTCOM, parseProposal, parseRemoteUrl, proposalFrontMatterSchema, runCommand,
-  type ProposalKind,
-} from "../graph/index";
+import { GITHUB_DOTCOM, parseProposal, parseRemoteUrl, proposalFrontMatterSchema, runCommand } from "../graph/index";
+import { type ProposalKind } from "../core/index";
 import {
   classifyErrataProposalWithClaude, classifyErrataThemeWithClaude, classifyErrataWithClaude,
   validateErrataProposal, validateErrataTheme, validateErrataVerdict,

@@ -5,8 +5,6 @@ import { join } from "node:path";
 import { z } from "zod";
 import { activeItemLimitPublicParams, collectionSchema, type ItemState, type ItemCollection, type ActiveItemLimitOptions } from "./goal-kinds/active-item-limit";
 import { publishRunFinished, type RunFinishedPublisher, type RunFinishedResult, type RunLedgerEnv } from "./run-ledger";
-
-export { ITEM_STATES, type ItemState, type ItemCollection } from "./goal-kinds/active-item-limit";
 export const COLLECTION_MAX_AGE_MS = 26 * 60 * 60 * 1000;
 
 export interface CollectionItem {

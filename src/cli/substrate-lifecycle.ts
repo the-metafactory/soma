@@ -52,8 +52,6 @@ import { type ProjectionInput } from "../home/types";
 import { type InstallSubstrate } from "../policy/types";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
-
-export type { InstallSubstrate } from "../policy/types";
 type InstallCliOptions = SomaInstallOptions &
   Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier" | "policyGuard" | "claudeMd" | "feedbackCapture">>;
 

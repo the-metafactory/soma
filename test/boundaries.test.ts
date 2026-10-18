@@ -119,7 +119,7 @@ describe("component boundaries on the repository", () => {
       await writeFile(importer, 'import "../execution/index";\n');
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
-      expect(publicEntry.violations.filter((v) => v.fromComponent === "execution" && v.toComponent !== "legacy")).toEqual([]);
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "execution")).toEqual([]);
     });
     expect(components.execution.files).toEqual(["src/execution/**"]);
     expect(components.execution.publicEntries).toEqual(["src/execution/index.ts"]);
@@ -157,18 +157,18 @@ describe("component boundaries on the repository", () => {
       await writeFile(importer, 'import "../graph/index";\n');
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
-      expect(publicEntry.violations.filter((v) => v.fromComponent === "graph" && v.toComponent !== "legacy")).toEqual([]);
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "graph")).toEqual([]);
     });
   }, { timeout: 30_000 });
 
-  test("substrates files outside adapters and experimental live in src/substrates/, and its one outward violation is the edge #800 kept", () => {
+  test("substrates files live in src/substrates/, and it has no outward violations", () => {
     expect(components.substrates.files).toEqual(["src/substrates/**"]);
     const report = checkBoundaries({ root: repoRoot });
     if (!report.ok) throw new Error(formatReport(report));
     const outward = report.violations
-      .filter((v) => v.fromComponent === "substrates" && v.toComponent !== "legacy")
+      .filter((v) => v.fromComponent === "substrates")
       .map((v) => `${v.from} -> ${v.to}`);
-    expect(outward).toEqual(["src/substrates/experimental/anthropic-cowork.ts -> src/flows/install.ts"]);
+    expect(outward).toEqual([]);
   }, { timeout: 30_000 });
 
   test("router public entry rejects every internal and has no outward violations", async () => {
@@ -193,7 +193,7 @@ describe("component boundaries on the repository", () => {
       await writeFile(importer, 'import "../router/index";\n');
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
-      expect(publicEntry.violations.filter((v) => v.fromComponent === "router" && v.toComponent !== "legacy")).toEqual([]);
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "router")).toEqual([]);
     });
   }, { timeout: 30_000 });
 
@@ -219,7 +219,7 @@ describe("component boundaries on the repository", () => {
       await writeFile(importer, 'import "../migrate/index";\nimport "../migrate/types";\n');
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
-      expect(publicEntry.violations.filter((v) => v.fromComponent === "migrate" && v.toComponent !== "legacy")).toEqual([]);
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "migrate")).toEqual([]);
     });
   }, { timeout: 30_000 });
 
@@ -245,7 +245,7 @@ describe("component boundaries on the repository", () => {
       await writeFile(importer, 'import "../flows/index";\nimport "../flows/types";\n');
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
-      expect(publicEntry.violations.filter((v) => v.fromComponent === "flows" && v.toComponent !== "legacy")).toEqual([]);
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "flows")).toEqual([]);
     });
   }, { timeout: 30_000 });
 
@@ -271,7 +271,7 @@ describe("component boundaries on the repository", () => {
         .map((entry) => `import "../algorithm/${entry.split("/").pop()!.slice(0, -3)}";\n`).join(""));
       const report = checkBoundaries({ root, updateBaseline: true });
       if (!report.ok) throw new Error(formatReport(report));
-      expect(report.violations.filter((v) => v.fromComponent === "algorithm" && v.toComponent !== "legacy")).toEqual([]);
+      expect(report.violations.filter((v) => v.fromComponent === "algorithm")).toEqual([]);
       const directEntries = report.edges
         .filter((edge) => edge.from === "src/cli/algorithm.ts" && edge.to.startsWith("src/algorithm/"))
         .map((edge) => edge.to);
@@ -279,16 +279,14 @@ describe("component boundaries on the repository", () => {
         [...new Set(["src/algorithm/index.ts", ...directEntries])].sort(),
       );
       const reachable = reachableFrom(report, "src/cli/algorithm.ts");
-      expect(reachable.has("src/index.ts")).toBe(false);
       expect(reachable.has("src/algorithm/index.ts")).toBe(false);
     });
   }, { timeout: 30_000 });
 
-  test("shared types reach only substrates' types entry, even transitively", () => {
+  test("core's shared types entry reaches no other component", () => {
+    expect(components.core.publicEntries).toEqual(["src/core/index.ts", "src/core/types.ts"]);
     const report = checkBoundaries({ root: repoRoot });
-    const reachable = reachableFrom(report, "src/types.ts");
-    expect([...reachable].filter((file) => file.startsWith("src/substrates/")))
-      .toEqual(["src/substrates/types.ts"]);
+    expect([...reachableFrom(report, "src/core/types.ts")].filter((file) => !file.startsWith("src/core/"))).toEqual([]);
   });
 
   test("skill migration keeps its leaf closure and rejects the substrates barrel's growth", async () => {
@@ -303,7 +301,9 @@ describe("component boundaries on the repository", () => {
       const grown = checkBoundaries({ root });
       expect(grown.ok).toBe(false);
       expect(grown.closureGrowth).toContainEqual({
-        component: "migrate", baseline: 11_000, actual: grown.closures.migrate,
+        component: "migrate",
+        baseline: (await Bun.file(join(repoRoot, BASELINE_PATH)).json()).migrate,
+        actual: grown.closures.migrate,
       });
     });
   });
@@ -336,14 +336,6 @@ describe("component boundaries on the repository", () => {
     }
   });
 
-  test("shared types reach home types without its runtime barrel", () => {
-    const report = checkBoundaries({ root: repoRoot });
-    const reachable = reachableFrom(report, "src/types.ts");
-    expect([...reachable].filter((file) => file.startsWith("src/home/")).sort()).toEqual([
-      "src/home/communication-contract.ts",
-      "src/home/types.ts",
-    ]);
-  });
 
   test.each([
     "src/algorithm/algorithm.ts",
@@ -396,7 +388,7 @@ describe("component boundaries on the repository", () => {
       ].join("\n"));
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
-      expect(publicEntry.violations.filter((v) => v.fromComponent === "home" && v.toComponent !== "legacy")).toEqual([]);
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "home")).toEqual([]);
     });
   }, { timeout: 30_000 });
 
@@ -436,9 +428,8 @@ describe("component boundaries on the repository", () => {
         .map((entry) => `import "../policy/${entry.split("/").pop()!.slice(0, -3)}";\n`).join(""));
       const report = checkBoundaries({ root, updateBaseline: true });
       if (!report.ok) throw new Error(formatReport(report));
-      expect(report.violations.filter((v) => v.fromComponent === "policy" && v.toComponent !== "legacy")).toEqual([]);
+      expect(report.violations.filter((v) => v.fromComponent === "policy")).toEqual([]);
       const reachable = reachableFrom(report, "src/cli/policy.ts");
-      expect(reachable.has("src/index.ts")).toBe(false);
       expect(reachable.has("src/policy/index.ts")).toBe(false);
     });
   }, { timeout: 30_000 });
@@ -485,7 +476,7 @@ describe("component boundaries on the repository", () => {
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
       expect(publicEntry.violations.filter((violation) =>
-        violation.fromComponent === "tools" && violation.toComponent !== "legacy"))
+        violation.fromComponent === "tools"))
         .toEqual([]);
     });
   }, { timeout: 30_000 });
@@ -518,18 +509,11 @@ describe("component boundaries on the repository", () => {
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
       expect(publicEntry.violations.filter((violation) =>
-        violation.fromComponent === "vsa" && violation.toComponent !== "legacy"))
+        violation.fromComponent === "vsa"))
         .toEqual([]);
     });
   }, { timeout: 30_000 });
 
-  test.each(["memory", "vsa"] as const)("shared types reach only %s's types entry, even transitively", (component) => {
-    expect(components[component].publicEntries).toEqual([`src/${component}/index.ts`, `src/${component}/types.ts`]);
-    const report = checkBoundaries({ root: repoRoot });
-    const reachable = reachableFrom(report, "src/types.ts");
-    expect([...reachable].filter((file) => file.startsWith(`src/${component}/`)))
-      .toEqual([`src/${component}/types.ts`]);
-  });
 
   test("another component may import memory's runtime and types entries, but no memory internal", async () => {
     await withRepoFixture("soma-boundaries-memory-", async (root) => {
@@ -557,10 +541,6 @@ describe("component boundaries on the repository", () => {
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.ok).toBe(true);
-      expect(new Set(publicEntry.edges
-        .filter((edge) => edge.from === "src/types.ts" && edge.to.startsWith("src/memory/"))
-        .map((edge) => edge.to)))
-        .toEqual(new Set(["src/memory/types.ts"]));
     });
   }, { timeout: 30_000 });
 
@@ -744,10 +724,10 @@ describe("checkBoundaries on fixture trees", () => {
   });
 
   test("a src file that matches no component fails and is named", () => {
-    const manifest: ComponentManifest = { ...fixtureManifest, core: { files: [], mayImport: ["legacy"] } };
+    const manifest: ComponentManifest = { ...fixtureManifest, core: { files: [], mayImport: [] } };
     const report = check("clean", manifest);
     expect(report.ok).toBe(false);
-    expect(report.unmatched).toEqual(["src/paths.ts"]);
+    expect(report.unmatched).toEqual(["src/paths.ts", "src/types.ts"]);
     expect(report.errors.join("\n")).toContain("src/paths.ts belongs to no component");
   });
 
@@ -810,13 +790,52 @@ describe("checkBoundaries on fixture trees", () => {
     });
   });
 
-  test("test/<component>/ may import its own component, never src/index.ts, and only public entries elsewhere", () => {
+  test("test/<component>/ may import its own component, and only public entries elsewhere", () => {
     const report = check("test-dir", publicMemoryManifest);
     expect(report.ok).toBe(false);
     expect(report.newViolations.map((violation) => [violation.key, violation.rule])).toEqual([
       ["test/flows/helper.ts -> src/memory-internal.ts", "test-public-entry"],
-      ["test/memory/helper.ts -> src/index.ts", "test-index"],
     ]);
+  });
+
+  test("a file that is not a declared public entry may not re-export", () => {
+    const report = check("barrel-internal", publicMemoryManifest);
+    expect(report.ok).toBe(false);
+    expect(report.newViolations.map((violation) => [violation.key, violation.rule])).toEqual([
+      ["src/memory-internal.ts -> src/memory.ts", "barrel"],
+    ]);
+    expect(report.errors.join("\n")).toContain("only a declared public entry of memory may re-export");
+  });
+
+  test("a public entry may not re-export another component's file", () => {
+    const report = check("barrel-cross", publicMemoryManifest);
+    expect(report.ok).toBe(false);
+    expect(report.newViolations.map((violation) => [violation.key, violation.rule])).toEqual([
+      ["src/memory.ts -> src/paths.ts", "barrel"],
+    ]);
+    expect(report.errors.join("\n")).toContain("a public entry may re-export only its own component, not core");
+  });
+
+  test("a public entry may re-export a file of its own component, type-only included", async () => {
+    await withTempHome(async (root) => {
+      await cp(fixture("barrel-cross"), root, { recursive: true });
+      await writeFile(join(root, "src/memory.ts"), [
+        'import { homeDir } from "./paths";',
+        "export const memoryDir = `${homeDir}/memory`;",
+        'export { internalDir } from "./memory-internal";',
+        'export type * from "./memory-internal";',
+        "",
+      ].join("\n"));
+      const report = checkBoundaries({ root, manifest: publicMemoryManifest, updateBaseline: true });
+      if (!report.ok) throw new Error(formatReport(report));
+      expect(report.violations).toEqual([]);
+
+      await writeFile(join(root, "src/memory-internal.ts"), 'export const internalDir = "internal";\nexport type { Note } from "./types";\n');
+      const typeOnly = checkBoundaries({ root, manifest: publicMemoryManifest, updateBaseline: true });
+      expect(typeOnly.newViolations.map((violation) => [violation.key, violation.rule])).toEqual([
+        ["src/memory-internal.ts -> src/types.ts", "barrel"],
+      ]);
+    }, "soma-boundaries-barrel-");
   });
 
   test("closure growth fails with the delta, and passes after --update-baseline", async () => {
@@ -841,7 +860,7 @@ describe("checkBoundaries on fixture trees", () => {
   test("a closure under its ceiling passes silently; one that shrank below its ceiling's step is reported", async () => {
     await withTempHome(async (root) => {
       await cp(fixture("clean"), root, { recursive: true });
-      const ceilings = { core: 500, memory: 500, flows: 500, substrates: 500, legacy: 500 };
+      const ceilings = { core: 500, memory: 500, flows: 500, substrates: 500 };
       await Bun.write(join(root, BASELINE_PATH), JSON.stringify(ceilings));
       const quiet = checkBoundaries({ root, manifest: fixtureManifest });
       expect(quiet.ok).toBe(true);

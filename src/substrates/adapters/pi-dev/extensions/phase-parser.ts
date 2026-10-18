@@ -25,7 +25,7 @@
 
 /**
  * Phase identifiers — lowercase per the existing `AlgorithmPhase` type
- * in `src/types.ts`. Distinct from `complete`/`abandoned` lifecycle
+ * in `src/core/types.ts`. Distinct from `complete`/`abandoned` lifecycle
  * states; those have no marker in model output.
  */
 export type AlgorithmPhaseKey =

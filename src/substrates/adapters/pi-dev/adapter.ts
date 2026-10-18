@@ -8,18 +8,9 @@ import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
-import {
-  communicationContractFile,
-  workingMethodFile,
-  projectableSkills,
-  renderAssistantCore,
-  renderMemoryLayout,
-  renderPolicyProjection,
-  renderProfilePointer,
-  renderSkills,
-  SELF_HEALING_DOCTRINE_ADVISORY,
-  withProvenance,
-} from "../shared/index";
+import { communicationContractFile, workingMethodFile, projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills } from "../shared/index";
+import { SELF_HEALING_DOCTRINE_ADVISORY } from "../../../policy/self-healing-doctrine";
+import { withProvenance } from "../shared/provenance";
 import { activeVsaBundleFile } from "../../../vsa/index";
 import { SOMA_VERSION } from "../../../core/index";
 import { regexClassifierVersion } from "../../../router/index";

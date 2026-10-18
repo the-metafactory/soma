@@ -1,4 +1,4 @@
-// `soma migrate claude-skills` types (node #814). `src/types.ts` re-exports them until the final seams node.
+// `soma migrate claude-skills` types (node #814).
 
 // #115 — `soma migrate claude-skills` types.
 //

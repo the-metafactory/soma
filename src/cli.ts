@@ -138,8 +138,6 @@ import {
   type ParsedGraphArgs,
 } from "./cli/graph";
 
-export { SomaCliError } from "./cli/errors";
-
 interface ParsedHelpArgs {
   command: "help";
   topic: string[];

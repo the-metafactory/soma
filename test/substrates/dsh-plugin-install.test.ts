@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { configureDshCordisPatch, DSH_CORDIS_PATCH_BEGIN, DSH_CORDIS_PATCH_END, dshHostPluginDestination, installDshHostPlugin, removeDshCordisPatchBlock } from "../../src/substrates/adapters/dsh/index";
+import { configureDshCordisPatch, DSH_CORDIS_PATCH_BEGIN, DSH_CORDIS_PATCH_END, removeDshCordisPatchBlock } from "../../src/substrates/adapters/dsh/config-patch";
+import { dshHostPluginDestination, installDshHostPlugin } from "../../src/substrates/adapters/dsh/plugin";
 
 async function makeHome(): Promise<{ root: string; dshHome: string; somaHome: string }> {
   const root = await mkdtemp(join(tmpdir(), "soma-dsh-plugin-"));

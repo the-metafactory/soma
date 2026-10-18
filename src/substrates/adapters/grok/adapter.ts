@@ -19,19 +19,10 @@ import {
 } from "./projection-constants";
 import { defaultSomaRepoPath } from "../../../core/index";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
-import {
-  buildPortableSkillFiles,
-  communicationContractFile,
-  workingMethodFile,
-  renderAlgorithmRenderingContract,
-  renderAssistantCore,
-  renderMemoryLayout,
-  renderPolicyProjection,
-  renderSkills,
-  renderSubstrateInstructions,
-  SELF_HEALING_DOCTRINE_ADVISORY,
-  withProvenance,
-} from "../shared/index";
+import { buildPortableSkillFiles, communicationContractFile, workingMethodFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions } from "../shared/index";
+import { renderAlgorithmRenderingContract } from "../shared/algorithm-rendering-contract";
+import { SELF_HEALING_DOCTRINE_ADVISORY } from "../../../policy/self-healing-doctrine";
+import { withProvenance } from "../shared/provenance";
 import { readGrokHookAsset } from "./hooks/assets";
 import { GROK_PRE_TOOL_USE_VERB } from "./hooks/grok-hook-verbs.mjs";
 

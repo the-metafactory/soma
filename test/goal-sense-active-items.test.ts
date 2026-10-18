@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
-import { classifyCollectionItem, countActiveItems, measureActiveItems, readTanaCollection, runActiveItemLimitSensor,
-  COLLECTION_MAX_AGE_MS, type ItemCollection, type CollectionItem } from "../src/flows/goal-sense-active-items";
+import { classifyCollectionItem, countActiveItems, measureActiveItems, readTanaCollection, runActiveItemLimitSensor, COLLECTION_MAX_AGE_MS, type CollectionItem } from "../src/flows/goal-sense-active-items";
+import { type ItemCollection } from "../src/flows/goal-kinds/active-item-limit";
 import { activeItemLimitKind, activeItemLimitParams } from "../src/flows/goal-kinds/active-item-limit";
 import { listGoalKinds } from "../src/flows/goal-kinds/registry";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";

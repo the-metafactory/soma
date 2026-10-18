@@ -227,7 +227,7 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
 
 /**
  * Module-internal: accepts an `onDurable` callback. NOT exported from
- * src/index.ts — only a direct module importer (`syncAlgorithmRunFromVsa`)
+ * src/flows/index.ts — only a direct module importer (`syncAlgorithmRunFromVsa`)
  * can reach it. Delegates to the SAME `promoteAlgorithmRunMemoryInternal` as
  * the public single-arg export — not a parallel promotion path.
  */

@@ -1641,7 +1641,7 @@ function renderPortabilityReport(
     }
     lines.push("");
     // Mention the audit kind by name so principals grep'ing the report
-    // can find it. Also documented in `src/types.ts`.
+    // can find it. Also documented in `src/migrate/types.ts`.
     lines.push("Audit kind: `followed-user-owned-symlink` (one entry per resolved symlink in the manifest).");
   }
   const missingDependencyCount = countOutcomesWithMissingDependencies(result.outcomes);

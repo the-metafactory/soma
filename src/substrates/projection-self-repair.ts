@@ -4,8 +4,6 @@ import { open, readFile, realpath } from "node:fs/promises";
 import { isInsidePath } from "../core";
 import type { ProjectedArtifact } from "../home/lifecycle-registry";
 
-export type { ProjectedArtifact } from "../home/lifecycle-registry";
-
 /**
  * Deterministic (no-LLM, no-network) self-repair for projected substrate
  * artifacts (soma#460). Portable core: it operates on an explicit list of

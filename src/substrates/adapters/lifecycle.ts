@@ -7,5 +7,3 @@
 // `./adapters` barrel: registration happens only where this module is imported.
 import "./claude-code/session-digest";
 import "./codex/session-digest";
-
-export { resolveInstalledLifecycleHomeDir } from "./shared/lifecycle-home-binding";

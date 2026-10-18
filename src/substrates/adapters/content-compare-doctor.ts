@@ -8,7 +8,7 @@ import { defaultSomaRepoPath } from "../../core/index";
 import { isFsUtilsEnoent as isEnoent, pathExists } from "../../core/index";
 import { runtimeArtifactActivePath, type GuardedRuntimeSubstrate } from "../runtime-artifact";
 import { CURSOR_RULES_PATH } from "./cursor";
-import { hasProvenanceHeader } from "./shared/index";
+import { hasProvenanceHeader } from "./shared/provenance";
 import type { ShippedSubstrate } from "../../policy/types";
 import type { SomaDoctorFinding } from "../types";
 

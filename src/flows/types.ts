@@ -1,4 +1,4 @@
-// flows types (node #815). `src/types.ts` re-exports them until the final seams node.
+// flows types (node #815).
 import type { AlgorithmRunSummary } from "../algorithm/types";
 import type { ProposalKind, SomaMemoryPromotionStore } from "../core/index";
 import type { SomaFeedbackActor, SomaFeedbackClassification, SomaMemoryEvent } from "../events/index";

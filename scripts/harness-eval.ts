@@ -356,7 +356,7 @@ export const METRICS: MetricSpec[] = [
     minSample: 10,
     tolerance: 5,
     goodhart:
-      "Pad evidence strings with paths and numbers that were never actually observed — the evidenceKind label is caller-asserted (src/types.ts:42) and this text heuristic can be fooled the same way.",
+      "Pad evidence strings with paths and numbers that were never actually observed — the evidenceKind label is caller-asserted (`EvidenceKind` in src/core/types.ts) and this text heuristic can be fooled the same way.",
     countermeasure:
       "Heuristic checks novelty vs the criterion text, not just probe tokens; periodic manual audit of a random evidence sample stays in the Memory skill's audit workflow.",
     compute(data) {

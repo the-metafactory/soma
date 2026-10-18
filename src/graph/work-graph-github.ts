@@ -45,7 +45,6 @@ import {
   type ConfinementResult,
 } from "./work-graph";
 import { decodeNodeBlock, encodeNodeBlock } from "./work-graph-node-block";
-export { decodeNodeBlock, encodeNodeBlock, type DecodedBody } from "./work-graph-node-block";
 import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation";
 import { runCommand } from "./work-graph-probes";
 import { GITHUB_DOTCOM, gitHubNodeId, parseLocatedNodeId, validateRepoRef } from "./work-graph-ref";
