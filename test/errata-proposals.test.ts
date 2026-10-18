@@ -23,7 +23,7 @@ const registry = { "the-metafactory/soma": 909 };
 const check = { kind: "algorithm-verify", runId: "outline-empty-section", criterionId: "C3" } as const satisfies ErrataPassedBy;
 const receipt: ErrataPassedBy = { kind: "close-receipt", repo: "the-metafactory/soma", nodeId: "848", receiptCommentId: "6177164346" };
 /** The ref and checkpoint `soma graph file-proposal` will see for the `check` cluster below. */
-const SLUG = "check-algorithm-verify-outline-empty-section-C3";
+const SLUG = "check-algorithm-verify-outline-empty-section-C3-d6aeed13f03b7215";
 const complaint = "You said the outline was verified, but the Thursday section had no slot in it at all.";
 
 const buildBrief: ErrataProposalVerdict = {
@@ -62,7 +62,7 @@ const cluster = (members: string[], key: ErrataCluster["key"] = { kind: "check",
 
 const created = (record: ErrataRecord): ErrataEvent => ({ kind: "created", record });
 const clustered = (id: string, at2: string): ErrataEvent => ({ kind: "clustered", id, clusterId: "EC1", key: { kind: "check", passedBy: check }, at: at2 });
-const proposed = (generation: number, at2: string): ErrataEvent =>
+const proposed = (generation: number, at2: string): Extract<ErrataEvent, { kind: "proposed" }> =>
   ({ kind: "proposed", clusterId: "EC1", ref: `errata-${SLUG}-g${generation}`, generation, landing: "the-metafactory/soma", proposalKind: "deterministic-check", at: at2 });
 const answered = (kind: "expired" | "dismissed" | "resolved", generation: number, at2: string): ErrataEvent =>
   ({ kind, clusterId: "EC1", ref: `errata-${SLUG}-g${generation}`, at: at2 });
@@ -122,7 +122,7 @@ describe("proposeFromCluster", () => {
 
     // The draft reads the cluster, its check and the rejected turn; nothing of the home leaks in.
     expect(inputs).toHaveLength(1);
-    expect(inputs[0]).toMatchObject({ cluster: SLUG, landing: "the-metafactory/soma", privateStrings: [somaHome, "/checkout/soma"] });
+    expect(inputs[0]).toMatchObject({ cluster: "check-algorithm-verify-outline-empty-section-C3", landing: "the-metafactory/soma", privateStrings: [somaHome, "/checkout/soma"] });
     expect(inputs[0].members[0]).toMatchObject({ id: "E1", passedBy: "algorithm-verify outline-empty-section C3" });
     expect(inputs[0].sessions).toEqual([{ errataId: "E1", sessionId: "session-E1", excerpt: expect.stringContaining("Delivered:") }]);
     expect(JSON.stringify(appended()) + proposal.body).not.toContain("You said");
@@ -255,7 +255,7 @@ describe("proposeFromCluster", () => {
     await proposeFromCluster(deps);
     expect(sessions).toEqual(["session-E1"]);
     expect(inputs[0]).toMatchObject({ landing: "the-metafactory/soma", members: [{ passedBy: "close-receipt the-metafactory/soma 848" }] });
-    expect((await readProposalFile(somaHome, `errata-check-close-receipt-the-metafactory-soma-848-6177164346-g1`)).frontMatter.landing).toBe("the-metafactory/soma");
+    expect((await readProposalFile(somaHome, `errata-${errataClusterSlug({ kind: "check", passedBy: receipt })}-g1`)).frontMatter.landing).toBe("the-metafactory/soma");
   });
 });
 
@@ -269,17 +269,20 @@ describe("errataClusterSlug", () => {
         { kind: "check", passedBy: { ...check, runId: "a", criterionId: "b-c" } }],
     ];
     for (const [a, b] of pairs) expect(errataClusterSlug(a)).not.toBe(errataClusterSlug(b));
+    expect(errataClusterSlug({ kind: "check", passedBy: {
+      criterionId: check.criterionId, runId: check.runId, kind: check.kind,
+    } })).toBe(SLUG);
   });
 
   test("a theme label is slugged to the ref alphabet, and a long one keeps its head and a hash", () => {
-    expect(errataClusterSlug({ kind: "theme", label: "Skipped the probe" })).toBe("theme-Skipped-the-probe");
-    expect(errataClusterSlug({ kind: "theme", label: "Über assumption, twice stated ✓" })).toBe("theme-Uber-assumption-twice-stated");
+    expect(errataClusterSlug({ kind: "theme", label: "Skipped the probe" })).toBe("theme-Skipped-the-probe-132f4b1cfb1d40bf");
+    expect(errataClusterSlug({ kind: "theme", label: "Über assumption, twice stated ✓" })).toBe("theme-Uber-assumption-twice-stated-6219f4a548c97432");
 
     const label = "very long label ".repeat(10).trim();
     const slug = errataClusterSlug({ kind: "theme", label });
     expect(slug.startsWith("theme-very-long-label")).toBe(true);
     expect(slug.length).toBeLessThanOrEqual(80);
-    expect(slug).toMatch(/[a-f0-9]{8}$/);
+    expect(slug).toMatch(/-[a-f0-9]{16}$/);
     expect(`errata-${slug}`).toMatch(/^errata-[A-Za-z0-9][A-Za-z0-9._-]*$/);
     expect(errataClusterSlug({ kind: "theme", label: `${label} twice` })).not.toBe(slug);
   });
@@ -344,6 +347,24 @@ async function triageBacklog(count: number) {
 }
 
 describe("runErrataTriage proposals", () => {
+  test("a legacy proposal ref is delivered as recorded without renaming or redrafting", async () => {
+    const { somaHome, deps, reports } = await triageHarness({ landing: registry, readEvents: async () => [] });
+    const legacyRef = "errata-check-algorithm-verify-outline-empty-section-C3-g1";
+    const events: ErrataEvent[] = [created(member("E1")), clustered("E1", at), { ...proposed(1, at), ref: legacyRef }];
+    const directory = join(somaHome, "memory", "STATE", "errata");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "ledger.jsonl"), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+    await mkdir(join(somaHome, "proposals"));
+    await writeFile(join(somaHome, "proposals", `${legacyRef}.md`), "Existing proposal bytes.\n");
+    deps.classifyProposal = async () => { throw new Error("An open legacy proposal must not be redrafted."); };
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", proposed: 0 });
+    expect(reports[0].proposalRefs).toEqual([`soma:proposals/${legacyRef}.md`]);
+    expect(await proposalFiles(somaHome)).toEqual([`${legacyRef}.md`]);
+    expect(await readFile(join(somaHome, "proposals", `${legacyRef}.md`), "utf8")).toBe("Existing proposal bytes.\n");
+    await runErrataTriage(deps);
+    expect(reports[1].proposalRefs).toBeUndefined();
+  });
+
   test("clusters with the same readable slug keep separate files, refs and delivery receipts", async () => {
     const { somaHome, deps, reports } = await triageHarness({ landing: registry, readEvents: async () => [] });
     const keys: ErrataCluster["key"][] = [
@@ -381,8 +402,8 @@ describe("runErrataTriage proposals", () => {
   test.each([false, true])("a pending notice survives a dissolved cluster (missing key: %s)", async (missingKey) => {
     const { somaHome, deps, reports } = await triageHarness({ landing: {}, readEvents: async () => [] });
     const events: ErrataEvent[] = [
-      ...missingKey ? [] : [created(member("E1")), clustered("E1", at),
-        { kind: "dropped" as const, id: "E1", at, reason: "Withdrawn." }],
+      ...(missingKey ? [] : [created(member("E1")), clustered("E1", at),
+        { kind: "dropped" as const, id: "E1", at }]),
       { kind: "unroutable", clusterId: "EC1", repo: "the-metafactory/soma", at },
       proposed(1, at),
     ];
@@ -570,7 +591,7 @@ describe("runErrataTriage proposals", () => {
     const report = await readFile(join(somaHome, "outputs", filename), "utf8");
     expect(reports[0]).toMatchObject({ resultRef: `soma:outputs/${filename}` });
     expect(reports[0].proposalRefs).toBeUndefined();
-    expect(report).toContain("`errata-check-algorithm-verify-outline-empty-section-C3`");
+    expect(report).toContain(`\`errata-${SLUG}\``);
     expect(report).toContain("the-metafactory/soma");
     expect(report).not.toContain(complaint);
     const ledger = await readFile(join(somaHome, "memory", "STATE", "errata", "ledger.jsonl"), "utf8");

@@ -140,9 +140,11 @@ The ref is `errata-<cluster-key>-g<generation>` and it is the dedup key: the sam
 Vigil's item is open updates that item, and a new generation is the producer's act. The
 cluster key is the cluster's own spelling — `check-<passedBy kind>-<run or repo>-<criterion>`,
 `artifact-<path>`, or `theme-<label>` — folded to `[A-Za-z0-9._-]`: accented letters to their
-base, anything else to one `-`, runs of separators collapsed, ends trimmed. Past 80 characters
-it keeps its head plus a hash of the whole spelling. The fold is a legible key, not a digest:
-keys differing only in punctuation share a slug. The file sits at
+base, anything else to one `-`, runs of separators collapsed, ends trimmed. Every key gets a
+16-hex-character SHA-256 suffix over its ordered field array, preserving identity when
+punctuation, accents or field separators fold to the same readable head. The head is trimmed
+to keep the whole slug within 80 characters. Already minted refs remain as recorded in the
+ledger for delivery and answers. The file sits at
 `<soma-home>/proposals/<ref>.md` with front-matter that `soma graph file-proposal` reads —
 `proposal_kind`, `landing`, `map_root`, `title`, `checkpoint: errata-<cluster-key>` and
 `cites` — and it is validated through that same schema before anything is written. A

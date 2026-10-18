@@ -596,9 +596,9 @@ export async function clusterErrata(deps: ErrataClusterDeps): Promise<ErrataClus
 // Proposals: a ripe cluster becomes a file the principal can answer (node #852)
 // ---------------------------------------------------------------------------
 
-/** How long a cluster key's slug may run before it keeps its head and gains a hash. */
+/** Total budget for a cluster key's readable head and identity hash. */
 export const ERRATA_CLUSTER_SLUG_MAX = 80;
-const ERRATA_CLUSTER_SLUG_HASH = 8;
+const ERRATA_CLUSTER_SLUG_HASH = 16;
 /** Transcript reads per cluster: a ripe cluster is small, and the draft needs only its shape. */
 const ERRATA_PROPOSAL_TURN_MAX = 8;
 /** Characters of one turn the draft may read. The delivered bytes themselves stay in the transcript. */
@@ -610,16 +610,20 @@ function sha256Hex(text: string): string {
 }
 
 /**
- * The one spelling of a cluster key: compact, in the check's words or Ivy's, never the
- * complaint's. It keys the slug and enters the draft prompt as `cluster`.
+ * Ordered identity fields of a cluster key, independent of object property order. Their
+ * joined spelling enters the draft prompt as `cluster`; their array keeps field boundaries.
  */
-function clusterKeySpelling(key: ErrataClusterKey): string {
-  if (key.kind === "artifact") return `artifact-${key.path}`;
-  if (key.kind === "theme") return `theme-${key.label}`;
+function clusterKeyParts(key: ErrataClusterKey): string[] {
+  if (key.kind === "artifact") return [key.kind, key.path];
+  if (key.kind === "theme") return [key.kind, key.label];
   const passedBy = key.passedBy;
   return passedBy.kind === "algorithm-verify"
-    ? `check-${passedBy.kind}-${passedBy.runId}-${passedBy.criterionId}`
-    : `check-${passedBy.kind}-${passedBy.repo}-${passedBy.nodeId}-${passedBy.receiptCommentId}`;
+    ? [key.kind, passedBy.kind, passedBy.runId, passedBy.criterionId]
+    : [key.kind, passedBy.kind, passedBy.repo, passedBy.nodeId, passedBy.receiptCommentId];
+}
+
+function clusterKeySpelling(key: ErrataClusterKey): string {
+  return clusterKeyParts(key).join("-");
 }
 
 function passedBySpelling(passedBy: ErrataPassedBy | null): string | null {
@@ -633,16 +637,14 @@ function passedBySpelling(passedBy: ErrataPassedBy | null): string | null {
  * `errata-<cluster-key>`: the checkpoint id, and the middle of the proposal ref. Both
  * `soma graph file-proposal` grammars allow only `[A-Za-z0-9._-]`, so accented letters are
  * folded to their base and anything else becomes one `-`, with runs of separators collapsed
- * and the ends trimmed. A spelling past the budget keeps its head plus a hash of the whole
- * spelling, so two long keys never mint the same ref, and the head never ends on a separator.
- * The fold is a legible key, not a digest: keys differing only in punctuation share a slug.
+ * and the ends trimmed. Every slug includes a hash of the structured key: folding and even
+ * joining fields can lose identity. The readable head is trimmed to fit the total budget.
  */
 export function errataClusterSlug(key: ErrataClusterKey): string {
   const spelling = clusterKeySpelling(key);
   const folded = spelling.normalize("NFKD").replace(/\p{Mn}/gu, "");
   const slug = folded.replace(/[^\w.-]+/gu, "-").replace(/[-.]{2,}/gu, "-").replace(/^[-.]+|[-.]+$/gu, "");
-  const hash = sha256Hex(spelling).slice(0, ERRATA_CLUSTER_SLUG_HASH);
-  if (slug.length <= ERRATA_CLUSTER_SLUG_MAX) return slug.length > 0 ? slug : hash;
+  const hash = sha256Hex(JSON.stringify(clusterKeyParts(key))).slice(0, ERRATA_CLUSTER_SLUG_HASH);
   const head = slug.slice(0, ERRATA_CLUSTER_SLUG_MAX - ERRATA_CLUSTER_SLUG_HASH - 1).replace(/[-.]+$/gu, "");
   return head.length > 0 ? `${head}-${hash}` : hash;
 }
@@ -938,6 +940,15 @@ export async function planClusterProposal(deps: ErrataProposalDeps): Promise<Err
   };
 }
 
+async function writeFileAtomic(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, content, { flag: "wx", mode: 0o600 });
+    await rename(temporary, path);
+  } finally { await rm(temporary, { force: true }); }
+}
+
 /** The file first, then the event: a write that dies midway leaves the cluster unproposed, so the next run retries. */
 export async function commitClusterProposal(
   plan: Exclude<ErrataProposalPlan, { status: "waiting" }>,
@@ -945,12 +956,7 @@ export async function commitClusterProposal(
 ): Promise<void> {
   const append = deps.appendEvent ?? ((event: ErrataEvent) => writeEvent(deps.somaHome, event));
   if (plan.status === "propose") {
-    await mkdir(dirname(plan.path), { recursive: true, mode: 0o700 });
-    const temporary = `${plan.path}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, plan.content, { flag: "wx", mode: 0o600 });
-      await rename(temporary, plan.path);
-    } finally { await rm(temporary, { force: true }); }
+    await writeFileAtomic(plan.path, plan.content);
   }
   await append(plan.event);
 }
@@ -1027,8 +1033,7 @@ async function deliveredIds(directory: string): Promise<Set<string>> {
 }
 
 /** A committed mint is pending until delivery is acknowledged, independently of drafting. */
-async function pendingProposalRefs(somaHome: string): Promise<string[]> {
-  const events = await readEvents(somaHome);
+async function pendingProposalRefs(somaHome: string, events: readonly ErrataEvent[]): Promise<string[]> {
   const acknowledged = await deliveredIds(deliveryDirectory(somaHome, "proposal"));
   for (const event of events) {
     if (isAnswerEvent(event)) acknowledged.add(event.ref);
@@ -1045,11 +1050,12 @@ async function acknowledgeDelivery(directory: string, ids: readonly string[]): P
 }
 
 /** Recover notices from their mints, even if the original run never wrote its summary. */
-async function pendingUnroutableReport(somaHome: string, now: () => Date): Promise<{ ids: string[]; resultRef?: string }> {
-  const events = await readEvents(somaHome);
+async function pendingUnroutableReport(somaHome: string, events: readonly ErrataEvent[], now: () => Date): Promise<{ ids: string[]; resultRef?: string }> {
   const acknowledged = await deliveredIds(deliveryDirectory(somaHome, "unroutable"));
+  const lastMints = new Map<string, Extract<ErrataEvent, { kind: "proposed" | "unroutable" }>>();
   // The ledger position distinguishes repeated notices even when their timestamps coincide.
   const pending = events.flatMap((event, index) => {
+    if (event.kind === "proposed" || event.kind === "unroutable") lastMints.set(event.clusterId, event);
     if (event.kind !== "unroutable") return [];
     const id = sha256Hex(JSON.stringify([index, event.clusterId, event.repo, event.at]));
     return acknowledged.has(id) ? [] : [{ id, event }];
@@ -1059,26 +1065,20 @@ async function pendingUnroutableReport(somaHome: string, now: () => Date): Promi
   const checkpoints = new Map(ledger.clusters.map((cluster) => [cluster.id, errataCheckpointId(cluster.key)]));
   const rows = new Map<string, { cluster: string; repo: string | null }>();
   const addRow = (clusterId: string, repo: string | null) => {
-    const cluster = checkpoints.get(clusterId);
-    if (cluster === undefined) throw new Error("Unroutable notice has no cluster key.");
+    const cluster = checkpoints.get(clusterId) ?? clusterId;
     rows.set(JSON.stringify([clusterId, repo]), { cluster, repo });
   };
   // Keep the daily summary useful by including clusters still waiting, as well as every
   // undelivered notice (which may have since gained a registered map or lost its members).
   for (const cluster of activeClusters(ledger)) {
-    const mint = foldClusterHistory(events, cluster).mint;
+    const mint = lastMints.get(cluster.id);
     if (mint?.kind === "unroutable") addRow(cluster.id, mint.repo);
   }
   for (const { event } of pending) addRow(event.clusterId, event.repo);
   const day = localDate("Europe/Zurich", now());
   const filename = `errata-unroutable-${day}.md`;
   const path = join(somaHome, "outputs", filename);
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, unroutableReportText(day, [...rows.values()]), { flag: "wx", mode: 0o600 });
-    await rename(temporary, path);
-  } finally { await rm(temporary, { force: true }); }
+  await writeFileAtomic(path, unroutableReportText(day, [...rows.values()]));
   return { ids: pending.map(({ id }) => id), resultRef: `soma:outputs/${filename}` };
 }
 
@@ -1108,7 +1108,7 @@ async function proposeRipeClusters(
   return run;
 }
 
-export interface ErrataTriageDeps extends RunLedgerDeps {
+export interface ErrataTriageDeps extends RunLedgerDeps, Pick<ErrataProposalDeps, "landing" | "readTurn" | "resolveRepo"> {
   somaHome: string;
   now?: () => Date;
   readEvents?: () => Promise<readonly SomaMemoryEvent[]>;
@@ -1121,12 +1121,7 @@ export interface ErrataTriageDeps extends RunLedgerDeps {
   recordJudgment?: (record: JudgmentRecord) => Promise<boolean>;
   /** An injected publisher returning void acknowledges delivery; otherwise the funnel's status applies. */
   publishRun?: (input: RunFinishedInput) => Promise<RunFinishedResult> | Promise<void>;
-  /** Registered landing maps for the proposals of this run; defaults to soma's config. */
-  landing?: Readonly<Record<string, number>>;
-  /** Transcript reader, repo resolver and draft judge for a ripe cluster; see `ErrataProposalDeps`.
-   * They are the proposal seams, so a triage run can be driven without Claude or git. */
-  readTurn?: (sessionId: string, rejectedTurnUuid: string) => Promise<ErrataTurnEvidence | null>;
-  resolveRepo?: (cwd: string) => Promise<string | undefined>;
+  /** Draft judge for a ripe cluster; the other proposal seams are inherited from `ErrataProposalDeps`. */
   classifyProposal?: (input: ErrataProposalInput) => Promise<ErrataProposalVerdict>;
 }
 
@@ -1246,8 +1241,12 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
   // A failed batch/report keeps every committed mint pending for a later successful run.
   return withLedgerLock(deps.somaHome, async () => {
     let notices: { ids: string[]; resultRef?: string } = { ids: [] };
+    let events: readonly ErrataEvent[] = [];
     if (result.outcome === "succeeded") {
-      try { notices = await pendingUnroutableReport(deps.somaHome, now); }
+      try {
+        events = await readEvents(deps.somaHome);
+        notices = await pendingUnroutableReport(deps.somaHome, events, now);
+      }
       catch (error) {
         // Keep private filesystem details out of reports; the ledger retains every notice.
         if (!(error instanceof Error)) throw error;
@@ -1258,7 +1257,7 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
       await mkdir(join(deps.somaHome, "memory", "STATE", "errata", "triage-runs"), { recursive: true, mode: 0o700 });
       await writeFile(detailRef, `${JSON.stringify({ ...result, runId, startedAt, endedAt })}\n`, { mode: 0o600 });
     } catch { result.outcome = "failed"; }
-    const pendingRefs = result.outcome === "succeeded" ? await pendingProposalRefs(deps.somaHome) : [];
+    const pendingRefs = result.outcome === "succeeded" ? await pendingProposalRefs(deps.somaHome, events) : [];
     const report: RunFinishedInput = {
       kind: "job", ref: "errata-triage", runId, startedAt, endedAt, outcome: result.outcome, detailRef,
       // myelin takes both fields only on a run that succeeded, so a failed run carries neither.
