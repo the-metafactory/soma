@@ -53,7 +53,7 @@ export type ComponentName = (typeof componentNames)[number];
 const substrateUnitNames = ["anthropic-cowork", "claude-code", "codex", "cursor", "dsh", "grok", "pi-dev"] as const;
 
 function substrateUnit(name: string): ComponentUnit {
-  return { files: [`src/adapters/${name}/**`, `src/adapters/${name}`, `src/experimental/${name}`] };
+  return { files: [`src/substrates/adapters/${name}/**`, `src/substrates/adapters/${name}`, `src/substrates/experimental/${name}`] };
 }
 
 export const components: ComponentManifest<ComponentName> = {
@@ -162,9 +162,8 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "legacy"],
   },
   substrates: {
+    publicEntries: ["src/substrates/index.ts"],
     files: [
-      "src/adapters/**",
-      "src/experimental/**",
       "src/substrates/**",
     ],
     mayImport: ["core", "events", "memory", "purpose", "vsa", "policy", "home", "algorithm", "router", "execution", "legacy"],

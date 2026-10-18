@@ -32,9 +32,9 @@ The first workflow is a ledger update:
 
 The first implemented slice is projection:
 
-- `src/adapters/codex.ts` projects Soma into Codex shape.
-- `src/adapters/pi-dev.ts` projects Soma into a Pi.dev extension shape.
-- `src/adapters/claude-code.ts` projects Soma into Claude Code shape.
+- `src/substrates/adapters/codex.ts` projects Soma into Codex shape.
+- `src/substrates/adapters/pi-dev.ts` projects Soma into a Pi.dev extension shape.
+- `src/substrates/adapters/claude-code.ts` projects Soma into Claude Code shape.
 - Tests compare shared projection semantics before any daemon or plugin work
   begins.
 

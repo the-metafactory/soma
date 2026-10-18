@@ -35,7 +35,7 @@ import {
   installSomaForPiDev as installSomaForPiDevUnshared,
 } from "../../src/index";
 import { resolveSomaHome } from "../../src/lifecycle";
-import type { SomaInstallOptions } from "../../src/types";
+import type { SomaInstallOptions } from "../../src/substrates/types";
 
 const STORE_PREFIX = "soma-shared-runtime-";
 

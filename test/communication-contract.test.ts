@@ -19,7 +19,7 @@ import {
   type Projection,
   type ProjectionInput,
 } from "../src/index";
-import { projectAnthropicCoworkHome } from "../src/adapters/anthropic-cowork";
+import { projectAnthropicCoworkHome } from "../src/substrates/adapters/anthropic-cowork";
 import {
   DECISION_REFERENCE_LETTER,
   RESERVED_REFERENCE_LETTERS,

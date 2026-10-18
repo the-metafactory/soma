@@ -17,12 +17,12 @@ import {
   setActiveVsa,
   uninstallSomaForClaudeCode,
 } from "../src/index";
-import { unpatchClaudeCodeModeClassifierSettings } from "../src/adapters/claude-code/hooks";
+import { unpatchClaudeCodeModeClassifierSettings } from "../src/substrates/adapters/claude-code/hooks";
 import { installSpecFor } from "../src/substrates/install-spec-registry";
 import type { InstallSubstrate, SkillsDiscoveryMode } from "../src/substrates/install-spec";
-import { SOMA_SKILLS_HEADING } from "../src/adapters/shared";
-import { writePortableSkillManifest } from "../src/adapters/shared/portable-skill-manifest";
-import { stripProvenance } from "../src/adapters/shared/provenance";
+import { SOMA_SKILLS_HEADING } from "../src/substrates/adapters/shared/index";
+import { writePortableSkillManifest } from "../src/substrates/adapters/shared/portable-skill-manifest";
+import { stripProvenance } from "../src/substrates/adapters/shared/provenance";
 import { datePrefixSlug } from "../src/core/index";
 import { expectReprojectPrunesStaleTelos, portableProjectionInput } from "./fixtures";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";

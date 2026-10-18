@@ -16,7 +16,7 @@ import { runSomaLifecycleSessionStart } from "../../src/lifecycle";
 import { repairProjectedArtifacts } from "../../src/substrates/projection-self-repair";
 // Direct adapter import (not re-exported from the root — it's an adapter-internal
 // descriptor): also loads the module's registerProjectionRepairProvider side effect.
-import { claudeCodeProjectionRepairArtifacts } from "../../src/adapters/claude-code/projection-self-repair";
+import { claudeCodeProjectionRepairArtifacts } from "../../src/substrates/adapters/claude-code/projection-self-repair";
 import { STUB_RUNTIME_SOURCE } from "../fixtures/stub-runtime";
 
 const STATUSLINE_REL = ".claude/hooks/soma/soma-statusline.sh";

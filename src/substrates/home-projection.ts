@@ -4,7 +4,8 @@ import { installSpecFor, isRegisteredInstallSubstrate } from "./install-spec-reg
 import type { HomeProjectionBuildContext } from "./install-spec";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "../core";
-import type { Projection, ProjectionSubstrate, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "../types";
+import type { Projection, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "./types";
+import type { ProjectionSubstrate } from "../types";
 import type { ProjectionInput } from "../home/types";
 import type { InstallSubstrate } from "../policy/types";
 

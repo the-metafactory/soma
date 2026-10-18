@@ -13,7 +13,7 @@ import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs, renderPolic
 // gleiche Bytes, anderer aufgeloester Pfad.
 const policyMarkerDir = await mkdtemp(join(tmpdir(), "soma-policy-marker-"));
 await copyFile(
-  new URL("../src/adapters/codex/hooks/policy-marker.mjs", import.meta.url),
+  new URL("../src/substrates/adapters/codex/hooks/policy-marker.mjs", import.meta.url),
   join(policyMarkerDir, "policy-marker.mjs"),
 );
 const { hasSomaPolicyPrivateMarker: hasSomaPolicyPrivateMarkerJs } = (await import(
@@ -45,7 +45,7 @@ test("keeps TypeScript and hook marker matchers in parity", () => {
 });
 
 test("keeps hook marker asset generated from TypeScript source", async () => {
-  const asset = await readFile(join(import.meta.dir, "../src/adapters/codex/hooks/policy-marker.mjs"), "utf8");
+  const asset = await readFile(join(import.meta.dir, "../src/substrates/adapters/codex/hooks/policy-marker.mjs"), "utf8");
   expect(asset).toBe(renderPolicyMarkerMjs());
 });
 

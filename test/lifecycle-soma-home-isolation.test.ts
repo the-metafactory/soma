@@ -7,14 +7,14 @@ import { bootstrapSomaHome, serializeMemoryNote, type SomaHomeProjection, type S
 import { runSomaLifecycleSessionEnd, resolveLifecycleHomeDir, SCRATCH_SUBSTRATE_HOME_DIRNAME } from "../src/lifecycle";
 import { registerSessionEndTranscriptHandler } from "../src/home/index";
 import { memoryNotePath, type WritableType } from "../src/memory/index";
-import { resolveInstalledLifecycleHomeDir } from "../src/adapters/shared/lifecycle-home-binding";
+import { resolveInstalledLifecycleHomeDir } from "../src/substrates/adapters/shared/lifecycle-home-binding";
 import { buildCodexHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection } from "../src/substrates/home-projection";
 import { portableProjectionInput } from "./fixtures";
 import { defaultSubstrateHome } from "../src/substrates/install-spec-registry";
-import { CODEX_LIFECYCLE_CONFIG_PATH } from "../src/adapters/codex/projection-constants";
-import { GROK_LIFECYCLE_CONFIG_PATH } from "../src/adapters/grok/projection-constants";
-import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "../src/adapters/pi-dev/projection-constants";
-import { SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH, renderClaudeCodeStatusLineScript } from "../src/adapters/claude-code/hooks";
+import { CODEX_LIFECYCLE_CONFIG_PATH } from "../src/substrates/adapters/codex/projection-constants";
+import { GROK_LIFECYCLE_CONFIG_PATH } from "../src/substrates/adapters/grok/projection-constants";
+import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "../src/substrates/adapters/pi-dev/projection-constants";
+import { SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH, renderClaudeCodeStatusLineScript } from "../src/substrates/adapters/claude-code/hooks";
 
 // node #614: `--soma-home <scratch>` reads as "this invocation is sandboxed", but
 // substrate homes used to resolve against `os.homedir()` regardless, so a

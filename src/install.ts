@@ -1,53 +1,22 @@
 import { homedir } from "node:os";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import {
-  installClaudeCodeHomeProjection,
-  installAnthropicCoworkHomeProjection,
-  installCodexHomeProjection,
-  installCursorHomeProjection,
-  installDshHomeProjection,
-  installGrokHomeProjection,
-  installPiDevHomeProjection,
-} from "./substrates/home-projection";
-import type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
+import { installClaudeCodeHomeProjection, installAnthropicCoworkHomeProjection, installCodexHomeProjection, installCursorHomeProjection, installDshHomeProjection, installGrokHomeProjection, installPiDevHomeProjection, type ClaudeCodeInstallOptions, pruneLegacyVsaSkill, installBundledSkillsIntoHome, installVsaSkillProjection, isUnderOrEqual, reconcileOwnedDir, isGuardedRuntimeSubstrate, prepareRuntimeSource, type RuntimeArtifactTarget, stageRuntimeArtifacts, SomaInstallExecution, type ImplementedUninstallSpec, type InstallSubstrate, type LifecycleProjectionSpec, type SubstrateInstallSpec, type UninstallContext, allInstallSpecs, defaultSubstrateHome, installSpecFor, projectSkills, scanRegistrySkills, type InstalledSkill, type SomaInstallOptions, type SomaInstallResult, type UninstallableSkillReport } from "./substrates/index";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { SOMA_MEMORY_CATEGORIES } from "./memory/index";
 import { defaultSomaRepoPath } from "./core/index";
 import { bootstrapSomaHome } from "./home-bootstrap";
 import { loadSomaHome } from "./home/index";
 import { createPaths } from "./core/index";
-import { pruneLegacyVsaSkill } from "./substrates/legacy-skill-prune";
-import { installBundledSkillsIntoHome } from "./substrates/bundled-skills";
-import { installVsaSkillProjection } from "./substrates/vsa-skill-installer";
 import { loadActiveVsaForBundle } from "./vsa/index";
 import { loadMemoryIndexForProjection } from "./memory/index";
-import { isUnderOrEqual, reconcileOwnedDir } from "./substrates/projection-reconcile";
 import { isEnoent } from "./core/index";
-import { isGuardedRuntimeSubstrate, prepareRuntimeSource, type RuntimeArtifactTarget, stageRuntimeArtifacts } from "./substrates/runtime-artifact";
-import { SomaInstallExecution } from "./substrates/installation-executor";
-import {
-  type ImplementedUninstallSpec,
-  type InstallSubstrate,
-  type LifecycleProjectionSpec,
-  type SubstrateInstallSpec,
-  type UninstallContext,
-} from "./substrates/install-spec";
-import { allInstallSpecs, defaultSubstrateHome, installSpecFor } from "./substrates/install-spec-registry";
-import { projectSkills, scanRegistrySkills } from "./substrates/skill-projection";
-import type {
-  InstalledSkill,
-  SomaInstallOptions,
-  SomaInstallPlan,
-  SomaInstallResult,
-  SubstrateId,
-  UninstallableSkillReport,
-} from "./types";
+import type { SomaInstallPlan, SubstrateId } from "./types";
 import type {
   ProjectionInput,
 } from "./home/types";
 
-export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
+export type { ClaudeCodeInstallOptions } from "./substrates/index";
 
 const SOMA_BOOTSTRAP_FILES = [
   "profile/assistant.md",

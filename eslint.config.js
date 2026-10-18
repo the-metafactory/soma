@@ -117,7 +117,7 @@ export default tseslint.config(
   //   - `../<sub>/**`           matches sibling import from inside adapters/
   // These two together cover every legal import specifier shape in the repo.
   {
-    files: ["src/adapters/codex/**/*.{ts,mjs}"],
+    files: ["src/substrates/adapters/codex/**/*.{ts,mjs}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -133,7 +133,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/adapters/pi-dev/**/*.{ts,mjs}"],
+    files: ["src/substrates/adapters/pi-dev/**/*.{ts,mjs}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -150,7 +150,7 @@ export default tseslint.config(
   },
   {
     files: ["src/**/*.{ts,mjs}"],
-    ignores: ["src/adapters/codex/**", "src/adapters/pi-dev/**", "src/adapters/shared/**", "src/substrates/install-spec-registry.ts"],
+    ignores: ["src/substrates/adapters/codex/**", "src/substrates/adapters/pi-dev/**", "src/substrates/adapters/shared/**", "src/substrates/install-spec-registry.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

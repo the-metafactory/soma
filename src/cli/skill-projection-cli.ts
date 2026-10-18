@@ -1,13 +1,4 @@
-import {
-  planProjectSkill,
-  planUnprojectSkill,
-  projectSkill,
-  unprojectSkill,
-  type ProjectSkillOptions,
-  type SkillProjectionPlan,
-  type SkillProjectionResult,
-  type UnprojectSkillOptions,
-} from "../substrates/skill-projection";
+import { planProjectSkill, planUnprojectSkill, projectSkill, unprojectSkill, type ProjectSkillOptions, type SkillProjectionPlan, type SkillProjectionResult, type UnprojectSkillOptions } from "../substrates/index";
 import { INSTALL_SUBSTRATES, isInstallSubstrate, type InstallSubstrate } from "./substrate-lifecycle";
 import { readOption } from "./parse-utils";
 

@@ -128,7 +128,7 @@ This document specifies the unified contract.
   installed skills live in. This design adds one host (`--host soma`) and one
   manifest schema to arc; it does not duplicate arc.
 - A new execution model for skills. Substrate adapters already exist
-  (`src/adapters/claude-code.ts`, `codex/`, `pi-dev/`). This design specifies
+  (`src/substrates/adapters/claude-code.ts`, `codex/`, `pi-dev/`). This design specifies
   what they project; it does not redesign projection internals.
 - Cross-skill code dependencies. Forbidden in v1; declared in the schema for
   later. Skills depend on soma core and on declared tools (e.g. `bun`), not on
@@ -150,7 +150,7 @@ The terminology this design uses, deliberately precise:
   memory, skills, policy, learning, state.
 - **substrate** — an execution environment soma adapts to. Today: Claude Code,
   Codex, Pi.dev, Cortex/Myelin daemon.
-- **substrate adapter** — code in `src/adapters/<substrate>` that reads a
+- **substrate adapter** — code in `src/substrates/adapters/<substrate>` that reads a
   `ProjectionInput` (which now includes installed skills) and produces a
   `Projection` (files + instructions for that substrate).
 - **projection** — the substrate-native surface generated from soma home.

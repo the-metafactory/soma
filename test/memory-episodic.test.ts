@@ -8,10 +8,7 @@ import {
   writeMemoryAction,
   writeSessionDigest,
 } from "../src/index";
-import {
-  extractDigestBodyFromTranscript,
-  writeSessionDigestFromTranscript,
-} from "../src/adapters/claude-code/session-digest";
+import { extractDigestBodyFromTranscript, writeSessionDigestFromTranscript } from "../src/substrates/adapters/claude-code/session-digest";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 
 /** Build a JSONL transcript from a list of {user}/{assistant tool} lines. */

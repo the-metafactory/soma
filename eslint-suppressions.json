@@ -1,110 +1,110 @@
 {
-  "src/adapters/anthropic-cowork.ts": {
+  "src/substrates/adapters/anthropic-cowork.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/claude-code/hook-runner.mjs": {
+  "src/substrates/adapters/claude-code/hook-runner.mjs": {
     "soma/no-discarded-error": {
       "count": 7
     }
   },
-  "src/adapters/claude-code/hooks.ts": {
+  "src/substrates/adapters/claude-code/hooks.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/claude-code/mode-classifier-hook.mjs": {
+  "src/substrates/adapters/claude-code/mode-classifier-hook.mjs": {
     "soma/no-discarded-error": {
       "count": 3
     }
   },
-  "src/adapters/claude-code/policy-guard-hook.mjs": {
+  "src/substrates/adapters/claude-code/policy-guard-hook.mjs": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/claude-code/precompact-hook.mjs": {
+  "src/substrates/adapters/claude-code/precompact-hook.mjs": {
     "soma/no-discarded-error": {
       "count": 3
     }
   },
-  "src/adapters/claude-code/session-digest.ts": {
+  "src/substrates/adapters/claude-code/session-digest.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/adapters/codex/config.ts": {
+  "src/substrates/adapters/codex/config.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/codex/hooks/codex-hook-entry.mjs": {
+  "src/substrates/adapters/codex/hooks/codex-hook-entry.mjs": {
     "soma/no-discarded-error": {
       "count": 6
     }
   },
-  "src/adapters/codex/install.ts": {
+  "src/substrates/adapters/codex/install.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/codex/session-digest.ts": {
+  "src/substrates/adapters/codex/session-digest.ts": {
     "soma/no-discarded-error": {
       "count": 5
     }
   },
-  "src/adapters/doctor.ts": {
+  "src/substrates/adapters/doctor.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/grok/adapter.ts": {
+  "src/substrates/adapters/grok/adapter.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/grok/doctor.ts": {
+  "src/substrates/adapters/grok/doctor.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/adapters/grok/hook-smoke.ts": {
+  "src/substrates/adapters/grok/hook-smoke.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/grok/hooks/grok-hook-entry.mjs": {
+  "src/substrates/adapters/grok/hooks/grok-hook-entry.mjs": {
     "soma/no-discarded-error": {
       "count": 8
     }
   },
-  "src/adapters/grok/hooks/shell-policy-core.mjs": {
+  "src/substrates/adapters/grok/hooks/shell-policy-core.mjs": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/grok/version.ts": {
+  "src/substrates/adapters/grok/version.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/pi-dev/version.ts": {
+  "src/substrates/adapters/pi-dev/version.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/shared/lifecycle-home-binding.ts": {
+  "src/substrates/adapters/shared/lifecycle-home-binding.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/shared/portable-skill-manifest.ts": {
+  "src/substrates/adapters/shared/portable-skill-manifest.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
   },
-  "src/adapters/skill-stub-doctor.ts": {
+  "src/substrates/adapters/skill-stub-doctor.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }

@@ -1,8 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createPaths } from "./core/index";
-import { buildSubstrateHomeProjection } from "./substrates/home-projection";
-import { isRegisteredInstallSubstrate } from "./substrates/install-spec-registry";
+import { buildSubstrateHomeProjection, isRegisteredInstallSubstrate } from "./substrates/index";
 import { loadMemoryIndexForProjection, reindexMemoryIfStale } from "./memory/index";
 import { appendSomaMemoryEvent } from "./events/index";
 import { loadSomaHome } from "./home/index";

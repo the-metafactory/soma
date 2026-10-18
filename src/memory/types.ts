@@ -408,7 +408,7 @@ export interface SomaMemoryDigestOptions {
 }
 
 // The Claude Code SessionEnd transcript-fallback types (ClaudeSessionDigestOptions/
-// Result) are adapter-owned — see src/adapters/claude-code/session-digest.ts. Core
+// Result) are adapter-owned — see src/substrates/adapters/claude-code/session-digest.ts. Core
 // stays substrate-neutral: it exposes only `writeSessionDigest` (ready body + hook
 // marker) and `hasSessionDigest`; the Claude JSONL format never enters core.
 

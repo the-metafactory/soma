@@ -20,7 +20,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { resolveSubstrateSessionEnv } from "./adapters/session-env";
+import { resolveSubstrateSessionEnv } from "./substrates/index";
 import {
   advanceAlgorithmRun,
   createAlgorithmRun,

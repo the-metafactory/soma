@@ -216,11 +216,18 @@ function readBaseViolations(root: string, revision: string, manifest: ComponentM
     execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
   // Resolve to a commit first, so neither revision names nor paths become options.
   const commit = git("rev-parse", "--verify", "--end-of-options", `${revision}^{commit}`).trim();
+  // A relocation preserves an existing exception's file identities. Ask Git
+  // for actual renames rather than accepting new path pairs as new debt.
+  const records = git("diff", "--name-status", "-z", "--find-renames", "--diff-filter=R", commit, "--", "src", "test").split("\0");
+  const renames = new Map<string, string>();
+  for (let i = 0; i + 2 < records.length; i += 3) renames.set(records[i + 1], records[i + 2]);
+  const relocated = (keys: string[]): string[] => keys.map((key) =>
+    key.split(" -> ").map((path) => renames.get(path) ?? path).join(" -> "));
   if (git("ls-tree", "--name-only", commit, "--", VIOLATIONS_PATH).trim()) {
     const errors: string[] = [];
     const list = parseViolationList(JSON.parse(git("show", `${commit}:${VIOLATIONS_PATH}`)), errors, `${revision}:${VIOLATIONS_PATH}`);
     if (errors.length) throw new Error(errors.join("; "));
-    return list;
+    return relocated(list);
   }
 
   // First landing has no historical list. Compute existing debt from the base
@@ -239,7 +246,7 @@ function readBaseViolations(root: string, revision: string, manifest: ComponentM
     if (report.unmatched.length || report.ambiguous.length) {
       throw new Error("base-tree membership does not match the manifest");
     }
-    return report.violations.map((violation) => violation.key);
+    return relocated(report.violations.map((violation) => violation.key));
   } finally {
     rmSync(snapshot, { recursive: true, force: true });
   }
