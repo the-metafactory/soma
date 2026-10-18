@@ -38,3 +38,13 @@ export type SomaMemoryPromotionStore = keyof typeof SOMA_MEMORY_PROMOTION_STORE_
 export const SOMA_MEMORY_PROMOTION_STORES = Object.keys(
   SOMA_MEMORY_PROMOTION_STORE_DIRS,
 ) as SomaMemoryPromotionStore[];
+
+/** Shared by proposal producers and the graph file-proposal schema. */
+export const PROPOSAL_KINDS = [
+  "deterministic-check",
+  "reviewer-standard",
+  "navigation-pointer",
+  "information-access",
+  "rule-memory",
+] as const;
+export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
