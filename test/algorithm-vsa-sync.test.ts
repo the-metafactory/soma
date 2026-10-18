@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, spyOn, test } from "bun:test";
-import { syncAlgorithmRunFromVsa } from "../src/algorithm-vsa-sync";
+import { syncAlgorithmRunFromVsa } from "../src/flows/algorithm-vsa-sync";
 import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm/algorithm-store";
 import { syncBridgedPlanStep } from "../src/algorithm/algorithm";
 import { getCriteria } from "../src/vsa/vsa-accessors";

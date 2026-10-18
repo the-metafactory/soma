@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { diagnoseGrokProjectionDrift } from "../src/substrates/adapters/grok/doctor";
 import { GROK_AGENTS_BLOCK_BEGIN, GROK_AGENTS_BLOCK_END } from "../src/substrates/adapters/grok/config-patch";
 import { GROK_HOOK_FILE_MARKERS } from "../src/substrates/adapters/grok/install";
-import { diagnoseSomaDoctor } from "../src/onboarding";
+import { diagnoseSomaDoctor } from "../src/flows/onboarding";
 import { runSomaCli } from "../src/cli";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 

@@ -34,7 +34,7 @@ import {
   installSomaForGrok as installSomaForGrokUnshared,
   installSomaForPiDev as installSomaForPiDevUnshared,
 } from "../../src/index";
-import { resolveSomaHome } from "../../src/lifecycle";
+import { resolveSomaHome } from "../../src/flows/lifecycle";
 import type { SomaInstallOptions } from "../../src/substrates/types";
 
 const STORE_PREFIX = "soma-shared-runtime-";

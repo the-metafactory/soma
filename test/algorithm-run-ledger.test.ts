@@ -29,7 +29,7 @@ import {
   RUN_LEDGER_TIMEOUT_MS,
   runLedgerSpoolPath,
   type RunLedgerEnv,
-} from "../src/run-ledger";
+} from "../src/flows/run-ledger";
 import type { AlgorithmPhase } from "../src/types";
 import type { AlgorithmRun } from "../src/algorithm/types";
 

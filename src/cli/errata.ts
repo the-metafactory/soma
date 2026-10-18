@@ -1,5 +1,5 @@
 import { defaultSomaHome } from "../core/index";
-import { dropErrata, readErrata, runErrataTriage, type ErrataTriageDeps } from "../errata";
+import { dropErrata, readErrata, runErrataTriage, type ErrataTriageDeps } from "../flows/index";
 import { readOption } from "./parse-utils";
 
 export interface ParsedErrataArgs {

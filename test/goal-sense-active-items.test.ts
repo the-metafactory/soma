@@ -7,13 +7,13 @@ import { join } from "node:path";
 import { stringify } from "yaml";
 import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
 import { classifyCollectionItem, countActiveItems, measureActiveItems, readTanaCollection, runActiveItemLimitSensor,
-  COLLECTION_MAX_AGE_MS, type ItemCollection, type CollectionItem } from "../src/goal-sense-active-items";
-import { activeItemLimitKind, activeItemLimitParams } from "../src/goal-kinds/active-item-limit";
-import { listGoalKinds } from "../src/goal-kinds/registry";
+  COLLECTION_MAX_AGE_MS, type ItemCollection, type CollectionItem } from "../src/flows/goal-sense-active-items";
+import { activeItemLimitKind, activeItemLimitParams } from "../src/flows/goal-kinds/active-item-limit";
+import { listGoalKinds } from "../src/flows/goal-kinds/registry";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
-import { proposeGoal } from "../src/goal-propose";
-import { buildRunFinishedEnvelope } from "../src/run-ledger";
-import { acceptGoalProposal } from "../src/goal-accept";
+import { proposeGoal } from "../src/flows/goal-propose";
+import { buildRunFinishedEnvelope } from "../src/flows/run-ledger";
+import { acceptGoalProposal } from "../src/flows/goal-accept";
 import type { InferenceBackend } from "../src/tools/inference";
 
 const now = new Date("2026-10-19T05:00:00Z");

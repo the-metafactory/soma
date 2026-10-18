@@ -1,5 +1,5 @@
-import { bootstrapSomaHome } from "../../src/home-bootstrap";
-import { prepareSomaInstallSkillContext } from "../../src/install";
+import { bootstrapSomaHome } from "../../src/flows/home-bootstrap";
+import { prepareSomaInstallSkillContext } from "../../src/flows/install";
 import { SomaInstallExecution } from "../../src/substrates/installation-executor";
 import { installCodexHomeProjection, buildGrokHomeProjection } from "../../src/substrates/home-projection";
 import { diagnoseContentCompareDrift } from "../../src/substrates/adapters/content-compare-doctor";

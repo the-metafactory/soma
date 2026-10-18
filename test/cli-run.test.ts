@@ -16,7 +16,7 @@ import {
   RUN_OUTCOMES,
   runLedgerSpoolPath,
   type RunLedgerEnv,
-} from "../src/run-ledger";
+} from "../src/flows/run-ledger";
 
 // `soma run finished` (node #821): the general verb a scheduled job calls to
 // report one finished run through the run ledger. A reporting failure never

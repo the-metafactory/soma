@@ -7,11 +7,11 @@ import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@t
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { runSomaCli } from "../src/cli";
 import { SomaCliError } from "../src/cli/errors";
-import { runRateSensor, type RateSensorDeps } from "../src/goal-sense-rate";
-import { rateKind, rateParams } from "../src/goal-kinds/rate";
-import { goalKinds } from "../src/goal-kinds/registry";
-import * as exports from "../src/goal-kinds";
-import { buildRunFinishedEnvelope } from "../src/run-ledger";
+import { runRateSensor, type RateSensorDeps } from "../src/flows/goal-sense-rate";
+import { rateKind, rateParams } from "../src/flows/goal-kinds/rate";
+import { goalKinds } from "../src/flows/goal-kinds/registry";
+import * as exports from "../src/flows/goal-kinds";
+import { buildRunFinishedEnvelope } from "../src/flows/run-ledger";
 
 const roots: string[] = [];
 afterEach(async () => {

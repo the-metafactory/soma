@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, serializeMemoryNote, type SomaHomeProjection, type SomaMemoryNote } from "../src/index";
-import { runSomaLifecycleSessionEnd, resolveLifecycleHomeDir, SCRATCH_SUBSTRATE_HOME_DIRNAME } from "../src/lifecycle";
+import { runSomaLifecycleSessionEnd, resolveLifecycleHomeDir, SCRATCH_SUBSTRATE_HOME_DIRNAME } from "../src/flows/lifecycle";
 import { registerSessionEndTranscriptHandler } from "../src/home/index";
 import { memoryNotePath, type WritableType } from "../src/memory/index";
 import { resolveInstalledLifecycleHomeDir } from "../src/substrates/adapters/shared/lifecycle-home-binding";

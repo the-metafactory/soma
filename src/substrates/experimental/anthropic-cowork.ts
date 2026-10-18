@@ -12,4 +12,4 @@ export {
   uninstallSomaForAnthropicCowork,
   type UninstallAnthropicCoworkOptions,
   type UninstallAnthropicCoworkResult,
-} from "../../install";
+} from "../../flows/install";

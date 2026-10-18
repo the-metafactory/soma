@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { buildSomaStartupContext, resolveSomaHome } from "../lifecycle";
+import { buildSomaStartupContext, resolveSomaHome } from "../flows/index";
 import { isEnoent } from "../core/index";
 import type { SomaLifecycleOptions } from "../substrates/index";
 import { readOption } from "./parse-utils";

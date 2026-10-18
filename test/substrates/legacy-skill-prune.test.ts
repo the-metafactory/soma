@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { pruneLegacyVsaSkill } from "../../src/substrates/legacy-skill-prune";
-import { installSomaForClaudeCode, installSomaForCodex } from "../../src/install";
+import { installSomaForClaudeCode, installSomaForCodex } from "../../src/flows/index";
 import { createPaths } from "../../src/core";
 import { STUB_RUNTIME_SOURCE } from "../fixtures/stub-runtime";
 
