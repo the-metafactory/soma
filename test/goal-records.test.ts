@@ -47,7 +47,7 @@ async function load(goalFiles: Record<string, string> | undefined): Promise<{ go
     includeSkills: false,
     onGoalWarning: (warning) => warnings.push(warning),
   });
-  return { goals: input.profile.purpose.goals, warnings };
+  return { goals: input.profile.purpose.goals ?? [], warnings };
 }
 
 function goal(frontmatter: string, body = "Publish one essay a month\n\nDrop if nobody reads them.\n"): string {
@@ -98,6 +98,19 @@ test.each([
   expect(warnings[0]?.field).toBe(field);
   expect(warnings[0]?.message).toContain(file);
   expect(warnings[0]?.message).toContain(field);
+});
+
+test("an unreadable G<n>.md is skipped with a file warning, and the others still load", async () => {
+  const somaHome = await homeWith({ "G5.md": G5 });
+  // A directory named like a goal file: readFile rejects it with EISDIR.
+  await mkdir(join(somaHome, "profile/goals/G6.md"));
+  const warnings: GoalRecordWarning[] = [];
+  const input = await loadSomaHome(somaHome, { includeSkills: false, onGoalWarning: (warning) => warnings.push(warning) });
+  expect(input.profile.purpose.goals?.map((g) => g.id)).toEqual(["G5"]);
+  expect(warnings).toHaveLength(1);
+  expect(warnings[0]?.file).toBe("G6.md");
+  expect(warnings[0]?.field).toBe("file");
+  expect(warnings[0]?.message).toContain("G6.md");
 });
 
 test("a skipped file warns through console.warn when no handler is given", async () => {
@@ -198,6 +211,14 @@ test("every adapter carries the active goals through the shared core", () => {
   }
   const purpose = projectAnthropicCoworkHome(input).files.find((file) => file.content.includes("## Missions"));
   expect(purpose?.content).toContain("## Goals\n\n- G9: wording of G9 (supports M1)\n- G12: wording of G12 (supports M0, M1)");
+});
+
+test("a Purpose without a goals field renders no Goals heading", () => {
+  const { goals: _goals, ...purpose } = portableProjectionInput.profile.purpose;
+  const input = { ...portableProjectionInput, profile: { ...portableProjectionInput.profile, purpose } };
+  expect(renderAssistantCore(input)).not.toMatch(/^Goals:$/m);
+  const cowork = projectAnthropicCoworkHome(input).files.map((file) => file.content).join("\n");
+  expect(cowork).not.toContain("## Goals");
 });
 
 test("no active goal renders no Goals heading", () => {

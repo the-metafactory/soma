@@ -20,8 +20,8 @@ export interface Purpose {
   mission?: string;
   /** The durable missions (M0–Mn). Loaded from `## Missions`, or `## Goals` in an older home (soma#784 D9). */
   missions: string[];
-  /** Typed goal records from `profile/goals/G<n>.md`, in id order, every status (soma#784 D2, D9). */
-  goals: GoalRecord[];
+  /** Typed goal records from `profile/goals/G<n>.md`, in id order, every status (soma#784 D2, D9). Absent reads as none. */
+  goals?: GoalRecord[];
   principles: string[];
   commitments: string[];
 }
