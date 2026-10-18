@@ -260,6 +260,17 @@ describe("proposeFromCluster", () => {
 });
 
 describe("errataClusterSlug", () => {
+  test("punctuation, accents and joined check fields do not alias distinct keys", () => {
+    const pairs: [ErrataCluster["key"], ErrataCluster["key"]][] = [
+      [{ kind: "artifact", path: "src/a-b.ts" }, { kind: "artifact", path: "src/a/b.ts" }],
+      [{ kind: "theme", label: "Über" }, { kind: "theme", label: "Uber" }],
+      [{ kind: "theme", label: "a..b" }, { kind: "theme", label: "a-b" }],
+      [{ kind: "check", passedBy: { ...check, runId: "a-b", criterionId: "c" } },
+        { kind: "check", passedBy: { ...check, runId: "a", criterionId: "b-c" } }],
+    ];
+    for (const [a, b] of pairs) expect(errataClusterSlug(a)).not.toBe(errataClusterSlug(b));
+  });
+
   test("a theme label is slugged to the ref alphabet, and a long one keeps its head and a hash", () => {
     expect(errataClusterSlug({ kind: "theme", label: "Skipped the probe" })).toBe("theme-Skipped-the-probe");
     expect(errataClusterSlug({ kind: "theme", label: "Über assumption, twice stated ✓" })).toBe("theme-Uber-assumption-twice-stated");
@@ -333,6 +344,62 @@ async function triageBacklog(count: number) {
 }
 
 describe("runErrataTriage proposals", () => {
+  test("clusters with the same readable slug keep separate files, refs and delivery receipts", async () => {
+    const { somaHome, deps, reports } = await triageHarness({ landing: registry, readEvents: async () => [] });
+    const keys: ErrataCluster["key"][] = [
+      { kind: "artifact", path: "src/a-b.ts" }, { kind: "artifact", path: "src/a/b.ts" },
+    ];
+    const events: ErrataEvent[] = keys.flatMap((key, index) => [0, 1].flatMap((offset) => {
+      const id = `E${index * 2 + offset + 1}`;
+      return [created(member(id, { passedBy: null })),
+        { kind: "clustered", id, clusterId: `EC${index + 1}`, key, at }];
+    }));
+    const directory = join(somaHome, "memory", "STATE", "errata");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "ledger.jsonl"), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+    deps.publishRun = async () => "disabled";
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", proposed: 2 });
+    const files = await proposalFiles(somaHome);
+    expect(files).toHaveLength(2);
+    const refs = keys.map((key) => `errata-${errataClusterSlug(key)}-g1`);
+    expect((await readProposalFile(somaHome, refs[0])).frontMatter.cites).toEqual(["E1", "E2"]);
+    expect((await readProposalFile(somaHome, refs[1])).frontMatter.cites).toEqual(["E3", "E4"]);
+
+    // A receipt for the first proposal cannot acknowledge the second one.
+    const deliveries = join(directory, "proposal-deliveries");
+    await mkdir(deliveries);
+    await writeFile(join(deliveries, `${refs[0]}.delivered`), "");
+    deps.publishRun = async (report) => { reports.push(report); };
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", proposed: 0 });
+    expect(reports[0].proposalRefs).toEqual([`soma:proposals/${refs[1]}.md`]);
+    expect((await readdir(deliveries)).sort()).toEqual(refs.map((ref) => `${ref}.delivered`).sort());
+    await runErrataTriage(deps);
+    expect(reports[1].proposalRefs).toBeUndefined();
+    expect(await proposalFiles(somaHome)).toEqual(files);
+  });
+
+  test.each([false, true])("a pending notice survives a dissolved cluster (missing key: %s)", async (missingKey) => {
+    const { somaHome, deps, reports } = await triageHarness({ landing: {}, readEvents: async () => [] });
+    const events: ErrataEvent[] = [
+      ...missingKey ? [] : [created(member("E1")), clustered("E1", at),
+        { kind: "dropped" as const, id: "E1", at, reason: "Withdrawn." }],
+      { kind: "unroutable", clusterId: "EC1", repo: "the-metafactory/soma", at },
+      proposed(1, at),
+    ];
+    const directory = join(somaHome, "memory", "STATE", "errata");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "ledger.jsonl"), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", proposed: 0 });
+    expect(reports[0].resultRef).toBe("soma:outputs/errata-unroutable-2026-10-15.md");
+    expect(reports[0].proposalRefs).toEqual([`soma:proposals/errata-${SLUG}-g1.md`]);
+    const summary = await readFile(join(somaHome, "outputs", "errata-unroutable-2026-10-15.md"), "utf8");
+    expect(summary).toContain(missingKey ? "`EC1`" : `\`errata-${SLUG}\``);
+    expect(summary).toContain("the-metafactory/soma");
+    await runErrataTriage(deps);
+    expect(reports[1].resultRef).toBeUndefined();
+    expect(reports[1].proposalRefs).toBeUndefined();
+  });
+
   test("a later commit failure leaves earlier proposals pending for the next successful run", async () => {
     const { somaHome, deps, reports, refs } = await triageBacklog(2);
     const obstruction = join(somaHome, "proposals", `${refs[1]}.md`);
