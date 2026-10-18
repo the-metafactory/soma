@@ -647,6 +647,10 @@ export function errataClusterSlug(key: ErrataClusterKey): string {
   return head.length > 0 ? `${head}-${hash}` : hash;
 }
 
+function errataCheckpointId(key: ErrataClusterKey): string {
+  return `errata-${errataClusterSlug(key)}`;
+}
+
 /** The envelope's form of a ref: myelin wants a `soma:` path relative to soma-home (soma#903 D2). */
 export function proposalEnvelopeRef(ref: string): string {
   return `soma:proposals/${ref}.md`;
@@ -731,6 +735,10 @@ export interface ErrataProposalDeps {
   /** The `owner/repo` a working directory's `origin` remote points at. */
   resolveRepo?: (cwd: string) => Promise<string | undefined>;
   classify?: (input: ErrataProposalInput) => Promise<ErrataProposalVerdict>;
+}
+
+function ledgerReader(deps: Pick<ErrataProposalDeps, "somaHome" | "readLedger">): () => Promise<readonly ErrataEvent[]> {
+  return deps.readLedger ?? (() => readEvents(deps.somaHome));
 }
 
 /** What proposing one cluster decided, before anything is written. */
@@ -855,7 +863,7 @@ function proposalBody(verdict: ErrataProposalVerdict, cites: readonly string[]):
  */
 export async function planClusterProposal(deps: ErrataProposalDeps): Promise<ErrataProposalPlan> {
   const now = deps.now ?? (() => new Date());
-  const events = [...(await (deps.readLedger ?? (() => readEvents(deps.somaHome)))())];
+  const events = [...(await ledgerReader(deps)())];
   const registry = deps.landing ?? await readErrataLandingRegistry(deps.somaHome);
   const decision = proposalDecision(foldClusterHistory(events, deps.cluster), registry);
   if (decision.action === "wait") return { status: "waiting" };
@@ -905,15 +913,15 @@ export async function planClusterProposal(deps: ErrataProposalDeps): Promise<Err
   // The draft is untrusted content even through an injected classifier.
   validateErrataProposal(verdict, input);
 
-  const slug = errataClusterSlug(deps.cluster.key);
-  const ref = `errata-${slug}-g${decision.generation}`;
+  const checkpointId = errataCheckpointId(deps.cluster.key);
+  const ref = `${checkpointId}-g${decision.generation}`;
   const cites = members.map((record) => record.id);
   const frontMatter = proposalFrontMatterSchema.safeParse({
     proposal_kind: verdict.proposal_kind,
     landing,
     map_root: mapRoot,
     title: verdict.title,
-    checkpoint: `errata-${slug}`,
+    checkpoint: checkpointId,
     cites,
   });
   if (!frontMatter.success) {
@@ -969,12 +977,11 @@ export function unroutableReportText(date: string, rows: { cluster: string; repo
   return [
     `# Errata proposals without a landing map — ${date}`,
     "",
-    "These ripe Errata clusters have no landing map registered under `errata.landing` in",
-    "`<soma-home>/config.yaml`, so nothing was proposed for them and the check that should",
-    "have caught the rejection stays unbuilt. Register the repo and its map root, or settle",
-    "the check another way.",
+    "These ripe Errata clusters were found without a landing map under `errata.landing` in",
+    "`<soma-home>/config.yaml`, so no fix was proposed at that time. If the map is still",
+    "missing, register the repo and its map root, or settle the check another way.",
     "",
-    ...rows.map((row) => `- \`${row.cluster}\` — ${row.repo === null ? "the cluster's sessions name no repo." : `repo \`${row.repo}\` is not registered.`}`),
+    ...rows.map((row) => `- \`${row.cluster}\` — ${row.repo === null ? "the cluster's sessions name no repo." : `repo \`${row.repo}\` had no registered map.`}`),
     "",
   ].join("\n");
 }
@@ -984,7 +991,6 @@ export interface ErrataProposalRun {
   refs: string[];
   proposed: number;
   unroutable: number;
-  resultRef?: string;
 }
 
 /** Three Claude subprocesses at most, including transcript and ledger reads for their plans. */
@@ -1006,74 +1012,99 @@ async function planClusterProposals(deps: Omit<ErrataProposalDeps, "cluster">, c
   return plans;
 }
 
-function proposalDeliveryDirectory(somaHome: string): string {
-  return join(somaHome, "memory", "STATE", "errata", "proposal-deliveries");
+function deliveryDirectory(somaHome: string, kind: "proposal" | "unroutable"): string {
+  return join(somaHome, "memory", "STATE", "errata", `${kind}-deliveries`);
+}
+
+async function deliveredIds(directory: string): Promise<Set<string>> {
+  let delivered: string[];
+  try { delivered = await readdir(directory); }
+  catch (error) {
+    if (!isEnoent(error)) throw error;
+    delivered = [];
+  }
+  return new Set(delivered.filter((name) => name.endsWith(".delivered")).map((name) => name.slice(0, -".delivered".length)));
 }
 
 /** A committed mint is pending until delivery is acknowledged, independently of drafting. */
 async function pendingProposalRefs(somaHome: string): Promise<string[]> {
   const events = await readEvents(somaHome);
-  let delivered: string[];
-  try { delivered = await readdir(proposalDeliveryDirectory(somaHome)); }
-  catch (error) {
-    if (!isEnoent(error)) throw error;
-    delivered = [];
-  }
-  const acknowledged = new Set(delivered.filter((name) => name.endsWith(".delivered")).map((name) => name.slice(0, -".delivered".length)));
+  const acknowledged = await deliveredIds(deliveryDirectory(somaHome, "proposal"));
   for (const event of events) {
     if (isAnswerEvent(event)) acknowledged.add(event.ref);
   }
   return events.flatMap((event) => event.kind === "proposed" && !acknowledged.has(event.ref) ? [event.ref] : []);
 }
 
-async function acknowledgeProposalDelivery(somaHome: string, refs: readonly string[]): Promise<void> {
-  if (refs.length === 0) return;
-  const directory = proposalDeliveryDirectory(somaHome);
+async function acknowledgeDelivery(directory: string, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  for (const ref of refs) {
-    await writeFile(join(directory, `${ref}.delivered`), "", { mode: 0o600 });
+  for (const id of ids) {
+    await writeFile(join(directory, `${id}.delivered`), "", { mode: 0o600 });
   }
+}
+
+/** Recover notices from their mints, even if the original run never wrote its summary. */
+async function pendingUnroutableReport(somaHome: string, now: () => Date): Promise<{ ids: string[]; resultRef?: string }> {
+  const events = await readEvents(somaHome);
+  const acknowledged = await deliveredIds(deliveryDirectory(somaHome, "unroutable"));
+  // The ledger position distinguishes repeated notices even when their timestamps coincide.
+  const pending = events.flatMap((event, index) => {
+    if (event.kind !== "unroutable") return [];
+    const id = sha256Hex(JSON.stringify([index, event.clusterId, event.repo, event.at]));
+    return acknowledged.has(id) ? [] : [{ id, event }];
+  });
+  if (pending.length === 0) return { ids: [] };
+  const ledger = foldLedger(events);
+  const checkpoints = new Map(ledger.clusters.map((cluster) => [cluster.id, errataCheckpointId(cluster.key)]));
+  const rows = new Map<string, { cluster: string; repo: string | null }>();
+  const addRow = (clusterId: string, repo: string | null) => {
+    const cluster = checkpoints.get(clusterId);
+    if (cluster === undefined) throw new Error("Unroutable notice has no cluster key.");
+    rows.set(JSON.stringify([clusterId, repo]), { cluster, repo });
+  };
+  // Keep the daily summary useful by including clusters still waiting, as well as every
+  // undelivered notice (which may have since gained a registered map or lost its members).
+  for (const cluster of activeClusters(ledger)) {
+    const mint = foldClusterHistory(events, cluster).mint;
+    if (mint?.kind === "unroutable") addRow(cluster.id, mint.repo);
+  }
+  for (const { event } of pending) addRow(event.clusterId, event.repo);
+  const day = localDate("Europe/Zurich", now());
+  const filename = `errata-unroutable-${day}.md`;
+  const path = join(somaHome, "outputs", filename);
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, unroutableReportText(day, [...rows.values()]), { flag: "wx", mode: 0o600 });
+    await rename(temporary, path);
+  } finally { await rm(temporary, { force: true }); }
+  return { ids: pending.map(({ id }) => id), resultRef: `soma:outputs/${filename}` };
 }
 
 /**
  * Propose every ripe cluster of a triage run. Every cluster is planned before any file is
  * written, so one refused draft leaves the whole batch for the next run instead of half of
- * it on disk. A run that reported an unroutable cluster writes that day's summary naming
- * every cluster still waiting for a landing map, and carries it as its `result_ref`.
+ * it on disk. Committed mints remain pending until the run's delivery step acknowledges
+ * their proposal refs or unroutable summary.
  */
 async function proposeRipeClusters(
   deps: Omit<ErrataProposalDeps, "cluster">,
   clusters: readonly ErrataCluster[],
-  now: () => Date,
 ): Promise<ErrataProposalRun> {
   const run: ErrataProposalRun = { refs: [], proposed: 0, unroutable: 0 };
   if (clusters.length === 0) return run;
   const plans = await planClusterProposals(deps, clusters);
-  let reported = 0;
   for (const plan of plans) {
     if (plan.status === "waiting") continue;
     await commitClusterProposal(plan, deps);
     if (plan.status === "unroutable") {
       run.unroutable++;
-      reported++;
       continue;
     }
     run.proposed++;
     run.refs.push(plan.envelopeRef);
   }
-  if (reported === 0) return run;
-  // One file for the day naming every cluster still unrouted, so it is reported only once.
-  const events = [...await (deps.readLedger ?? (() => readEvents(deps.somaHome)))()];
-  const day = localDate("Europe/Zurich", now());
-  const rows = clusters.flatMap((cluster) => {
-    const mint = foldClusterHistory(events, cluster).mint;
-    return mint?.kind === "unroutable" ? [{ cluster: `errata-${errataClusterSlug(cluster.key)}`, repo: mint.repo }] : [];
-  });
-  const filename = `errata-unroutable-${day}.md`;
-  const path = join(deps.somaHome, "outputs", filename);
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, unroutableReportText(day, rows), { mode: 0o600 });
-  run.resultRef = `soma:outputs/${filename}`;
   return run;
 }
 
@@ -1131,7 +1162,6 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
   const runId = randomUUID();
   const detailRef = join(deps.somaHome, "memory", "STATE", "errata", "triage-runs", `${runId}.json`);
   const result: ErrataTriageResult = { outcome: "succeeded", promoted: 0, dropped: 0, skipped: 0, unlinkable: 0, clustered: 0, ripe: 0, proposed: 0, unroutable: 0, detailRef };
-  let resultRef: string | undefined;
   try {
     await withLedgerLock(deps.somaHome, async () => {
       const ledger = await (deps.readJudgments ?? (() => readJudgments(deps.somaHome, { caller: "errata-triage" })))();
@@ -1203,35 +1233,44 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
       const proposals = await proposeRipeClusters({
         somaHome: deps.somaHome, now, landing: deps.landing ?? await readErrataLandingRegistry(deps.somaHome),
         readTurn: deps.readTurn, resolveRepo: deps.resolveRepo, classify: deps.classifyProposal,
-      }, ripe, now);
+      }, ripe);
       result.proposed = proposals.proposed;
       result.unroutable = proposals.unroutable;
-      resultRef = proposals.resultRef;
     }, ".triage-lock");
   } catch {
     // Neither subprocess output nor complaint text belongs in CLI logs or the run report.
     result.outcome = "failed";
   }
   const endedAt = now().toISOString();
-  try {
-    await mkdir(join(deps.somaHome, "memory", "STATE", "errata", "triage-runs"), { recursive: true, mode: 0o700 });
-    await writeFile(detailRef, `${JSON.stringify({ ...result, runId, startedAt, endedAt })}\n`, { mode: 0o600 });
-  } catch { result.outcome = "failed"; }
-  // Serialize pending-ref snapshots and acknowledgments across overlapping jobs. A failed
-  // batch/report keeps every committed mint pending for a later successful run.
+  // Serialize summaries, pending snapshots and acknowledgments across overlapping jobs.
+  // A failed batch/report keeps every committed mint pending for a later successful run.
   return withLedgerLock(deps.somaHome, async () => {
+    let notices: { ids: string[]; resultRef?: string } = { ids: [] };
+    if (result.outcome === "succeeded") {
+      try { notices = await pendingUnroutableReport(deps.somaHome, now); }
+      catch (error) {
+        // Keep private filesystem details out of reports; the ledger retains every notice.
+        if (!(error instanceof Error)) throw error;
+        result.outcome = "failed";
+      }
+    }
+    try {
+      await mkdir(join(deps.somaHome, "memory", "STATE", "errata", "triage-runs"), { recursive: true, mode: 0o700 });
+      await writeFile(detailRef, `${JSON.stringify({ ...result, runId, startedAt, endedAt })}\n`, { mode: 0o600 });
+    } catch { result.outcome = "failed"; }
     const pendingRefs = result.outcome === "succeeded" ? await pendingProposalRefs(deps.somaHome) : [];
     const report: RunFinishedInput = {
       kind: "job", ref: "errata-triage", runId, startedAt, endedAt, outcome: result.outcome, detailRef,
       // myelin takes both fields only on a run that succeeded, so a failed run carries neither.
-      ...(result.outcome === "succeeded" && resultRef !== undefined ? { resultRef } : {}),
+      ...(result.outcome === "succeeded" && notices.resultRef !== undefined ? { resultRef: notices.resultRef } : {}),
       ...(pendingRefs.length > 0 ? { proposalRefs: pendingRefs.map(proposalEnvelopeRef) } : {}),
     };
     const delivery = await (deps.publishRun ?? ((input) => publishRunFinished(input, {
       somaHome: deps.somaHome, substrate: "custom", env: deps.env, publish: deps.publishRunFinished,
     })))(report);
     if (delivery === undefined || delivery === "published" || delivery === "spooled") {
-      await acknowledgeProposalDelivery(deps.somaHome, pendingRefs);
+      await acknowledgeDelivery(deliveryDirectory(deps.somaHome, "proposal"), pendingRefs);
+      if (report.resultRef !== undefined) await acknowledgeDelivery(deliveryDirectory(deps.somaHome, "unroutable"), notices.ids);
     }
     return result;
   }, ".proposal-delivery-lock");

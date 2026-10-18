@@ -159,8 +159,10 @@ session persistence — and no goal records or Soma home instructions enter it. 
 refused locally when its kind is not one of the five, when a `deterministic-check` lacks its
 check or its brief or another kind lacks its question, when any field carries 41 or more
 folded characters of a member's complaint (soma#785 Q23), or when a field names the Soma home,
-a cluster session's working directory, or an absolute local path (POSIX, Windows drive or UNC),
-home-relative path or file URI. Repository-relative paths and public links remain usable.
+a cluster session's working directory, or an absolute local path (POSIX with two or more
+segments, Windows drive or UNC), home-relative path or file URI. Repository-relative paths,
+public links, slash commands such as `/correct` and single-segment routes such as `GET /api`
+remain usable.
 Every cluster of a batch is drafted before any file
 is written, using at most three concurrent planning workers. One refused draft stops new
 planning, waits for the in-flight workers, and leaves the whole batch for the next run
@@ -217,4 +219,15 @@ receipt names its repo, otherwise the rejected turn's working directory answers 
 does not register, or whose sessions name no repo at all, gets no proposal and costs no
 inference. The run instead writes `<soma-home>/outputs/errata-unroutable-<date>.md` naming
 every cluster still waiting for a landing map, carries it as the run's `result_ref`, and
-appends `unroutable` so the same cluster is not reported again until a newer Errata joins it.
+appends `unroutable` so the same cluster is not planned again until a newer Errata joins it
+or its repo gains a registered map.
+
+Each `unroutable` event remains a pending notice until publication or confirmed spooling of
+its `result_ref`. Under the same delivery lock as proposal refs, the next successful run
+rebuilds its day's summary from the ledger, including every pending notice and the clusters
+still waiting for a map. A failed summary write, run-report write or delivery before spooling
+leaves the notice pending without appending another event or rereading transcripts. Private
+receipts under `memory/STATE/errata/unroutable-deliveries/<event-hash>.delivered` acknowledge
+each event separately, so a newer Errata can produce a fresh notice. The hash includes the
+ledger position, cluster, repo and timestamp. A crash after delivery and before its receipt
+may resend the notice; it cannot silently consume it.

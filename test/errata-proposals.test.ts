@@ -557,6 +557,52 @@ describe("runErrataTriage proposals", () => {
     expect(reports[1].resultRef).toBeUndefined();
   });
 
+  test("confirmed spooling acknowledges an unroutable notice and preserves its result envelope", async () => {
+    const { somaHome, deps, reports } = await triageHarness({ landing: {}, publishRun: undefined });
+    deps.env = { SOMA_PRINCIPAL: "jc", SOMA_NATS_URL: CLOSED_LOOPBACK };
+    expect((await runErrataTriage(deps)).unroutable).toBe(1);
+    const spool = (await readFile(runLedgerSpoolPath(somaHome), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(spool).toHaveLength(1);
+    expect(spool[0]).toMatchObject({ op: "put", envelope: { payload: { result_ref: "soma:outputs/errata-unroutable-2026-10-15.md" } } });
+    deps.publishRun = async (report) => { reports.push(report); };
+    await runErrataTriage(deps);
+    expect(reports[0].resultRef).toBeUndefined();
+  });
+
+  test("recovery reports every unregistered repo and acknowledges each notice", async () => {
+    const { somaHome, deps, reports } = await triageBacklog(2);
+    deps.landing = {};
+    deps.readTurn = async (sessionId) => ({ sessionId, cwd: `/checkout/${sessionId}`, excerpt: "Delivered an outline." });
+    deps.resolveRepo = async (cwd) => cwd.endsWith("S1") ? "the-metafactory/soma" : "the-metafactory/cortex";
+    deps.publishRun = async () => "failed";
+    expect((await runErrataTriage(deps)).unroutable).toBe(2);
+    deps.publishRun = async (report) => { reports.push(report); };
+    expect((await runErrataTriage(deps)).unroutable).toBe(0);
+    const text = await readFile(join(somaHome, "outputs", "errata-unroutable-2026-10-15.md"), "utf8");
+    expect(text).toContain("the-metafactory/soma");
+    expect(text).toContain("the-metafactory/cortex");
+    expect(reports[0].resultRef).toBeDefined();
+    await runErrataTriage(deps);
+    expect(reports[1].resultRef).toBeUndefined();
+  });
+
+  test("a newer Errata creates a fresh unroutable notice after the earlier one was delivered", async () => {
+    const { deps, reports, candidate } = await triageHarness({ landing: {} });
+    expect((await runErrataTriage(deps)).unroutable).toBe(1);
+    deps.now = () => new Date("2026-10-16T06:00:00Z");
+    deps.readEvents = async () => [{ ...candidate, id: "evt-2" }];
+    const link = deps.link!;
+    deps.link = async (input) => {
+      const linked = await link(input);
+      if (linked.status !== "linked") throw new Error("Expected linked fixture.");
+      return { ...linked, errata: { ...linked.errata, rejectedTurnUuid: "U2", complaintAt: "2026-10-16T05:00:00Z" } };
+    };
+    expect((await runErrataTriage(deps)).unroutable).toBe(1);
+    expect(reports[1].resultRef).toBe("soma:outputs/errata-unroutable-2026-10-16.md");
+    await runErrataTriage(deps);
+    expect(reports[2].resultRef).toBeUndefined();
+  });
+
   test("overlapping jobs deliver an unroutable notice only once", async () => {
     const { deps, reports } = await triageHarness({ landing: {} });
     await Promise.all([runErrataTriage(deps), runErrataTriage(deps)]);

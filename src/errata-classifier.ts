@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PROPOSAL_KINDS, type ProposalKind } from "./graph/index";
+import { PROPOSAL_KINDS, type ProposalKind } from "./core/index";
 
 export const ERRATA_TRIAGE_MODEL = "claude-haiku-4-5-20251001";
 export const ERRATA_TRIAGE_SCHEMA = {
@@ -29,6 +29,7 @@ export const ERRATA_THEME_SCHEMA = {
 export const ERRATA_PROPOSAL_OVERLAP_MIN = 41;
 export const ERRATA_PROPOSAL_TITLE_MAX = 120;
 export const ERRATA_PROPOSAL_TEXT_MAX = 600;
+export const ERRATA_PROPOSAL_REASON_MAX = 240;
 
 /** Retro-style analysis input for one ripe cluster (soma#785 Q22). Complaints are redacted data. */
 export interface ErrataProposalInput {
@@ -73,7 +74,7 @@ export const ERRATA_PROPOSAL_SCHEMA = {
     deliverable: proposalText,
     criteria: { type: "array", items: proposalText, minItems: 1, maxItems: 5 },
     question: proposalText,
-    reason: { type: "string", minLength: 1, maxLength: 240 },
+    reason: { type: "string", minLength: 1, maxLength: ERRATA_PROPOSAL_REASON_MAX },
   },
   required: ["proposal_kind", "title", "defect", "reason"],
   additionalProperties: false,
@@ -195,7 +196,7 @@ function scalarProposalField(value: unknown, maximum: number): boolean {
 /** Local filesystem spellings, including paths not present in the sampled sessions. */
 function namesLocalPath(text: string): boolean {
   // Require a token boundary so repository-relative paths and https:// links remain usable.
-  return /(?:^|[\s`"'(=:[])(?:\/[^\s/]|[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|~[\\/])|\bfile:\/\//iu.test(text);
+  return /(?:^|[\s`"'(=:[])(?:\/[^\s/]+\/[^\s]|[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|~[\\/])|\bfile:\/\//iu.test(text);
 }
 
 /**
@@ -210,7 +211,7 @@ export function validateErrataProposal(value: unknown, input: ErrataProposalInpu
   const shape = data !== null && (PROPOSAL_KINDS as readonly string[]).includes(data.proposal_kind ?? "")
     && scalarProposalField(data.title, ERRATA_PROPOSAL_TITLE_MAX)
     && scalarProposalField(data.defect, ERRATA_PROPOSAL_TEXT_MAX)
-    && scalarProposalField(data.reason, 240)
+    && scalarProposalField(data.reason, ERRATA_PROPOSAL_REASON_MAX)
     && typeof data.backendVersion === "string" && data.backendVersion.trim().length > 0
     && (build
       ? scalarProposalField(data.check, ERRATA_PROPOSAL_TEXT_MAX) && scalarProposalField(data.deliverable, ERRATA_PROPOSAL_TEXT_MAX)
