@@ -12,17 +12,11 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import { PROPOSAL_KINDS, type ProposalKind } from "../core/index";
 
 import { buildBriefMissing } from "./build-brief";
 
-export const PROPOSAL_KINDS = [
-  "deterministic-check",
-  "reviewer-standard",
-  "navigation-pointer",
-  "information-access",
-  "rule-memory",
-] as const;
-export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
+export { PROPOSAL_KINDS, type ProposalKind } from "../core/index";
 
 /** The front-matter contract. Strict: a field this schema does not name is a producer bug, not an extension. */
 export const proposalFrontMatterSchema = z.object({

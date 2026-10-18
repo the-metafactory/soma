@@ -172,6 +172,24 @@ describe("proposeFromCluster", () => {
     expect(await proposalFiles(somaHome)).toEqual([]);
   });
 
+  test.each([
+    "/vault/customer/outline.md", "C:\\private\\outline.md", "\\\\server\\private\\outline.md", "~/private/outline.md", "file:///vault/outline.md",
+  ])("a draft naming an unlisted local path %s is refused", async (path) => {
+    const leaked = { ...buildBrief, deliverable: `Read ${path} and refuse an empty section.` };
+    const { somaHome, deps, appended } = await harness([created(member("E1")), clustered("E1", "2026-10-15T05:00:00.000Z")], leaked);
+    deps.readTurn = async (sessionId) => ({ sessionId, cwd: "/checkout/soma", excerpt: `Delivered: Read ${path}` });
+
+    await expect(proposeFromCluster(deps)).rejects.toThrow(/names a private path/);
+    expect(await proposalFiles(somaHome)).toEqual([]);
+    expect(appended()).toEqual([]);
+  });
+
+  test("relative repository paths and public links remain usable in a brief", async () => {
+    const brief = { ...buildBrief, deliverable: "Read src/goal-outline.ts; follow https://example.com/docs/outline and refuse an empty section." };
+    const { deps } = await harness([created(member("E1")), clustered("E1", "2026-10-15T05:00:00.000Z")], brief);
+    expect(await proposeFromCluster(deps)).toMatchObject({ status: "proposed" });
+  });
+
   test("an unanswered proposal stays the only one: a second run writes nothing new", async () => {
     const seed = [created(member("E1")), clustered("E1", "2026-10-15T05:00:00.000Z"), proposed(1, "2026-10-15T05:30:00.000Z")];
     const { somaHome, deps, appended } = await harness(seed, buildBrief);
@@ -491,6 +509,23 @@ describe("runErrataTriage proposals", () => {
     const repeated = await readFile(join(somaHome, "memory", "STATE", "errata", "ledger.jsonl"), "utf8");
     expect(repeated.split('"kind":"unroutable"').length - 1).toBe(1);
     expect(reports[1].resultRef).toBeUndefined();
+  });
+
+  test("registering a previously unroutable repo proposes without a new Errata", async () => {
+    const { somaHome, deps, reports } = await triageHarness({ landing: undefined });
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 1, proposed: 0, unroutable: 1 });
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 0, proposed: 0, unroutable: 0 });
+    await writeFile(join(somaHome, "config.yaml"), "errata:\n  landing:\n    the-metafactory/soma: 909\n", "utf8");
+
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", promoted: 0, proposed: 1, unroutable: 0 });
+    expect((await readProposalFile(somaHome, `errata-${SLUG}-g1`)).frontMatter.map_root).toBe(909);
+    expect(reports[2].proposalRefs).toEqual([`soma:proposals/errata-${SLUG}-g1.md`]);
+    expect(reports[2].resultRef).toBeUndefined();
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", proposed: 0, unroutable: 0 });
+    expect(reports[3].proposalRefs).toBeUndefined();
+    const ledger = await readFile(join(somaHome, "memory", "STATE", "errata", "ledger.jsonl"), "utf8");
+    expect(ledger.split('"kind":"unroutable"').length - 1).toBe(1);
+    expect(ledger.split('"kind":"proposed"').length - 1).toBe(1);
   });
 
   test("a cluster no session can place is reported as naming no repo", async () => {

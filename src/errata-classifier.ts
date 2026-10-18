@@ -192,6 +192,12 @@ function scalarProposalField(value: unknown, maximum: number): boolean {
   return typeof value === "string" && value.trim().length > 0 && value.length <= maximum && !/[\n\r]/.test(value);
 }
 
+/** Local filesystem spellings, including paths not present in the sampled sessions. */
+function namesLocalPath(text: string): boolean {
+  // Require a token boundary so repository-relative paths and https:// links remain usable.
+  return /(?:^|[\s`"'(=:[])(?:\/[^\s/]|[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|~[\\/])|\bfile:\/\//iu.test(text);
+}
+
 /**
  * Local validation of a proposal draft: the kind is one of the five, a build kind carries
  * its check and brief and every other kind carries its question, and no field quotes a
@@ -218,7 +224,7 @@ export function validateErrataProposal(value: unknown, input: ErrataProposalInpu
     throw new Error("Errata proposal quotes a complaint.");
   }
   const privateTexts = input.privateStrings.filter((text) => text.trim().length > 0);
-  if (proposalFields(verdict).some((field) => privateTexts.some((text) => field.includes(text)))) {
+  if (proposalFields(verdict).some((field) => namesLocalPath(field) || privateTexts.some((text) => field.includes(text)))) {
     throw new Error("Errata proposal names a private path.");
   }
 }

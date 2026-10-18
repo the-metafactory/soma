@@ -158,8 +158,10 @@ an empty working directory, a replacement system prompt, no tools, no MCP server
 session persistence — and no goal records or Soma home instructions enter it. The draft is
 refused locally when its kind is not one of the five, when a `deterministic-check` lacks its
 check or its brief or another kind lacks its question, when any field carries 41 or more
-folded characters of a member's complaint (soma#785 Q23), or when a field names the Soma home
-or a cluster session's working directory. Every cluster of a batch is drafted before any file
+folded characters of a member's complaint (soma#785 Q23), or when a field names the Soma home,
+a cluster session's working directory, or an absolute local path (POSIX, Windows drive or UNC),
+home-relative path or file URI. Repository-relative paths and public links remain usable.
+Every cluster of a batch is drafted before any file
 is written, using at most three concurrent planning workers. One refused draft stops new
 planning, waits for the in-flight workers, and leaves the whole batch for the next run
 without committing a file. A filesystem failure during the subsequent commits can leave
@@ -173,6 +175,10 @@ What a cluster is owed is folded from the ledger, never stored:
 | `proposed` | none | any | nothing: the item is still open |
 | `proposed` | `expired`, `dismissed` or `resolved` | yes | the next generation |
 | `unroutable` | — | yes | the report again |
+
+Registering an `unroutable` cluster's named repo in `errata.landing` releases it for a
+proposal on the next triage run, without requiring a new Errata. An unroutable report
+does not consume a proposal generation.
 
 Triage appends the `proposed` and `unroutable` events. The answer kinds — `resolved`,
 `dismissed`, `expired` — are appended by the answer reader that drains Vigil's resolution

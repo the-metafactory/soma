@@ -12,7 +12,7 @@ import { parseTelemetryEventLine, somaMemoryEventsPath, streamEventLines } from 
 import { hashJudgmentInput, isEnoent, readJudgments, recordJudgment, type JudgmentRecord } from "./core/index";
 import { loadSomaConfig } from "./home/index";
 import {
-  GITHUB_DOTCOM, PROPOSAL_KINDS, parseProposal, parseRemoteUrl, proposalFrontMatterSchema, runCommand,
+  GITHUB_DOTCOM, parseProposal, parseRemoteUrl, proposalFrontMatterSchema, runCommand,
   type ProposalKind,
 } from "./graph/index";
 import {
@@ -81,6 +81,10 @@ function isAnswerKind(kind: unknown): kind is ErrataAnswerKind {
   return kind === "expired" || kind === "dismissed" || kind === "resolved";
 }
 
+function isAnswerEvent(event: ErrataEvent): event is Extract<ErrataClusterEvent, { kind: ErrataAnswerKind }> {
+  return isAnswerKind(event.kind);
+}
+
 /** The ref's own alphabet, one path segment: what `soma graph file-proposal` can resolve. */
 function proposalRefField(data: Record<string, unknown>): string {
   const ref = stringField(data, "ref");
@@ -116,11 +120,11 @@ function parseClusterEvent(data: Record<string, unknown>): ErrataClusterEvent | 
   const generation = data.generation;
   if (typeof generation !== "number" || !Number.isSafeInteger(generation) || generation < 1) throw new Error("Invalid Errata proposal generation.");
   const landing = proposalFrontMatterSchema.shape.landing.parse(data.landing);
-  const proposalKind = data.proposalKind;
-  if (typeof proposalKind !== "string" || !(PROPOSAL_KINDS as readonly string[]).includes(proposalKind)) {
+  const proposalKind = proposalFrontMatterSchema.shape.proposal_kind.safeParse(data.proposalKind);
+  if (!proposalKind.success) {
     throw new Error("Invalid Errata proposal kind.");
   }
-  return { kind: "proposed", clusterId, ref, generation, landing, proposalKind, at };
+  return { kind: "proposed", clusterId, ref, generation, landing, proposalKind: proposalKind.data, at };
 }
 
 function parseEvent(raw: unknown): ErrataEvent {
@@ -185,8 +189,7 @@ function foldLedger(events: readonly ErrataEvent[]): FoldedLedger {
       continue;
     }
     // A mint or an answer speaks about its cluster and turns no Errata record.
-    if (event.kind === "proposed" || event.kind === "unroutable"
-      || event.kind === "resolved" || event.kind === "dismissed" || event.kind === "expired") continue;
+    if (event.kind === "proposed" || event.kind === "unroutable" || isAnswerEvent(event)) continue;
     const record = records.get(event.id);
     if (!record) throw new Error(`Unknown Errata id in ledger: ${event.id}`);
     if (event.kind === "dropped") { records.set(event.id, { ...record, status: "dropped" }); continue; }
@@ -690,13 +693,16 @@ function foldClusterHistory(events: readonly ErrataEvent[], cluster: ErrataClust
 /**
  * What a ripe cluster is owed (soma#785 Q20, soma#903 D3). An unanswered proposal is still
  * open in Vigil, so nothing new is written for it even when more Errata join. A proposal an
- * answer closed, and an unroutable report, stand until a newer Errata joins the cluster:
- * that new evidence mints the next generation, or reports the missing landing map again.
+ * answer closed stands until a newer Errata joins the cluster. An unroutable report also
+ * stands until new evidence joins, unless its missing landing map has been registered.
  */
-function proposalDecision(history: ClusterProposalHistory): { action: "mint"; generation: number } | { action: "wait" } {
+function proposalDecision(history: ClusterProposalHistory, registry: Readonly<Record<string, number>>): { action: "mint"; generation: number } | { action: "wait" } {
   const mint = history.mint;
   if (mint === undefined) return { action: "mint", generation: 1 };
   if (mint.kind === "proposed" && history.answered === undefined) return { action: "wait" };
+  if (mint.kind === "unroutable" && mint.repo !== null && Object.hasOwn(registry, mint.repo)) {
+    return { action: "mint", generation: history.generations + 1 };
+  }
   const since = Date.parse(history.answered?.at ?? mint.at);
   if (history.joinedAt === undefined || Date.parse(history.joinedAt) <= since) return { action: "wait" };
   return { action: "mint", generation: history.generations + 1 };
@@ -850,7 +856,8 @@ function proposalBody(verdict: ErrataProposalVerdict, cites: readonly string[]):
 export async function planClusterProposal(deps: ErrataProposalDeps): Promise<ErrataProposalPlan> {
   const now = deps.now ?? (() => new Date());
   const events = [...(await (deps.readLedger ?? (() => readEvents(deps.somaHome)))())];
-  const decision = proposalDecision(foldClusterHistory(events, deps.cluster));
+  const registry = deps.landing ?? await readErrataLandingRegistry(deps.somaHome);
+  const decision = proposalDecision(foldClusterHistory(events, deps.cluster), registry);
   if (decision.action === "wait") return { status: "waiting" };
 
   const members = (deps.members ?? foldLedger(events).records
@@ -873,7 +880,6 @@ export async function planClusterProposal(deps: ErrataProposalDeps): Promise<Err
   }
 
   const at = now().toISOString();
-  const registry = deps.landing ?? await readErrataLandingRegistry(deps.somaHome);
   const mapRoot = landing === undefined ? undefined : registry[landing];
   if (landing === undefined || mapRoot === undefined) {
     return { status: "unroutable", repo: landing ?? null, event: { kind: "unroutable", clusterId: deps.cluster.id, repo: landing ?? null, at } };
@@ -892,7 +898,7 @@ export async function planClusterProposal(deps: ErrataProposalDeps): Promise<Err
       const turn = turns.get(record.id);
       return turn ? [{ errataId: record.id, sessionId: record.sessionId, excerpt: turn.excerpt }] : [];
     }),
-    // A proposal becomes a public node body, so no local path may survive into it.
+    // Reject known private roots as well as the local path forms the validator checks.
     privateStrings: [deps.somaHome, ...workingDirs],
   };
   const verdict = await (deps.classify ?? classifyErrataProposalWithClaude)(input);
@@ -1015,9 +1021,9 @@ async function pendingProposalRefs(somaHome: string): Promise<string[]> {
   }
   const acknowledged = new Set(delivered.filter((name) => name.endsWith(".delivered")).map((name) => name.slice(0, -".delivered".length)));
   for (const event of events) {
-    if (isAnswerKind(event.kind) && "ref" in event) acknowledged.add(event.ref);
+    if (isAnswerEvent(event)) acknowledged.add(event.ref);
   }
-  return events.flatMap((event) => event.kind === "proposed" && !acknowledged.has(event.ref) ? [proposalEnvelopeRef(event.ref)] : []);
+  return events.flatMap((event) => event.kind === "proposed" && !acknowledged.has(event.ref) ? [event.ref] : []);
 }
 
 async function acknowledgeProposalDelivery(somaHome: string, refs: readonly string[]): Promise<void> {
@@ -1025,8 +1031,7 @@ async function acknowledgeProposalDelivery(somaHome: string, refs: readonly stri
   const directory = proposalDeliveryDirectory(somaHome);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   for (const ref of refs) {
-    const name = ref.slice("soma:proposals/".length, -".md".length);
-    await writeFile(join(directory, `${name}.delivered`), "", { mode: 0o600 });
+    await writeFile(join(directory, `${ref}.delivered`), "", { mode: 0o600 });
   }
 }
 
@@ -1215,18 +1220,18 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
   // Serialize pending-ref snapshots and acknowledgments across overlapping jobs. A failed
   // batch/report keeps every committed mint pending for a later successful run.
   return withLedgerLock(deps.somaHome, async () => {
-    const proposalRefs = result.outcome === "succeeded" ? await pendingProposalRefs(deps.somaHome) : [];
+    const pendingRefs = result.outcome === "succeeded" ? await pendingProposalRefs(deps.somaHome) : [];
     const report: RunFinishedInput = {
       kind: "job", ref: "errata-triage", runId, startedAt, endedAt, outcome: result.outcome, detailRef,
       // myelin takes both fields only on a run that succeeded, so a failed run carries neither.
       ...(result.outcome === "succeeded" && resultRef !== undefined ? { resultRef } : {}),
-      ...(proposalRefs.length > 0 ? { proposalRefs } : {}),
+      ...(pendingRefs.length > 0 ? { proposalRefs: pendingRefs.map(proposalEnvelopeRef) } : {}),
     };
     const delivery = await (deps.publishRun ?? ((input) => publishRunFinished(input, {
       somaHome: deps.somaHome, substrate: "custom", env: deps.env, publish: deps.publishRunFinished,
     })))(report);
     if (delivery === undefined || delivery === "published" || delivery === "spooled") {
-      await acknowledgeProposalDelivery(deps.somaHome, proposalRefs);
+      await acknowledgeProposalDelivery(deps.somaHome, pendingRefs);
     }
     return result;
   }, ".proposal-delivery-lock");

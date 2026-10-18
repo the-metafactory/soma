@@ -1,4 +1,5 @@
 import type { AlgorithmRunSummary } from "./algorithm/types";
+import type { ProposalKind } from "./core/index";
 export type { AlgorithmEffortSource, AlgorithmLoopStatus, AlgorithmLoopIteration, AlgorithmLoopState, AlgorithmCriteriaPartition, IdeateParameters, IdeatePresetName, OptimizeParameters, OptimizePresetName, AlgorithmNotificationEvent, AlgorithmNotificationSink, AlgorithmLoopExecutionContext, AlgorithmLoopIterationResult, AlgorithmLoopExecutor, AlgorithmPromptClassification, AlgorithmPlanStep, AlgorithmReferenceVerdict, AlgorithmReference, AlgorithmObservation, AlgorithmGatesFired, AlgorithmMetaReflection, AlgorithmProvenanceOperation, AlgorithmProvenanceEntry, AlgorithmCapabilityKind, AlgorithmCapabilityContract, AlgorithmCapabilityInvocationContract, AlgorithmCapabilitySelectionStatus, AlgorithmCapabilityDefinition, SomaSkillAlgorithmCapabilityManifest, AlgorithmCapabilityInvocation, AlgorithmCapabilitySelection, AlgorithmRun, AlgorithmRunSummary, AlgorithmRunInput, AlgorithmBatchOperation, SomaSkillManifest } from "./algorithm/types";
 export { ALGORITHM_REFERENCE_VERDICTS, ALGORITHM_CAPABILITY_KINDS } from "./algorithm/types";
 import type { Purpose, ProjectionInput } from "./home/types";
@@ -134,7 +135,7 @@ export type ErrataAnswerKind = "expired" | "dismissed" | "resolved";
  * generation can be counted against the proposals that came before it.
  */
 export type ErrataClusterEvent =
-  | { kind: "proposed"; clusterId: string; ref: string; generation: number; landing: string; proposalKind: string; at: string }
+  | { kind: "proposed"; clusterId: string; ref: string; generation: number; landing: string; proposalKind: ProposalKind; at: string }
   | { kind: "unroutable"; clusterId: string; repo: string | null; at: string }
   | { kind: "resolved"; clusterId: string; ref: string; nodeRef?: string; at: string }
   | { kind: "dismissed"; clusterId: string; ref: string; at: string }
