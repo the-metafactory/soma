@@ -190,6 +190,12 @@ describe("proposeFromCluster", () => {
     expect(await proposeFromCluster(deps)).toMatchObject({ status: "proposed" });
   });
 
+  test.each(["/correct", "GET /api", "GET /healthz"])("a brief naming %s remains usable", async (command) => {
+    const brief = { ...buildBrief, deliverable: `Probe ${command} and refuse an empty section.` };
+    const { deps } = await harness([created(member("E1")), clustered("E1", "2026-10-15T05:00:00.000Z")], brief);
+    expect(await proposeFromCluster(deps)).toMatchObject({ status: "proposed" });
+  });
+
   test("an unanswered proposal stays the only one: a second run writes nothing new", async () => {
     const seed = [created(member("E1")), clustered("E1", "2026-10-15T05:00:00.000Z"), proposed(1, "2026-10-15T05:30:00.000Z")];
     const { somaHome, deps, appended } = await harness(seed, buildBrief);
@@ -509,6 +515,52 @@ describe("runErrataTriage proposals", () => {
     const repeated = await readFile(join(somaHome, "memory", "STATE", "errata", "ledger.jsonl"), "utf8");
     expect(repeated.split('"kind":"unroutable"').length - 1).toBe(1);
     expect(reports[1].resultRef).toBeUndefined();
+  });
+
+  test.each(["outputs", "summary", "run-report"])("an unroutable notice survives a blocked %s write", async (blocked) => {
+    const { somaHome, deps, reports } = await triageHarness({ landing: {} });
+    const obstruction = blocked === "outputs" ? join(somaHome, "outputs")
+      : blocked === "summary" ? join(somaHome, "outputs", "errata-unroutable-2026-10-15.md")
+        : join(somaHome, "memory", "STATE", "errata", "triage-runs");
+    await mkdir(join(obstruction, ".."), { recursive: true });
+    if (blocked === "summary") await mkdir(obstruction);
+    else await writeFile(obstruction, "block the report write");
+    expect((await runErrataTriage(deps)).outcome).toBe("failed");
+    expect(reports[0].resultRef).toBeUndefined();
+
+    await rm(obstruction, { recursive: true });
+    deps.now = () => new Date("2026-10-16T06:00:00Z");
+    deps.readTurn = async () => { throw new Error("Do not replan a committed unroutable cluster."); };
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", unroutable: 0 });
+    expect(reports[1].resultRef).toBe("soma:outputs/errata-unroutable-2026-10-16.md");
+    expect(await readFile(join(somaHome, "outputs", "errata-unroutable-2026-10-16.md"), "utf8")).toContain("the-metafactory/soma");
+    await runErrataTriage(deps);
+    expect(reports[2].resultRef).toBeUndefined();
+    const ledger = await readFile(join(somaHome, "memory", "STATE", "errata", "ledger.jsonl"), "utf8");
+    expect(ledger.split('"kind":"unroutable"').length - 1).toBe(1);
+  });
+
+  test.each(["failed", "disabled", "throw"])("an unroutable notice survives %s publication", async (failure) => {
+    const { somaHome, deps, reports } = await triageHarness({ landing: {} });
+    deps.publishRun = async () => {
+      if (failure === "throw") throw new Error("Delivery unavailable.");
+      return failure === "failed" ? "failed" : "disabled";
+    };
+    if (failure === "throw") await expect(runErrataTriage(deps)).rejects.toThrow("Delivery unavailable.");
+    else expect((await runErrataTriage(deps)).unroutable).toBe(1);
+
+    deps.publishRun = async (report) => { reports.push(report); };
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", unroutable: 0 });
+    expect(reports[0].resultRef).toBe("soma:outputs/errata-unroutable-2026-10-15.md");
+    expect(await readFile(join(somaHome, "outputs", "errata-unroutable-2026-10-15.md"), "utf8")).toContain("the-metafactory/soma");
+    await runErrataTriage(deps);
+    expect(reports[1].resultRef).toBeUndefined();
+  });
+
+  test("overlapping jobs deliver an unroutable notice only once", async () => {
+    const { deps, reports } = await triageHarness({ landing: {} });
+    await Promise.all([runErrataTriage(deps), runErrataTriage(deps)]);
+    expect(reports.flatMap((report) => report.resultRef ? [report.resultRef] : [])).toEqual(["soma:outputs/errata-unroutable-2026-10-15.md"]);
   });
 
   test("registering a previously unroutable repo proposes without a new Errata", async () => {
