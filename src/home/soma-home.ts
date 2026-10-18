@@ -1,6 +1,6 @@
 import { open, readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { loadGoalRecords, type GoalRecordWarning } from "../goal-records";
+import { readGoalRecordFiles, validateGoalRecords, type GoalRecordWarning } from "../goal-records";
 import { createPaths } from "../core/index";
 import { parseBehaviorPolicy, type BehaviorPolicy } from "../policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
@@ -239,20 +239,23 @@ export async function loadSomaProfile(
   options: LoadSomaProfileOptions = {},
 ): Promise<Omit<ProjectionInput["profile"], "skills">> {
   const paths = createPaths(somaHome);
-  // Four independent files. Serial awaits made them pay four round-trips on a
-  // path soma re-executes per subprocess invocation (sage #636 r2).
+  // Independent reads, goal files included. Serial awaits made them pay a
+  // round-trip each on a path soma re-executes per subprocess invocation
+  // (sage #636 r2).
   // soma#329: `readPurposeProfile` reads the renamed `purpose.md` and falls back
   // to a legacy `telos.md`, so homes created before the rename still load.
-  const [assistant, principal, communication, purpose, workingMethod] = await Promise.all([
+  // soma#784 D2/D9: typed goal records live one per file in `profile/goals/`;
+  // only their `supports` check needs the missions, so it runs after.
+  const [assistant, principal, communication, purpose, workingMethod, goalFiles] = await Promise.all([
     readFile(paths.resolve("profile", "assistant.md"), "utf8"),
     readFile(paths.resolve("profile", "principal.md"), "utf8"),
     readCommunicationContract(paths),
     readPurposeProfile(paths),
     readWorkingMethod(paths.resolve("skills", "the-algorithm", "references")),
+    readGoalRecordFiles(paths.resolve("profile", "goals")),
   ]);
   const missions = purposeMissions(purpose);
-  // soma#784 D2/D9: typed goal records live one per file in `profile/goals/`.
-  const { goals, warnings } = await loadGoalRecords(paths.resolve("profile", "goals"), missions);
+  const { goals, warnings } = await validateGoalRecords(goalFiles, missions);
   const warn = options.onGoalWarning ?? ((warning: GoalRecordWarning) => {
     console.warn(warning.message);
   });
