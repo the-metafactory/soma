@@ -20,7 +20,7 @@ const CLOSED_LOOPBACK = "nats://127.0.0.1:1";
 const at = "2026-10-15T06:00:00.000Z";
 const registry = { "the-metafactory/soma": 909 };
 
-const check: ErrataPassedBy = { kind: "algorithm-verify", runId: "outline-empty-section", criterionId: "C3" };
+const check = { kind: "algorithm-verify", runId: "outline-empty-section", criterionId: "C3" } as const satisfies ErrataPassedBy;
 const receipt: ErrataPassedBy = { kind: "close-receipt", repo: "the-metafactory/soma", nodeId: "848", receiptCommentId: "6177164346" };
 /** The ref and checkpoint `soma graph file-proposal` will see for the `check` cluster below. */
 const SLUG = "check-algorithm-verify-outline-empty-section-C3";
@@ -289,7 +289,129 @@ async function triageHarness(overrides: Partial<ErrataTriageDeps> = {}) {
   return { somaHome, candidate, deps, reports };
 }
 
+async function triageBacklog(count: number) {
+  const h = await triageHarness({ landing: registry });
+  const link = h.deps.link!;
+  h.deps.readEvents = async () => Array.from({ length: count }, (_, i) => ({
+    ...h.candidate, id: `evt-${i + 1}`,
+    metadata: { ...h.candidate.metadata, sessionId: `S${i + 1}` },
+  }));
+  h.deps.link = async (candidate) => {
+    const linked = await link(candidate);
+    if (linked.status !== "linked") throw new Error("Expected linked fixture.");
+    return { ...linked, errata: { ...linked.errata, sessionId: candidate.sessionId,
+      passedBy: { ...check, runId: `${check.runId}-${candidate.sessionId}` } } };
+  };
+  const refs = Array.from({ length: count }, (_, i) => `errata-${errataClusterSlug({
+    kind: "check", passedBy: { ...check, runId: `${check.runId}-S${i + 1}` },
+  })}-g1`);
+  return { ...h, refs };
+}
+
 describe("runErrataTriage proposals", () => {
+  test("a later commit failure leaves earlier proposals pending for the next successful run", async () => {
+    const { somaHome, deps, reports, refs } = await triageBacklog(2);
+    const obstruction = join(somaHome, "proposals", `${refs[1]}.md`);
+    await mkdir(obstruction, { recursive: true });
+    expect((await runErrataTriage(deps)).outcome).toBe("failed");
+    const original = await readFile(join(somaHome, "proposals", `${refs[0]}.md`), "utf8");
+    expect(reports[0].proposalRefs).toBeUndefined();
+
+    await rm(obstruction, { recursive: true });
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", proposed: 1 });
+    expect(reports[1].proposalRefs).toEqual(refs.map((ref) => `soma:proposals/${ref}.md`));
+    expect(await readFile(join(somaHome, "proposals", `${refs[0]}.md`), "utf8")).toBe(original);
+    await runErrataTriage(deps);
+    expect(reports[2].proposalRefs).toBeUndefined();
+  });
+
+  test("a report write failure leaves the committed proposal pending without redrafting", async () => {
+    const { somaHome, deps, reports } = await triageHarness({ landing: registry });
+    const obstruction = join(somaHome, "memory", "STATE", "errata", "triage-runs");
+    await mkdir(join(obstruction, ".."), { recursive: true });
+    await writeFile(obstruction, "block the report directory");
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "failed", proposed: 1 });
+    expect(reports[0].proposalRefs).toBeUndefined();
+
+    await rm(obstruction);
+    deps.classifyProposal = async () => { throw new Error("Must not redraft a committed proposal."); };
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", proposed: 0 });
+    expect(reports[1].proposalRefs).toEqual([`soma:proposals/errata-${SLUG}-g1.md`]);
+  });
+
+  test("failure before spooling retains pending delivery across runs", async () => {
+    const { somaHome, deps } = await triageHarness({ landing: registry, publishRun: undefined });
+    deps.env = { SOMA_PRINCIPAL: "jc", SOMA_NATS_CREDS: join(somaHome, "missing.creds") };
+    expect((await runErrataTriage(deps)).proposed).toBe(1);
+    const events: ExecutionRunFinishedEvent[] = [];
+    deps.env = { SOMA_PRINCIPAL: "jc" };
+    deps.publishRunFinished = async (event) => { events.push(event); };
+    expect((await runErrataTriage(deps)).proposed).toBe(0);
+    expect(events[0].input.payload.proposal_refs).toEqual([`soma:proposals/errata-${SLUG}-g1.md`]);
+    await runErrataTriage(deps);
+    expect(events[1].input.payload.proposal_refs).toBeUndefined();
+    expect(await proposalFiles(somaHome)).toEqual([`errata-${SLUG}-g1.md`]);
+  });
+
+  test("proposal planning is bounded and every plan finishes before any commit", async () => {
+    const { somaHome, deps } = await triageBacklog(9);
+    let active = 0;
+    let peak = 0;
+    let calls = 0;
+    const filesDuringPlanning: string[][] = [];
+    deps.classifyProposal = async () => {
+      active++;
+      peak = Math.max(peak, active);
+      calls++;
+      filesDuringPlanning.push(await proposalFiles(somaHome));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active--;
+      return buildBrief;
+    };
+    expect(await runErrataTriage(deps)).toMatchObject({ outcome: "succeeded", proposed: 9 });
+    expect(calls).toBe(9);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(filesDuringPlanning.every((files) => files.length === 0)).toBe(true);
+  });
+
+  test("a refused plan settles in-flight workers and commits no part of the batch", async () => {
+    const { somaHome, deps } = await triageBacklog(9);
+    let active = 0;
+    let calls = 0;
+    deps.classifyProposal = async () => {
+      const index = calls++;
+      active++;
+      try {
+        await new Promise((resolve) => setTimeout(resolve, index === 0 ? 0 : 20));
+        if (index === 0) throw new Error("Refuse the first draft.");
+        return buildBrief;
+      } finally { active--; }
+    };
+    expect((await runErrataTriage(deps)).outcome).toBe("failed");
+    expect(active).toBe(0);
+    expect(calls).toBe(3);
+    expect(await proposalFiles(somaHome)).toEqual([]);
+    expect(await readFile(join(somaHome, "memory", "STATE", "errata", "ledger.jsonl"), "utf8")).not.toContain('"kind":"proposed"');
+  });
+
+  test("overlapping jobs acknowledge a pending proposal only once", async () => {
+    const { deps, reports } = await triageHarness({ landing: registry });
+    await Promise.all([runErrataTriage(deps), runErrataTriage(deps)]);
+    expect(reports.flatMap((report) => report.proposalRefs ?? [])).toEqual([`soma:proposals/errata-${SLUG}-g1.md`]);
+  });
+
+  test("disabled delivery leaves the proposal pending, and a throwing publisher does too", async () => {
+    const { deps, reports } = await triageHarness({ landing: registry });
+    deps.publishRun = async () => "disabled";
+    expect((await runErrataTriage(deps)).proposed).toBe(1);
+    deps.publishRun = async () => { throw new Error("Delivery unavailable."); };
+    await expect(runErrataTriage(deps)).rejects.toThrow("Delivery unavailable.");
+    deps.publishRun = async (report) => { reports.push(report); };
+    expect((await runErrataTriage(deps)).proposed).toBe(0);
+    expect(reports[0].proposalRefs).toEqual([`soma:proposals/errata-${SLUG}-g1.md`]);
+  });
+
   test("a ripe cluster's ref rides the run envelope, and the next run carries nothing and writes nothing", async () => {
     const { somaHome, deps, reports } = await triageHarness({ landing: registry });
 
@@ -343,6 +465,10 @@ describe("runErrataTriage proposals", () => {
 
     expect((await runErrataTriage(deps)).proposed).toBe(0);
     expect(await proposalFiles(somaHome)).toEqual([`errata-${SLUG}-g1.md`]);
+    const delivered: ExecutionRunFinishedEvent[] = [];
+    deps.publishRunFinished = async (event) => { delivered.push(event); };
+    await runErrataTriage(deps);
+    expect(delivered[0].input.payload.proposal_refs).toBeUndefined();
   });
 
   test("an unregistered landing repo is reported once, as a waiting result naming the repo", async () => {

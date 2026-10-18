@@ -16,6 +16,7 @@
  * never emit, and a home without bus config should not pay the module load.
  */
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import type {
   ExecutionRunFinishedEvent,
@@ -102,7 +103,7 @@ export interface PublishRunFinishedOptions {
   publish?: RunFinishedPublisher;
 }
 
-export type RunFinishedResult = "disabled" | "published" | "failed";
+export type RunFinishedResult = "disabled" | "published" | "spooled" | "failed";
 
 type RunLedgerStage = "load" | "build" | "config" | "publish" | "timeout";
 
@@ -115,6 +116,9 @@ class RunLedgerError extends Error {
     super(message, options);
   }
 }
+
+/** The bus send failed, but this exact envelope is durably in myelin's outbox. */
+class SpooledRunLedgerError extends RunLedgerError {}
 
 interface RunLedgerConfig {
   principal: string;
@@ -207,7 +211,22 @@ export async function publishThroughOutbox(
   await outbox.drained;
   sending = true;
   await outbox.publish(event.subject, envelope);
-  if (failures.length > 0) throw new RunLedgerError("publish", failures.join("; "));
+  if (failures.length > 0) {
+    // Outbox logging alone does not prove persistence: its spool write can fail too.
+    // Match this envelope's put, never an older run's entry in the shared spool.
+    let spooled: boolean;
+    try {
+      const lines = (await readFile(target.spoolPath, "utf8")).trim().split("\n");
+      spooled = lines.some((line) => {
+        const row: unknown = JSON.parse(line);
+        return typeof row === "object" && row !== null && "op" in row && row.op === "put" && "id" in row && row.id === envelope.id;
+      });
+    } catch (error) {
+      throw new RunLedgerError("publish", "Could not confirm run envelope spool", { cause: error });
+    }
+    const Failure = spooled ? SpooledRunLedgerError : RunLedgerError;
+    throw new Failure("publish", failures.join("; "));
+  }
 }
 
 /**
@@ -328,6 +347,7 @@ export async function publishRunFinished(input: RunFinishedInput, options: Publi
     return "published";
   } catch (error) {
     await recordFailure(options, input, error);
+    if (error instanceof SpooledRunLedgerError) return "spooled";
     return "failed";
   } finally {
     clearTimeout(timer);

@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, normalize, relative, isAbsolute } from "node:path";
 import { listAlgorithmRuns } from "./algorithm/algorithm-store";
@@ -20,7 +20,7 @@ import {
   validateErrataProposal, validateErrataTheme, validateErrataVerdict,
   type ErrataProposalInput, type ErrataProposalVerdict, type ErrataThemeInput, type ErrataThemeVerdict, type ErrataTriageVerdict,
 } from "./errata-classifier";
-import { publishRunFinished, type RunFinishedInput, type RunLedgerDeps } from "./run-ledger";
+import { publishRunFinished, type RunFinishedInput, type RunFinishedResult, type RunLedgerDeps } from "./run-ledger";
 import { localDate } from "./workdays";
 
 function stringField(data: Record<string, unknown>, key: string, allowEmpty = false): string {
@@ -981,6 +981,55 @@ export interface ErrataProposalRun {
   resultRef?: string;
 }
 
+/** Three Claude subprocesses at most, including transcript and ledger reads for their plans. */
+const ERRATA_PROPOSAL_CONCURRENCY = 3;
+
+async function planClusterProposals(deps: Omit<ErrataProposalDeps, "cluster">, clusters: readonly ErrataCluster[]): Promise<ErrataProposalPlan[]> {
+  const plans = new Array<ErrataProposalPlan>(clusters.length);
+  let next = 0;
+  let failure: { error: unknown } | undefined;
+  await Promise.all(Array.from({ length: Math.min(ERRATA_PROPOSAL_CONCURRENCY, clusters.length) }, async () => {
+    while (failure === undefined && next < clusters.length) {
+      const index = next++;
+      try { plans[index] = await planClusterProposal({ ...deps, cluster: clusters[index] }); }
+      catch (error) { failure ??= { error }; }
+    }
+  }));
+  // Settle every in-flight plan before releasing the triage lock on a refused draft.
+  if (failure !== undefined) throw failure.error;
+  return plans;
+}
+
+function proposalDeliveryDirectory(somaHome: string): string {
+  return join(somaHome, "memory", "STATE", "errata", "proposal-deliveries");
+}
+
+/** A committed mint is pending until delivery is acknowledged, independently of drafting. */
+async function pendingProposalRefs(somaHome: string): Promise<string[]> {
+  const events = await readEvents(somaHome);
+  let delivered: string[];
+  try { delivered = await readdir(proposalDeliveryDirectory(somaHome)); }
+  catch (error) {
+    if (!isEnoent(error)) throw error;
+    delivered = [];
+  }
+  const acknowledged = new Set(delivered.filter((name) => name.endsWith(".delivered")).map((name) => name.slice(0, -".delivered".length)));
+  for (const event of events) {
+    if (isAnswerKind(event.kind) && "ref" in event) acknowledged.add(event.ref);
+  }
+  return events.flatMap((event) => event.kind === "proposed" && !acknowledged.has(event.ref) ? [proposalEnvelopeRef(event.ref)] : []);
+}
+
+async function acknowledgeProposalDelivery(somaHome: string, refs: readonly string[]): Promise<void> {
+  if (refs.length === 0) return;
+  const directory = proposalDeliveryDirectory(somaHome);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  for (const ref of refs) {
+    const name = ref.slice("soma:proposals/".length, -".md".length);
+    await writeFile(join(directory, `${name}.delivered`), "", { mode: 0o600 });
+  }
+}
+
 /**
  * Propose every ripe cluster of a triage run. Every cluster is planned before any file is
  * written, so one refused draft leaves the whole batch for the next run instead of half of
@@ -994,7 +1043,7 @@ async function proposeRipeClusters(
 ): Promise<ErrataProposalRun> {
   const run: ErrataProposalRun = { refs: [], proposed: 0, unroutable: 0 };
   if (clusters.length === 0) return run;
-  const plans = await Promise.all(clusters.map((cluster) => planClusterProposal({ ...deps, cluster })));
+  const plans = await planClusterProposals(deps, clusters);
   let reported = 0;
   for (const plan of plans) {
     if (plan.status === "waiting") continue;
@@ -1034,7 +1083,8 @@ export interface ErrataTriageDeps extends RunLedgerDeps {
   append?: (input: ErrataInput) => Promise<ErrataRecord>;
   readJudgments?: () => Promise<{ records: JudgmentRecord[]; malformed: number }>;
   recordJudgment?: (record: JudgmentRecord) => Promise<boolean>;
-  publishRun?: (input: RunFinishedInput) => Promise<unknown>;
+  /** An injected publisher returning void acknowledges delivery; otherwise the funnel's status applies. */
+  publishRun?: (input: RunFinishedInput) => Promise<RunFinishedResult> | Promise<void>;
   /** Registered landing maps for the proposals of this run; defaults to soma's config. */
   landing?: Readonly<Record<string, number>>;
   /** Transcript reader, repo resolver and draft judge for a ripe cluster; see `ErrataProposalDeps`.
@@ -1076,7 +1126,6 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
   const runId = randomUUID();
   const detailRef = join(deps.somaHome, "memory", "STATE", "errata", "triage-runs", `${runId}.json`);
   const result: ErrataTriageResult = { outcome: "succeeded", promoted: 0, dropped: 0, skipped: 0, unlinkable: 0, clustered: 0, ripe: 0, proposed: 0, unroutable: 0, detailRef };
-  let proposalRefs: readonly string[] = [];
   let resultRef: string | undefined;
   try {
     await withLedgerLock(deps.somaHome, async () => {
@@ -1152,7 +1201,6 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
       }, ripe, now);
       result.proposed = proposals.proposed;
       result.unroutable = proposals.unroutable;
-      proposalRefs = proposals.refs;
       resultRef = proposals.resultRef;
     }, ".triage-lock");
   } catch {
@@ -1164,14 +1212,22 @@ export async function runErrataTriage(deps: ErrataTriageDeps): Promise<ErrataTri
     await mkdir(join(deps.somaHome, "memory", "STATE", "errata", "triage-runs"), { recursive: true, mode: 0o700 });
     await writeFile(detailRef, `${JSON.stringify({ ...result, runId, startedAt, endedAt })}\n`, { mode: 0o600 });
   } catch { result.outcome = "failed"; }
-  const report: RunFinishedInput = {
-    kind: "job", ref: "errata-triage", runId, startedAt, endedAt, outcome: result.outcome, detailRef,
-    // myelin takes both fields only on a run that succeeded, so a failed run carries neither.
-    ...(result.outcome === "succeeded" && resultRef !== undefined ? { resultRef } : {}),
-    ...(result.outcome === "succeeded" && proposalRefs.length > 0 ? { proposalRefs } : {}),
-  };
-  await (deps.publishRun ?? ((input) => publishRunFinished(input, {
-    somaHome: deps.somaHome, substrate: "custom", env: deps.env, publish: deps.publishRunFinished,
-  })))(report);
-  return result;
+  // Serialize pending-ref snapshots and acknowledgments across overlapping jobs. A failed
+  // batch/report keeps every committed mint pending for a later successful run.
+  return withLedgerLock(deps.somaHome, async () => {
+    const proposalRefs = result.outcome === "succeeded" ? await pendingProposalRefs(deps.somaHome) : [];
+    const report: RunFinishedInput = {
+      kind: "job", ref: "errata-triage", runId, startedAt, endedAt, outcome: result.outcome, detailRef,
+      // myelin takes both fields only on a run that succeeded, so a failed run carries neither.
+      ...(result.outcome === "succeeded" && resultRef !== undefined ? { resultRef } : {}),
+      ...(proposalRefs.length > 0 ? { proposalRefs } : {}),
+    };
+    const delivery = await (deps.publishRun ?? ((input) => publishRunFinished(input, {
+      somaHome: deps.somaHome, substrate: "custom", env: deps.env, publish: deps.publishRunFinished,
+    })))(report);
+    if (delivery === undefined || delivery === "published" || delivery === "spooled") {
+      await acknowledgeProposalDelivery(deps.somaHome, proposalRefs);
+    }
+    return result;
+  }, ".proposal-delivery-lock");
 }

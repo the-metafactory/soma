@@ -475,6 +475,33 @@ test("NATS unreachable: output and run file unchanged, one failure event, spool 
   expect(spool[0]).toMatchObject({ op: "put", subject: "local.jc.default.execution.run.finished" });
 });
 
+test("the funnel distinguishes a durably spooled envelope from a failure before persistence", async () => {
+  const somaHome = await tempSomaHome();
+  const options = { somaHome, substrate: "codex" as const, env: { SOMA_PRINCIPAL: "jc", SOMA_NATS_URL: CLOSED_LOOPBACK } };
+  expect(await publishRunFinished(finished, options)).toBe("spooled");
+  const spool = runLedgerSpoolPath(somaHome);
+  expect(JSON.parse((await readFile(spool, "utf8")).trim()).op).toBe("put");
+
+  await rm(spool);
+  await mkdir(spool);
+  expect(await publishRunFinished(finished, options)).toBe("failed");
+});
+
+test("another envelope's spool put cannot acknowledge this run's failed delivery", async () => {
+  const somaHome = await tempSomaHome();
+  const spoolPath = runLedgerSpoolPath(somaHome);
+  const inner = new InMemoryTransport();
+  inner.publish = async () => {
+    // Simulate loss of this put while an unrelated durable entry remains.
+    await writeFile(spoolPath, `${JSON.stringify({ op: "put", id: "older-envelope" })}\n`);
+    throw new Error("Bus unavailable.");
+  };
+  expect(await publishRunFinished(finished, {
+    somaHome, substrate: "codex", env: { SOMA_PRINCIPAL: "jc" },
+    publish: (event) => publishThroughOutbox(event, { inner, spoolPath }),
+  })).toBe("failed");
+});
+
 test("SOMA_NATS_CREDS naming a missing file fails open with one failure event", async () => {
   const { failure } = await expectFailOpen(
     (somaHome) => ({ env: { SOMA_PRINCIPAL: "jc", SOMA_NATS_URL: CLOSED_LOOPBACK, SOMA_NATS_CREDS: join(somaHome, "missing.creds") } }),

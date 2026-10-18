@@ -160,8 +160,10 @@ refused locally when its kind is not one of the five, when a `deterministic-chec
 check or its brief or another kind lacks its question, when any field carries 41 or more
 folded characters of a member's complaint (soma#785 Q23), or when a field names the Soma home
 or a cluster session's working directory. Every cluster of a batch is drafted before any file
-is written, so one refused draft leaves the whole batch for the next run with nothing
-half-written.
+is written, using at most three concurrent planning workers. One refused draft stops new
+planning, waits for the in-flight workers, and leaves the whole batch for the next run
+without committing a file. A filesystem failure during the subsequent commits can leave
+earlier proposals committed; their delivery remains pending.
 
 What a cluster is owed is folded from the ledger, never stored:
 
@@ -176,9 +178,16 @@ Triage appends the `proposed` and `unroutable` events. The answer kinds — `res
 `dismissed`, `expired` — are appended by the answer reader that drains Vigil's resolution
 records; triage only reads them to decide what a cluster is owed.
 
-The run carries every ref it minted as `proposal_refs` on its `execution.run.finished`, in the
-`soma:proposals/<ref>.md` form myelin requires, and only on a run that succeeded. Delivery
-keeps the run ledger's rules: an unreachable bus spools the envelope in the outbox, and the
+Every committed `proposed` event also represents pending delivery. The next successful run
+carries all pending refs as `proposal_refs` on its `execution.run.finished`, in the
+`soma:proposals/<ref>.md` form myelin requires. A failed batch, report write, or delivery
+before spooling leaves those refs pending; retry sends the existing files without drafting
+or incrementing their generations. Publication and acknowledgments serialize across jobs.
+After publication or confirmed outbox persistence, triage writes private receipt markers
+under `memory/STATE/errata/proposal-deliveries/<ref>.delivered`. An answer also establishes
+delivery. A crash between delivery and the receipt can resend a ref; it never remints it.
+The run-ledger funnel reports `spooled` when it confirms the exact envelope's outbox entry
+after a send failure. An unreachable bus therefore keeps delivery in the outbox, and the
 proposal file stays written once.
 
 `proposeFromCluster(deps)` is the seam for one cluster: injected transcript reader, repo
