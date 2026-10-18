@@ -115,17 +115,13 @@ function moduleSpecifiers(source: string, { includeTypeOnly = false } = {}): str
   });
 }
 
-function runtimeImports(source: string): string[] {
-  return moduleSpecifiers(source);
-}
-
 function walkImportGraph(seeds: { label: string; source: string; importerPath: string }[]): GraphWalk {
   const visited = new Set<string>();
   const offenders = new Map<string, { attribute: string; chain: string[] }>();
   const queue: { path: string; source: string; chain: string[] }[] = [];
 
   for (const seed of seeds) {
-    for (const specifier of runtimeImports(seed.source)) {
+    for (const specifier of moduleSpecifiers(seed.source)) {
       const resolved = resolveModule(specifier, seed.importerPath);
       if (resolved !== undefined && !visited.has(resolved)) {
         visited.add(resolved);
@@ -142,7 +138,7 @@ function walkImportGraph(seeds: { label: string; source: string; importerPath: s
     const attribute = matchAll(stripComments(current.source), NON_PORTABLE_IMPORT_ATTRIBUTE)[0]?.[1];
     if (attribute !== undefined) offenders.set(relative(REPO_ROOT, current.path), { attribute, chain });
 
-    for (const specifier of runtimeImports(current.source)) {
+    for (const specifier of moduleSpecifiers(current.source)) {
       const resolved = resolveModule(specifier, current.path);
       if (resolved === undefined || visited.has(resolved)) continue;
       visited.add(resolved);

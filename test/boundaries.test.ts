@@ -64,6 +64,10 @@ describe("component boundaries on the repository", () => {
       "src/substrates/types.ts",
       "src/substrates/runtime-artifact.ts",
       "src/substrates/adapters/session-env.ts",
+      "src/substrates/skill-content-slug.ts",
+      "src/substrates/skill-content-normalizer.ts",
+      "src/substrates/skill-content-noise.ts",
+      "src/substrates/adapters/pi-dev/skill-projection.ts",
     ]);
     await withRepoFixture("soma-boundaries-substrates-", async (root) => {
       const baseline = checkBoundaries({ root });
@@ -233,6 +237,23 @@ describe("component boundaries on the repository", () => {
     const reachable = reachableFrom(report, "src/types.ts");
     expect([...reachable].filter((file) => file.startsWith("src/substrates/")))
       .toEqual(["src/substrates/types.ts"]);
+  });
+
+  test("skill migration keeps its leaf closure and rejects the substrates barrel's growth", async () => {
+    const report = checkBoundaries({ root: repoRoot });
+    const reachable = reachableFrom(report, "src/claude-skills-migrator.ts");
+    expect(reachable.has("src/substrates/index.ts")).toBe(false);
+    expect(reachable.has("src/substrates/install-spec-registry.ts")).toBe(false);
+    expect(report.closures.migrate).toBeLessThanOrEqual(19_000);
+
+    await withRepoFixture("soma-boundaries-migrate-", async (root) => {
+      await writeFile(join(root, "src/claude-skills-barrel-fixture.ts"), 'import "./substrates/index";\n');
+      const grown = checkBoundaries({ root });
+      expect(grown.ok).toBe(false);
+      expect(grown.closureGrowth).toContainEqual({
+        component: "migrate", baseline: 19_000, actual: grown.closures.migrate,
+      });
+    });
   });
 
   test("bootstrap and session lookup entries keep their runtime closures off the substrates barrel", async () => {

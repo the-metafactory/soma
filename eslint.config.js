@@ -167,6 +167,8 @@ export default tseslint.config(
                 "../adapters/codex/**",
                 "../adapters/pi-dev/**",
                 "../adapters/shared/**",
+                // Declared public leaf: migration must not load the adapter barrel.
+                "!**/adapters/pi-dev/skill-projection",
               ],
               message:
                 "Import from the substrate barrel (./adapters/codex, ./adapters/pi-dev, ./adapters/shared) — deep imports erode the adapter boundary.",

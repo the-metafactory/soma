@@ -162,12 +162,16 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "legacy"],
   },
   substrates: {
-    // Leaf entries keep shared types and hook/bootstrap consumers off the adapter barrel.
+    // Leaf entries keep shared types, hook/bootstrap and migration consumers off the adapter barrel.
     publicEntries: [
       "src/substrates/index.ts",
       "src/substrates/types.ts",
       "src/substrates/runtime-artifact.ts",
       "src/substrates/adapters/session-env.ts",
+      "src/substrates/skill-content-slug.ts",
+      "src/substrates/skill-content-normalizer.ts",
+      "src/substrates/skill-content-noise.ts",
+      "src/substrates/adapters/pi-dev/skill-projection.ts",
     ],
     files: [
       "src/substrates/**",
