@@ -3,11 +3,12 @@ import { feedKind } from "./feed";
 import { outlineKind } from "./outline";
 import { announceKind } from "./announce";
 import { rateKind } from "./rate";
+import { activeItemLimitKind } from "./active-item-limit";
 import { queueKind } from "./queue";
 import type { GoalKind } from "./types";
 
 /** One module per kind. No inference, execution or private home reads here. */
-export const goalKinds = { feed: feedKind, outline: outlineKind, announce: announceKind, queue: queueKind, rate: rateKind } as const;
+export const goalKinds = { feed: feedKind, outline: outlineKind, announce: announceKind, queue: queueKind, rate: rateKind, "active-item-limit": activeItemLimitKind } as const;
 
 /** JSON-safe inference catalog. Private parameters expose only resource type. */
 export function listGoalKinds(registry: Readonly<Record<string, GoalKind>> = goalKinds) {

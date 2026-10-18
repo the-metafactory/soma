@@ -31,9 +31,13 @@ interface GoalKindBase<S extends z.ZodObject> {
   schedule: Readonly<{ schedule: string; timezone: string }>;
   /** Opaque Reflex target; outline's process route kickstarts a Calendar-granted launchd runner. */
   target: string;
+  /** Derive a schedule from public params when a kind exposes cadence. */
+  scheduleFor?(params: z.output<S>): Readonly<{ schedule: string; timezone: string }>;
   command: readonly string[];
   /** Flags only, appended to command; no shell quoting or interpolation. */
   argv(params: z.output<S>): string[];
+  /** Keep resolved private params in a 0600 goal sidecar, out of activation payloads. */
+  localPrivateParams?: boolean;
 }
 
 export type GoalKind<S extends z.ZodObject = z.ZodObject> = GoalKindBase<S> & (

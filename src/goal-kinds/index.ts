@@ -6,3 +6,4 @@ export { queueKind, queueParams, type QueueParams } from "./queue";
 export { outlineKind, outlineParams, type OutlineParams } from "./outline";
 export { announceKind, announceParams, type AnnounceParams } from "./announce";
 export { goalBaselineSchema, type GoalBaseline, type GoalBaselineDeps, type GoalBaselineReader, type GoalKind } from "./types";
+export { activeItemLimitKind, activeItemLimitParams, type ActiveItemLimitParams } from "./active-item-limit";
