@@ -72,17 +72,17 @@ re-specify shipped work:
 
 | Layer | Status | Evidence |
 | --- | --- | --- |
-| Registry projection | **Shipped** | `renderSkills()`, `src/adapters/shared/index.ts:199` |
-| Registry entry format | **Shipped** | `renderSkillRegistryEntry()`, `src/adapters/shared/skill-registry.ts:173` |
+| Registry projection | **Shipped** | `renderSkills()`, `src/substrates/adapters/shared/index.ts:199` |
+| Registry entry format | **Shipped** | `renderSkillRegistryEntry()`, `src/substrates/adapters/shared/skill-registry.ts:173` |
 | Registry line budget | **Shipped** | `SKILL_REGISTRY_LINE_BUDGET = 300`, `skill-registry.ts:31` |
 | Trigger / anti-trigger extraction | **Shipped** | `extractUseWhenTriggers()`, `extractAntiTriggers()`, `skill-registry.ts:85,110` |
 | Catalog auto-refresh on projection | **Shipped** | `refreshSkillCatalogs()`, `src/substrates/skill-projection.ts:316` |
 | Per-substrate loader root | **Shipped** | `skillsLoaderDir()`, `src/substrates/install-spec.ts:107`, 6 adapters |
 | Body projection (on-demand) | **Shipped as symlink** | `ensureSymlink()`, `src/substrates/skill-projection.ts` |
 | `skillsLoading` capability | **Shipped** (#550) | `SkillsLoadingMode`, `src/substrates/install-spec.ts`; 6 adapters |
-| Stub generation for eager loaders | **Shipped** (#550) | `ensureSkillStub()`, `src/substrates/skill-projection.ts`; `renderSkillStub()`, `src/adapters/shared/skill-stub.ts` |
-| Trigger-time promotion (pi-dev) | **Shipped** (#551) | `soma_context action=skill_body`, `src/adapters/pi-dev/adapter.ts` |
-| Stub-integrity drift check | **Shipped** (#552) | `diagnoseSkillStubDrift()`, `src/adapters/skill-stub-doctor.ts` |
+| Stub generation for eager loaders | **Shipped** (#550) | `ensureSkillStub()`, `src/substrates/skill-projection.ts`; `renderSkillStub()`, `src/substrates/adapters/shared/skill-stub.ts` |
+| Trigger-time promotion (pi-dev) | **Shipped** (#551) | `soma_context action=skill_body`, `src/substrates/adapters/pi-dev/adapter.ts` |
+| Stub-integrity drift check | **Shipped** (#552) | `diagnoseSkillStubDrift()`, `src/substrates/adapters/skill-stub-doctor.ts` |
 | `SomaSkillManifest` | **Typed, not materialized** | `src/types.ts:958`; **0** `soma-skill.json` files on disk |
 | `SkillRoute` | **Not built** | 0 occurrences in `src/` |
 | `estimatedTokens` / budget reporting | **Not built** | 0 occurrences in `src/` |
@@ -207,7 +207,7 @@ loader dir instead of linking.
 A stub is a **directory**, not a catalog line. An eager substrate's loader scans
 `skillsLoaderDir(home)/<name>/` and reads `SKILL.md` from inside it — pi-dev
 resolves that to `~/.pi/agent/skills/<name>/` (`skillsLoaderUnder("agent")`,
-`src/adapters/pi-dev/install.ts:44`). So the stub is:
+`src/substrates/adapters/pi-dev/install.ts:44`). So the stub is:
 
 ```text
 <skillsLoaderDir>/<name>/SKILL.md   frontmatter only + a pointer to the body

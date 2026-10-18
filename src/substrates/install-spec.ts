@@ -1,10 +1,5 @@
 import { resolve } from "node:path";
-import type {
-  Projection,
-  SomaHomeProjection,
-  SomaHomeProjectionOptions,
-  WrittenProjection,
-} from "../types";
+import type { Projection, SomaHomeProjection, SomaHomeProjectionOptions, WrittenProjection } from "./types";
 import type {
   ProjectionInput,
 } from "../home/types";

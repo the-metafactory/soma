@@ -1,13 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  SKILL_REGISTRY_LINE_BUDGET,
-  extractAntiTriggers,
-  extractUseWhenTriggers,
-  leadClause,
-  renderSkillRegistryEntry,
-  truncateAtWordBoundary,
-} from "../src/adapters/shared/skill-registry";
-import { renderSkills } from "../src/adapters/shared";
+import { SKILL_REGISTRY_LINE_BUDGET, extractAntiTriggers, extractUseWhenTriggers, leadClause, renderSkillRegistryEntry, truncateAtWordBoundary } from "../src/substrates/adapters/shared/skill-registry";
+import { renderSkills } from "../src/substrates/adapters/shared/index";
 import type { SomaSkill } from "../src/types";
 import { portableProjectionInput } from "./fixtures";
 

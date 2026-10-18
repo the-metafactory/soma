@@ -1,9 +1,10 @@
-import { cp, mkdir, readdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rename, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { components, type ComponentManifest } from "../src/components";
 import {
+  type BoundaryReport,
   BASELINE_PATH,
   CLOSURE_STEP,
   VIOLATIONS_PATH,
@@ -30,6 +31,18 @@ async function withRepoFixture<T>(prefix: string, fn: (root: string) => Promise<
   }, prefix);
 }
 
+function reachableFrom(report: BoundaryReport, seed: string): Set<string> {
+  const reachable = new Set<string>();
+  const pending = [seed];
+  while (pending.length > 0) {
+    const file = pending.pop()!;
+    if (reachable.has(file)) continue;
+    reachable.add(file);
+    for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
+  }
+  return reachable;
+}
+
 function commitFixture(root: string): string {
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
   git("init");
@@ -45,6 +58,47 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
+  test("substrates public entries reject internals and preserve its unit boundary", async () => {
+    expect(components.substrates.publicEntries).toEqual([
+      "src/substrates/index.ts",
+      "src/substrates/types.ts",
+      "src/substrates/runtime-artifact.ts",
+      "src/substrates/adapters/session-env.ts",
+      "src/substrates/skill-content-slug.ts",
+      "src/substrates/skill-content-normalizer.ts",
+      "src/substrates/skill-content-noise.ts",
+      "src/substrates/adapters/pi-dev/skill-projection.ts",
+    ]);
+    await withRepoFixture("soma-boundaries-substrates-", async (root) => {
+      const baseline = checkBoundaries({ root });
+      const internals = baseline.files.filter((file) => file.startsWith("src/substrates/") && !components.substrates.publicEntries!.includes(file));
+      const importer = join(root, "src/cli/substrates-entry-fixture.ts");
+      await writeFile(importer, internals.map((file) => `import "../${file.slice(4)}";`).join("\n"));
+      const denied = checkBoundaries({ root, updateBaseline: true });
+      expect(denied.ok).toBe(false);
+      for (const file of internals) {
+        expect(denied.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/substrates-entry-fixture.ts", to: file, rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, components.substrates.publicEntries!
+        .map((entry) => `import "../${entry.slice(4)}";\n`).join(""));
+      const allowed = checkBoundaries({ root, updateBaseline: true });
+      if (!allowed.ok) throw new Error(formatReport(allowed));
+      expect(allowed.ok).toBe(true);
+      expect(allowed.files.some((file) => /^src\/(adapters|experimental)\//u.test(file))).toBe(false);
+      expect(allowed.edges.filter((edge) => edge.from === "src/substrates/index.ts")
+        .every((edge) => edge.to.startsWith("src/substrates/"))).toBe(true);
+      const unitImporter = join(root, "src/substrates/adapters/codex/unit-fixture.ts");
+      await writeFile(unitImporter, 'import "../pi-dev/adapter";\n');
+      const unit = checkBoundaries({ root, updateBaseline: true });
+      expect(unit.ok).toBe(false);
+      expect(unit.newViolations).toContainEqual(expect.objectContaining({
+        from: "src/substrates/adapters/codex/unit-fixture.ts",
+        to: "src/substrates/adapters/pi-dev/adapter.ts", rule: "unit",
+      }));
+    });
+  }, { timeout: 30_000 });
   test("execution public entry rejects every internal and has no outward violations", async () => {
     await withRepoFixture("soma-boundaries-execution-", async (root) => {
       const importer = join(root, "src/cli/execution-entry-fixture.ts");
@@ -108,13 +162,13 @@ describe("component boundaries on the repository", () => {
   }, { timeout: 30_000 });
 
   test("substrates files outside adapters and experimental live in src/substrates/, and its one outward violation is the edge #800 kept", () => {
-    expect(components.substrates.files).toEqual(["src/adapters/**", "src/experimental/**", "src/substrates/**"]);
+    expect(components.substrates.files).toEqual(["src/substrates/**"]);
     const report = checkBoundaries({ root: repoRoot });
     if (!report.ok) throw new Error(formatReport(report));
     const outward = report.violations
       .filter((v) => v.fromComponent === "substrates" && v.toComponent !== "legacy")
       .map((v) => `${v.from} -> ${v.to}`);
-    expect(outward).toEqual(["src/experimental/anthropic-cowork.ts -> src/install.ts"]);
+    expect(outward).toEqual(["src/substrates/experimental/anthropic-cowork.ts -> src/install.ts"]);
   }, { timeout: 30_000 });
 
   test("router public entry rejects every internal and has no outward violations", async () => {
@@ -172,29 +226,67 @@ describe("component boundaries on the repository", () => {
       expect([...components.algorithm.publicEntries!].sort()).toEqual(
         [...new Set(["src/algorithm/index.ts", ...directEntries])].sort(),
       );
-      const reachable = new Set<string>();
-      const pending = ["src/cli/algorithm.ts"];
-      while (pending.length) {
-        const file = pending.pop()!;
-        if (reachable.has(file)) continue;
-        reachable.add(file);
-        for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
-      }
+      const reachable = reachableFrom(report, "src/cli/algorithm.ts");
       expect(reachable.has("src/index.ts")).toBe(false);
       expect(reachable.has("src/algorithm/index.ts")).toBe(false);
     });
   }, { timeout: 30_000 });
 
+  test("shared types reach only substrates' types entry, even transitively", () => {
+    const report = checkBoundaries({ root: repoRoot });
+    const reachable = reachableFrom(report, "src/types.ts");
+    expect([...reachable].filter((file) => file.startsWith("src/substrates/")))
+      .toEqual(["src/substrates/types.ts"]);
+  });
+
+  test("skill migration keeps its leaf closure and rejects the substrates barrel's growth", async () => {
+    const report = checkBoundaries({ root: repoRoot });
+    const reachable = reachableFrom(report, "src/claude-skills-migrator.ts");
+    expect(reachable.has("src/substrates/index.ts")).toBe(false);
+    expect(reachable.has("src/substrates/install-spec-registry.ts")).toBe(false);
+    expect(report.closures.migrate).toBeLessThanOrEqual(19_000);
+
+    await withRepoFixture("soma-boundaries-migrate-", async (root) => {
+      await writeFile(join(root, "src/claude-skills-barrel-fixture.ts"), 'import "./substrates/index";\n');
+      const grown = checkBoundaries({ root });
+      expect(grown.ok).toBe(false);
+      expect(grown.closureGrowth).toContainEqual({
+        component: "migrate", baseline: 19_000, actual: grown.closures.migrate,
+      });
+    });
+  });
+
+  test("bootstrap and session lookup entries keep their runtime closures off the substrates barrel", async () => {
+    const report = checkBoundaries({ root: repoRoot });
+    // Use emitted JS: type-only contracts belong to the static closure above.
+    const edges = await Promise.all(report.files.filter((file) => file.endsWith(".ts")).map(async (file) => {
+      const emitted = new Bun.Transpiler({ loader: "ts" }).transformSync(await Bun.file(join(repoRoot, file)).text());
+      return [file, collectSpecifiers(file, emitted)] as const;
+    }));
+    const specifiers = new Map(edges);
+    const runtimeEdges = report.edges.filter((edge) =>
+      specifiers.get(edge.from)?.some((entry) => {
+        const target = resolve(repoRoot, dirname(edge.from), entry.specifier);
+        return [target, `${target}.ts`, `${target}.mjs`, `${target}/index.ts`].includes(join(repoRoot, edge.to));
+      }));
+    for (const consumer of ["src/run-ledger.ts", "src/algorithm-vsa-sync.ts", "src/cli/algorithm.ts"]) {
+      expect(report.edges.filter((edge) => edge.from === consumer && edge.to.startsWith("src/substrates/"))
+        .map((edge) => edge.to)).toEqual(["src/substrates/adapters/session-env.ts"]);
+    }
+    // cli/algorithm also reaches installation through lifecycle; only its
+    // session lookup dependency is expected to have a leaf runtime closure.
+    for (const seed of ["src/cli-launcher.ts", "src/substrates/adapters/session-env.ts", "src/run-ledger.ts", "src/algorithm-vsa-sync.ts"]) {
+      const reachable = reachableFrom({ ...report, edges: runtimeEdges }, seed);
+      expect(reachable.size).toBeGreaterThan(1);
+      expect(reachable.has("src/substrates/index.ts")).toBe(false);
+      expect(reachable.has("src/substrates/install-spec-registry.ts")).toBe(false);
+      expect(reachable.has("src/substrates/adapters/claude-code/projection-self-repair.ts")).toBe(false);
+    }
+  });
+
   test("shared types reach home types without its runtime barrel", () => {
     const report = checkBoundaries({ root: repoRoot });
-    const reachable = new Set<string>();
-    const pending = ["src/types.ts"];
-    while (pending.length > 0) {
-      const file = pending.pop()!;
-      if (reachable.has(file)) continue;
-      reachable.add(file);
-      for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
-    }
+    const reachable = reachableFrom(report, "src/types.ts");
     expect([...reachable].filter((file) => file.startsWith("src/home/")).sort()).toEqual([
       "src/home/communication-contract.ts",
       "src/home/types.ts",
@@ -203,18 +295,11 @@ describe("component boundaries on the repository", () => {
 
   test.each([
     "src/algorithm/algorithm.ts",
-    "src/adapters/claude-code/session-digest.ts",
-    "src/adapters/codex/session-digest.ts",
+    "src/substrates/adapters/claude-code/session-digest.ts",
+    "src/substrates/adapters/codex/session-digest.ts",
   ])("%s reaches only home's dependency-light entries", (entry) => {
     const report = checkBoundaries({ root: repoRoot });
-    const reachable = new Set<string>();
-    const pending: string[] = [entry];
-    while (pending.length > 0) {
-      const file = pending.pop()!;
-      if (reachable.has(file)) continue;
-      reachable.add(file);
-      for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
-    }
+    const reachable = reachableFrom(report, entry);
     const homeFiles = [...reachable].filter((file) => file.startsWith("src/home/"));
     expect(homeFiles.length).toBeGreaterThan(0);
     for (const file of homeFiles) {
@@ -300,14 +385,7 @@ describe("component boundaries on the repository", () => {
       const report = checkBoundaries({ root, updateBaseline: true });
       if (!report.ok) throw new Error(formatReport(report));
       expect(report.violations.filter((v) => v.fromComponent === "policy" && v.toComponent !== "legacy")).toEqual([]);
-      const reachable = new Set<string>();
-      const pending = ["src/cli/policy.ts"];
-      while (pending.length) {
-        const file = pending.pop()!;
-        if (reachable.has(file)) continue;
-        reachable.add(file);
-        for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
-      }
+      const reachable = reachableFrom(report, "src/cli/policy.ts");
       expect(reachable.has("src/index.ts")).toBe(false);
       expect(reachable.has("src/policy/index.ts")).toBe(false);
     });
@@ -396,16 +474,7 @@ describe("component boundaries on the repository", () => {
   test.each(["memory", "vsa"] as const)("shared types reach only %s's types entry, even transitively", (component) => {
     expect(components[component].publicEntries).toEqual([`src/${component}/index.ts`, `src/${component}/types.ts`]);
     const report = checkBoundaries({ root: repoRoot });
-    const reachable = new Set<string>();
-    const pending = ["src/types.ts"];
-    while (pending.length > 0) {
-      const file = pending.pop()!;
-      if (reachable.has(file)) continue;
-      reachable.add(file);
-      for (const edge of report.edges) {
-        if (edge.from === file) pending.push(edge.to);
-      }
-    }
+    const reachable = reachableFrom(report, "src/types.ts");
     expect([...reachable].filter((file) => file.startsWith(`src/${component}/`)))
       .toEqual([`src/${component}/types.ts`]);
   });
@@ -505,6 +574,30 @@ describe("component boundaries on the repository", () => {
 });
 
 describe("checkBoundaries on fixture trees", () => {
+  test("a Git rename preserves an existing exception without admitting new debt", async () => {
+    await withTempHome(async (root) => {
+      await cp(fixture("known-violation"), root, { recursive: true });
+      const baseRevision = commitFixture(root);
+      await rename(join(root, "src/memory.ts"), join(root, "src/memory-relocated.ts"));
+      await Bun.write(join(root, VIOLATIONS_PATH), JSON.stringify(["src/memory-relocated.ts -> src/writeback.ts"]));
+      execFileSync("git", ["add", "."], { cwd: root });
+      const manifest: ComponentManifest = { ...fixtureManifest, memory: { ...fixtureManifest.memory, files: ["src/memory-relocated"] } };
+      const report = checkBoundaries({ root, manifest, baseRevision });
+      if (!report.ok) throw new Error(formatReport(report));
+      expect(report.addedEntries).toEqual([]);
+
+      await cp(join(root, "src/writeback.ts"), join(root, "src/extra.ts"));
+      await Bun.write(join(root, "src/memory-relocated.ts"), 'import "./writeback";\nimport "./extra";\n');
+      await Bun.write(join(root, VIOLATIONS_PATH), JSON.stringify([
+        "src/memory-relocated.ts -> src/extra.ts", "src/memory-relocated.ts -> src/writeback.ts",
+      ]));
+      const extra = checkBoundaries({ root, baseRevision, manifest: {
+        ...manifest, flows: { ...manifest.flows, files: [...manifest.flows.files, "src/extra"] },
+      } });
+      expect(extra.ok).toBe(false);
+      expect(extra.addedEntries).toContain("src/memory-relocated.ts -> src/extra.ts");
+    }, "soma-boundaries-rename-");
+  });
   test("adding a prohibited import together with its exception fails against the Git base", async () => {
     await withTempHome(async (root) => {
       await cp(fixture("clean"), root, { recursive: true });

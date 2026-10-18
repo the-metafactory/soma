@@ -1,0 +1,138 @@
+import { skillsLoaderUnder, vsaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import { vsaSiblingPrunePrepare } from "../../legacy-skill-prune";
+import { defaultSomaHome } from "../../../core/index";
+import { removePortableSkillProjection } from "../shared/portable-skill-manifest";
+import { removeProjectedSkillLinks } from "../../projected-skill-links";
+import { CLAUDE_CODE_PROJECTED_RULES_FILES, CLAUDE_CODE_SKILLS_DISCOVERY } from "../claude-code";
+import {
+  SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
+  SOMA_CLAUDE_HOOK_RELATIVE_PATH,
+  SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH,
+  SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH,
+  SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH,
+  SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH,
+  SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH,
+  SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH,
+  SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH,
+  SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH,
+  SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH,
+  claudeCodeHookEnabled,
+  installClaudeCodeSomaHooks,
+  removeClaudeCodeSomaHookFiles,
+} from "./hooks";
+import { CLAUDE_CODE_CLAUDE_MD_RELATIVE_PATH, installClaudeCodeClaudeMd } from "./claude-md";
+import { isClaudeCodeInstallOptions } from "./install-options";
+import { projectClaudeCodeHome, isClaudeCodeSkillProjectionPath } from "../claude-code";
+import { reconcilePortableSkillProjection, writePortableSkillManifest } from "../shared/portable-skill-manifest";
+import { writeProjection } from "../../projection";
+
+export const claudeCodeInstallSpec: SubstrateInstallSpec<"claude-code"> = {
+  substrate: "claude-code",
+  defaultHome: ".claude",
+  homeFiles: [
+    ...CLAUDE_CODE_PROJECTED_RULES_FILES,
+    SOMA_CLAUDE_HOOK_RELATIVE_PATH,
+    SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
+    "settings.json",
+  ],
+  homeProjection: {
+    build: (input) => projectClaudeCodeHome(input),
+    isSkillProjectionPath: isClaudeCodeSkillProjectionPath,
+    write: async (projection, options) => {
+      const portableFiles = projection.bundle.files.filter((file) => isClaudeCodeSkillProjectionPath(file.path));
+      const written = await writeProjection(projection.bundle, projection.substrateHome);
+      if (options.codeOnly === true) return written;
+      await reconcilePortableSkillProjection({
+        somaHome: projection.somaHome,
+        substrate: "claude-code",
+        substrateHome: projection.substrateHome,
+        currentPaths: portableFiles.map((file) => file.path),
+      });
+      await writePortableSkillManifest({
+        somaHome: projection.somaHome,
+        substrate: "claude-code",
+        substrateHome: projection.substrateHome,
+        files: portableFiles,
+      });
+      return written;
+    },
+  },
+  // Owned (Soma-exclusive) dirs — see ownedSubtrees JSDoc. Subsumes the former
+  // obsoleteHomeFiles for TELOS.md/ACTIVE_ISA.md, which live under rules/soma.
+  ownedSubtrees: ["rules/soma", "hooks/soma"],
+  // soma#369: mode classifier + policy guard are default-on (opt out with
+  // `--no-mode-classifier` / `--no-policy-guard`). claudeCodeHookEnabled is the
+  // single gate shared with installClaudeCodeSomaHooks.
+  optionalHomeFiles: (options) => [
+    ...(claudeCodeHookEnabled(options, "modeClassifier")
+      ? [SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH]
+      : []),
+    ...(claudeCodeHookEnabled(options, "policyGuard")
+      ? [SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH, SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH]
+      : []),
+    ...(claudeCodeHookEnabled(options, "preCompact")
+      ? [SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH, SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH]
+      : []),
+    ...(claudeCodeHookEnabled(options, "feedbackCapture")
+      ? [SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH, SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH]
+      : []),
+    ...(claudeCodeHookEnabled(options, "statusLine")
+      ? [SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH]
+      : []),
+    ...(isClaudeCodeInstallOptions(options) && options.claudeMd === true
+      ? [CLAUDE_CODE_CLAUDE_MD_RELATIVE_PATH]
+      : []),
+  ],
+  skillsLoaderDir: skillsLoaderUnder(),
+  skillsLoading: "on-demand",
+  skillsDiscovery: CLAUDE_CODE_SKILLS_DISCOVERY,
+  vsaSkillProjection: {
+    destinationDir: vsaSkillUnder(),
+    // soma#329: before reprojecting VSA, prune a sibling renamed-away "ISA" skill
+    // from <home>/skills (provenance-gated to Soma's published ISA identity — a
+    // user skill lacking that identity is preserved; see pruneLegacyVsaSkill doc).
+    prepare: vsaSiblingPrunePrepare(),
+  },
+  postProjection: [
+    {
+      name: "claude-code-soma-hooks",
+      run: installClaudeCodeSomaHooks,
+    },
+    {
+      // soma#368: opt-in (`--claude-md`) generated CLAUDE.md with a preserved
+      // overlay. No-op without the flag, so the default install is unchanged.
+      name: "claude-code-claude-md",
+      run: installClaudeCodeClaudeMd,
+    },
+  ],
+  uninstall: {
+    kind: "implemented",
+    remove: ["rules/soma", "skills/VSA"],
+    postRemove: async (context) => {
+      const somaHome = defaultSomaHome({ homeDir: context.homeDir, somaHome: context.somaHome });
+      const removed = [...(await removeClaudeCodeSomaHookFiles(context.substrateHome))];
+      // Portable bundled skills project under dynamic `skills/<name>/` paths the
+      // static `remove` list cannot name; the install manifest records them so
+      // uninstall round-trips them (user-edited files preserved). Still needed for
+      // a home installed before soma#638, whose loader holds copies.
+      removed.push(
+        ...(await removePortableSkillProjection({
+          somaHome,
+          substrate: "claude-code",
+          substrateHome: context.substrateHome,
+        })),
+      );
+      // soma#638: skills now reach the loader as symlinks into ~/.soma/skills,
+      // created by the projection primitive rather than written by the projection,
+      // so the manifest never sees them. Without this they survived uninstall as
+      // orphaned Soma artifacts. The canonical registry entries are not touched.
+      removed.push(
+        ...(await removeProjectedSkillLinks({
+          loaderDir: claudeCodeInstallSpec.skillsLoaderDir(context.substrateHome),
+          somaHome,
+        })),
+      );
+      return removed;
+    },
+  },
+};

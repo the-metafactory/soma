@@ -31,7 +31,7 @@ import type {
 import { appendSomaMemoryEvent } from "./events/index";
 import { createPaths } from "./core/index";
 import { RUN_LEDGER_ENV } from "./run-ledger-env";
-import { resolveSubstrateSessionEnv } from "./adapters/session-env";
+import { resolveSubstrateSessionEnv } from "./substrates/adapters/session-env";
 import type { SubstrateId } from "./types";
 
 // Callers name run kinds, outcomes and state through the funnel, not through myelin.

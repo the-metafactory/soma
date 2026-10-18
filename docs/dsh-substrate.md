@@ -1,6 +1,6 @@
 # DeepSeek Harness Substrate
 
-**Status:** Adapter implemented (`src/adapters/dsh/`, `soma install dsh`). The
+**Status:** Adapter implemented (`src/substrates/adapters/dsh/`, `soma install dsh`). The
 host plugin (`integrations/dsh/soma-host`) is installer-managed: install copies
 it from the running soma package, wires the profile dependency, and patches the
 composition row. Verification state — **known to work live:** plugin apply in
@@ -123,8 +123,8 @@ Soma-shaped `AGENTS.md` needs no further instruction file.
 ## Adapter contract
 
 The adapter is registered the same way the other install substrates are. The
-adapter lives in `src/adapters/dsh/` (a directory adapter, mirroring the
-refactored `src/adapters/codex/`), with `adapter.ts` (projection), `install.ts`
+adapter lives in `src/substrates/adapters/dsh/` (a directory adapter, mirroring the
+refactored `src/substrates/adapters/codex/`), with `adapter.ts` (projection), `install.ts`
 (install spec), and `index.ts` (barrel). `SubstrateId` gains `"dsh"` in
 `src/types.ts` (lines 5–13), and `"dsh"` is added to the `Extract` literal at
 line 17 so it flows into `ProjectionSubstrate` and `InstallSubstrate`.
@@ -133,7 +133,7 @@ The exact wiring list (verified against the current tree; the `Record<
 InstallSubstrate, …>` tables make missing rows compile errors):
 
 1. `src/types.ts` — `SubstrateId` (5–13) and `InstallSubstrate` extract (17).
-2. `src/adapters/private-roots.ts` — `DSH_DEFAULT_HOME = ".dsh"`; registered in
+2. `src/substrates/adapters/private-roots.ts` — `DSH_DEFAULT_HOME = ".dsh"`; registered in
    `src/projection-private-roots.ts` (`Record<InstallSubstrate, …>`).
 3. `src/substrates/install-spec-registry.ts` — `dshInstallSpec` in `INSTALL_SPECS`.
 4. `src/substrates/home-projection.ts` — `"dsh"` in `HOME_PROJECTION_INSTALL_SUBSTRATES`
@@ -144,12 +144,12 @@ InstallSubstrate, …>` tables make missing rows compile errors):
 6. `src/cli/substrate-lifecycle.ts` — `INSTALL_SUBSTRATES` (106),
    `installPlanners` (133), `installers` (142), `projectionBuilders` (151),
    `runUninstall` (555).
-7. `src/adapters/doctor.ts` — `DOCTOR_SUPPORTED_SUBSTRATES` (17);
-   `src/adapters/content-compare-doctor.ts` — `ContentCompareSubstrate` (37) +
+7. `src/substrates/adapters/doctor.ts` — `DOCTOR_SUPPORTED_SUBSTRATES` (17);
+   `src/substrates/adapters/content-compare-doctor.ts` — `ContentCompareSubstrate` (37) +
    `SUBSTRATE_LABELS` (130).
 8. `src/execution/registry.ts` — `KNOWN_SUBSTRATES` (5).
 9. `src/cli/substrate.ts` — `SUBSTRATE_IDS` (7–16).
-10. `src/adapters/index.ts` + `src/index.ts` — exports.
+10. `src/substrates/adapters/index.ts` + `src/index.ts` — exports.
 11. Help strings (`src/cli/onboarding.ts:43`) and docs.
 
 ### Projection layout for the adapter
@@ -157,7 +157,7 @@ InstallSubstrate, …>` tables make missing rows compile errors):
 Home (`defaultHome: ".dsh"`):
 
 - `AGENTS.md` — marker-guarded Soma pointer block (copy the grok pattern from
-  `src/adapters/grok/config-patch.ts`), naming `skills/soma/SKILL.md`.
+  `src/substrates/adapters/grok/config-patch.ts`), naming `skills/soma/SKILL.md`.
 - `skills/soma/SKILL.md` — the auto-discovered entry skill: frontmatter
   `name: soma` / `description` / `metadata.short-description` **plus a
   `whenToUse` key** (see the gap below), body = `renderAssistantCore(input)`
@@ -235,7 +235,7 @@ Policy and communication follow the shared helpers:
 ## Installer-managed plugin wiring (host plugin)
 
 `soma install dsh --apply` owns the host-plugin activation chain end to end
-(`src/adapters/dsh/plugin.ts`, postProjection step `dsh-host-plugin`):
+(`src/substrates/adapters/dsh/plugin.ts`, postProjection step `dsh-host-plugin`):
 
 1. **Copy from the running install** — the plugin package is resolved relative
    to the running soma module (`import.meta`), so a deployed soma copies its

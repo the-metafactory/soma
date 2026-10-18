@@ -2,7 +2,7 @@ import { bootstrapSomaHome } from "../../src/home-bootstrap";
 import { prepareSomaInstallSkillContext } from "../../src/install";
 import { SomaInstallExecution } from "../../src/substrates/installation-executor";
 import { installCodexHomeProjection, buildGrokHomeProjection } from "../../src/substrates/home-projection";
-import { diagnoseContentCompareDrift } from "../../src/adapters/content-compare-doctor";
+import { diagnoseContentCompareDrift } from "../../src/substrates/adapters/content-compare-doctor";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { installBundledSkillsIntoHome, listBundledSkills } from "../../src/substrates/bundled-skills";

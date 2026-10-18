@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { installVsaSkill } from "../../src/substrates/vsa-skill-installer";
-import { type SomaSkillBaselines } from "../../src/types";
+import { type SomaSkillBaselines } from "../../src/substrates/types";
 import { SOMA_SKILL_DESCRIPTION_MAX_LENGTH } from "../../src/substrates/skill-content-normalizer";
 import {
   compareSkillVersions,

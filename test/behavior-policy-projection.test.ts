@@ -19,7 +19,7 @@ import {
   type Projection,
   type ProjectionInput,
 } from "../src/index";
-import { projectAnthropicCoworkHome } from "../src/adapters/anthropic-cowork";
+import { projectAnthropicCoworkHome } from "../src/substrates/adapters/anthropic-cowork";
 import { behaviorPolicyAdvisory, parseBehaviorPolicy } from "../src/policy/behavior-policy";
 import { portableProjectionInput } from "./fixtures";
 

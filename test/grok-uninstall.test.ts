@@ -3,15 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { bootstrapSomaHome, uninstallSomaForGrok, projectGrok } from "../src/index";
-import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
-import {
-  GROK_AGENTS_BLOCK_BEGIN,
-  GROK_AGENTS_BLOCK_END,
-  GROK_CONFIG_BLOCK_BEGIN,
-  GROK_CONFIG_BLOCK_END,
-  configureGrokConfigPatch,
-  removeConfigPatchBlock,
-} from "../src/adapters/grok/config-patch";
+import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/substrates/adapters/grok/install-manifest";
+import { GROK_AGENTS_BLOCK_BEGIN, GROK_AGENTS_BLOCK_END, GROK_CONFIG_BLOCK_BEGIN, GROK_CONFIG_BLOCK_END, configureGrokConfigPatch, removeConfigPatchBlock } from "../src/substrates/adapters/grok/config-patch";
 import { writeProjection } from "../src/substrates/projection";
 import { runSomaCli } from "../src/cli";
 import { portableProjectionInput } from "./fixtures";

@@ -4,7 +4,7 @@ import {
   uninstallSomaForClaudeCode,
   type UninstallClaudeCodeOptions,
 } from "../index";
-import { DOCTOR_SUPPORTED_SUBSTRATES, DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE, isDoctorSubstrate } from "../adapters/doctor";
+import { DOCTOR_SUPPORTED_SUBSTRATES, DOCTOR_UNSUPPORTED_SUBSTRATE_MESSAGE, isDoctorSubstrate, type SomaInstallOptions } from "../substrates/index";
 import {
   ANTHROPIC_COWORK_INIT_UNSUPPORTED_MESSAGE,
   PAI_MIGRATION_REMOVED_NOTICE,
@@ -12,7 +12,7 @@ import {
   diagnoseSomaDoctor,
   planSomaInit,
 } from "../onboarding";
-import type { SomaDoctorDiagnosis, SomaInitPlan, SomaInstallOptions, SomaOnboardingOptions } from "../types";
+import type { SomaDoctorDiagnosis, SomaInitPlan, SomaOnboardingOptions } from "../types";
 import {
   formatClaudeUninstallResult,
   formatInstallResult,

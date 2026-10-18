@@ -6,13 +6,8 @@ import { readBundledSkill, type BundledSkillFile } from "./bundled-skill-source"
 import { defaultSomaRepoPath } from "../core";
 import { SKILL_MD, rewriteSkillNameFrontmatter } from "./skill-frontmatter";
 import { rewriteSubstrateProjectionContent } from "./substrate-projection-rewrites";
-import type {
-  VsaSkillInstallOptions,
-  VsaSkillInstallResult,
-  SomaSkillBaseline,
-  SomaSkillBaselines,
-  ProjectionSubstrate,
-} from "../types";
+import type { VsaSkillInstallOptions, VsaSkillInstallResult, SomaSkillBaseline, SomaSkillBaselines } from "./types";
+import type { ProjectionSubstrate } from "../types";
 
 interface InternalVsaSkillInstallOptions extends VsaSkillInstallOptions {
   skillNameOverride?: string;

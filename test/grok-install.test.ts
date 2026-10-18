@@ -4,19 +4,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { bootstrapSomaHome, planSomaForGrokInstall, projectGrokHome, activeVsaProjectionPath, SomaInstallError } from "../src/index";
-import { smokeTestInstalledGrokHookCommand } from "../src/adapters/grok/hook-smoke";
-import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
+import { smokeTestInstalledGrokHookCommand } from "../src/substrates/adapters/grok/hook-smoke";
+import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/substrates/adapters/grok/install-manifest";
 import { allInstallSpecs, installSpecFor } from "../src/substrates/install-spec-registry";
-import { GROK_HOME_FILES, GROK_HOOK_FILE_MARKERS, GROK_STATIC_PROJECTION_FILES, grokInstallSpec } from "../src/adapters/grok/install";
-import { isUnsupportedGrokVersion } from "../src/adapters/grok/version";
-import {
-  configureGrokAgentsPointer,
-  configureGrokConfigPatch,
-  GROK_AGENTS_BLOCK_BEGIN,
-  GROK_AGENTS_BLOCK_END,
-  GROK_CONFIG_BLOCK_BEGIN,
-  GROK_CONFIG_BLOCK_END,
-} from "../src/adapters/grok/config-patch";
+import { GROK_HOME_FILES, GROK_HOOK_FILE_MARKERS, GROK_STATIC_PROJECTION_FILES, grokInstallSpec } from "../src/substrates/adapters/grok/install";
+import { isUnsupportedGrokVersion } from "../src/substrates/adapters/grok/version";
+import { configureGrokAgentsPointer, configureGrokConfigPatch, GROK_AGENTS_BLOCK_BEGIN, GROK_AGENTS_BLOCK_END, GROK_CONFIG_BLOCK_BEGIN, GROK_CONFIG_BLOCK_END } from "../src/substrates/adapters/grok/config-patch";
 import { writeProjection } from "../src/substrates/projection";
 import { isSubstrateId, parseSubstrate } from "../src/cli/substrate";
 import {

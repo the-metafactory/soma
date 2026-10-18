@@ -53,7 +53,7 @@ export type ComponentName = (typeof componentNames)[number];
 const substrateUnitNames = ["anthropic-cowork", "claude-code", "codex", "cursor", "dsh", "grok", "pi-dev"] as const;
 
 function substrateUnit(name: string): ComponentUnit {
-  return { files: [`src/adapters/${name}/**`, `src/adapters/${name}`, `src/experimental/${name}`] };
+  return { files: [`src/substrates/adapters/${name}/**`, `src/substrates/adapters/${name}`, `src/substrates/experimental/${name}`] };
 }
 
 export const components: ComponentManifest<ComponentName> = {
@@ -162,9 +162,18 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "legacy"],
   },
   substrates: {
+    // Leaf entries keep shared types, hook/bootstrap and migration consumers off the adapter barrel.
+    publicEntries: [
+      "src/substrates/index.ts",
+      "src/substrates/types.ts",
+      "src/substrates/runtime-artifact.ts",
+      "src/substrates/adapters/session-env.ts",
+      "src/substrates/skill-content-slug.ts",
+      "src/substrates/skill-content-normalizer.ts",
+      "src/substrates/skill-content-noise.ts",
+      "src/substrates/adapters/pi-dev/skill-projection.ts",
+    ],
     files: [
-      "src/adapters/**",
-      "src/experimental/**",
       "src/substrates/**",
     ],
     mayImport: ["core", "events", "memory", "purpose", "vsa", "policy", "home", "algorithm", "router", "execution", "legacy"],

@@ -1,7 +1,7 @@
 import { lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { isSkillStub, renderSkills, renderSkillStub, stripProvenance } from "../adapters/shared";
+import { isSkillStub, renderSkills, renderSkillStub, stripProvenance } from "./adapters/shared";
 import { buildSubstrateHomeProjection } from "./home-projection";
 import type { InstallSubstrate } from "./install-spec";
 import { pathExists } from "../core";
@@ -10,7 +10,7 @@ import { writeProjection } from "./projection";
 import { extractSkillFrontmatter, SKILL_MD } from "./skill-frontmatter";
 import { loadSomaHome } from "../home";
 import { VSA_SKILL_NAME } from "./vsa-skill-installer";
-import type { SomaHomeProjectionOptions } from "../types";
+import type { SomaHomeProjectionOptions } from "./types";
 import type { ProjectionInput } from "../home/types";
 
 /**

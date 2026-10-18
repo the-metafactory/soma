@@ -5,14 +5,11 @@ import {
   runSomaLifecycleSessionStart,
 } from "../index";
 import { resolveLifecycleHomeDir } from "../lifecycle";
-// Also registers the claude-code and codex SessionEnd transcript-digest handlers.
-import { resolveInstalledLifecycleHomeDir } from "../adapters/lifecycle";
-import type { SomaLifecycleOptions, SomaLifecycleResult } from "../types";
+// The public entry registers SessionEnd transcript handlers and projection self-repair.
+import { resolveInstalledLifecycleHomeDir, type SomaLifecycleOptions } from "../substrates/index";
+import type { SomaLifecycleResult } from "../types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
-// Registers claude-code's projection self-repair provider (soma#460) — dependency
-// inversion; core looks it up by substrate and never imports it.
-import "../adapters/claude-code/projection-self-repair";
 
 export interface ParsedLifecycleArgs {
   command: "lifecycle";

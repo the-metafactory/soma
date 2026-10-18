@@ -13,10 +13,7 @@
  * - No personal/private context inference.
  * - No execution of embedded commands.
  */
-import type {
-  SkillNormalizationAction,
-  SkillNormalizationWarning,
-} from "../types";
+import type { SkillNormalizationAction, SkillNormalizationWarning } from "./types";
 
 export interface NormalizeContentResult {
   content: string;

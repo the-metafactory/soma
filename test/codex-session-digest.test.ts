@@ -3,10 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { parseMemoryNote, runSomaLifecycleSessionEnd } from "../src/index";
-import {
-  extractCodexDigestBodyFromTranscript,
-  writeCodexSessionDigestFromTranscript,
-} from "../src/adapters/codex/session-digest";
+import { extractCodexDigestBodyFromTranscript, writeCodexSessionDigestFromTranscript } from "../src/substrates/adapters/codex/session-digest";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");
 const SESSION = "codex-session-1";

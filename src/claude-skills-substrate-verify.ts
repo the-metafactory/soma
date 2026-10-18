@@ -70,7 +70,7 @@ import type {
   ClaudeSkillsSmokeSubstrate,
   SomaSkill,
 } from "./types";
-import { buildPiDevPortableSkillFiles } from "./adapters/pi-dev";
+import { buildPiDevPortableSkillFiles } from "./substrates/adapters/pi-dev/skill-projection";
 
 // Shared frontmatter regex + quote-stripping — single source of truth
 // across migrator + verifier.

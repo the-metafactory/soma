@@ -6,9 +6,9 @@ import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, experimentalAnthropicCowork, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
-import { codexInstallSpec, configureCodexAgentsImport } from "../src/adapters/codex/install";
-import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/adapters/anthropic-cowork";
-import { removeLegacyPiDevVsaSkillProjection } from "../src/adapters/pi-dev/skill-projection";
+import { codexInstallSpec, configureCodexAgentsImport } from "../src/substrates/adapters/codex/install";
+import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/substrates/adapters/anthropic-cowork";
+import { removeLegacyPiDevVsaSkillProjection } from "../src/substrates/adapters/pi-dev/skill-projection";
 import {
   SOMA_MEMORY_CATEGORIES,
   SOMA_PAI_BOUND_MEMORY_CATEGORIES,
@@ -37,7 +37,7 @@ const SOMA_PAI_BOUND_MEMORY_DIRS = SOMA_PAI_BOUND_MEMORY_CATEGORIES;
 // Bytes, anderer aufgeloester Pfad. Testet zudem genau das, was ausgeliefert wird.
 const hookEntryDir = await mkdtemp(join(tmpdir(), "soma-hook-entry-"));
 for (const asset of ["codex-hook-entry.mjs", "codex-policy-hook.mjs", "codex-policy-targets.mjs", "policy-marker.mjs"]) {
-  await copyFile(new URL(`../src/adapters/codex/hooks/${asset}`, import.meta.url), join(hookEntryDir, asset));
+  await copyFile(new URL(`../src/substrates/adapters/codex/hooks/${asset}`, import.meta.url), join(hookEntryDir, asset));
 }
 const { renderStartupContextSummary } = (await import(
   pathToFileURL(join(hookEntryDir, "codex-hook-entry.mjs")).href

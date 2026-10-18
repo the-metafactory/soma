@@ -1,11 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { allInstallSpecs } from "./substrates/install-spec-registry";
+import { allInstallSpecs, type SomaHomeBootstrapResult } from "./substrates/index";
 import { migrateVsaStorageDir } from "./home-migration";
 import { SOMA_MEMORY_CATEGORIES, SOMA_MEMORY_CATEGORY_READMES } from "./memory/index";
 import { createPaths } from "./core/index";
 import { loadSomaHome } from "./home/index";
-import type { SomaHomeBootstrapOptions, SomaHomeBootstrapResult } from "./types";
+import type { SomaHomeBootstrapOptions } from "./types";
 
 // #88 / DD-2: canonical PAI v5.0.0 memory taxonomy (17 substrate-neutral +
 // 2 PAI-bound). The directory list and per-category README content live in

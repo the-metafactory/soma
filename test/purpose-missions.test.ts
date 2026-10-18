@@ -3,15 +3,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, spyOn, test } from "bun:test";
 import { bootstrapSomaHome, loadSomaHome } from "../src/index";
-import { projectClaudeCode } from "../src/adapters/claude-code";
-import { projectCursor } from "../src/adapters/cursor";
-import { projectAnthropicCoworkHome } from "../src/adapters/anthropic-cowork";
-import { projectCodex } from "../src/adapters/codex/adapter";
-import { projectDsh } from "../src/adapters/dsh/adapter";
-import { projectGrok } from "../src/adapters/grok/adapter";
-import { projectPiDev } from "../src/adapters/pi-dev/adapter";
-import { renderAssistantCore } from "../src/adapters/shared";
-import type { Projection } from "../src/types";
+import { projectClaudeCode } from "../src/substrates/adapters/claude-code";
+import { projectCursor } from "../src/substrates/adapters/cursor";
+import { projectAnthropicCoworkHome } from "../src/substrates/adapters/anthropic-cowork";
+import { projectCodex } from "../src/substrates/adapters/codex/adapter";
+import { projectDsh } from "../src/substrates/adapters/dsh/adapter";
+import { projectGrok } from "../src/substrates/adapters/grok/adapter";
+import { projectPiDev } from "../src/substrates/adapters/pi-dev/adapter";
+import { renderAssistantCore } from "../src/substrates/adapters/shared/index";
+import type { Projection } from "../src/substrates/types";
 import { portableProjectionInput } from "./fixtures";
 
 // soma#784 D9: Purpose's M0–Mn list is `missions`, read from `## Missions`,

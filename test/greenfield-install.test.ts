@@ -274,7 +274,7 @@ function isTextProjectionPath(path: string): boolean {
  * - Other substrates' default homes: adapters hard-code cross-substrate
  *   privacy protection (e.g. codex's `privateRoots` lists `.claude/memory`,
  *   `.claude/memories`, `.claude/PAI/MEMORY` even when claude-code isn't
- *   installed — src/adapters/codex/adapter.ts `codexLifecycleConfig`). This
+ *   installed — src/substrates/adapters/codex/adapter.ts `codexLifecycleConfig`). This
  *   test installs exactly one substrate per run, so any other substrate's
  *   home is guaranteed absent regardless of correctness.
  * - `<somaHome>/profile/imports/**`: legacy PAI migration import
@@ -305,7 +305,7 @@ function isKnownOnDemandOrCrossSubstrateReference(
     if (otherSubstrate === ctx.substrate) continue;
     const otherHome = join(ctx.homeDir, defaultSubstrateHome(otherSubstrate));
     // cursor's defaultHome is "." (it projects directly into homeDir rather
-    // than a dedicated subdir — see src/adapters/cursor/install.ts), so
+    // than a dedicated subdir — see src/substrates/adapters/cursor/install.ts), so
     // `join(homeDir, ".")` collapses to homeDir itself. Exempting that would
     // exempt EVERY homeDir-scoped reference for every other substrate,
     // silently disabling this whole check. There is no meaningfully-separate
@@ -339,7 +339,7 @@ function isKnownOnDemandOrCrossSubstrateReference(
  * Files a spec declares in `homeFiles` (so the planner / doctor / owned-subtree
  * reconcile know about them) but only PROJECTS when their source exists — so a
  * greenfield install legitimately omits them. Matched by path suffix. Source:
- * src/adapters/claude-code.ts, where `ConditionalRulesFile` names exactly
+ * src/substrates/adapters/claude-code.ts, where `ConditionalRulesFile` names exactly
  * `rules/soma/ACTIVE_VSA.md` (no active VSA) and `rules/soma/MEMORY.md` (no
  * memory index); both are excluded from the always-on content builders and
  * appended only when their source is present. A declared file absent for any

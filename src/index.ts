@@ -163,8 +163,8 @@ export { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance } fro
 export type { ExecutionConformanceReport, ExecutionConformanceResult, ExecutionConformanceScenario, ExecutionConformanceScenarioId } from "./execution/index";
 export { ExecutorRegistry, isKnownExecutionSubstrate, isKnownSubstrate, KNOWN_EXECUTION_SUBSTRATES, KNOWN_SUBSTRATES } from "./execution/index";
 export type { ExecutorRegistryResolution, RegisteredSubstrateExecutor } from "./execution/index";
-export { diagnoseExecutionReadiness } from "./adapters/doctor";
-export type { ExecutionReadiness } from "./adapters/doctor";
+export { diagnoseExecutionReadiness } from "./substrates/index";
+export type { ExecutionReadiness } from "./substrates/index";
 export { CodexExecutor, registerCodexExecutor } from "./execution/index";
 export type { CodexCommandResult, CodexCommandRunner, CodexExecutorOptions } from "./execution/index";
 export { ClaudeCodeExecutor, registerClaudeCodeExecutor } from "./execution/index";
@@ -320,7 +320,7 @@ export {
   dshAdapter,
   grokAdapter,
   piDevAdapter,
-} from "./adapters";
+} from "./substrates/index";
 // NOTE: #43 Algorithm renderer pure-logic helpers (phase parser,
 // widget helpers, extension-source renderer) are intentionally NOT
 // re-exported at the package root. They are scoped to the pi-dev
@@ -328,9 +328,15 @@ export {
 // runtime shape in the follow-up PR. Tests can import the helpers
 // directly from the substrate path.
 export { harvestSessions } from "./tools/learning/session-harvester";
-export { writeProjection } from "./substrates/projection";
-export { SomaInstallError } from "./substrates/installation-execution";
-export type { SomaHomeInstallReceipt, SomaInstallStage, SomaPartialInstallResult, SomaRuntimeArtifactReceipt, SomaSubstrateInstallReceipt } from "./substrates/installation-execution";
+export { writeProjection } from "./substrates/index";
+export { SomaInstallError } from "./substrates/index";
+export type {
+  SomaHomeInstallReceipt,
+  SomaInstallStage,
+  SomaPartialInstallResult,
+  SomaRuntimeArtifactReceipt,
+  SomaSubstrateInstallReceipt,
+} from "./substrates/index";
 export { createPaths, type SomaPathsOptions } from "./core/index";
 export {
   advisor,
@@ -428,7 +434,7 @@ export {
   installGrokHomeProjection,
   installPiDevHomeProjection,
   resolveHomeProjectionPaths,
-} from "./substrates/home-projection";
+} from "./substrates/index";
 export {
   installSomaForClaudeCode,
   installSomaForCodex,
@@ -452,9 +458,9 @@ export {
   type UninstallGrokOptions,
   type UninstallGrokResult,
 } from "./install";
-export { inspectRuntimeArtifact, rollbackRuntimeArtifact } from "./substrates/runtime-artifact";
-export * as experimentalAnthropicCowork from "./experimental/anthropic-cowork";
-export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
+export { inspectRuntimeArtifact, rollbackRuntimeArtifact } from "./substrates/index";
+export { experimentalAnthropicCowork } from "./substrates/index";
+export type { ClaudeCodeInstallOptions } from "./substrates/index";
 // Adapter active-VSA projection helpers (#37).
 export {
   activeVsaProjectionPath,
@@ -466,7 +472,7 @@ export {
 // Implementation details (vsaSkillRuntimeDir, vsaSkillSourceDir,
 // parseSkillFrontmatter, skillBaselinesPath, compareSkillVersions) stay in
 // `./substrates/vsa-skill-installer` and are imported directly by tests and scripts.
-export { installVsaSkill } from "./substrates/vsa-skill-installer";
+export { installVsaSkill } from "./substrates/index";
 export {
   buildSomaStartupContext,
   captureCompletedAlgorithmLearnings,
@@ -481,13 +487,8 @@ export { registerSessionEndTranscriptHandler, registerProjectionRepairProvider }
 export type { SessionEndTranscriptHandler, ProjectionRepairProvider } from "./home/index";
 export { buildLearningReadback } from "./learning-readback";
 export type { LearningReadbackOptions } from "./learning-readback";
-export { repairProjectedArtifacts } from "./substrates/projection-self-repair";
-export type {
-  ProjectedArtifact,
-  ProjectionRepairFinding,
-  ProjectionRepairFindingKind,
-  ProjectionRepairResult,
-} from "./substrates/projection-self-repair";
+export { repairProjectedArtifacts } from "./substrates/index";
+export type { ProjectedArtifact, ProjectionRepairFinding, ProjectionRepairFindingKind, ProjectionRepairResult } from "./substrates/index";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./events/index";
 export { searchSomaMemory } from "./memory/index";

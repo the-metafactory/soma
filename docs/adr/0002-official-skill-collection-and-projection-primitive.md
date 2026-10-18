@@ -31,7 +31,7 @@ Two further problems compound it:
 
 1. **No invocable-skill projection.** `soma install <substrate>` projects only a
    *catalog* — `rules/soma/SKILLS.md`, rendered by `renderSkills` in
-   `src/adapters/claude-code.ts`, scanned by `loadSomaSkills` (`src/soma-home.ts:154`).
+   `src/substrates/adapters/claude-code.ts`, scanned by `loadSomaSkills` (`src/soma-home.ts:154`).
    It never materialises invocable skill *directories* into the substrate loader
    (e.g. `~/.claude/skills/`). The existing Soma-native skills (`VSA/`, `Interview/`)
    are hand-made copies there; the newly-added `Purpose` skill had to be symlinked by
@@ -110,7 +110,7 @@ all installed); the contract above is substrate-list-parameterised either way.
   in-repo + versioned with core, third-party external via arc.
 - **Projection ownership: arc-embedded vs. soma-owned, arc-delegating.**
   Teaching arc *how* to project (embedding adapter logic) was rejected — it
-  duplicates `src/adapters/*` and forks the projection truth the moment soma's
+  duplicates `src/substrates/adapters/*` and forks the projection truth the moment soma's
   adapters change. **Soma-owned with arc delegating** chosen: one implementation,
   many callers.
 - **Skill authoring: code-gen renderers vs. plain `.md`.** the-algorithm's

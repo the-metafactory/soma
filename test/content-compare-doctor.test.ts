@@ -1,6 +1,6 @@
 // soma#370 acceptance tests: uniform provenance headers stay byte-idempotent
 // across a second reproject, and the shared content-compare doctor
-// (src/adapters/content-compare-doctor.ts) correctly classifies missing /
+// (src/substrates/adapters/content-compare-doctor.ts) correctly classifies missing /
 // unmanaged / stale drift and maps to the right `soma doctor` exit code.
 //
 // test/onboarding-doctor.test.ts already exercises codex/claude-code/grok
@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { PROJECTION_LIFECYCLE_SUBSTRATES, type InstallSubstrate } from "../src/cli/substrate-lifecycle";
-import { diagnoseContentCompareDrift } from "../src/adapters/content-compare-doctor";
+import { diagnoseContentCompareDrift } from "../src/substrates/adapters/content-compare-doctor";
 import { SomaHomeNotLoadableError, loadProjectionInputForDoctor } from "../src/substrates/doctor-projection-input";
 import { defaultSomaRepoPath } from "../src/core/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
@@ -295,7 +295,7 @@ test("soma#370: soma doctor exit codes map 0 (clean) / 1 (drift) / 2 (missing fi
 
     // 2 — error (a rendered file missing entirely).
     await runSomaCli(["uninstall", "pi-dev", "--home-dir", homeDir]).catch(() => {
-      // pi-dev uninstall is reserved/unimplemented (see src/adapters/pi-dev/install.ts) —
+      // pi-dev uninstall is reserved/unimplemented (see src/substrates/adapters/pi-dev/install.ts) —
       // fall back to deleting the directory tree by hand so "missing" is genuine.
     });
     const { rm } = await import("node:fs/promises");

@@ -1,0 +1,1139 @@
+import { homedir } from "node:os";
+import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { resolveBunExecutable } from "../../../core/index";
+import { isEnoent } from "../../../core/index";
+import { renderFeedbackHookHelper } from "../shared/feedback-helper";
+import { isClaudeCodeInstallOptions } from "./install-options";
+
+// Hook assets are inlined at bundle time (`with { type: "text" }`) so the
+// compiled binary can project them; a runtime readFileSync against
+// import.meta.url resolves to /$bunfs/root inside a single-file bundle and
+// throws ENOENT (soma#531). tsc has no notion of text imports, hence the
+// suppressions; a blanket `declare module "*.mjs"` is not safe here because
+// grok imports one of its .mjs assets as a real module.
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import hookRunnerSource from "./hook-runner.mjs" with { type: "text" };
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import modeClassifierSource from "./mode-classifier-hook.mjs" with { type: "text" };
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import policyGuardSource from "./policy-guard-hook.mjs" with { type: "text" };
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import preCompactSource from "./precompact-hook.mjs" with { type: "text" };
+// @ts-expect-error text import: inlined by bun, unknown to tsc
+import statusLineSource from "./statusline.sh" with { type: "text" };
+
+/**
+ * soma#369: adapter-owned session hooks (mode classifier, policy guard) are
+ * default-on. Enabled unless a caller explicitly passes `<hook>: false`, so an
+ * absent option or non-options value (internal reproject paths) still installs
+ * them. Shared by the hook installer and the install spec's optionalHomeFiles
+ * so the projected file list and what actually gets written stay in lockstep.
+ */
+export function claudeCodeHookEnabled(
+  options: unknown,
+  hook: "modeClassifier" | "policyGuard" | "preCompact" | "statusLine" | "feedbackCapture",
+): boolean {
+  if (!isClaudeCodeInstallOptions(options)) return true;
+  return options[hook] !== false;
+}
+
+export const SOMA_CLAUDE_HOOK_RELATIVE_PATH = "hooks/soma/soma-claude-code-hook.mjs";
+export const SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH = "hooks/soma/soma-claude-code-hook.config.json";
+export const SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH = "hooks/soma/soma-mode-classifier.mjs";
+export const SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH = "hooks/soma/soma-mode-classifier.config.json";
+export const SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH = "hooks/soma/soma-policy-guard.mjs";
+export const SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH = "hooks/soma/soma-policy-guard.config.json";
+export const SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH = "hooks/soma/soma-precompact.mjs";
+export const SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH = "hooks/soma/soma-precompact.config.json";
+// 2026-07-10 proxy-drift audit: claude-code — the substrate JC actually types
+// into — had NO feedback capture at all while the codex-only pipeline counted
+// content-free events. This hook closes that gap on UserPromptSubmit.
+export const SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH = "hooks/soma/soma-feedback-capture.mjs";
+export const SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH = "hooks/soma/soma-feedback-capture.config.json";
+// soma statusline: self-contained bundled script (SOMA_HOME baked in at
+// projection time) — no bunPath, no argv dispatch, no companion config.json.
+export const SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH = "hooks/soma/soma-statusline.sh";
+// PreToolUse matcher for the fail-closed enforcement guard: every tool whose
+// input can carry a dangerous command, an outbound exfiltration, or a
+// credential-path read/write that the runtime policy must inspect.
+const SOMA_CLAUDE_POLICY_GUARD_MATCHER = "Bash|Read|Grep|Edit|Write|MultiEdit|NotebookEdit";
+const SOMA_CLAUDE_SETTINGS_RELATIVE_PATH = "settings.json";
+const SOMA_DVSABLED_HOOKS_KEY = "somaDisabledHooks";
+const PAI_MODE_CLASSIFIER_KEY = "paiModeClassifier";
+
+const SOMA_CLAUDE_HOOK_EVENTS = [
+  {
+    event: "SessionStart",
+    commandEvent: "session-start",
+    summary: "Start Soma lifecycle session",
+    runner: { kind: "lifecycle", lifecycleEvent: "session-start" },
+  },
+  {
+    event: "SessionEnd",
+    commandEvent: "session-end",
+    summary: "End Soma lifecycle session",
+    runner: { kind: "lifecycle", lifecycleEvent: "session-end" },
+  },
+  {
+    event: "PostToolUse",
+    commandEvent: "writeback-tool",
+    matcher: "Write|Edit|MultiEdit|NotebookEdit",
+    summary: "Write Soma tool metadata",
+    runner: {
+      kind: "writeback",
+      eventKind: "writeback.claude_code.tool",
+      eventSummary: "Claude Code tool activity metadata captured.",
+      source: "PostToolUse",
+    },
+  },
+  {
+    event: "SubagentStart",
+    commandEvent: "writeback-subagent-start",
+    summary: "Write Soma subagent start metadata",
+    runner: {
+      kind: "writeback",
+      eventKind: "writeback.claude_code.subagent_start",
+      eventSummary: "Claude Code subagent start metadata captured.",
+      source: "SubagentStart",
+    },
+  },
+  {
+    event: "SubagentStop",
+    commandEvent: "writeback-subagent-stop",
+    summary: "Write Soma subagent stop metadata",
+    runner: {
+      kind: "writeback",
+      eventKind: "writeback.claude_code.subagent_stop",
+      eventSummary: "Claude Code subagent stop metadata captured.",
+      source: "SubagentStop",
+    },
+  },
+] as const;
+
+type JsonObject = Record<string, unknown>;
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function legacySomaClaudeHookCommand(substrateHome: string, commandEvent: string): string {
+  return `${shellQuote(resolve(substrateHome, SOMA_CLAUDE_HOOK_RELATIVE_PATH))} ${commandEvent}`;
+}
+
+function somaClaudeHookCommand(substrateHome: string, bunPath: string, commandEvent: string): string {
+  return `${shellQuote(bunPath)} ${shellQuote(resolve(substrateHome, SOMA_CLAUDE_HOOK_RELATIVE_PATH))} ${commandEvent}`;
+}
+
+function isObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonObject(content: string, path: string): JsonObject {
+  if (content.trim().length === 0) return {};
+  const parsed: unknown = JSON.parse(content);
+  if (!isObject(parsed)) {
+    throw new Error(`Claude Code settings must be a JSON object: ${path}`);
+  }
+  return parsed;
+}
+
+async function readSettingsWithRaw(path: string): Promise<{ before: string; settings: JsonObject }> {
+  const before = await readFile(path, "utf8").catch((error: unknown) => {
+    if (isEnoent(error)) return "";
+    throw error;
+  });
+  return { before, settings: parseJsonObject(before, path) };
+}
+
+function somaHookCommands(substrateHome: string, bunPath: string): Set<string> {
+  return new Set(
+    SOMA_CLAUDE_HOOK_EVENTS.flatMap((event) => [
+      somaClaudeHookCommand(substrateHome, bunPath, event.commandEvent),
+      legacySomaClaudeHookCommand(substrateHome, event.commandEvent),
+    ]),
+  );
+}
+
+function somaHookEntry(substrateHome: string, bunPath: string, commandEvent: string): JsonObject {
+  return {
+    type: "command",
+    command: somaClaudeHookCommand(substrateHome, bunPath, commandEvent),
+    timeout: 30,
+  };
+}
+
+function legacySomaModeClassifierCommand(substrateHome: string): string {
+  return shellQuote(resolve(substrateHome, SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH));
+}
+
+function somaModeClassifierCommand(substrateHome: string, bunPath: string): string {
+  return `${shellQuote(bunPath)} ${shellQuote(resolve(substrateHome, SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH))}`;
+}
+
+function somaModeClassifierCommands(substrateHome: string, bunPath: string): Set<string> {
+  return new Set([
+    somaModeClassifierCommand(substrateHome, bunPath),
+    legacySomaModeClassifierCommand(substrateHome),
+  ]);
+}
+
+function somaModeClassifierEntry(substrateHome: string, bunPath: string): JsonObject {
+  return {
+    type: "command",
+    command: somaModeClassifierCommand(substrateHome, bunPath),
+    timeout: 10,
+  };
+}
+
+function legacySomaPolicyGuardCommand(substrateHome: string): string {
+  return shellQuote(resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH));
+}
+
+function somaPolicyGuardCommand(substrateHome: string, bunPath: string): string {
+  return `${shellQuote(bunPath)} ${shellQuote(resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH))}`;
+}
+
+function somaPolicyGuardCommands(substrateHome: string, bunPath: string): Set<string> {
+  return new Set([
+    somaPolicyGuardCommand(substrateHome, bunPath),
+    legacySomaPolicyGuardCommand(substrateHome),
+  ]);
+}
+
+function somaPolicyGuardEntry(substrateHome: string, bunPath: string): JsonObject {
+  return {
+    type: "command",
+    command: somaPolicyGuardCommand(substrateHome, bunPath),
+    timeout: 30,
+  };
+}
+
+// The fail-closed enforcement guard wires the same binary into two events:
+// PreToolUse (tool_call surface, matcher-scoped) and UserPromptSubmit (prompt
+// surface). Both share one command set for idempotent append + clean removal.
+function appendSomaPolicyGuardHookGroups(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const knownCommands = somaPolicyGuardCommands(substrateHome, bunPath);
+  const preTool = appendCommandHookGroup(settings, {
+    event: "PreToolUse",
+    description: "Soma: Enforce runtime policy on tool calls (fail-closed)",
+    matcher: SOMA_CLAUDE_POLICY_GUARD_MATCHER,
+    entry: somaPolicyGuardEntry(substrateHome, bunPath),
+    knownCommands,
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH),
+  });
+  const prompt = appendCommandHookGroup(settings, {
+    event: "UserPromptSubmit",
+    description: "Soma: Enforce runtime policy on prompts (fail-closed)",
+    entry: somaPolicyGuardEntry(substrateHome, bunPath),
+    knownCommands,
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH),
+  });
+  return preTool || prompt;
+}
+
+// Collect every recorded command, across the given `events`, that references
+// `scriptPath` — regardless of the bun path it was written with. Shared by the
+// policy-guard, pre-compact, and feedback-capture uninstall paths (Sage review,
+// PR #455) so the discovery traversal lives in ONE place instead of three
+// near-identical copies. This robustness matters because a settings entry may
+// have been recorded with a different bun path than the installed config's;
+// without it the hook files get removed but a stale command keeps invoking a
+// now-missing hook.
+function installedCommandsReferencingScript(
+  settings: JsonObject,
+  events: readonly string[],
+  scriptPath: string,
+): Set<string> {
+  const found = new Set<string>();
+  if (!isObject(settings.hooks)) return found;
+  for (const event of events) {
+    const groups = settings.hooks[event];
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      for (const command of groupCommands(group)) {
+        if (command.includes(scriptPath)) found.add(command);
+      }
+    }
+  }
+  return found;
+}
+
+function installedPolicyGuardCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  return installedCommandsReferencingScript(
+    settings,
+    ["PreToolUse", "UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH),
+  );
+}
+
+function removeSomaPolicyGuardFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const commands = new Set([
+    ...somaPolicyGuardCommands(substrateHome, bunPath),
+    ...installedPolicyGuardCommands(settings, substrateHome),
+  ]);
+  const preTool = removeCommandsFromSettingsEvent(settings, "PreToolUse", commands);
+  const prompt = removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
+  return preTool || prompt;
+}
+
+// PreCompact handover hook: ONE asset dispatched by argv into two events —
+// `capture` on PreCompact (persist the handover) and `resurface` on
+// UserPromptSubmit (re-inject it once after compaction). The action suffix is
+// part of the command string so idempotent append + clean removal see both.
+function legacySomaPreCompactCommand(substrateHome: string, action: string): string {
+  return `${shellQuote(resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH))} ${action}`;
+}
+
+function somaPreCompactCommand(substrateHome: string, bunPath: string, action: string): string {
+  return `${shellQuote(bunPath)} ${shellQuote(resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH))} ${action}`;
+}
+
+function somaPreCompactCommands(substrateHome: string, bunPath: string): Set<string> {
+  return new Set(
+    ["capture", "resurface"].flatMap((action) => [
+      somaPreCompactCommand(substrateHome, bunPath, action),
+      legacySomaPreCompactCommand(substrateHome, action),
+    ]),
+  );
+}
+
+function somaPreCompactEntry(substrateHome: string, bunPath: string, action: string, timeout: number): JsonObject {
+  return {
+    type: "command",
+    command: somaPreCompactCommand(substrateHome, bunPath, action),
+    timeout,
+  };
+}
+
+function appendSomaPreCompactHookGroups(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const knownCommands = somaPreCompactCommands(substrateHome, bunPath);
+  const capture = appendCommandHookGroup(settings, {
+    event: "PreCompact",
+    description: "Soma: Capture a pre-compaction handover of active work-state",
+    entry: somaPreCompactEntry(substrateHome, bunPath, "capture", 30),
+    knownCommands,
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH),
+  });
+  const resurface = appendCommandHookGroup(settings, {
+    event: "UserPromptSubmit",
+    description: "Soma: Resurface the pre-compaction handover after compaction",
+    entry: somaPreCompactEntry(substrateHome, bunPath, "resurface", 15),
+    knownCommands,
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH),
+  });
+  return capture || resurface;
+}
+
+function installedPreCompactCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  return installedCommandsReferencingScript(
+    settings,
+    ["PreCompact", "UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH),
+  );
+}
+
+function removeSomaPreCompactFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const commands = new Set([
+    ...somaPreCompactCommands(substrateHome, bunPath),
+    ...installedPreCompactCommands(settings, substrateHome),
+  ]);
+  const preCompact = removeCommandsFromSettingsEvent(settings, "PreCompact", commands);
+  const prompt = removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
+  return preCompact || prompt;
+}
+
+function somaFeedbackCaptureCommand(substrateHome: string, bunPath: string): string {
+  return `${shellQuote(bunPath)} ${shellQuote(resolve(substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH))}`;
+}
+
+function somaFeedbackCaptureCommands(substrateHome: string, bunPath: string): Set<string> {
+  return new Set([somaFeedbackCaptureCommand(substrateHome, bunPath)]);
+}
+
+function appendSomaFeedbackCaptureHookGroup(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  return appendCommandHookGroup(settings, {
+    event: "UserPromptSubmit",
+    description: "Soma: Capture correction/feedback candidates from user prompts",
+    entry: {
+      type: "command",
+      command: somaFeedbackCaptureCommand(substrateHome, bunPath),
+      timeout: 10,
+    },
+    knownCommands: somaFeedbackCaptureCommands(substrateHome, bunPath),
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH),
+  });
+}
+
+function installedFeedbackCaptureCommands(settings: JsonObject, substrateHome: string): Set<string> {
+  return installedCommandsReferencingScript(
+    settings,
+    ["UserPromptSubmit"],
+    resolve(substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH),
+  );
+}
+
+function removeSomaFeedbackCaptureFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const commands = new Set([
+    ...somaFeedbackCaptureCommands(substrateHome, bunPath),
+    ...installedFeedbackCaptureCommands(settings, substrateHome),
+  ]);
+  return removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", commands);
+}
+
+function appendCommandHookGroup(
+  settings: JsonObject,
+  input: {
+    event: string;
+    description: string;
+    matcher?: string;
+    entry: JsonObject;
+    knownCommands: Set<string>;
+    /**
+     * The Soma-owned script this group runs. An entry in this event that
+     * references it but is not one of `knownCommands` was written by an install
+     * that resolved a different Bun, and is replaced rather than kept beside
+     * the new one. Matching only the exact command for the current Bun is what
+     * left every Soma hook registered twice on a host with two Bun installs —
+     * which doubled every lifecycle process a burst of sessions started.
+     */
+    scriptPath: string;
+  },
+): boolean {
+  const hooks = isObject(settings.hooks) ? settings.hooks : {};
+  let eventGroups = Array.isArray(hooks[input.event]) ? hooks[input.event] as unknown[] : [];
+
+  let removedStale = false;
+  const keptGroups: unknown[] = [];
+  for (const group of eventGroups) {
+    const stale = new Set(
+      groupCommands(group).filter((command) => command.includes(input.scriptPath) && !input.knownCommands.has(command)),
+    );
+    if (stale.size === 0) {
+      keptGroups.push(group);
+      continue;
+    }
+    const result = removeSomaCommandsFromGroup(group, stale);
+    removedStale = result.changed || removedStale;
+    if (result.group) keptGroups.push(result.group);
+  }
+  eventGroups = keptGroups;
+  if (removedStale) hooks[input.event] = eventGroups;
+
+  for (const group of eventGroups) {
+    if (!isObject(group) || !Array.isArray(group.hooks)) continue;
+    if (group.hooks.some((hook) => isObject(hook) && typeof hook.command === "string" && input.knownCommands.has(hook.command))) {
+      settings.hooks = hooks;
+      return removedStale;
+    }
+  }
+
+  eventGroups.push({
+    description: input.description,
+    ...(input.matcher ? { matcher: input.matcher } : {}),
+    hooks: [input.entry],
+  });
+  hooks[input.event] = eventGroups;
+  settings.hooks = hooks;
+  return true;
+}
+
+function appendSomaHookGroup(settings: JsonObject, input: (typeof SOMA_CLAUDE_HOOK_EVENTS)[number], substrateHome: string, bunPath: string): boolean {
+  return appendCommandHookGroup(settings, {
+    event: input.event,
+    description: `Soma: ${input.summary}`,
+    ...("matcher" in input ? { matcher: input.matcher } : {}),
+    entry: somaHookEntry(substrateHome, bunPath, input.commandEvent),
+    knownCommands: somaHookCommands(substrateHome, bunPath),
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_HOOK_RELATIVE_PATH),
+  });
+}
+
+function appendSomaModeClassifierHookGroup(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  return appendCommandHookGroup(settings, {
+    event: "UserPromptSubmit",
+    description: "Soma: Classify prompts into MINIMAL, NATIVE, or ALGORITHM mode",
+    entry: somaModeClassifierEntry(substrateHome, bunPath),
+    knownCommands: somaModeClassifierCommands(substrateHome, bunPath),
+    scriptPath: resolve(substrateHome, SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH),
+  });
+}
+
+function removeSomaHooksFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  if (!isObject(settings.hooks)) return false;
+  const commands = somaHookCommands(substrateHome, bunPath);
+  const nextHooksByEvent: JsonObject = {};
+  let changed = false;
+
+  for (const [event, groups] of Object.entries(settings.hooks)) {
+    if (!Array.isArray(groups)) {
+      nextHooksByEvent[event] = groups;
+      continue;
+    }
+    const nextGroups: unknown[] = [];
+    for (const group of groups) {
+      const result = removeSomaCommandsFromGroup(group, commands);
+      changed = result.changed || changed;
+      if (result.group) nextGroups.push(result.group);
+    }
+    if (nextGroups.length > 0) {
+      nextHooksByEvent[event] = nextGroups;
+    }
+  }
+
+  if (Object.keys(nextHooksByEvent).length === 0) {
+    delete settings.hooks;
+  } else {
+    settings.hooks = nextHooksByEvent;
+  }
+  return changed;
+}
+
+function removeSomaModeClassifierFromSettings(settings: JsonObject, substrateHome: string, bunPath: string): boolean {
+  const changed = removeCommandsFromSettingsEvent(settings, "UserPromptSubmit", somaModeClassifierCommands(substrateHome, bunPath));
+  return restorePaiModeClassifierHooks(settings) || changed;
+}
+
+function removeCommandsFromSettingsEvent(settings: JsonObject, event: string, commands: Set<string>): boolean {
+  if (!isObject(settings.hooks)) return false;
+  const hooks = settings.hooks;
+  const groups = hooks[event];
+  if (!Array.isArray(groups)) return false;
+
+  const nextGroups: unknown[] = [];
+  let changed = false;
+  for (const group of groups) {
+    const result = removeSomaCommandsFromGroup(group, commands);
+    changed = result.changed || changed;
+    if (result.group) nextGroups.push(result.group);
+  }
+  if (!changed) return false;
+
+  const nextHooks = nextGroups.length > 0
+    ? { ...hooks, [event]: nextGroups }
+    : Object.fromEntries(Object.entries(hooks).filter(([key]) => key !== event));
+  if (Object.keys(nextHooks).length === 0) delete settings.hooks;
+  else settings.hooks = nextHooks;
+  return true;
+}
+
+function removeSomaCommandsFromGroup(group: unknown, commands: Set<string>): { group?: unknown; changed: boolean } {
+  if (!isObject(group) || !Array.isArray(group.hooks)) {
+    return { group, changed: false };
+  }
+  const nextHooks = group.hooks.filter((hook) => !(isObject(hook) && typeof hook.command === "string" && commands.has(hook.command)));
+  if (nextHooks.length === group.hooks.length) {
+    return { group, changed: false };
+  }
+  if (nextHooks.length === 0) {
+    return { changed: true };
+  }
+  return { group: { ...group, hooks: nextHooks }, changed: true };
+}
+
+function isPaiModeClassifierCommand(command: string): boolean {
+  return /(?:^|[/\\])ModeClassifier\.hook\.(?:ts|js|mjs)(?:[\s"']|$)/.test(command) || command.includes("ModeClassifier.hook.ts");
+}
+
+function groupCommands(group: unknown): string[] {
+  if (!isObject(group) || !Array.isArray(group.hooks)) return [];
+  return group.hooks.flatMap((hook) => isObject(hook) && typeof hook.command === "string" ? [hook.command] : []);
+}
+
+function disabledPaiModeClassifierGroups(settings: JsonObject): unknown[] {
+  if (!isObject(settings[SOMA_DVSABLED_HOOKS_KEY])) return [];
+  const stored = settings[SOMA_DVSABLED_HOOKS_KEY][PAI_MODE_CLASSIFIER_KEY];
+  return Array.isArray(stored) ? stored : [];
+}
+
+function setDisabledPaiModeClassifierGroups(settings: JsonObject, groups: unknown[]): void {
+  const disabled = isObject(settings[SOMA_DVSABLED_HOOKS_KEY]) ? settings[SOMA_DVSABLED_HOOKS_KEY] : {};
+  if (groups.length === 0) {
+    Reflect.deleteProperty(disabled, PAI_MODE_CLASSIFIER_KEY);
+  } else {
+    disabled[PAI_MODE_CLASSIFIER_KEY] = groups;
+  }
+  if (Object.keys(disabled).length === 0) {
+    Reflect.deleteProperty(settings, SOMA_DVSABLED_HOOKS_KEY);
+  } else {
+    settings[SOMA_DVSABLED_HOOKS_KEY] = disabled;
+  }
+}
+
+function disablePaiModeClassifierHooks(settings: JsonObject): boolean {
+  if (!isObject(settings.hooks)) return false;
+  const groups = settings.hooks.UserPromptSubmit;
+  if (!Array.isArray(groups)) return false;
+
+  const disabled = [...disabledPaiModeClassifierGroups(settings)];
+  const knownDisabledCommands = new Set(disabled.flatMap(groupCommands));
+  const nextGroups: unknown[] = [];
+  let changed = false;
+
+  for (const group of groups) {
+    if (!isObject(group) || !Array.isArray(group.hooks)) {
+      nextGroups.push(group);
+      continue;
+    }
+
+    const removedHooks = group.hooks.filter((hook) =>
+      isObject(hook) && typeof hook.command === "string" && isPaiModeClassifierCommand(hook.command),
+    );
+    if (removedHooks.length === 0) {
+      nextGroups.push(group);
+      continue;
+    }
+
+    const keptHooks = group.hooks.filter((hook) => !removedHooks.includes(hook));
+    if (removedHooks.some((hook) => isObject(hook) && typeof hook.command === "string" && !knownDisabledCommands.has(hook.command))) {
+      disabled.push({ ...group, hooks: removedHooks });
+    }
+    if (keptHooks.length > 0) nextGroups.push({ ...group, hooks: keptHooks });
+    changed = true;
+  }
+
+  if (!changed) return false;
+  if (nextGroups.length > 0) {
+    settings.hooks.UserPromptSubmit = nextGroups;
+  } else {
+    delete settings.hooks.UserPromptSubmit;
+  }
+  if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+  setDisabledPaiModeClassifierGroups(settings, disabled);
+  return true;
+}
+
+function restorePaiModeClassifierHooks(settings: JsonObject): boolean {
+  const disabled = disabledPaiModeClassifierGroups(settings);
+  if (disabled.length === 0) return false;
+
+  const hooks = isObject(settings.hooks) ? settings.hooks : {};
+  const groups = Array.isArray(hooks.UserPromptSubmit) ? hooks.UserPromptSubmit as unknown[] : [];
+  const existingCommands = new Set(groups.flatMap(groupCommands));
+  let restored = false;
+  for (const group of disabled) {
+    const missingGroup = groupWithMissingCommands(group, existingCommands);
+    const commands = groupCommands(missingGroup);
+    if (commands.length === 0) continue;
+    groups.push(missingGroup);
+    restored = true;
+    for (const command of commands) existingCommands.add(command);
+  }
+  if (restored) {
+    hooks.UserPromptSubmit = groups;
+    settings.hooks = hooks;
+  }
+  setDisabledPaiModeClassifierGroups(settings, []);
+  return true;
+}
+
+function groupWithMissingCommands(group: unknown, existingCommands: Set<string>): unknown {
+  if (!isObject(group) || !Array.isArray(group.hooks)) return group;
+  const hooks = group.hooks.filter((hook) =>
+    isObject(hook) && typeof hook.command === "string" && !existingCommands.has(hook.command),
+  );
+  return { ...group, hooks };
+}
+
+async function writeJsonIfChanged(path: string, value: JsonObject, before?: string): Promise<string[]> {
+  const next = `${JSON.stringify(value, null, 2)}\n`;
+  if (before === next) return [];
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, next, "utf8");
+  return [path];
+}
+
+export async function patchClaudeCodeSomaHookSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  let changed = false;
+  for (const event of SOMA_CLAUDE_HOOK_EVENTS) {
+    changed = appendSomaHookGroup(settings, event, substrateHome, bunPath) || changed;
+  }
+  if (!changed && before.trim().length > 0) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+// Shared settings read/mutate/write plumbing for the hook-group patchers (Sage
+// review, PR #455). Every soma hook install/uninstall does the same three
+// steps — resolve settings.json, read it with its raw bytes, write only if the
+// mutator changed something — differing ONLY in the per-hook mutator. Routing
+// them through these two helpers keeps that policy (including the "no write on a
+// no-op, but always materialize an absent settings file" rule) in one place.
+//
+// `patch`: the mutator appends/toggles groups and returns whether it changed
+// anything; a no-op on an already-present settings file writes nothing.
+// `unpatch`: the remover strips groups and returns whether it removed anything;
+// an absent (empty) settings file is left untouched.
+async function patchClaudeCodeHookSettings(
+  substrateHome: string,
+  mutate: (settings: JsonObject) => boolean,
+): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  const changed = mutate(settings);
+  if (!changed && before.trim().length > 0) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+async function unpatchClaudeCodeHookSettings(
+  substrateHome: string,
+  remove: (settings: JsonObject) => boolean,
+): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  if (before.trim().length === 0) return [];
+  if (!remove(settings)) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+export function patchClaudeCodeModeClassifierSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => {
+    // Both effects must run (not short-circuit) so a settings file that still
+    // carries PAI classifier hooks gets them disabled even when Soma's group
+    // is already present.
+    const disabledPai = disablePaiModeClassifierHooks(settings);
+    const appendedSoma = appendSomaModeClassifierHookGroup(settings, substrateHome, bunPath);
+    return disabledPai || appendedSoma;
+  });
+}
+
+export function patchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaPolicyGuardHookGroups(settings, substrateHome, bunPath));
+}
+
+export function unpatchClaudeCodePolicyGuardSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaPolicyGuardFromSettings(settings, substrateHome, bunPath));
+}
+
+export function patchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaPreCompactHookGroups(settings, substrateHome, bunPath));
+}
+
+export function unpatchClaudeCodePreCompactSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaPreCompactFromSettings(settings, substrateHome, bunPath));
+}
+
+export function patchClaudeCodeFeedbackCaptureSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return patchClaudeCodeHookSettings(substrateHome, (settings) => appendSomaFeedbackCaptureHookGroup(settings, substrateHome, bunPath));
+}
+
+export function unpatchClaudeCodeFeedbackCaptureSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  return unpatchClaudeCodeHookSettings(substrateHome, (settings) => removeSomaFeedbackCaptureFromSettings(settings, substrateHome, bunPath));
+}
+
+// The status line is a top-level `statusLine` key, not a hooks[] entry — it
+// has no matcher, no argv action, and (unlike every other soma-owned hook) no
+// bunPath, since Claude Code execs the bundled script directly via its
+// shebang. Soma always writes its own entry on install (last writer wins, as
+// with every other soma-owned settings key); uninstall only removes it when
+// the recorded `command` still points at OUR projected script path, so a
+// user's unrelated statusLine is never clobbered.
+export async function patchClaudeCodeStatusLineSettings(substrateHome: string, scriptPath: string): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  settings.statusLine = { type: "command", command: scriptPath };
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+export async function unpatchClaudeCodeStatusLineSettings(substrateHome: string, scriptPath: string): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  if (before.trim().length === 0) return [];
+  const statusLine = settings.statusLine;
+  if (!isObject(statusLine) || statusLine.command !== scriptPath) return [];
+  delete settings.statusLine;
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+export async function unpatchClaudeCodeSomaHookSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  if (before.trim().length === 0) return [];
+  if (!removeSomaHooksFromSettings(settings, substrateHome, bunPath)) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+export async function unpatchClaudeCodeModeClassifierSettings(substrateHome: string, bunPath = resolveBunExecutable()): Promise<string[]> {
+  const settingsPath = resolve(substrateHome, SOMA_CLAUDE_SETTINGS_RELATIVE_PATH);
+  const { before, settings } = await readSettingsWithRaw(settingsPath);
+  if (before.trim().length === 0) return [];
+  if (!removeSomaModeClassifierFromSettings(settings, substrateHome, bunPath)) return [];
+  return writeJsonIfChanged(settingsPath, settings, before);
+}
+
+export async function installClaudeCodeSomaHooks(context: {
+  somaHome: string;
+  somaRepoPath: string;
+  substrateHome: string;
+  homeDir?: string;
+  options?: unknown;
+}): Promise<string[]> {
+  const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_HOOK_RELATIVE_PATH);
+  const configPath = resolve(context.substrateHome, SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH);
+  const bunPath = resolveBunExecutable();
+  const config = {
+    somaHome: context.somaHome,
+    homeDir: resolve(context.homeDir ?? homedir()),
+    trustedSomaRepo: context.somaRepoPath,
+    bunPath,
+  };
+
+  await installClaudeCodeHookAsset({
+    hookPath,
+    configPath,
+    source: renderClaudeCodeSomaHook(),
+    config,
+  });
+  const settingsFiles = await patchClaudeCodeSomaHookSettings(context.substrateHome, bunPath);
+  // soma#369: the adapter owns the session fleet. Mode classifier and policy
+  // guard are default-on; a caller opts out with `modeClassifier: false` /
+  // `policyGuard: false` (CLI `--no-mode-classifier` / `--no-policy-guard`).
+  // Undefined options (internal reproject paths) keep the default-on behavior.
+  const modeClassifierFiles = claudeCodeHookEnabled(context.options, "modeClassifier")
+    ? await installClaudeCodeModeClassifierHook(context, config, bunPath)
+    : [];
+  const policyGuardFiles = claudeCodeHookEnabled(context.options, "policyGuard")
+    ? await installClaudeCodePolicyGuardHook(context, config, bunPath)
+    : [];
+  const preCompactFiles = claudeCodeHookEnabled(context.options, "preCompact")
+    ? await installClaudeCodePreCompactHook(context, config, bunPath)
+    : [];
+  const feedbackCaptureFiles = claudeCodeHookEnabled(context.options, "feedbackCapture")
+    ? await installClaudeCodeFeedbackCaptureHook(context, config, bunPath)
+    : await unpatchClaudeCodeFeedbackCaptureSettings(context.substrateHome, bunPath);
+  // Status line is also default-on; opt out with `statusLine: false`.
+  const statusLineFiles = claudeCodeHookEnabled(context.options, "statusLine")
+    ? await installClaudeCodeStatusLine(context)
+    : [];
+  return Array.from(
+    new Set([
+      hookPath,
+      configPath,
+      ...settingsFiles,
+      ...modeClassifierFiles,
+      ...policyGuardFiles,
+      ...preCompactFiles,
+      ...feedbackCaptureFiles,
+      ...statusLineFiles,
+    ]),
+  );
+}
+
+async function installClaudeCodeStatusLine(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+): Promise<string[]> {
+  const scriptPath = resolve(context.substrateHome, SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH);
+
+  await mkdir(dirname(scriptPath), { recursive: true });
+  await writeFile(scriptPath, renderClaudeCodeStatusLineScript(context.somaHome), { encoding: "utf8", mode: 0o755 });
+  await chmod(scriptPath, 0o755);
+
+  const settingsFiles = await patchClaudeCodeStatusLineSettings(context.substrateHome, scriptPath);
+  return [scriptPath, ...settingsFiles];
+}
+
+async function installClaudeCodePolicyGuardHook(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+  config: { somaHome: string; trustedSomaRepo: string; bunPath: string },
+  bunPath: string,
+): Promise<string[]> {
+  const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH);
+  const configPath = resolve(context.substrateHome, SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH);
+
+  await installClaudeCodeHookAsset({
+    hookPath,
+    configPath,
+    source: renderClaudeCodePolicyGuardHook(),
+    config,
+  });
+  const settingsFiles = await patchClaudeCodePolicyGuardSettings(context.substrateHome, bunPath);
+  return [hookPath, configPath, ...settingsFiles];
+}
+
+async function installClaudeCodePreCompactHook(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+  config: { somaHome: string; trustedSomaRepo: string; bunPath: string },
+  bunPath: string,
+): Promise<string[]> {
+  const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH);
+  const configPath = resolve(context.substrateHome, SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH);
+
+  await installClaudeCodeHookAsset({
+    hookPath,
+    configPath,
+    source: renderClaudeCodePreCompactHook(),
+    config,
+  });
+  const settingsFiles = await patchClaudeCodePreCompactSettings(context.substrateHome, bunPath);
+  return [hookPath, configPath, ...settingsFiles];
+}
+
+async function installClaudeCodeFeedbackCaptureHook(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+  config: { somaHome: string; trustedSomaRepo: string; bunPath: string },
+  bunPath: string,
+): Promise<string[]> {
+  const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH);
+  const configPath = resolve(context.substrateHome, SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH);
+
+  await installClaudeCodeHookAsset({
+    hookPath,
+    configPath,
+    source: renderClaudeCodeFeedbackCaptureHook(),
+    config,
+  });
+  const settingsFiles = await patchClaudeCodeFeedbackCaptureSettings(context.substrateHome, bunPath);
+  return [hookPath, configPath, ...settingsFiles];
+}
+
+async function installClaudeCodeModeClassifierHook(
+  context: { somaHome: string; somaRepoPath: string; substrateHome: string },
+  config: { somaHome: string; trustedSomaRepo: string; bunPath: string },
+  bunPath: string,
+): Promise<string[]> {
+  const hookPath = resolve(context.substrateHome, SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH);
+  const configPath = resolve(context.substrateHome, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH);
+
+  await installClaudeCodeHookAsset({
+    hookPath,
+    configPath,
+    source: renderClaudeCodeModeClassifierHook(),
+    config,
+  });
+  const settingsFiles = await patchClaudeCodeModeClassifierSettings(context.substrateHome, bunPath);
+  return [hookPath, configPath, ...settingsFiles];
+}
+
+async function installClaudeCodeHookAsset(input: {
+  hookPath: string;
+  configPath: string;
+  source: string;
+  config: unknown;
+}): Promise<void> {
+  await mkdir(dirname(input.hookPath), { recursive: true });
+  await writeFile(input.hookPath, input.source, { encoding: "utf8", mode: 0o755 });
+  await chmod(input.hookPath, 0o755);
+  await writeFile(input.configPath, `${JSON.stringify(input.config, null, 2)}\n`, "utf8");
+}
+
+export async function removeClaudeCodeSomaHookFiles(substrateHome: string): Promise<string[]> {
+  const removed: string[] = [];
+  const installedBunPath = await readInstalledClaudeCodeHookBunPath(substrateHome);
+  const installedModeClassifierBunPath = await readInstalledClaudeCodeModeClassifierBunPath(substrateHome);
+  const installedPolicyGuardBunPath = await readInstalledClaudeCodePolicyGuardBunPath(substrateHome);
+  const installedPreCompactBunPath = await readInstalledClaudeCodePreCompactBunPath(substrateHome);
+  const installedFeedbackCaptureBunPath = await readInstalledClaudeCodeFeedbackCaptureBunPath(substrateHome);
+  for (const relativePath of [
+    SOMA_CLAUDE_HOOK_RELATIVE_PATH,
+    SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_MODE_CLASSIFIER_RELATIVE_PATH,
+    SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_POLICY_GUARD_RELATIVE_PATH,
+    SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_PRECOMPACT_RELATIVE_PATH,
+    SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH,
+    SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH,
+    SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH,
+  ]) {
+    const target = resolve(substrateHome, relativePath);
+    const exists = await stat(target).then(
+      () => true,
+      (error: unknown) => {
+        if (isEnoent(error)) return false;
+        throw error;
+      },
+    );
+    if (!exists) continue;
+    await rm(target, { force: true }).then(
+      () => removed.push(target),
+      (error: unknown) => {
+        if (!isEnoent(error)) throw error;
+      },
+    );
+  }
+  removed.push(...(await unpatchClaudeCodeSomaHookSettings(substrateHome, installedBunPath)));
+  removed.push(...(await unpatchClaudeCodeModeClassifierSettings(substrateHome, installedModeClassifierBunPath ?? installedBunPath)));
+  removed.push(...(await unpatchClaudeCodePolicyGuardSettings(substrateHome, installedPolicyGuardBunPath ?? installedBunPath)));
+  removed.push(...(await unpatchClaudeCodePreCompactSettings(substrateHome, installedPreCompactBunPath ?? installedBunPath)));
+  removed.push(
+    ...(await unpatchClaudeCodeFeedbackCaptureSettings(substrateHome, installedFeedbackCaptureBunPath ?? installedBunPath)),
+  );
+  // No bunPath drift concern here (the script is execed directly via its
+  // shebang) — the target path is deterministic from substrateHome alone.
+  removed.push(
+    ...(await unpatchClaudeCodeStatusLineSettings(substrateHome, resolve(substrateHome, SOMA_CLAUDE_STATUSLINE_RELATIVE_PATH))),
+  );
+  return Array.from(new Set(removed));
+}
+
+async function readInstalledClaudeCodeHookBunPath(substrateHome: string): Promise<string | undefined> {
+  return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_HOOK_CONFIG_RELATIVE_PATH);
+}
+
+async function readInstalledClaudeCodePolicyGuardBunPath(substrateHome: string): Promise<string | undefined> {
+  return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_POLICY_GUARD_CONFIG_RELATIVE_PATH);
+}
+
+async function readInstalledClaudeCodeModeClassifierBunPath(substrateHome: string): Promise<string | undefined> {
+  return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_MODE_CLASSIFIER_CONFIG_RELATIVE_PATH);
+}
+
+async function readInstalledClaudeCodePreCompactBunPath(substrateHome: string): Promise<string | undefined> {
+  return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_PRECOMPACT_CONFIG_RELATIVE_PATH);
+}
+
+async function readInstalledClaudeCodeFeedbackCaptureBunPath(substrateHome: string): Promise<string | undefined> {
+  return readInstalledClaudeCodeHookConfigBunPath(substrateHome, SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH);
+}
+
+async function readInstalledClaudeCodeHookConfigBunPath(substrateHome: string, relativePath: string): Promise<string | undefined> {
+  const configPath = resolve(substrateHome, relativePath);
+  const content = await readFile(configPath, "utf8").catch((error: unknown) => {
+    if (isEnoent(error)) return undefined;
+    throw error;
+  });
+  if (content === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (isObject(parsed) && typeof parsed.bunPath === "string" && parsed.bunPath.trim().length > 0) {
+      return parsed.bunPath;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function renderClaudeCodeSomaHook(): string {
+  const runnerHandlers = Object.fromEntries(SOMA_CLAUDE_HOOK_EVENTS.map((event) => [event.commandEvent, event.runner]));
+  const source = hookRunnerSource as string;
+  const rendered = source.replace("__SOMA_CLAUDE_HOOK_EVENT_HANDLERS__", JSON.stringify(runnerHandlers, null, 2));
+  if (rendered === source) throw new Error("Claude Code hook runner asset is missing the handler placeholder.");
+  return rendered;
+}
+
+function renderClaudeCodeModeClassifierHook(): string {
+  return modeClassifierSource as string;
+}
+
+function renderClaudeCodePolicyGuardHook(): string {
+  return policyGuardSource as string;
+}
+
+function renderClaudeCodePreCompactHook(): string {
+  return preCompactSource as string;
+}
+
+// Generated (not a static asset) so the trigger regex stays single-sourced
+// from feedback-contract.ts via the shared helper — the same code-gen path
+// codex/grok/pi-dev use. A static .mjs would fork the pattern and drift.
+function renderClaudeCodeFeedbackCaptureHook(): string {
+  return [
+    "#!/usr/bin/env bun",
+    'import { spawn } from "node:child_process";',
+    'import { readFileSync, readSync } from "node:fs";',
+    'import { dirname, join } from "node:path";',
+    'import { clearTimeout, setTimeout } from "node:timers";',
+    'import { fileURLToPath } from "node:url";',
+    "",
+    renderFeedbackHookHelper({
+      functionName: "runSomaFeedbackCapture",
+      leadingParameters: ["config"],
+      promptParameter: "prompt",
+      hookInputParameter: "hookInput",
+      // Same signal as hook-runner.mjs isSdkEntrypoint: `claude -p` and the
+      // SDKs set CLAUDE_CODE_ENTRYPOINT to `sdk-cli`, `sdk-ts` or `sdk-py`.
+      headlessExpression: `typeof process.env.CLAUDE_CODE_ENTRYPOINT === "string" && process.env.CLAUDE_CODE_ENTRYPOINT.startsWith("sdk-")`,
+      bunPathExpression: "config.bunPath",
+      cwdExpression: "config.trustedSomaRepo",
+      somaHomeExpression: "config.somaHome",
+      substrate: "claude-code",
+      source: "principal-prompt-submit",
+      failureComment: "Feedback capture is best-effort and must never block the prompt.",
+    }),
+    "",
+    "function readConfig() {",
+    "\ttry {",
+    `\t\treturn JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), ${JSON.stringify(SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH.split("/").pop())}), "utf8"));`,
+    "\t} catch {",
+    "\t\treturn undefined;",
+    "\t}",
+    "}",
+    "",
+    "function readHookInput() {",
+    "\ttry {",
+    "\t\tconst chunks = [];",
+    "\t\tlet total = 0;",
+    "\t\tfor (;;) {",
+    "\t\t\tconst chunk = Buffer.allocUnsafe(Math.min(8192, SOMA_FEEDBACK_STDIN_MAX_BYTES + 1 - total));",
+    "\t\t\tconst bytes = readSync(0, chunk, 0, chunk.length, null);",
+    "\t\t\tif (bytes === 0) break;",
+    "\t\t\ttotal += bytes;",
+    "\t\t\tif (total > SOMA_FEEDBACK_STDIN_MAX_BYTES) return {};",
+    "\t\t\tchunks.push(chunk.subarray(0, bytes));",
+    "\t\t}",
+    "\t\tconst raw = Buffer.concat(chunks, total).toString(\"utf8\");",
+    "\t\tif (raw.trim().length === 0) return {};",
+    "\t\tconst parsed = JSON.parse(raw);",
+    '\t\treturn parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};',
+    "\t} catch {",
+    "\t\treturn {};",
+    "\t}",
+    "}",
+    "",
+    "function promptFromInput(input) {",
+    '\tfor (const key of ["prompt", "userPrompt", "message", "input"]) {',
+    '\t\tif (typeof input[key] === "string") return input[key];',
+    "\t}",
+    '\treturn "";',
+    "}",
+    "",
+    "// Non-feedback prompts are the overwhelming majority, so keep their path",
+    "// minimal: read the prompt and test the (single-sourced) trigger pattern",
+    "// BEFORE reading config or spawning anything. On no match this hook process",
+    "// just exits — no config read, no `soma feedback capture` subprocess. (The",
+    "// per-prompt hook process itself is Claude Code's universal hook model, one",
+    "// per event; runSomaFeedbackCapture re-checks the pattern authoritatively.)",
+    "const somaFeedbackHookInput = readHookInput();",
+    "const somaFeedbackPrompt = promptFromInput(somaFeedbackHookInput);",
+    "if (somaFeedbackPrompt && SOMA_FEEDBACK_TRIGGER_PATTERN.test(somaFeedbackPrompt)) {",
+    "\tconst config = readConfig();",
+    '\tif (config && typeof config.bunPath === "string" && typeof config.trustedSomaRepo === "string") {',
+    "\t\t// session_id and transcript_path ride along as strings; the transcript",
+    "\t\t// itself is never read on this blocking path (soma#785 Q6).",
+    "\t\trunSomaFeedbackCapture(config, somaFeedbackPrompt, somaFeedbackHookInput);",
+    "\t}",
+    "}",
+    "// UserPromptSubmit stdout is injected as context — print nothing, exit 0.",
+    "",
+  ].join("\n");
+}
+
+// Bakes the resolved soma-home path into the bundled statusline asset so a
+// custom `--soma-home` (or a substrate-home-only reproject) still finds the
+// right STATE dir, while the script's own `SOMA_HOME` env override keeps
+// working (the substituted value is only the *default*). Mirrors
+// renderClaudeCodeSomaHook's placeholder-substitution + missing-placeholder
+// guard.
+//
+// The placeholder sits inside a double-quoted shell string
+// (`SOMA_HOME="${SOMA_HOME:-<value>}"`), so a path containing `\`, `"`, `$`,
+// or a backtick would otherwise break out or inject. Backslash-escape all four
+// (backslash FIRST so we don't double-escape the escapes we add) so the shell
+// reads them literally. A function replacer also avoids `$`-pattern corruption
+// from String.replace's special `$&`/`$1` handling on the replacement side.
+let statusLineTemplateCache: string | undefined;
+
+export function renderClaudeCodeStatusLineScript(somaHome: string): string {
+  // Cache the static template: this renderer is called on the SessionStart
+  // projection self-repair path (#460) as a drift oracle, so avoid a blocking
+  // fs read on every healthy session start. The asset never changes at runtime.
+  statusLineTemplateCache ??= statusLineSource as string;
+  const source = statusLineTemplateCache;
+  const escaped = somaHome.replace(/[\\"$`]/g, "\\$&");
+  const rendered = source.replace("__SOMA_HOME__", () => escaped);
+  if (rendered === source) throw new Error("Claude Code status line asset is missing the SOMA_HOME placeholder.");
+  return rendered;
+}

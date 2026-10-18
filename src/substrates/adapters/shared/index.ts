@@ -1,0 +1,372 @@
+import { basename } from "node:path";
+import { activeGoalLines } from "../../../goal-records";
+import type { SkillsDiscoveryMode } from "../../install-spec";
+import { withProvenance as applyProvenance } from "./provenance";
+import type { SomaSkill, SubstrateId } from "../../../types";
+import type { ProjectionInput } from "../../../home/types";
+import { getCriteria, getGoal } from "../../../vsa/index";
+import { VSA_SKILL_NAME } from "../../vsa-skill-installer";
+import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
+import { renderSkillRegistryEntry } from "./skill-registry";
+
+export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
+// SelfHealing doctrine (soma#459): single source of the self-healing advisory
+// lines adapters merge into their policy projection. See ../../policy/self-healing-doctrine.
+export {
+  SELF_HEALING_DOCTRINE_ADVISORY,
+  SELF_HEALING_DOCTRINE_PREAMBLE,
+  SELF_HEALING_DOCTRINE_TITLE,
+  SELF_HEALING_ROUTES,
+  renderSelfHealingRoute,
+} from "../../../policy/self-healing-doctrine";
+export type { SelfHealingRoute } from "../../../policy/self-healing-doctrine";
+export {
+  OVERLAY_BEGIN,
+  OVERLAY_END,
+  PROVENANCE_MARKER,
+  extractOverlay,
+  hasProvenanceHeader,
+  provenanceHeader,
+  renderOverlay,
+  stripProvenance,
+  withProvenance,
+} from "./provenance";
+// Only the entry renderer is part of the shared public surface; the parsing/
+// truncation helpers + budget constants stay module-private (tests import them
+// from ./skill-registry directly).
+export { renderSkillRegistryEntry } from "./skill-registry";
+
+// The eager-loader stub renderer (soma#542). Distinct from the registry entry
+// above: that one renders a catalog LINE, this one renders a whole SKILL.md.
+export {
+  isSkillStub,
+  parseSkillStubBodyPath,
+  renderSkillStub,
+  SKILL_STUB_MARKER,
+  type SkillStubOptions,
+} from "./skill-stub";
+
+/**
+ * The portable skills a home projection should emit files for. `skills.md`
+ * (renderSkills) still lists every skill, but the VSA skill is excluded here:
+ * it has a dedicated, managed per-substrate projection (installVsaSkillProjection
+ * — baseline tracking, drift detection, skillNameOverride), so re-emitting its
+ * files through the generic portable-skill loop would double-write the same
+ * bytes that installer owns. Without this, a first install (which reloads the
+ * Soma home after writing the VSA baseline) would project VSA twice.
+ *
+ * The managed VSA skill is identified by BOTH its frontmatter name and its
+ * canonical directory basename (`skills/VSA/`). Matching on name alone would
+ * let a locally renamed SKILL.md frontmatter slip back into the generic loop
+ * and double-write the dedicated projection.
+ */
+export function projectableSkills(skills: SomaSkill[], bundledNames?: readonly string[]): SomaSkill[] {
+  return skills.filter((skill) => {
+    // VSA is always excluded (dedicated managed installer) — matched on BOTH
+    // frontmatter name and canonical dir basename so a renamed SKILL.md cannot
+    // slip its dedicated projection back into the generic loop.
+    if (skill.name === VSA_SKILL_NAME || basename(skill.path) === VSA_SKILL_NAME) return false;
+    // When install supplies the repo-bundled skill set, project ONLY those
+    // (src/skills/*): principal-authored/registry skills reach a substrate
+    // through `soma install --skills` symlinks, not this always-on loop, so a 100-skill home
+    // projects two bundled dirs, not a hundred, and never collides with the
+    // selective symlink flow. Absent (direct projection callers/tests) → legacy
+    // behavior: all non-VSA skills, so pure-projection unit tests are unaffected.
+    //
+    // Matched on `basename(skill.path)` (the on-disk dir the install copied) —
+    // the authoritative membership key for the repo bundle — NOT `skill.name`
+    // (frontmatter). The projection below still uses `skill.name` for the OUTPUT
+    // dir; if a principal edits the home copy's frontmatter name, the projected
+    // dir would follow that edit, but bundle membership stays anchored to the
+    // repo-owned dir. A SINGLE key suffices here, unlike VSA's two-key guard
+    // above, whose second (name) key stops a locally-renamed VSA frontmatter
+    // from slipping past its dedicated managed installer.
+    if (bundledNames && !bundledNames.includes(basename(skill.path))) return false;
+    return true;
+  });
+}
+
+/**
+ * Build the portable-skill projection files an adapter's home projection emits:
+ * one `<skillsDirPrefix><skill.name>/<file>` entry per file of each projectable
+ * (bundled, non-VSA) skill, with content run through the substrate rewrite.
+ * Shared by the four adapters whose loop is identical (claude-code, codex, grok,
+ * cursor) — cursor differs only in `skillsDirPrefix`. `substrate` drives
+ * `rewriteSubstrateProjectionContent`: `claude-code` is a verbatim passthrough,
+ * every other substrate (codex, grok, cursor) takes the memory-root rewrite +
+ * Claude-only-line strip. pi-dev is NOT a caller — it normalizes skill names to
+ * ids via its own `buildPiDevPortableSkillFiles`.
+ */
+export function buildPortableSkillFiles(
+  skills: SomaSkill[],
+  bundledNames: readonly string[] | undefined,
+  substrate: SubstrateId,
+  options: { skillsDirPrefix?: string; discovery?: SkillsDiscoveryMode } = {},
+): { path: string; content: string }[] {
+  // soma#638: a `loader` substrate takes its skills as symlinks to the canonical
+  // ~/.soma/skills entries, projected by install. Emitting copies too would put a
+  // real directory in the slot the symlink needs, and a copy — rewritten for the
+  // substrate, then never resynced — drifts from the source it was made from.
+  // Taken as a parameter rather than compared against the caller's `const`, which
+  // TypeScript would narrow to a literal and the check would read as dead code.
+  if (options.discovery === "loader") return [];
+  const prefix = options.skillsDirPrefix ?? "skills/";
+  return projectableSkills(skills, bundledNames).flatMap((skill) =>
+    (skill.files ?? []).map((file) => ({
+      path: `${prefix}${skill.name}/${file.path}`,
+      content: rewriteSubstrateProjectionContent({ substrate, path: file.path, content: file.content }),
+    })),
+  );
+}
+
+export function formatList(items: string[]): string {
+  return items.length === 0 ? "- None declared" : items.map((item) => `- ${item}`).join("\n");
+}
+
+export function formatRecord(record: Record<string, unknown> | undefined): string {
+  if (!record || Object.keys(record).length === 0) {
+    return "- None declared";
+  }
+
+  return Object.entries(record)
+    .map(([key, value]) => `- ${key}: ${JSON.stringify(value)}`)
+    .join("\n");
+}
+
+/**
+ * The `active` goals under a "Goals" heading, as `G<n>: <wording> (supports M…)`
+ * (soma#784 D9). Nothing when no goal is active, so a home without goal
+ * records projects the same bytes as before goal records existed.
+ */
+export function renderActiveGoals(goals: ProjectionInput["profile"]["purpose"]["goals"]): string[] {
+  const lines = activeGoalLines(goals);
+  return lines.length === 0 ? [] : ["Goals:", formatList(lines), ""];
+}
+
+export function renderActiveVsa(input: ProjectionInput): string {
+  if (!input.activeVsa) {
+    return "No active VSA was provided.";
+  }
+
+  const criteria = getCriteria(input.activeVsa)
+    .map((criterion) => {
+      const verification = criterion.verification ? ` Verification: ${criterion.verification}` : "";
+      return `- [${criterion.status}] ${criterion.id}: ${criterion.text}${verification}`;
+    })
+    .join("\n");
+
+  return [
+    `Slug: ${input.activeVsa.slug}`,
+    `Phase: ${input.activeVsa.frontmatter.phase}`,
+    `Goal: ${getGoal(input.activeVsa) ?? ""}`,
+    "",
+    "Criteria:",
+    criteria || "- None declared",
+  ].join("\n");
+}
+
+export function renderAssistantCore(input: ProjectionInput): string {
+  const { profile } = input;
+
+  return [
+    "## Assistant",
+    `Name: ${profile.assistant.name}`,
+    profile.assistant.displayName ? `Display name: ${profile.assistant.displayName}` : undefined,
+    "",
+    "Traits:",
+    formatRecord(profile.assistant.traits),
+    "",
+    "## Principal",
+    `Name: ${profile.principal.name}`,
+    profile.principal.preferredName ? `Preferred name: ${profile.principal.preferredName}` : undefined,
+    "",
+    "Profile:",
+    formatRecord(profile.principal.profile),
+    "",
+    "## Purpose",
+    profile.purpose.mission ? `Mission: ${profile.purpose.mission}` : "Mission: None declared",
+    "",
+    "Missions:",
+    formatList(profile.purpose.missions),
+    "",
+    ...renderActiveGoals(profile.purpose.goals),
+    "Principles:",
+    formatList(profile.purpose.principles),
+    "",
+    "Commitments:",
+    formatList(profile.purpose.commitments),
+    "",
+    "## Active VSA",
+    renderActiveVsa(input),
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n");
+}
+
+/**
+ * Profiles are an explicit, on-demand orientation surface. They must not carry
+ * the assistant core because several substrates load their context and profile
+ * files into the same prompt.
+ */
+export function renderProfilePointer(input: ProjectionInput, contextPath: string): string {
+  return [
+    "# Soma Profile Projection",
+    "",
+    "This profile is an on-demand pointer and intentionally does not repeat the assistant core.",
+    `Assistant Name: ${input.profile.assistant.name}`,
+    `Principal Name: ${input.profile.principal.name}`,
+    `Read \`${contextPath}\` for the projected assistant identity, principal, purpose, and active VSA.`,
+  ].join("\n");
+}
+
+/**
+ * The communication contract as a projected file, or `[]` when the home has
+ * none. Content is the VERBATIM authored markdown — no provenance header and
+ * no re-render, same contract as the memory INDEX and the active VSA: this is
+ * the principal's prose, and a renderer round-trip is how authored nuance dies.
+ *
+ * Callers pass the substrate-native path because every substrate names its
+ * rules surface differently (`rules/soma/COMMUNICATION.md`,
+ * `agent/soma/communication.md`, …); the content is identical everywhere,
+ * which is what makes the contract portable.
+ */
+export function communicationContractFile(input: ProjectionInput, path: string): { path: string; content: string }[] {
+  const content = input.profile.communication?.content;
+  if (content === undefined || content.trim().length === 0) return [];
+  return [{ path, content }];
+}
+
+/**
+ * The working method (principles and playbooks indexes) as a projected file, or
+ * `[]` when the home has no installed the-algorithm skill. Same shape as the
+ * communication contract: the content is rendered once at load
+ * (`src/home/working-method.ts`) and identical on every substrate, and the caller
+ * passes the substrate-native path.
+ */
+export function workingMethodFile(input: ProjectionInput, path: string): { path: string; content: string }[] {
+  const content = input.profile.workingMethod?.content;
+  if (content === undefined || content.trim().length === 0) return [];
+  return [{ path, content }];
+}
+
+export function renderMemoryLayout(input: ProjectionInput): string {
+  const { memory } = input.profile;
+
+  return [
+    "# Soma Memory Layout",
+    "",
+    `Root: ${memory.root}`,
+    `Work: ${memory.work}`,
+    `Knowledge: ${memory.knowledge}`,
+    `Learning: ${memory.learning}`,
+    `Relationship: ${memory.relationship}`,
+    `State: ${memory.state}`,
+  ].join("\n");
+}
+
+export const SOMA_SKILLS_HEADING = "# Soma Skills";
+export const SOMA_POLICY_PROJECTION_HEADING = "# Soma Policy Projection";
+
+/**
+ * soma#371 — compact skill registry. One tight entry per skill (see
+ * `renderSkillRegistryEntry`) instead of the pre-#371 `## <name>` full-body
+ * listing, so the eager catalog stops crowding out routing signal. Skill
+ * BODIES still load on demand at invocation time (unchanged by this
+ * projection) — only this always-loaded catalog got smaller.
+ */
+export function renderSkills(input: ProjectionInput): string {
+  const skills = input.profile.skills.map(renderSkillRegistryEntry);
+
+  return [SOMA_SKILLS_HEADING, "", skills.length === 0 ? "No Soma skills were declared." : skills.join("\n")].join("\n");
+}
+
+/**
+ * The rules/projection files a substrate actually WRITES, given its discovery
+ * mode (soma#638): the declared set minus its catalog when the harness does its
+ * own discovery.
+ *
+ * Kept as a function so the substrate's declared mode reaches the comparison as a
+ * union-typed value. Inlining it against a `const` mode lets TypeScript narrow the
+ * check to a literal and the condition reads as dead code — which is exactly the
+ * coupling this indirection is meant to keep live.
+ */
+export function projectedRulesFiles<T extends string>(
+  files: readonly T[],
+  catalogPath: T,
+  discovery: SkillsDiscoveryMode,
+): T[] {
+  return files.filter((path) => !(path === catalogPath && discovery === "loader"));
+}
+
+/**
+ * The eager skill catalog for one substrate, or `[]` when that substrate's own
+ * loader already advertises its skills (soma#638).
+ *
+ * Mirrors the other conditional projection files (ACTIVE_VSA / MEMORY /
+ * COMMUNICATION): a substrate in `loader` discovery mode emits no catalog file,
+ * and because its rules dir is an owned subtree, a catalog left by a previous
+ * install is reconciled away rather than surviving as a stale second list.
+ *
+ * `discovery` is passed in rather than read from the install-spec registry: the
+ * spec modules import their adapter's projection module (for the rules-file
+ * list), so a registry lookup here would close an import cycle. Each adapter
+ * therefore exports one `SkillsDiscoveryMode` constant that both its projection
+ * and its install spec read — the same shape `CLAUDE_CODE_RULES_FILES` already
+ * uses.
+ */
+export function skillCatalogFile(
+  substrate: SubstrateId,
+  input: ProjectionInput,
+  path: string,
+  options: { discovery: SkillsDiscoveryMode; provenance?: boolean },
+): { path: string; content: string }[] {
+  if (options.discovery === "loader") return [];
+  const content = renderSkills(input);
+  return [{ path, content: options.provenance === true ? applyProvenance(substrate, content) : content }];
+}
+
+export function renderPolicyProjection(substrate: string, enforceable: string[], advisory: string[]): string {
+  return [
+    SOMA_POLICY_PROJECTION_HEADING,
+    "",
+    `Substrate: ${substrate}`,
+    "",
+    "## Enforceable",
+    formatList(enforceable),
+    "",
+    "## Advisory",
+    formatList(advisory),
+  ].join("\n");
+}
+
+/**
+ * Standard substrate context instructions shared by adapters whose
+ * operating rules are identical (codex, grok). `substrate` is the display
+ * name used in the title and execution-substrate line; `runtimeLabel` is
+ * the phrase naming the runtime the agent is executing inside (for
+ * example "Codex" or "the Grok CLI"). Adapters with diverging rules
+ * (cursor, claude-code, pi-dev) keep their own renderers and should adopt
+ * this helper only if their rules converge.
+ */
+export function renderSubstrateInstructions(
+  options: { substrate: string; runtimeLabel: string },
+  input: ProjectionInput,
+): string {
+  return [
+    `# Soma ${options.substrate} Context`,
+    "",
+    `You are running inside ${options.runtimeLabel} with Soma-projected assistant context.`,
+    "Treat Soma as the source of truth for personal assistant identity, purpose, memory layout, skills, policy, and active VSA context.",
+    `Treat ${options.substrate} as the execution substrate. Keep substrate-specific behavior behind adapter boundaries.`,
+    "",
+    renderAssistantCore(input),
+    "",
+    "## Operating Rules",
+    "- Use the active VSA as the verification contract when present.",
+    "- Read `communication.md` beside this file, when present, for how to communicate: patterns, banned phrases, reference codes, and aliases.",
+    "- Read `principles.md` beside this file, when present: the principles and playbooks that apply to every task.",
+    "- Read memory from the declared file layout before inventing persistent facts.",
+    "- Keep personal context out of public templates unless explicitly requested.",
+    "- Report verification performed and any substrate limitation encountered.",
+  ].join("\n");
+}

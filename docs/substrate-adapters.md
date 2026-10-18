@@ -95,6 +95,20 @@ written only when an orchestration caller applies the separate writeback bridge.
 
 ## Pi.dev
 
+After updating a backing Soma checkout across the `src/substrates/adapters/`
+relocation, regenerate its installed Pi.dev extension imports from that checkout:
+
+```sh
+bun run soma reproject pi-dev --code-only
+```
+
+Generated extensions use absolute file URLs into that checkout; old
+`src/adapters/` URLs do not survive the move. Keep live installations backed by
+the canonical checkout and regenerate after it contains the reviewed change.
+Temporary worktrees are suitable only for scratch projections. Verify startup
+with `pi --mode rpc --no-session --offline --no-mcp` and a successful `get_state`
+response after regeneration.
+
 Pi.dev is model-agnostic and supports extensions and skills. The adapter should
 follow the reduced PAI-on-Pi pattern:
 
@@ -263,7 +277,7 @@ through agent presets at `$DSH_HOME/.agent-presets/<id>/`. Its host plugin
 surface exposes session/turn/tool lifecycle events that map one-to-one onto
 Soma's SessionStart/SessionEnd/PostToolUse hooks.
 
-The dsh adapter is implemented (`src/adapters/dsh/`) as a **loader** substrate:
+The dsh adapter is implemented (`src/substrates/adapters/dsh/`) as a **loader** substrate:
 DSH's own skill loader advertises its catalog, so the home projection emits the
 `soma` entry skill + colocated reference files under `~/.dsh/skills/soma/`,
 marker-guard-patches a pointer block into `~/.dsh/AGENTS.md`, and install links
@@ -503,7 +517,7 @@ can identify a session should update:
 
 Algorithm library mutations read the neutral `SOMA_SESSION_ID` contract. CLI,
 VSA sync and run-ledger boundaries resolve native session variables through
-`src/adapters/session-env.ts`; currently only Claude Code's
+`src/substrates/adapters/session-env.ts`; currently only Claude Code's
 `CLAUDE_CODE_SESSION_ID` has a resolver. An explicit nonempty `SOMA_SESSION_ID`
 takes precedence. Algorithm `sessionIds` and verification `sessionId` retain
 the raw ID; the run ledger uses it when `MF_CORRELATION_ID` is unset or empty.

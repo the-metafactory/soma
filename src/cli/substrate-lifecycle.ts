@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { basename, join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
-import { cursorWorkspaceSubstrateHome } from "../adapters/cursor";
 import {
+  cursorWorkspaceSubstrateHome,
   buildAnthropicCoworkHomeProjection,
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
@@ -9,7 +9,16 @@ import {
   buildDshHomeProjection,
   buildGrokHomeProjection,
   buildPiDevHomeProjection,
-} from "../substrates/home-projection";
+  type ClaudeCodeInstallOptions,
+  projectVsaSkillBundleFiles,
+  defaultSubstrateHome,
+  installSpecFor,
+  isGuardedRuntimeSubstrate,
+  scanRegistrySkills,
+  type UnprojectableRegistrySkill,
+  type SomaInstallOptions,
+  type SomaInstallResult,
+} from "../substrates/index";
 import {
   installSomaForAnthropicCowork,
   installSomaForClaudeCode,
@@ -35,14 +44,9 @@ import {
   type UninstallCursorResult,
   type UninstallGrokResult,
 } from "../install";
-import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
-import { projectVsaSkillBundleFiles } from "../substrates/vsa-skill-installer";
-import { defaultSubstrateHome, installSpecFor } from "../substrates/install-spec-registry";
 import { invocationCwd } from "../core/index";
-import { isGuardedRuntimeSubstrate } from "../substrates/runtime-artifact";
 import { loadSomaHome } from "../home/index";
-import { scanRegistrySkills, type UnprojectableRegistrySkill } from "../substrates/skill-projection";
-import { SHIPPED_SUBSTRATES, type ShippedSubstrate, type SomaInstallOptions, type SomaInstallPlan, type SomaInstallResult } from "../types";
+import { SHIPPED_SUBSTRATES, type ShippedSubstrate, type SomaInstallPlan } from "../types";
 import { type ProjectionInput } from "../home/types";
 import { type InstallSubstrate } from "../policy/types";
 import { SomaCliError } from "./errors";

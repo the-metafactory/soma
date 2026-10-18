@@ -170,7 +170,7 @@ The contract is `PlatformAdapter` (`cortex src/adapters/types.ts:216-359`). The 
 
 ## 12. soma statusline
 
-- **What it does.** One line per Claude Code session: mode and task, model, dir and branch, context %, 5 h and 7 d usage windows. It reads Claude Code stdin JSON plus `STATE/statusline-mode-<sid>.json` and `STATE/current-work-<sid>-*.json` (`src/adapters/claude-code/statusline.sh:1-13,172-193`). It doesn't use the network and shows no attention, alert or proposal content.
+- **What it does.** One line per Claude Code session: mode and task, model, dir and branch, context %, 5 h and 7 d usage windows. It reads Claude Code stdin JSON plus `STATE/statusline-mode-<sid>.json` and `STATE/current-work-<sid>-*.json` (`src/substrates/adapters/claude-code/statusline.sh:1-13,172-193`). It doesn't use the network and shows no attention, alert or proposal content.
 - **Runs.** Deployed by `soma install claude-code`: `~/.claude/settings.json` `statusLine` → `~/.claude/hooks/soma/soma-statusline.sh`. The file matches source except the substituted `SOMA_HOME` (line 12).
 - **Scope.** Per session. It renders only when a session is open. Soma `src/` has no other notification sender: no Discord, push or webhook code found. The one soma notifier outside `src/` is the harness gate script (§10b).
 

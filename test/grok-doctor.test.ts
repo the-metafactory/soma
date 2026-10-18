@@ -1,9 +1,9 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { diagnoseGrokProjectionDrift } from "../src/adapters/grok/doctor";
-import { GROK_AGENTS_BLOCK_BEGIN, GROK_AGENTS_BLOCK_END } from "../src/adapters/grok/config-patch";
-import { GROK_HOOK_FILE_MARKERS } from "../src/adapters/grok/install";
+import { diagnoseGrokProjectionDrift } from "../src/substrates/adapters/grok/doctor";
+import { GROK_AGENTS_BLOCK_BEGIN, GROK_AGENTS_BLOCK_END } from "../src/substrates/adapters/grok/config-patch";
+import { GROK_HOOK_FILE_MARKERS } from "../src/substrates/adapters/grok/install";
 import { diagnoseSomaDoctor } from "../src/onboarding";
 import { runSomaCli } from "../src/cli";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";

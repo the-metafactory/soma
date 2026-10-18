@@ -6,3 +6,4 @@ export { type GoalResource, loadGoalResources, parseGoalResources, resolveGoalRe
 export { loadSomaConfig } from "./soma-config";
 export { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "./snapshots";
 export type { AssistantIdentity, PrincipalIdentity, Purpose, SomaMemoryLayout, SomaProfile, ProjectionInput, SomaSnapshotEntry, SomaSnapshotListOptions, SomaSnapshotOptions, SomaSnapshotResult, SomaSnapshotRollbackOptions, SomaSnapshotRollbackResult } from "./types";
+export { readWorkingMethod, WORKING_METHOD_HEADING } from "./working-method";
