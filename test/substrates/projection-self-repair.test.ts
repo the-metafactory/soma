@@ -11,8 +11,8 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { installSomaForClaudeCode } from "../../src/install";
-import { runSomaLifecycleSessionStart } from "../../src/lifecycle";
+import { installSomaForClaudeCode } from "../../src/flows/index";
+import { runSomaLifecycleSessionStart } from "../../src/flows/index";
 import { repairProjectedArtifacts } from "../../src/substrates/projection-self-repair";
 // Direct adapter import (not re-exported from the root — it's an adapter-internal
 // descriptor): also loads the module's registerProjectionRepairProvider side effect.

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { appendErrata, errataLedgerPath } from "../src/errata";
+import { appendErrata, errataLedgerPath } from "../src/flows/errata";
 import { parseErrataArgs } from "../src/cli/errata";
 import { stageRuntimeArtifact } from "../src/substrates/runtime-artifact";
 import type { ErrataInput } from "../src/types";

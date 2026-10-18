@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { SomaCliError } from "../src/cli/errors";
-import { runQueueSensor, type QueueSensorDeps } from "../src/goal-sense-queue";
-import { buildRunFinishedEnvelope } from "../src/run-ledger";
+import { runQueueSensor, type QueueSensorDeps } from "../src/flows/goal-sense-queue";
+import { buildRunFinishedEnvelope } from "../src/flows/run-ledger";
 
 const roots: string[] = [];
 afterEach(async () => {

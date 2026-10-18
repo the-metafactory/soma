@@ -155,8 +155,8 @@ export { runSubstrateExecution } from "./execution/index";
 export { outputFromText } from "./execution/index";
 export type { CommandOutput } from "./execution/index";
 export type { ExecutionKernelOptions, SubstrateExecutionRun } from "./execution/index";
-export { SubstrateExecutionAlgorithmLoopExecutor } from "./execution/algorithm-loop-executor";
-export type { SubstrateExecutionAlgorithmLoopExecutorOptions } from "./execution/algorithm-loop-executor";
+export { SubstrateExecutionAlgorithmLoopExecutor } from "./flows/index";
+export type { SubstrateExecutionAlgorithmLoopExecutorOptions } from "./flows/index";
 export { MockSubstrateExecutor } from "./execution/index";
 export type { MockExecutionScript } from "./execution/index";
 export { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance } from "./execution/index";
@@ -327,7 +327,7 @@ export {
 // substrate barrel (./adapters/pi-dev) until AC-7..AC-12 settle the
 // runtime shape in the follow-up PR. Tests can import the helpers
 // directly from the substrate path.
-export { harvestSessions } from "./tools/learning/session-harvester";
+export { harvestSessions } from "./flows/index";
 export { writeProjection } from "./substrates/index";
 export { SomaInstallError } from "./substrates/index";
 export type {
@@ -356,7 +356,7 @@ export {
   applySomaInit,
   diagnoseSomaDoctor,
   planSomaInit,
-} from "./onboarding";
+} from "./flows/index";
 export {
   addOpinion,
   addOpinionEvidence,
@@ -457,7 +457,7 @@ export {
   type UninstallCursorResult,
   type UninstallGrokOptions,
   type UninstallGrokResult,
-} from "./install";
+} from "./flows/index";
 export { inspectRuntimeArtifact, rollbackRuntimeArtifact } from "./substrates/index";
 export { experimentalAnthropicCowork } from "./substrates/index";
 export type { ClaudeCodeInstallOptions } from "./substrates/index";
@@ -482,14 +482,14 @@ export {
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
   writeAlgorithmWorkIndex,
-} from "./lifecycle";
+} from "./flows/index";
 export { registerSessionEndTranscriptHandler, registerProjectionRepairProvider } from "./home/index";
 export type { SessionEndTranscriptHandler, ProjectionRepairProvider } from "./home/index";
-export { buildLearningReadback } from "./learning-readback";
-export type { LearningReadbackOptions } from "./learning-readback";
+export { buildLearningReadback } from "./flows/index";
+export type { LearningReadbackOptions } from "./flows/index";
 export { repairProjectedArtifacts } from "./substrates/index";
 export type { ProjectedArtifact, ProjectionRepairFinding, ProjectionRepairFindingKind, ProjectionRepairResult } from "./substrates/index";
-export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
+export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./flows/index";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./events/index";
 export { searchSomaMemory } from "./memory/index";
 export { streamEventLines, streamEventRecords } from "./events/index";
@@ -505,7 +505,7 @@ export {
   reprojectSubstrateMemoryProjection,
   type ReprojectSubstrateMemoryProjectionOptions,
   type ReprojectSubstrateMemoryProjectionResult,
-} from "./memory-projection-reproject";
+} from "./flows/index";
 export { writeSessionDigest, writeMemoryAction, hasSessionDigest } from "./memory/index";
 // The Claude Code SessionEnd transcript fallback (extractDigestBodyFromTranscript /
 // writeSessionDigestFromTranscript / ClaudeSessionDigest*) is adapter-specific and is
@@ -532,16 +532,16 @@ export {
   type UpsertSomaWorkRegistryEntryOptions,
   type UpsertSomaWorkRegistryEntryResult,
 } from "./home/index";
-export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./writeback";
-export { promoteAlgorithmRunMemory } from "./memory-promotion";
+export { applySomaWriteback, type SomaWritebackOptions, type SomaWritebackResult } from "./flows/index";
+export { promoteAlgorithmRunMemory } from "./flows/index";
 export { planMemoryBackfill, runMemoryBackfill } from "./memory/index";
 export {
   syncAlgorithmRunFromVsa,
   formatSyncResult,
   type SyncAlgorithmRunFromVsaOptions,
   type SyncAlgorithmRunFromVsaResult,
-} from "./algorithm-vsa-sync";
-export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./result-capture";
+} from "./flows/index";
+export { captureSomaResult, isSomaResultEventKind, searchSomaResults } from "./flows/index";
 export { checkSomaPolicy, checkSomaPolicyBatch } from "./policy/policy-audit";
 export { evaluateSomaPolicy } from "./policy/index";
 export {
@@ -563,7 +563,7 @@ export {
   type ToolCallPolicyGuardResult,
   type ToolCallPolicyGuardDecision,
 } from "./policy/tool-policy-guard";
-export { bootstrapSomaHome } from "./home-bootstrap";
+export { bootstrapSomaHome } from "./flows/index";
 export { loadSomaHome, loadSomaProfile } from "./home/index";
 // Algorithm ↔ VSA bridge (#39) — advisory, non-blocking.
 export {
@@ -575,7 +575,7 @@ export {
   type HintConfig,
   type PromptShape,
   type SuggestVsaResult,
-} from "./algorithm-vsa-bridge";
+} from "./flows/index";
 // VSA library API (#34) — cohesive public surface only.
 // Storage-layout helpers (activeStatePath, vsaDir, vsaPath) stay internal
 // to `./isa` so on-disk layout can evolve without breaking consumers

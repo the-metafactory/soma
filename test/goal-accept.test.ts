@@ -4,11 +4,11 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
-import { acceptGoalProposal } from "../src/goal-accept";
+import { acceptGoalProposal } from "../src/flows/goal-accept";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
-import { goalKinds } from "../src/goal-kinds/registry";
+import { goalKinds } from "../src/flows/goal-kinds/registry";
 import { loadGoalRecords } from "../src/goal-records";
-import { proposeGoal } from "../src/goal-propose";
+import { proposeGoal } from "../src/flows/goal-propose";
 import type { GoalResource } from "../src/home/index";
 import type { InferenceBackend } from "../src/tools/inference";
 

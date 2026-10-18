@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { PAI_MIGRATION_REMOVED_NOTICE, planSomaInit, diagnoseSomaDoctor } from "../src/onboarding";
+import { PAI_MIGRATION_REMOVED_NOTICE, planSomaInit, diagnoseSomaDoctor } from "../src/flows/onboarding";
 import { withProvenance } from "../src/substrates/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
 import { DOCTOR_SUPPORTED_SUBSTRATES, isDoctorSubstrate } from "../src/substrates/adapters/doctor";

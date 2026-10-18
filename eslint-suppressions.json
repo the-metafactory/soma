@@ -124,12 +124,12 @@
       "count": 2
     }
   },
-  "src/algorithm-vsa-bridge.ts": {
+  "src/flows/algorithm-vsa-bridge.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/algorithm-vsa-sync.ts": {
+  "src/flows/algorithm-vsa-sync.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
@@ -169,7 +169,7 @@
       "count": 1
     }
   },
-  "src/errata.ts": {
+  "src/flows/errata.ts": {
     "soma/no-discarded-error": {
       "count": 3
     }
@@ -199,12 +199,12 @@
       "count": 1
     }
   },
-  "src/goal-announce.ts": {
+  "src/flows/goal-announce.ts": {
     "soma/no-discarded-error": {
       "count": 4
     }
   },
-  "src/goal-outline.ts": {
+  "src/flows/goal-outline.ts": {
     "soma/no-discarded-error": {
       "count": 5
     }
@@ -224,37 +224,37 @@
       "count": 1
     }
   },
-  "src/goal-sense.ts": {
+  "src/flows/goal-sense.ts": {
     "soma/no-discarded-error": {
       "count": 5
     }
   },
-  "src/goal-sweep.ts": {
+  "src/flows/goal-sweep.ts": {
     "soma/no-discarded-error": {
       "count": 4
     }
   },
-  "src/home-migration.ts": {
+  "src/flows/home-migration.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/learning-readback.ts": {
+  "src/flows/learning-readback.ts": {
     "soma/no-discarded-error": {
       "count": 12
     }
   },
-  "src/lifecycle.ts": {
+  "src/flows/lifecycle.ts": {
     "soma/no-discarded-error": {
       "count": 6
     }
   },
-  "src/memory-projection-reproject.ts": {
+  "src/flows/memory-projection-reproject.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
   },
-  "src/memory-promotion.ts": {
+  "src/flows/memory-promotion.ts": {
     "soma/no-discarded-error": {
       "count": 2
     }
@@ -334,7 +334,7 @@
       "count": 2
     }
   },
-  "src/result-capture.ts": {
+  "src/flows/result-capture.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }
@@ -349,7 +349,7 @@
       "count": 1
     }
   },
-  "src/run-ledger.ts": {
+  "src/flows/run-ledger.ts": {
     "soma/no-discarded-error": {
       "count": 3
     }
@@ -384,7 +384,7 @@
       "count": 2
     }
   },
-  "src/tools/learning/session-harvester.ts": {
+  "src/flows/session-harvester.ts": {
     "soma/no-discarded-error": {
       "count": 6
     }

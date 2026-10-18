@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE } from "../src/events/index";
 import { SOMA_CLAUDE_FEEDBACK_CONFIG_RELATIVE_PATH, SOMA_CLAUDE_FEEDBACK_RELATIVE_PATH, claudeCodeHookEnabled, installClaudeCodeSomaHooks, removeClaudeCodeSomaHookFiles } from "../src/substrates/adapters/claude-code/hooks";
 import { parseFeedbackArgs } from "../src/cli/feedback";
-import { captureSomaFeedback } from "../src/feedback";
+import { captureSomaFeedback } from "../src/flows/feedback";
 
 function tempHome(): string {
   return mkdtempSync(join(tmpdir(), "soma-cc-feedback-"));

@@ -1,4 +1,4 @@
-import { harvestSessions } from "./session-harvester";
+import { harvestSessions } from "../../flows/index";
 import { addOpinion, addOpinionEvidence, captureFailure, completeSessionProgress, createSessionProgress, formatCountsShell, getSomaCounts, listOpinions, listSessionProgress, recordSessionBlocker, recordSessionDecision, recordSessionHandoff, recordSessionNextStep, recordSessionWork, resumeSessionProgress, showOpinion, synthesizeLearningPatterns } from "./index";
 import type { EvidenceType, LearningToolOptions, OpinionCategory } from "./index";
 

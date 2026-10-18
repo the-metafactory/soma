@@ -4,22 +4,22 @@ import {
   activateGoalRecord, addGoalRecord, listGoalRecords, setGoalStatus,
   type AddGoalOptions, type InactiveGoalStatus,
 } from "../goal-records";
-import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../goal-sense";
-import { runQueueSensor, type QueueSensorDeps, type QueueSensorOptions } from "../goal-sense-queue";
-import { runRateSensor, type RateSensorDeps, type RateSensorOptions } from "../goal-sense-rate";
-import { runActiveItemLimitSensor, type ActiveItemSensorDeps } from "../goal-sense-active-items";
-import { activeItemLimitPublicParams, type ActiveItemLimitOptions } from "../goal-kinds/active-item-limit";
-import { rateParams } from "../goal-kinds/rate";
-import { queueParams } from "../goal-kinds/queue";
-import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from "../goal-outline";
-import { announceRefusal, runGoalAnnounce, type GoalAnnounceDeps, type GoalAnnounceOptions } from "../goal-announce";
-import { runGoalSweep, type GoalSweepDeps } from "../goal-sweep";
+import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../flows/index";
+import { runQueueSensor, type QueueSensorDeps, type QueueSensorOptions } from "../flows/index";
+import { runRateSensor, type RateSensorDeps, type RateSensorOptions } from "../flows/index";
+import { runActiveItemLimitSensor, type ActiveItemSensorDeps } from "../flows/index";
+import { activeItemLimitPublicParams, type ActiveItemLimitOptions } from "../flows/index";
+import { rateParams } from "../flows/index";
+import { queueParams } from "../flows/index";
+import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from "../flows/index";
+import { announceRefusal, runGoalAnnounce, type GoalAnnounceDeps, type GoalAnnounceOptions } from "../flows/index";
+import { runGoalSweep, type GoalSweepDeps } from "../flows/index";
 import { defaultSomaHome, type SomaPathsOptions } from "../core/index";
 import { loadSomaConfig } from "../home/index";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
-import type { GoalProposeDeps, GoalProposeOptions } from "../goal-propose";
-import type { GoalAcceptDeps } from "../goal-accept";
+import type { GoalProposeDeps, GoalProposeOptions } from "../flows/index";
+import type { GoalAcceptDeps } from "../flows/index";
 
 type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline" | "announce" | "kinds" | "sweep" | "propose";
 
@@ -323,7 +323,7 @@ export async function runGoalCli(
   switch (action) {
     case "propose": {
       if (!options.propose) throw new SomaCliError(GOAL_COMMAND_HELP.subcommands.propose, 2);
-      const { proposeGoal, formatGoalProposal, formatGoalProposalJson } = await import("../goal-propose");
+      const { proposeGoal, formatGoalProposal, formatGoalProposalJson } = await import("../flows/index");
       const result = await proposeGoal({
         ...dependencies.propose, ...options.propose, somaHome: defaultSomaHome(options),
         baselineDeps: { homeDir: options.homeDir, ...dependencies.propose?.baselineDeps },
@@ -372,7 +372,7 @@ export async function runGoalCli(
     }
     case "kinds": {
       // Keep catalog/Zod loading off the other goal commands' startup path.
-      const { listGoalKinds } = await import("../goal-kinds/registry");
+      const { listGoalKinds } = await import("../flows/index");
       const kinds = listGoalKinds();
       return options.json ? JSON.stringify(kinds, null, 2)
         : kinds.map((kind) => `${kind.id}\t${kind.role}\t${kind.description}`).join("\n");
@@ -418,7 +418,7 @@ export async function runGoalCli(
     }
     case "add": {
       if (options.acceptHash !== undefined) {
-        const { acceptGoalProposal } = await import("../goal-accept");
+        const { acceptGoalProposal } = await import("../flows/index");
         const result = await acceptGoalProposal(goalsDir, options.acceptHash, dependencies.accept);
         return [result.goalId, ...result.activationIds].join("\n");
       }

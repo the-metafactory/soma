@@ -1,5 +1,5 @@
 import { captureSomaResult, searchSomaResults } from "../index";
-import { isSomaResultEventKind } from "../result-capture";
+import { isSomaResultEventKind } from "../flows/index";
 import { SOMA_RESULT_EVENT_KINDS } from "../types";
 import type {
   SomaResultCaptureOptions,

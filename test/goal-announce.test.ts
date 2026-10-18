@@ -3,11 +3,11 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
-import { runGoalAnnounce, type GoalAnnounceDeps } from "../src/goal-announce";
-import { runGoalOutline } from "../src/goal-outline";
+import { runGoalAnnounce, type GoalAnnounceDeps } from "../src/flows/goal-announce";
+import { runGoalOutline } from "../src/flows/goal-outline";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { SomaCliError } from "../src/cli/errors";
-import { buildRunFinishedEnvelope } from "../src/run-ledger";
+import { buildRunFinishedEnvelope } from "../src/flows/run-ledger";
 
 const NOW = new Date("2026-10-14T06:30:00Z");
 const FEED = "https://feed.example.test/private.xml";

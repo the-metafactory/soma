@@ -6,9 +6,9 @@ import { expect, test } from "bun:test";
 import { parse } from "yaml";
 import { z } from "zod";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
-import { proposeGoal, formatGoalProposal, type GoalProposeDeps, type GoalBuildBrief } from "../src/goal-propose";
-import { goalInfrastructure, listGoalInfrastructure } from "../src/goal-kinds/infrastructure";
-import { goalKinds, listGoalKinds } from "../src/goal-kinds/registry";
+import { proposeGoal, formatGoalProposal, type GoalProposeDeps, type GoalBuildBrief } from "../src/flows/goal-propose";
+import { goalInfrastructure, listGoalInfrastructure } from "../src/flows/goal-kinds/infrastructure";
+import { goalKinds, listGoalKinds } from "../src/flows/goal-kinds/registry";
 import type { GoalResource } from "../src/home/index";
 import type { InferenceBackend, InferenceRequest } from "../src/tools/inference";
 

@@ -25,7 +25,7 @@ import { classifyAlgorithmPrompt } from "../algorithm/algorithm-classifier";
 import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../algorithm/algorithm-reflection-digest";
 import { parsePaiReflections } from "../algorithm/algorithm-reflection-import";
 import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm/algorithm-capabilities";
-import { runSomaLifecycleAlgorithmUpdated } from "../lifecycle";
+import { runSomaLifecycleAlgorithmUpdated } from "../flows/index";
 import { appendSomaMemoryEvent } from "../events/index";
 import {
   type BridgedNodeReport,
@@ -40,14 +40,14 @@ import { readFile } from "node:fs/promises";
 import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm/algorithm-capabilities";
 import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm/algorithm-capabilities";
 import { defaultSomaHome } from "../core/index";
-import { syncAlgorithmRunFromVsa, formatSyncResult } from "../algorithm-vsa-sync";
+import { syncAlgorithmRunFromVsa, formatSyncResult } from "../flows/index";
 import { algorithmTouchedBy } from "../algorithm/algorithm-provenance";
 import { datePrefixSlug } from "../core/index";
 import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa/index";
 import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
-import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../run-ledger";
+import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../flows/index";
 import { resolveSubstrateSessionEnv } from "../substrates/adapters/session-env";
 import { hashJudgmentInput, recordJudgment } from "../core/index";
 import { regexClassifierVersion } from "../router/index";

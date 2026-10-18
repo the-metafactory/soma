@@ -4,7 +4,7 @@ import {
   runSomaLifecycleSessionEnd,
   runSomaLifecycleSessionStart,
 } from "../index";
-import { resolveLifecycleHomeDir } from "../lifecycle";
+import { resolveLifecycleHomeDir } from "../flows/index";
 // The public entry registers SessionEnd transcript handlers and projection self-repair.
 import { resolveInstalledLifecycleHomeDir, type SomaLifecycleOptions } from "../substrates/index";
 import type { SomaLifecycleResult } from "../types";

@@ -3,9 +3,9 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
-import { runGoalOutline, zurichIsoWeek, type CalendarRunResult, type GoalOutlineDeps } from "../src/goal-outline";
+import { runGoalOutline, zurichIsoWeek, type CalendarRunResult, type GoalOutlineDeps } from "../src/flows/goal-outline";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
-import { buildRunFinishedEnvelope } from "../src/run-ledger";
+import { buildRunFinishedEnvelope } from "../src/flows/run-ledger";
 
 const NOW = new Date("2026-10-14T06:30:00Z");
 const roots: string[] = [];

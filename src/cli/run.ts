@@ -19,7 +19,7 @@ import {
   type RunKind,
   type RunLedgerDeps,
   type RunOutcome,
-} from "../run-ledger";
+} from "../flows/index";
 
 export const RUN_COMMAND_HELP = {
   usage: "Usage: soma run finished --kind <kind> --ref <ref> --outcome <outcome> --started-at <iso> [--detail-ref <path>] [--state-subject <s> --state-value <v>]",

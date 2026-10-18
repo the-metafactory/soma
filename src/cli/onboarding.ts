@@ -11,7 +11,7 @@ import {
   applySomaInit,
   diagnoseSomaDoctor,
   planSomaInit,
-} from "../onboarding";
+} from "../flows/index";
 import type { SomaDoctorDiagnosis, SomaInitPlan, SomaOnboardingOptions } from "../types";
 import {
   formatClaudeUninstallResult,

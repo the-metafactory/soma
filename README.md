@@ -440,7 +440,7 @@ backend disables session persistence, hooks and tools for this private call.
 
 On `no_fit` or a fit with a mechanism gap, a second standard-level call to the
 same private backend drafts a `build_brief` from the checked-in infrastructure
-manifest (`src/goal-kinds/infrastructure.ts`). It lists documented parts from
+manifest (`src/flows/goal-kinds/infrastructure.ts`). It lists documented parts from
 reflex, pulse, cortex, myelin and soma goal kinds. The brief includes Deliverable,
 Acceptance criteria, Touches, Assumptions, Out of scope, a kind sketch, slices
 naming their repos, and open questions. Text and `--json` both show it beside the
@@ -462,8 +462,8 @@ values out of the tracker. Proposing files no nodes itself.
 
 `soma goal kinds --json` lists the goal-kind catalog for inference; without
 `--json` it prints a compact ID, role and description list. The registry lives
-in `src/goal-kinds/registry.ts`. Each kind lives in
-`src/goal-kinds/<kind>.ts` and declares a strict Zod parameter object, public
+in `src/flows/goal-kinds/registry.ts`. Each kind lives in
+`src/flows/goal-kinds/<kind>.ts` and declares a strict Zod parameter object, public
 parameters, private parameter resource types, its existing command and argv
 mapping, a Reflex target, and a fixed default schedule. Sensors own a
 state rule rendered from their threshold parameters. Unknown fields and missing

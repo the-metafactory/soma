@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { evaluatePathGuard, parseBashDestructivePaths } from "../src/policy/policy-path-guard";
 import { evaluateSomaPolicy } from "../src/policy/policy";
 import { renderPathGuardExtension } from "../src/substrates/adapters/pi-dev/path-guard";
-import { bootstrapSomaHome } from "../src/home-bootstrap";
+import { bootstrapSomaHome } from "../src/flows/home-bootstrap";
 import { checkSomaPolicy, checkSomaPolicyBatch } from "../src/policy/policy-audit";
 
 const execFileAsync = promisify(execFile);

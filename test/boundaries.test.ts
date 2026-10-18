@@ -168,7 +168,7 @@ describe("component boundaries on the repository", () => {
     const outward = report.violations
       .filter((v) => v.fromComponent === "substrates" && v.toComponent !== "legacy")
       .map((v) => `${v.from} -> ${v.to}`);
-    expect(outward).toEqual(["src/substrates/experimental/anthropic-cowork.ts -> src/install.ts"]);
+    expect(outward).toEqual(["src/substrates/experimental/anthropic-cowork.ts -> src/flows/install.ts"]);
   }, { timeout: 30_000 });
 
   test("router public entry rejects every internal and has no outward violations", async () => {
@@ -220,6 +220,32 @@ describe("component boundaries on the repository", () => {
       const publicEntry = checkBoundaries({ root, updateBaseline: true });
       if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
       expect(publicEntry.violations.filter((v) => v.fromComponent === "migrate" && v.toComponent !== "legacy")).toEqual([]);
+    });
+  }, { timeout: 30_000 });
+
+  test("flows public entries reject every internal and have no outward violations", async () => {
+    expect(components.flows.files).toEqual(["src/flows/**"]);
+    expect(components.flows.publicEntries).toEqual(["src/flows/index.ts", "src/flows/types.ts"]);
+    await withRepoFixture("soma-boundaries-flows-entry-", async (root) => {
+      const importer = join(root, "src/cli/flows-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/flows"), { recursive: true }))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
+      expect(internals).toContain("goal-kinds/registry.ts");
+      await writeFile(importer, internals.map((name) => `import "../flows/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/flows-entry-fixture.ts",
+          to: `src/flows/${name}`,
+          toComponent: "flows",
+          rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, 'import "../flows/index";\nimport "../flows/types";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "flows" && v.toComponent !== "legacy")).toEqual([]);
     });
   }, { timeout: 30_000 });
 
@@ -295,13 +321,13 @@ describe("component boundaries on the repository", () => {
         const target = resolve(repoRoot, dirname(edge.from), entry.specifier);
         return [target, `${target}.ts`, `${target}.mjs`, `${target}/index.ts`].includes(join(repoRoot, edge.to));
       }));
-    for (const consumer of ["src/run-ledger.ts", "src/algorithm-vsa-sync.ts", "src/cli/algorithm.ts"]) {
+    for (const consumer of ["src/flows/run-ledger.ts", "src/flows/algorithm-vsa-sync.ts", "src/cli/algorithm.ts"]) {
       expect(report.edges.filter((edge) => edge.from === consumer && edge.to.startsWith("src/substrates/"))
         .map((edge) => edge.to)).toEqual(["src/substrates/adapters/session-env.ts"]);
     }
     // cli/algorithm also reaches installation through lifecycle; only its
     // session lookup dependency is expected to have a leaf runtime closure.
-    for (const seed of ["src/cli-launcher.ts", "src/substrates/adapters/session-env.ts", "src/run-ledger.ts", "src/algorithm-vsa-sync.ts"]) {
+    for (const seed of ["src/cli-launcher.ts", "src/substrates/adapters/session-env.ts", "src/flows/run-ledger.ts", "src/flows/algorithm-vsa-sync.ts"]) {
       const reachable = reachableFrom({ ...report, edges: runtimeEdges }, seed);
       expect(reachable.size).toBeGreaterThan(1);
       expect(reachable.has("src/substrates/index.ts")).toBe(false);

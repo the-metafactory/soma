@@ -43,7 +43,7 @@ import {
   type UninstallClaudeCodeResult,
   type UninstallCursorResult,
   type UninstallGrokResult,
-} from "../install";
+} from "../flows/index";
 import { invocationCwd } from "../core/index";
 import { loadSomaHome } from "../home/index";
 import { SHIPPED_SUBSTRATES, type ShippedSubstrate, type SomaInstallPlan } from "../types";
