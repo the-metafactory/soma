@@ -1,8 +1,8 @@
-import { advisor, inference } from "./index";
-import { createAutoInferenceBackend } from "../index";
-import { createAnthropicApiBackend } from "../index";
-import { createClaudeCodeBackend } from "../index";
-import type { InferenceBackend, InferenceLevel, InferenceMode, InferenceOptions } from "./index";
+import { advisor, inference } from "../../tools/inference/index";
+import { createAutoInferenceBackend } from "../../tools/index";
+import { createAnthropicApiBackend } from "../../tools/index";
+import { createClaudeCodeBackend } from "../../tools/index";
+import type { InferenceBackend, InferenceLevel, InferenceMode, InferenceOptions } from "../../tools/inference/index";
 
 type InferenceCliBackendKind = "auto" | "claude-code" | "anthropic-api";
 

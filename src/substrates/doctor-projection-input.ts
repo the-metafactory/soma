@@ -1,4 +1,4 @@
-import { listBundledSkills } from "./bundled-skills";
+import { bundledSkillNames as listBundledSkills } from "./bundled-skill-source";
 import { loadActiveVsaForBundle } from "../vsa";
 import { isFsUtilsEnoent as isEnoent } from "../core";
 import { loadMemoryIndexForProjection } from "../memory";

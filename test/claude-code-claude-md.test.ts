@@ -5,9 +5,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { installSomaForClaudeCode } from "../src/index";
+import { installSomaForClaudeCode } from "../src/flows/index";
 import { resolveClaudeMdOverlay } from "../src/substrates/adapters/claude-code/claude-md";
-import { OVERLAY_BEGIN, OVERLAY_END, hasProvenanceHeader, withProvenance } from "../src/substrates/adapters/shared/index";
+import { OVERLAY_BEGIN, OVERLAY_END, hasProvenanceHeader, withProvenance } from "../src/substrates/adapters/shared/provenance";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {

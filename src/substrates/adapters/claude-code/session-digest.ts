@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { hasSessionDigest, writeSessionDigest } from "../../../memory/index";
 import { registerSessionEndTranscriptHandler } from "../../../home/lifecycle-registry";
 import type { SomaMemoryDigestResult } from "../../../memory/index";
-import type { SubstrateId } from "../../../types";
+import type { SubstrateId } from "../../../core/types";
 
 /**
  * Claude Code SessionEnd digest FALLBACK (M5b) — adapter-owned.

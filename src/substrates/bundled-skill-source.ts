@@ -41,9 +41,8 @@ function diskSkillsRoot(somaRepoPath = defaultSomaRepoPath()): string {
 }
 
 async function embeddedFiles(): Promise<Readonly<Record<string, string>>> {
-  // Dynamic on purpose: src/index.ts re-exports this module's consumers and the
-  // hook hot paths load that barrel, so a static import would read all of the
-  // skill text on every hook invocation. `bun build --compile` still inlines it.
+  // Dynamic on purpose: a static import would read all of the skill text
+  // wherever this module loads, hook hot paths included. `bun build --compile` still inlines it.
   return (await import("./bundled-skill-files.generated")).BUNDLED_SKILL_FILES;
 }
 

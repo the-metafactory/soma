@@ -4,17 +4,9 @@ import { join } from "node:path";
 import type { Projection, SomaAdapter } from "../../types";
 import type { ProjectionInput } from "../../../home/types";
 import { activeVsaBundleFile } from "../../../vsa/index";
-import {
-  communicationContractFile,
-  workingMethodFile,
-  renderAssistantCore,
-  renderMemoryLayout,
-  renderPolicyProjection,
-  renderSkills,
-  renderSubstrateInstructions,
-  SELF_HEALING_DOCTRINE_ADVISORY,
-  withProvenance,
-} from "../shared/index";
+import { communicationContractFile, workingMethodFile, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions } from "../shared/index";
+import { SELF_HEALING_DOCTRINE_ADVISORY } from "../../../policy/self-healing-doctrine";
+import { withProvenance } from "../shared/provenance";
 import { behaviorPolicyAdvisory } from "../../../policy/behavior-policy";
 
 /** The repo-CLI invocation every projected command uses — one definition,

@@ -1,4 +1,4 @@
-import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase, EvidenceKind } from "../types";
+import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase, EvidenceKind } from "../core/types";
 import type { AlgorithmLogEntry, CriterionStatus, VerificationStateArtifact, Checkpoint, VsaSection } from "./types";
 
 /**

@@ -1,4 +1,4 @@
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 
 // Single source of truth for SubstrateId membership. The
 // `satisfies Record<SubstrateId, true>` guard makes omitting a newly added

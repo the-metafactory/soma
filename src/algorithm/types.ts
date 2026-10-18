@@ -1,4 +1,4 @@
-import type { AlgorithmEffortTier, AlgorithmPhase, AlgorithmMode, EvidenceKind, SubstrateId } from "../types";
+import type { AlgorithmEffortTier, AlgorithmPhase, AlgorithmMode, EvidenceKind, SubstrateId } from "../core/types";
 import type { AlgorithmLogEntry, Checkpoint, VerificationStateArtifact } from "../vsa/types";
 
 export type AlgorithmEffortSource = "explicit" | "classifier" | "context-override" | "auto" | "fail-safe";

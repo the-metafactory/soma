@@ -1,4 +1,4 @@
-import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase } from "../types";
+import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase } from "../core/types";
 import type { AuthoredFrontmatter, DerivedFrontmatter, VerificationStateArtifact, VsaFrontmatter, VsaSection } from "./types";
 import { getCriteria, progressFromCriteria, verifiedFromCriteria } from "./vsa-accessors";
 import { warnServes, type ServesOptions } from "../goal-reference";

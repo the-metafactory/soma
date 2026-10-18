@@ -5,7 +5,8 @@ import { cursorInstallSpec } from "./adapters/cursor/install";
 import { dshInstallSpec } from "./adapters/dsh/install";
 import { grokInstallSpec } from "./adapters/grok/install";
 import { piDevInstallSpec } from "./adapters/pi-dev/install";
-import type { InstallSubstrate, SubstrateInstallSpec } from "./install-spec";
+import type { SubstrateInstallSpec } from "./install-spec";
+import type { InstallSubstrate } from "../policy/types";
 
 type InstallSpecRegistry = { [S in InstallSubstrate]: SubstrateInstallSpec<S> };
 

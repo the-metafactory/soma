@@ -1,4 +1,5 @@
-import { runSomaCli, SomaCliError } from "../../src/cli";
+import { runSomaCli } from "../../src/cli";
+import { SomaCliError } from "../../src/cli/errors";
 
 /**
  * Run `soma <args>` expecting a non-zero exit, and return the thrown

@@ -10,7 +10,9 @@
  * - public entries: into a component that declares them, only those;
  * - units: no edge between two units of one component;
  * - tests: `test/<c>/` may import its own component freely, only public
- *   entries of components that declare them, and never `src/index.ts`.
+ *   entries of components that declare them;
+ * - barrels: only a declared public entry may contain `export … from`, and
+ *   only from files of its own component (node #816).
  *
  * Static imports, `export … from`, literal dynamic `import("…")` and
  * type-only imports all count as edges.
@@ -43,7 +45,7 @@ export const VIOLATIONS_PATH = "scripts/boundaries/violations.json";
 export const BASELINE_PATH = "scripts/boundaries/closure-baseline.json";
 
 export type EdgeKind = "import" | "type-import" | "re-export" | "dynamic-import";
-export type ViolationRule = "direction" | "public-entry" | "unit" | "test-index" | "test-public-entry";
+export type ViolationRule = "direction" | "public-entry" | "unit" | "test-public-entry" | "barrel";
 
 export interface Edge {
   from: string;
@@ -172,6 +174,17 @@ export function collectSpecifiers(fileName: string, text: string): { specifier: 
   };
   visit(source);
   return found;
+}
+
+/** The module specifier of every `export … from` in the file, type-only included. */
+export function collectReExports(fileName: string, text: string): string[] {
+  const kind = fileName.endsWith(".mjs") ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+  const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false, kind);
+  return source.statements.flatMap((statement) => {
+    if (!ts.isExportDeclaration(statement)) return [];
+    const specifier = literalText(statement.moduleSpecifier);
+    return specifier === undefined ? [] : [specifier];
+  });
 }
 
 /** Resolves a relative specifier to a known `src` file, or undefined. */
@@ -372,11 +385,19 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
 
   // Graph.
   const edges: Edge[] = [];
+  const reExports: Edge[] = [];
   const adjacency = new Map<string, Set<string>>();
   const lineCount = new Map<string, number>();
   for (const file of [...srcList, ...testList]) {
     const text = readFileSync(join(root, file), "utf8");
-    if (srcFiles.has(file)) lineCount.set(file, countLines(text));
+    if (srcFiles.has(file)) {
+      lineCount.set(file, countLines(text));
+      // Hook assets (`.mjs`) install as separate files by name, so the barrel rule covers `.ts` only.
+      for (const specifier of file.endsWith(".ts") ? collectReExports(file, text) : []) {
+        const to = resolveSpecifier(file, specifier, srcFiles);
+        if (to !== undefined && to !== file) reExports.push({ from: file, to, kind: "re-export" });
+      }
+    }
     const seen = new Set<string>();
     for (const { specifier, kind } of collectSpecifiers(file, text)) {
       const to = resolveSpecifier(file, specifier, srcFiles);
@@ -414,9 +435,7 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
     if (!srcFiles.has(edge.from)) {
       // Test file: test/<component>/...
       const fromComponent = edge.from.split("/")[1];
-      if (stemOf(edge.to) === "src/index") {
-        flag(edge, `test/${fromComponent}`, toComponent, "test-index", "tests may never import src/index.ts");
-      } else if (toComponent !== fromComponent && !isPublic(toSpec, edge.to)) {
+      if (toComponent !== fromComponent && !isPublic(toSpec, edge.to)) {
         flag(edge, `test/${fromComponent}`, toComponent, "test-public-entry", `not a public entry of ${toComponent}`);
       }
       continue;
@@ -440,6 +459,20 @@ export function checkBoundaries(options: CheckOptions): BoundaryReport {
     } else if (!isPublic(toSpec, edge.to)) {
       flag(edge, fromComponent, toComponent, "public-entry", `not a public entry of ${toComponent}`);
     }
+  }
+  // Barrels: a re-export is a public face, so only declared entries may have one.
+  const flagged = new Set(violations.map((violation) => violation.key));
+  for (const edge of reExports) {
+    const fromComponent = owner.get(edge.from);
+    const toComponent = owner.get(edge.to);
+    if (fromComponent === undefined || toComponent === undefined || flagged.has(`${edge.from} -> ${edge.to}`)) continue;
+    const entries = manifest[fromComponent].publicEntries ?? [];
+    if (!entries.some((entry) => entry === edge.from || entry === stemOf(edge.from))) {
+      flag(edge, fromComponent, toComponent, "barrel", `only a declared public entry of ${fromComponent} may re-export`);
+    } else if (toComponent !== fromComponent) {
+      flag(edge, fromComponent, toComponent, "barrel", `a public entry may re-export only its own component, not ${toComponent}`);
+    }
+    flagged.add(`${edge.from} -> ${edge.to}`);
   }
   violations.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 

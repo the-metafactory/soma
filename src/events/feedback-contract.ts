@@ -59,8 +59,6 @@ export const SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE = `\\b(?:${SOMA
 // envelope fields in its metadata until #647 lifts them onto the envelope.
 export const SOMA_FEEDBACK_EVENT_SCHEMA_VERSION = 1;
 
-export { SOMA_FEEDBACK_ACTORS } from "./types";
-
 // soma#785 Q13: prompts the harness or a paste wrote, not the principal. A
 // trimmed prompt starting with one of these is never captured.
 export const SOMA_FEEDBACK_MACHINE_PROMPT_PREFIXES = ["<task-notification>", "<pasted_content"] as const;

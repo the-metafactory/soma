@@ -1,11 +1,11 @@
-// flows types (node #815). `src/types.ts` re-exports them until the final seams node.
+// flows types (node #815).
 import type { AlgorithmRunSummary } from "../algorithm/types";
 import type { ProposalKind, SomaMemoryPromotionStore } from "../core/index";
 import type { SomaFeedbackActor, SomaFeedbackClassification, SomaMemoryEvent } from "../events/index";
 import type { ClaudeSkillsSourceStatus } from "../migrate/types";
 import type { InstallSubstrate } from "../policy/types";
 import type { SomaDoctorFinding } from "../substrates/types";
-import type { AlgorithmPhase, SubstrateId } from "../types";
+import type { AlgorithmPhase, SubstrateId } from "../core/types";
 
 /** Principal rejection of a delivered output; never stores assistant output content. */
 export type ErrataPassedBy =

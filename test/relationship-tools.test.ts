@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, setSystemTime, test } from "bun:test";
-import { addOpinion, parseRelationshipNotes, reflectRelationship, type RelationshipNotification } from "../src";
+import { addOpinion, parseRelationshipNotes, reflectRelationship, type RelationshipNotification } from "../src/tools/index";
 import { runSomaCli } from "../src/cli";
 import { adjustOpinionConfidence, type EvidenceType } from "../src/tools/learning";
 

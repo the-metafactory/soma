@@ -52,7 +52,7 @@ import { resolveSubstrateSessionEnv } from "../substrates/adapters/session-env";
 import { hashJudgmentInput, recordJudgment } from "../core/index";
 import { regexClassifierVersion } from "../router/index";
 import { ALGORITHM_REFERENCE_VERDICTS } from "../algorithm/types";
-import type { AlgorithmEffortTier, AlgorithmPhase, EvidenceKind, SubstrateId } from "../types";
+import type { AlgorithmEffortTier, AlgorithmPhase, EvidenceKind, SubstrateId } from "../core/types";
 import type { AlgorithmBatchOperation, AlgorithmPlanStep, AlgorithmPromptClassification, AlgorithmRun, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRunInput } from "../algorithm/types";
 
 export const ALGORITHM_ACTIONS = [

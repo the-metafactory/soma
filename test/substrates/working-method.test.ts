@@ -8,7 +8,7 @@ import { projectCursor } from "../../src/substrates/adapters/cursor";
 import { projectDsh, projectDshHome } from "../../src/substrates/adapters/dsh/adapter";
 import { projectGrok, projectGrokHome } from "../../src/substrates/adapters/grok/adapter";
 import { projectPiDev, projectPiDevHome } from "../../src/substrates/adapters/pi-dev/adapter";
-import { type Projection } from "../../src/types";
+import type { Projection } from "../../src/substrates/types";
 import { type ProjectionInput } from "../../src/home/types";
 import { projectAnthropicCoworkHome } from "../../src/substrates/adapters/anthropic-cowork";
 import { configureCodexAgentsImport } from "../../src/substrates/adapters/codex/install";

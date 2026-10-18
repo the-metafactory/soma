@@ -12,7 +12,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSomaCli } from "../src/cli";
-import { installSomaForCodex } from "../src/index";
+import { installSomaForCodex } from "../src/flows/index";
 import { inspectRuntimeArtifact, stageRuntimeArtifact } from "../src/substrates/runtime-artifact";
 import { STUB_RUNTIME, STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 

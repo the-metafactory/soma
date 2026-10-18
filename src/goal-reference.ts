@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { GOAL_STATUSES, type GoalRecord } from "./types";
+import { GOAL_STATUSES, type GoalRecord } from "./goal-records";
 
 export const GOAL_ID_PATTERN = /^G\d+$/;
 

@@ -101,11 +101,10 @@ export default tseslint.config(
     },
   },
 
-  // Substrate-adapter boundary: per-substrate directories are private. Each
-  // substrate may deep-import only within its own dir; everyone else must go
-  // through the substrate barrel (`./codex`, `./pi-dev`) or the top-level
-  // `./adapters` barrel. shared/ is internal to the adapter layer — only
-  // adapter code may deep-import it.
+  // Substrate-adapter boundary: codex and pi-dev may not import each other.
+  // Access from outside the adapters goes through the substrates component's
+  // public entries, which scripts/check-boundaries.ts enforces; the adapter
+  // sub-barrels that rule once required are gone (node #816 bans barrels).
   //
   // Implementation note: ESLint flat config does NOT compose `rules` across
   // multiple matching config blocks — the last block's rule definition wins.
@@ -125,7 +124,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ["**/adapters/pi-dev/**", "../pi-dev/**", "../../pi-dev/**", "../../../pi-dev/**"],
-              message: "codex must not deep-import pi-dev internals — go through the pi-dev barrel (./adapters/pi-dev).",
+              message: "codex must not import pi-dev — the two adapter units stay independent.",
             },
           ],
         },
@@ -141,43 +140,14 @@ export default tseslint.config(
           patterns: [
             {
               group: ["**/adapters/codex/**", "../codex/**", "../../codex/**", "../../../codex/**"],
-              message: "pi-dev must not deep-import codex internals — go through the codex barrel (./adapters/codex).",
+              message: "pi-dev must not import codex — the two adapter units stay independent.",
             },
           ],
         },
       ],
     },
   },
-  {
-    files: ["src/**/*.{ts,mjs}"],
-    ignores: ["src/substrates/adapters/codex/**", "src/substrates/adapters/pi-dev/**", "src/substrates/adapters/shared/**", "src/substrates/install-spec-registry.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "**/adapters/codex/**",
-                "**/adapters/pi-dev/**",
-                "**/adapters/shared/**",
-                "./adapters/codex/**",
-                "./adapters/pi-dev/**",
-                "./adapters/shared/**",
-                "../adapters/codex/**",
-                "../adapters/pi-dev/**",
-                "../adapters/shared/**",
-                // Declared public leaf: migration must not load the adapter barrel.
-                "!**/adapters/pi-dev/skill-projection",
-              ],
-              message:
-                "Import from the substrate barrel (./adapters/codex, ./adapters/pi-dev, ./adapters/shared) — deep imports erode the adapter boundary.",
-            },
-          ],
-        },
-      ],
-    },
-  },
+
 
   {
     files: ["src/**/*.{ts,mjs}"],

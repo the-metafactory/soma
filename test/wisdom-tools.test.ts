@@ -2,12 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, setSystemTime, test } from "bun:test";
-import {
-  classifyDomains,
-  listFrames,
-  synthesizeWisdom,
-  updateFrame,
-} from "../src";
+import { classifyDomains, listFrames, synthesizeWisdom, updateFrame } from "../src/tools/index";
 import { runSomaCli } from "../src/cli";
 import { jaccardSimilarity, loadRelevantFrames } from "../src/tools/wisdom";
 

@@ -8,4 +8,4 @@ export { CLOSE_DEADLINE_SEC, PROBE_ESCAPED_PREFIX, allProbesPassed, authorizePro
 export { PROBE_REFUSED_PREFIX, PROBE_REGISTRY_RELATIVE_PATH, PROBE_REGISTRY_VERSION, authorizeProbe, isProbeRefusal, loadProbeRegistry, parseProbeRegistry, probeRegistryPath, type DeclaredCommand, type LoadProbeRegistryOptions, type ParseProbeRegistryInput, type ProbeAuthorization, type ProbeRegistry, type ProbeRegistryHomeOptions } from "./work-graph-probe-registry";
 export { deriveAttestation, findGraphRoot, type AttestationInputs, type AttestationOutcome, type ConfinementDeps } from "./work-graph-attestation";
 export { buildBriefMissing } from "./build-brief";
-export { ProposalFileError, PROPOSAL_KINDS, hasProposalMarker, parseProposal, proposalFrontMatterSchema, proposalMarker, proposalNodeSpec, readProposalFile, type ProposalFile, type ProposalFrontMatter, type ProposalKind } from "./proposal-file";
+export { ProposalFileError, hasProposalMarker, parseProposal, proposalFrontMatterSchema, proposalMarker, proposalNodeSpec, readProposalFile, type ProposalFile, type ProposalFrontMatter } from "./proposal-file";

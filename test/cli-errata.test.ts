@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { appendErrata, errataLedgerPath } from "../src/flows/errata";
 import { parseErrataArgs } from "../src/cli/errata";
 import { stageRuntimeArtifact } from "../src/substrates/runtime-artifact";
-import type { ErrataInput } from "../src/types";
+import type { ErrataInput } from "../src/flows/types";
 
 const homes: string[] = [];
 afterEach(async () => { await Promise.all(homes.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });

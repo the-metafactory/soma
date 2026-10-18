@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { listGoalRecords } from "../goal-records";
 import { localDate } from "./workdays";
 import { publishRunFinished, type RunFinishedPublisher, type RunFinishedResult, type RunLedgerEnv } from "./run-ledger";
-import type { GoalRecord } from "../types";
+import type { GoalRecord } from "../goal-records";
 import type { GraphStore } from "../graph/index";
 
 const DAY_MS = 86_400_000;

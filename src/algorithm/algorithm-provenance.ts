@@ -1,5 +1,5 @@
 import { getRunPhase } from "./algorithm-lifecycle";
-import type { AlgorithmPhase, SubstrateId } from "../types";
+import type { AlgorithmPhase, SubstrateId } from "../core/types";
 import type { AlgorithmProvenanceOperation, AlgorithmRun } from "./types";
 
 export interface AlgorithmProvenanceInput {

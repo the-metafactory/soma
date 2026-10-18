@@ -1,5 +1,5 @@
 import { claudeCodeSessionId } from "./claude-code/session-env";
-import type { SubstrateId } from "../../types";
+import type { SubstrateId } from "../../core/types";
 
 type SessionEnv = Readonly<Record<string, string | undefined>>;
 

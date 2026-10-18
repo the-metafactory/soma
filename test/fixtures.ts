@@ -1,9 +1,10 @@
 import { expect } from "bun:test";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Projection, ProjectionInput } from "../src/index";
+import type { Projection } from "../src/substrates/types";
+import type { ProjectionInput } from "../src/home/index";
 import { SECTION_NAME_MAP, renderCriteriaMarkdown } from "../src/vsa/vsa-accessors";
-import { listBundledSkills } from "../src/substrates/bundled-skills";
+import { bundledSkillNames as listBundledSkills } from "../src/substrates/bundled-skill-source";
 import { VSA_SKILL_NAME } from "../src/substrates/vsa-skill-installer";
 
 /**

@@ -31,7 +31,7 @@ import {
 } from "./policy-targets";
 import { defaultInboundContentSecurityConfig, scanInboundContent } from "./inbound-security";
 import { inspectRuntimePolicy } from "./runtime-policy";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { RuntimePolicyDecision } from "./types";
 
 export interface ToolCallPolicyGuardOptions {

@@ -40,23 +40,11 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  planSomaForClaudeCodeInstall,
-  planSomaForCodexInstall,
-  planSomaForCursorInstall,
-  planSomaForDshInstall,
-  planSomaForGrokInstall,
-  planSomaForPiDevInstall,
-  type SomaInstallOptions,
-  type SomaInstallPlan,
-} from "../src/index";
-import {
-  INSTALL_SUBSTRATES,
-  PROJECTION_LIFECYCLE_SUBSTRATES,
-  parseInstallArgs,
-  runSubstrateLifecycleCli,
-  type InstallSubstrate,
-} from "../src/cli/substrate-lifecycle";
+import { planSomaForClaudeCodeInstall, planSomaForCodexInstall, planSomaForCursorInstall, planSomaForDshInstall, planSomaForGrokInstall, planSomaForPiDevInstall } from "../src/flows/index";
+import type { SomaInstallOptions } from "../src/substrates/types";
+import type { SomaInstallPlan } from "../src/flows/types";
+import { INSTALL_SUBSTRATES, PROJECTION_LIFECYCLE_SUBSTRATES, parseInstallArgs, runSubstrateLifecycleCli } from "../src/cli/substrate-lifecycle";
+import { type InstallSubstrate } from "../src/policy/types";
 import { defaultSubstrateHome, installSpecFor } from "../src/substrates/install-spec-registry";
 
 async function withGreenfieldHomes<T>(

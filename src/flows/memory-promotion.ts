@@ -15,7 +15,7 @@ import {
 import { getCriteria, getGoal } from "../vsa/index";
 import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "../core/index";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { SomaMemoryPromotionOptions, SomaMemoryPromotionResult } from "./types";
 import type { AlgorithmRun } from "../algorithm/types";
 import type { SomaMemoryPromotionStore } from "../core/index";
@@ -227,7 +227,7 @@ export async function promoteAlgorithmRunMemory(options: SomaMemoryPromotionOpti
 
 /**
  * Module-internal: accepts an `onDurable` callback. NOT exported from
- * src/index.ts — only a direct module importer (`syncAlgorithmRunFromVsa`)
+ * src/flows/index.ts — only a direct module importer (`syncAlgorithmRunFromVsa`)
  * can reach it. Delegates to the SAME `promoteAlgorithmRunMemoryInternal` as
  * the public single-arg export — not a parallel promotion path.
  */

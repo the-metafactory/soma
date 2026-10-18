@@ -3,16 +3,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, normalize, relative, isAbsolute } from "node:path";
 import { listAlgorithmRuns } from "../algorithm/algorithm-store";
 import { redactSomaFeedbackText } from "./feedback";
-import type { SomaMemoryEvent } from "../types";
+import type { SomaMemoryEvent } from "../events/index";
 import type { ErrataAnswerKind, ErrataCluster, ErrataClusterEvent, ErrataClusterKey, ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord } from "./types";
 import type { AlgorithmRun } from "../algorithm/types";
 import { parseTelemetryEventLine, somaMemoryEventsPath, streamEventLines } from "../events/index";
 import { hashJudgmentInput, isEnoent, readJudgments, recordJudgment, type JudgmentRecord } from "../core/index";
 import { loadSomaConfig } from "../home/index";
-import {
-  GITHUB_DOTCOM, parseProposal, parseRemoteUrl, proposalFrontMatterSchema, runCommand,
-  type ProposalKind,
-} from "../graph/index";
+import { GITHUB_DOTCOM, parseProposal, parseRemoteUrl, proposalFrontMatterSchema, runCommand } from "../graph/index";
+import { type ProposalKind } from "../core/index";
 import {
   classifyErrataProposalWithClaude, classifyErrataThemeWithClaude, classifyErrataWithClaude,
   validateErrataProposal, validateErrataTheme, validateErrataVerdict,

@@ -5,7 +5,8 @@ import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
 import { parseAlgorithmArgs } from "../src/cli/algorithm";
 import { VerificationGateError } from "../src/algorithm/algorithm";
-import { getCriteria, readAlgorithmRunById } from "../src/index";
+import { getCriteria } from "../src/vsa/index";
+import { readAlgorithmRunById } from "../src/algorithm/algorithm-store";
 
 const runId = "batch-verify";
 const evidence = "probe.ts on 4222: anonymous connect refused: exit 0";

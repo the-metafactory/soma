@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { parseMemoryNote, runSomaLifecycleSessionEnd } from "../src/index";
+import { parseMemoryNote } from "../src/memory/index";
+import { runSomaLifecycleSessionEnd } from "../src/flows/index";
 import { extractCodexDigestBodyFromTranscript, writeCodexSessionDigestFromTranscript } from "../src/substrates/adapters/codex/session-digest";
 
 const NOW = new Date("2026-07-04T10:00:00.000Z");

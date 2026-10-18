@@ -9,17 +9,13 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  bootstrapSomaHome,
-  projectClaudeCodeHome,
-  planSomaForClaudeCodeInstall,
-  scaffoldVsa,
-  setActiveVsa,
-  uninstallSomaForClaudeCode,
-} from "../src/index";
+import { bootstrapSomaHome, planSomaForClaudeCodeInstall, uninstallSomaForClaudeCode } from "../src/flows/index";
+import { projectClaudeCodeHome } from "../src/substrates/index";
+import { scaffoldVsa, setActiveVsa } from "../src/vsa/index";
 import { unpatchClaudeCodeModeClassifierSettings } from "../src/substrates/adapters/claude-code/hooks";
 import { installSpecFor } from "../src/substrates/install-spec-registry";
-import type { InstallSubstrate, SkillsDiscoveryMode } from "../src/substrates/install-spec";
+import type { SkillsDiscoveryMode } from "../src/substrates/install-spec";
+import type { InstallSubstrate } from "../src/policy/types";
 import { SOMA_SKILLS_HEADING } from "../src/substrates/adapters/shared/index";
 import { writePortableSkillManifest } from "../src/substrates/adapters/shared/portable-skill-manifest";
 import { stripProvenance } from "../src/substrates/adapters/shared/provenance";

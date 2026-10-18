@@ -2,8 +2,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { runVsaCli } from "../src/cli-vsa";
-import { bootstrapSomaHome, scaffoldVsa } from "../src/index";
+import { runVsaCli } from "../src/cli/vsa";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { scaffoldVsa } from "../src/vsa/index";
 
 async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-cli-vsa-"));

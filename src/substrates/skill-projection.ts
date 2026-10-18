@@ -1,9 +1,11 @@
 import { lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { isSkillStub, renderSkills, renderSkillStub, stripProvenance } from "./adapters/shared";
+import { renderSkills } from "./adapters/shared";
+import { isSkillStub, renderSkillStub } from "./adapters/shared/skill-stub";
+import { stripProvenance } from "./adapters/shared/provenance";
 import { buildSubstrateHomeProjection } from "./home-projection";
-import type { InstallSubstrate } from "./install-spec";
+import type { InstallSubstrate } from "../policy/types";
 import { pathExists } from "../core";
 import { installSpecFor } from "./install-spec-registry";
 import { writeProjection } from "./projection";

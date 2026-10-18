@@ -1,7 +1,7 @@
 import { recordAlgorithmChange } from "../algorithm/algorithm";
 import { applySomaMemoryEventWritebacks } from "./writeback";
 import { runSubstrateExecution, isKnownSubstrate, type ExecutionKernelOptions, type SomaExecutionRequest, type SubstrateExecutor } from "../execution/index";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { AlgorithmLoopExecutionContext, AlgorithmLoopExecutor, AlgorithmLoopIterationResult } from "../algorithm/types";
 
 export interface SubstrateExecutionAlgorithmLoopExecutorOptions {

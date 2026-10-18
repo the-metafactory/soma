@@ -1,4 +1,4 @@
-import type { AlgorithmPhase } from "../types";
+import type { AlgorithmPhase } from "../core/types";
 import type { AlgorithmCriteriaPartition, AlgorithmLoopIterationResult, AlgorithmLoopState, AlgorithmNotificationEvent, AlgorithmRun, IdeateParameters, IdeatePresetName, OptimizeParameters, OptimizePresetName } from "./types";
 import type { Checkpoint } from "../vsa/index";
 import { getCriteria } from "../vsa/index";

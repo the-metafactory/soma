@@ -5,7 +5,8 @@ import { installCodexHomeProjection, buildGrokHomeProjection } from "../../src/s
 import { diagnoseContentCompareDrift } from "../../src/substrates/adapters/content-compare-doctor";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { installBundledSkillsIntoHome, listBundledSkills } from "../../src/substrates/bundled-skills";
+import { installBundledSkillsIntoHome } from "../../src/substrates/bundled-skills";
+import { bundledSkillNames as listBundledSkills } from "../../src/substrates/bundled-skill-source";
 import { installVsaSkill } from "../../src/substrates/vsa-skill-installer";
 import { defaultSomaRepoPath } from "../../src/core/index";
 

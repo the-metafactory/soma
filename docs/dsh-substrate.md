@@ -125,14 +125,14 @@ Soma-shaped `AGENTS.md` needs no further instruction file.
 The adapter is registered the same way the other install substrates are. The
 adapter lives in `src/substrates/adapters/dsh/` (a directory adapter, mirroring the
 refactored `src/substrates/adapters/codex/`), with `adapter.ts` (projection), `install.ts`
-(install spec), and `index.ts` (barrel). `SubstrateId` gains `"dsh"` in
-`src/types.ts` (lines 5–13), and `"dsh"` is added to the `Extract` literal at
+(install spec), and no barrel. `SubstrateId` gains `"dsh"` in
+`src/core/types.ts`, and `"dsh"` is added to the `Extract` literal at
 line 17 so it flows into `ProjectionSubstrate` and `InstallSubstrate`.
 
 The exact wiring list (verified against the current tree; the `Record<
 InstallSubstrate, …>` tables make missing rows compile errors):
 
-1. `src/types.ts` — `SubstrateId` (5–13) and `InstallSubstrate` extract (17).
+1. `src/core/types.ts` — `SubstrateId`; `src/policy/types.ts` — `InstallSubstrate` extract.
 2. `src/substrates/adapters/private-roots.ts` — `DSH_DEFAULT_HOME = ".dsh"`; registered in
    `src/projection-private-roots.ts` (`Record<InstallSubstrate, …>`).
 3. `src/substrates/install-spec-registry.ts` — `dshInstallSpec` in `INSTALL_SPECS`.
@@ -149,7 +149,7 @@ InstallSubstrate, …>` tables make missing rows compile errors):
    `SUBSTRATE_LABELS` (130).
 8. `src/execution/registry.ts` — `KNOWN_SUBSTRATES` (5).
 9. `src/cli/substrate.ts` — `SUBSTRATE_IDS` (7–16).
-10. `src/substrates/adapters/index.ts` + `src/index.ts` — exports.
+10. `src/substrates/index.ts` — the substrates public entry's exports.
 11. Help strings (`src/cli/onboarding.ts:43`) and docs.
 
 ### Projection layout for the adapter

@@ -1,6 +1,6 @@
 /**
  * Internal concurrency helper used by the memory modules and
- * `claude-skills-migrator.ts`. Not exported from `src/index.ts`.
+ * `claude-skills-migrator.ts`.
  * Sage r2 #95 Maintainability nit (avoid two copies of the same
  * worker-loop generic that could drift in limit / error-ordering
  * semantics).

@@ -6,7 +6,7 @@ import { validateExecutionRunFinished, type ExecutionRunFinishedEvent } from "@t
 import { runGoalSweep, type GoalSweepDeps } from "../src/flows/goal-sweep";
 import { buildRunFinishedEnvelope } from "../src/flows/run-ledger";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
-import type { GoalRecord } from "../src/types";
+import type { GoalRecord } from "../src/goal-records";
 import type { NodeState } from "../src/graph/index";
 
 const NOW = new Date("2026-10-15T06:00:00.000Z");

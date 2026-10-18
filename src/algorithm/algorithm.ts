@@ -1,4 +1,4 @@
-import type { AlgorithmPhase, EvidenceKind } from "../types";
+import type { AlgorithmPhase, EvidenceKind } from "../core/types";
 import type { AlgorithmGatesFired, AlgorithmBatchOperation, AlgorithmMetaReflection, AlgorithmObservation, AlgorithmPlanStep, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRun, AlgorithmRunInput } from "./types";
 import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint } from "../vsa/index";
 import { assertAlgorithmCapabilitiesSatisfied, recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "./algorithm-capabilities";

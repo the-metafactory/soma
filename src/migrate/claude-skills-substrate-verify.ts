@@ -69,7 +69,7 @@ import type {
   ClaudeSkillSubstrateVerifyResult,
   ClaudeSkillsSmokeSubstrate,
 } from "./types";
-import type { SomaSkill } from "../types";
+import type { SomaSkill } from "../home/types";
 import { buildPiDevPortableSkillFiles } from "../substrates/adapters/pi-dev/skill-projection";
 
 // Shared frontmatter regex + quote-stripping — single source of truth

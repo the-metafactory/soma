@@ -5,7 +5,9 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, experimentalAnthropicCowork, planSomaForCodexInstall, planSomaForPiDevInstall, SomaInstallError, somaWorkRegistryPaths } from "../src/index";
+import { bootstrapSomaHome, planSomaForAnthropicCoworkInstall, planSomaForCodexInstall, planSomaForPiDevInstall, uninstallSomaForAnthropicCowork } from "../src/flows/index";
+import { SomaInstallError } from "../src/substrates/index";
+import { somaWorkRegistryPaths } from "../src/home/index";
 import { codexInstallSpec, configureCodexAgentsImport } from "../src/substrates/adapters/codex/install";
 import { ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, isAnthropicCoworkSkillProjectionPath } from "../src/substrates/adapters/anthropic-cowork";
 import { removeLegacyPiDevVsaSkillProjection } from "../src/substrates/adapters/pi-dev/skill-projection";
@@ -18,11 +20,6 @@ import { allInstallSpecs, installSpecFor } from "../src/substrates/install-spec-
 import { expectPlanCoversApplyModuloBundledSkills, expectReprojectPrunesStaleTelos } from "./fixtures";
 import { STUB_RUNTIME_SOURCE } from "./fixtures/stub-runtime";
 import { installSomaForAnthropicCowork, installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForPiDev } from "./fixtures/shared-runtime";
-
-const {
-  planSomaForAnthropicCoworkInstall,
-  uninstallSomaForAnthropicCowork,
-} = experimentalAnthropicCowork;
 
 // #88 — Canonical PAI v5.0.0 memory taxonomy (DD-2). 17 substrate-neutral +
 // 2 PAI-bound = 19. Tests consume the production-exported lists from

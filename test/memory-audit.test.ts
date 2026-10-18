@@ -2,16 +2,8 @@ import { appendFile, mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import {
-  appendSomaMemoryEvent,
-  auditMemory,
-  rebuildMemoryIndex,
-  recallMemory,
-  resurfaceMemoryNote,
-  somaMemoryEventsPath,
-  writeMemoryNote,
-  writeSessionDigest,
-} from "../src/index";
+import { appendSomaMemoryEvent, somaMemoryEventsPath } from "../src/events/index";
+import { auditMemory, rebuildMemoryIndex, recallMemory, resurfaceMemoryNote, writeMemoryNote, writeSessionDigest } from "../src/memory/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 // #428: computeNoteRetrievalCounts now lives in the neutral journal read-model
 // (moved out of memory-audit so M6 consolidation can reuse it without depending

@@ -1,5 +1,5 @@
-import { classifyDomains, listFrames, normalizeSimilarityThreshold, synthesizeWisdom, updateFrame } from "./index";
-import type { WisdomObservationType, WisdomToolOptions } from "./index";
+import { classifyDomains, listFrames, normalizeSimilarityThreshold, synthesizeWisdom, updateFrame } from "../../tools/wisdom/index";
+import type { WisdomObservationType, WisdomToolOptions } from "../../tools/wisdom/index";
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];

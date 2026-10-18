@@ -1,40 +1,8 @@
 import { homedir } from "node:os";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import {
-  installClaudeCodeHomeProjection,
-  installAnthropicCoworkHomeProjection,
-  installCodexHomeProjection,
-  installCursorHomeProjection,
-  installDshHomeProjection,
-  installGrokHomeProjection,
-  installPiDevHomeProjection,
-  type ClaudeCodeInstallOptions,
-  pruneLegacyVsaSkill,
-  installBundledSkillsIntoHome,
-  installVsaSkillProjection,
-  isUnderOrEqual,
-  reconcileOwnedDir,
-  isGuardedRuntimeSubstrate,
-  prepareRuntimeSource,
-  type RuntimeArtifactTarget,
-  stageRuntimeArtifacts,
-  SomaInstallExecution,
-  type ImplementedUninstallSpec,
-  type InstallSubstrate,
-  type LifecycleProjectionSpec,
-  type SubstrateInstallSpec,
-  type UninstallContext,
-  allInstallSpecs,
-  defaultSubstrateHome,
-  installSpecFor,
-  projectSkills,
-  scanRegistrySkills,
-  type InstalledSkill,
-  type SomaInstallOptions,
-  type SomaInstallResult,
-  type UninstallableSkillReport,
-} from "../substrates/index";
+import { installClaudeCodeHomeProjection, installAnthropicCoworkHomeProjection, installCodexHomeProjection, installCursorHomeProjection, installDshHomeProjection, installGrokHomeProjection, installPiDevHomeProjection, type ClaudeCodeInstallOptions, pruneLegacyVsaSkill, installBundledSkillsIntoHome, installVsaSkillProjection, isUnderOrEqual, reconcileOwnedDir, isGuardedRuntimeSubstrate, prepareRuntimeSource, type RuntimeArtifactTarget, stageRuntimeArtifacts, SomaInstallExecution, type ImplementedUninstallSpec, type LifecycleProjectionSpec, type SubstrateInstallSpec, type UninstallContext, allInstallSpecs, defaultSubstrateHome, installSpecFor, projectSkills, scanRegistrySkills, type InstalledSkill, type SomaInstallOptions, type SomaInstallResult, type UninstallableSkillReport } from "../substrates/index";
+import { type InstallSubstrate } from "../policy/types";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { SOMA_MEMORY_CATEGORIES } from "../memory/index";
 import { defaultSomaRepoPath } from "../core/index";
@@ -44,13 +12,11 @@ import { createPaths } from "../core/index";
 import { loadActiveVsaForBundle } from "../vsa/index";
 import { loadMemoryIndexForProjection } from "../memory/index";
 import { isEnoent } from "../core/index";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { SomaInstallPlan } from "./types";
 import type {
   ProjectionInput,
 } from "../home/types";
-
-export type { ClaudeCodeInstallOptions } from "../substrates/index";
 
 const SOMA_BOOTSTRAP_FILES = [
   "profile/assistant.md",

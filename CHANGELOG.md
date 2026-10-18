@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A ripe Errata cluster becomes one proposal file under `<soma-home>/proposals/`, ref `errata-<cluster-key>-g<generation>`, drafted from a retro-style reading of the cluster's rejected turns: a build brief naming the check for a `deterministic-check`, a question for every other kind. The triage run carries each ref it minted as `proposal_refs`, the landing map comes from the new `errata.landing` registry, and a cluster whose repo is not registered is reported once as `outputs/errata-unroutable-<date>.md` instead of proposed. soma's myelin dependency moves to v0.11.0, which carries `proposal_refs`. (#852)
 
+### Removed
+
+- **Breaking:** the root barrel `src/index.ts` and the shared `src/types.ts` are gone. Import from a component's public entries instead; types shared by four or more components live in `src/core/types.ts`. The boundary check now refuses re-export barrels: only a declared public entry may `export … from`, and only from its own component. The adapter sub-barrels and the `experimentalAnthropicCowork` namespace went with them. (#816)
+
 ## [0.27.0] - 2026-10-17
 
 

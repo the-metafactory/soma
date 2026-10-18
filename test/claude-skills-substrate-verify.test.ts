@@ -20,7 +20,7 @@
  */
 import { expect, test } from "bun:test";
 import { verifySubstrateProjection } from "../src/migrate/claude-skills-substrate-verify";
-import type { SomaSkill } from "../src/types";
+import type { SomaSkill } from "../src/home/types";
 
 function buildSkill(name: string, files: { path: string; content: string }[]): SomaSkill {
   return {

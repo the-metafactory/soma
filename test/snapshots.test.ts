@@ -3,12 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
-import {
-  bootstrapSomaHome,
-  createSomaSnapshot,
-  listSomaSnapshots,
-  rollbackSomaSnapshot,
-} from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { createSomaSnapshot, listSomaSnapshots, rollbackSomaSnapshot } from "../src/home/index";
 
 // The snapshot home lives under the OS temp dir, never inside the checkout
 // (#696): a snapshot is a real `git commit`, so a host-wide pre-commit hook runs

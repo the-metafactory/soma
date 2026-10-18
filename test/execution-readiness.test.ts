@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { diagnoseExecutionReadiness, ExecutorRegistry, MockSubstrateExecutor, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS } from "../src";
+import { diagnoseExecutionReadiness } from "../src/substrates/index";
+import { ExecutorRegistry, MockSubstrateExecutor, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS } from "../src/execution/index";
 
 test("execution readiness probes registered executors without preparing or executing", async () => {
   const registry = new ExecutorRegistry();

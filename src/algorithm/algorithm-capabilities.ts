@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import type { AlgorithmPhase, SubstrateId } from "../types";
+import type { AlgorithmPhase, SubstrateId } from "../core/types";
 import type { AlgorithmCapabilityContract, AlgorithmCapabilityDefinition, AlgorithmCapabilitySelection, AlgorithmCapabilitySelectionStatus, AlgorithmCapabilityInvocation, AlgorithmCapabilityKind, AlgorithmRun, SomaSkillManifest } from "./types";
 import { ALGORITHM_CAPABILITY_KINDS } from "./types";
 import { isEnoent } from "../core/index";

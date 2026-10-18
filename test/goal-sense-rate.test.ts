@@ -10,7 +10,6 @@ import { SomaCliError } from "../src/cli/errors";
 import { runRateSensor, type RateSensorDeps } from "../src/flows/goal-sense-rate";
 import { rateKind, rateParams } from "../src/flows/goal-kinds/rate";
 import { goalKinds } from "../src/flows/goal-kinds/registry";
-import * as exports from "../src/flows/goal-kinds";
 import { buildRunFinishedEnvelope } from "../src/flows/run-ledger";
 
 const roots: string[] = [];
@@ -207,8 +206,6 @@ test.each(["empty", "missing", "old"] as const)("executable CLI on %s journal", 
 test("rate kind owns strict public params, defaults, catalog and CLI round trip", async () => {
   const params = rateParams.parse(options);
   expect(params).toEqual({ ...options, timezone: "Europe/Zurich", route: "escalate-hitl" });
-  expect(exports.rateKind).toBe(rateKind);
-  expect(exports.rateParams).toBe(rateParams);
   expect(goalKinds.rate).toBe(rateKind);
   expect(rateKind).toMatchObject({
     private: {}, role: "sensor", target: "@jc/goal-sense-rate",

@@ -1,7 +1,7 @@
-import { runInferenceCli } from "../tools/inference/cli";
-import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "../tools/learning/cli";
-import { RELATIONSHIP_REFLECT_USAGE, runRelationshipCli } from "../tools/relationship/cli";
-import { runWisdomCli } from "../tools/wisdom/cli";
+import { runInferenceCli } from "./tools/inference";
+import { runLearningCli, runMetricsCli, runOpinionCli, runSessionCli } from "./tools/learning";
+import { RELATIONSHIP_REFLECT_USAGE, runRelationshipCli } from "./tools/relationship";
+import { runWisdomCli } from "./tools/wisdom";
 
 export interface ParsedInferenceArgs {
   command: "inference";

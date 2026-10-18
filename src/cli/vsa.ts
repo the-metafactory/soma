@@ -12,9 +12,9 @@ import {
   setActiveVsa,
   type EffortTier,
   type VsaListEntry,
-} from "./vsa/index";
-import { installVsaSkill } from "./substrates/index";
-import { datePrefixSlug } from "./core/index";
+} from "../vsa/index";
+import { installVsaSkill } from "../substrates/index";
+import { datePrefixSlug } from "../core/index";
 
 /**
  * `soma vsa <action>` CLI surface (#36). Thin shell over the library

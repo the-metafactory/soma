@@ -1,6 +1,29 @@
 import { mkdir, open, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { GOAL_STATUSES, type GoalRecord } from "./types";
+
+export const GOAL_STATUSES = ["draft", "active", "paused", "achieved", "dropped"] as const;
+export type GoalStatus = (typeof GOAL_STATUSES)[number];
+
+/**
+ * One goal (soma#784 D2–D8). The frontmatter fields are typed; `wording` is the
+ * body's first line and `body` the whole private body (drop condition, notes).
+ * Goal text stays in soma-home: only the id travels in envelopes and ledgers.
+ */
+export interface GoalRecord {
+  /** `G<n>`, opaque and never reused. */
+  id: string;
+  status: GoalStatus;
+  /** Mission codes (`M<n>`) this goal serves. */
+  supports: string[];
+  /** A reflex activation id that measures the goal. */
+  sensor?: string;
+  /** ISO date (`YYYY-MM-DD`) when the sweep recommends keep, revise or drop. */
+  reviewBy?: string;
+  /** Whole days a goal counts as pursued after its last live link (default 14). */
+  pursuitWindow?: number;
+  wording: string;
+  body: string;
+}
 
 /**
  * Goal records (soma#784 D2–D5, D7–D9): one file per goal at

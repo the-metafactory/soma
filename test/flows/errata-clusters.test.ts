@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { appendErrata, clusterErrata, dropErrata, errataLedgerPath, readErrata, readErrataClusters, type ErrataClusterDeps } from "../../src/flows/errata";
 import { themeQuotesComplaint, validateErrataTheme, type ErrataThemeInput, type ErrataThemeVerdict } from "../../src/flows/errata-classifier";
 import { readJudgments, type JudgmentRecord } from "../../src/core/index";
-import type { ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord } from "../../src/types";
+import type { ErrataEvent, ErrataInput, ErrataPassedBy, ErrataRecord } from "../../src/flows/types";
 
 const homes: string[] = [];
 afterEach(async () => { await Promise.all(homes.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });

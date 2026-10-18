@@ -1,4 +1,4 @@
-import type { NodeRef, NodeState } from "../../src/index";
+import type { NodeRef, NodeState } from "../../src/graph/index";
 
 /**
  * The reference `GraphStore.readSubtree` walk, for test fakes.

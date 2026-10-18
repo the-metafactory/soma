@@ -4,7 +4,7 @@ import { pathExists } from "../../core/index";
 import { installSpecFor } from "../install-spec-registry";
 import { SKILL_MD } from "../skill-frontmatter";
 import type { SomaDoctorFinding } from "../types";
-import { isSkillStub, parseSkillStubBodyPath } from "./shared/index";
+import { isSkillStub, parseSkillStubBodyPath } from "./shared/skill-stub";
 import type { SupportedDoctorSubstrate } from "./doctor";
 
 /**

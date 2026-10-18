@@ -10,7 +10,7 @@ import { goalBaselineSchema, type GoalBaseline, type GoalBaselineDeps, type Goal
 import { loadGoalResources, loadSomaProfile, resolveGoalResource, type GoalResource } from "../home/index";
 import { inference, type InferenceBackend } from "../tools/inference";
 import { createAutoInferenceBackend } from "../tools/index";
-import type { GoalRecord } from "../types";
+import type { GoalRecord } from "../goal-records";
 
 const DAY_MS = 86_400_000;
 const RESOURCE_REF = /^<resource:([a-z][a-z0-9_-]*)>$/;

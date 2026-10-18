@@ -1,4 +1,4 @@
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { SomaMemoryEvent } from "../events/index";
 
 

@@ -5,7 +5,7 @@ import { buildSubstrateHomeProjection, isRegisteredInstallSubstrate } from "../s
 import { loadMemoryIndexForProjection, reindexMemoryIfStale } from "../memory/index";
 import { appendSomaMemoryEvent } from "../events/index";
 import { loadSomaHome } from "../home/index";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { ProjectionInput } from "../home/types";
 
 /**

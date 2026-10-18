@@ -17,7 +17,7 @@ import {
 import { parseVsa, serializeVsa } from "./vsa-parse";
 import { appendSomaMemoryEvent } from "../events/index";
 import { TIER_REQUIRED_SECTIONS, evaluateCompleteness, type CompletenessReport } from "./vsa-schema";
-import type { AlgorithmEffortTier, AlgorithmPhase, SubstrateId } from "../types";
+import type { AlgorithmEffortTier, AlgorithmPhase, SubstrateId } from "../core/types";
 import type { VerificationStateArtifact, Checkpoint, SomaActiveVsaState } from "./types";
 
 export type EffortTier = AlgorithmEffortTier;
@@ -465,9 +465,6 @@ export async function recordVsaVerification(
 ): Promise<WriteVsaResult> {
   return recordVsaSection(slug, text, "verification", options);
 }
-
-// Re-export schema surface for downstream consumers (CLI #36, lifecycle #38).
-export { evaluateCompleteness, TIER_REQUIRED_SECTIONS, type CompletenessReport, type CompletenessGap } from "./vsa-schema";
 
 // Re-export the criteria/goal accessors so callers don't need to import
 // from two places for the common cases.

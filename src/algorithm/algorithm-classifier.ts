@@ -1,4 +1,4 @@
-import type { AlgorithmEffortTier, AlgorithmMode } from "../types";
+import type { AlgorithmEffortTier, AlgorithmMode } from "../core/types";
 import type { AlgorithmPromptClassification } from "./types";
 
 /**

@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createAlgorithmRun, MockSubstrateExecutor, recordAlgorithmLoopIterationResult, SubstrateExecutionAlgorithmLoopExecutor } from "../src";
+import { createAlgorithmRun } from "../src/algorithm/algorithm";
+import { MockSubstrateExecutor } from "../src/execution/index";
+import { recordAlgorithmLoopIterationResult } from "../src/algorithm/index";
+import { SubstrateExecutionAlgorithmLoopExecutor } from "../src/flows/index";
 
 const timestamp = "2026-07-11T09:00:00.000Z";
 

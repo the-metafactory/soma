@@ -2,14 +2,9 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  bootstrapSomaHome,
-  buildLearningReadback,
-  createAlgorithmRun,
-  recordAlgorithmMetaReflection,
-  runSomaLifecycleSessionStart,
-  writeAlgorithmRun,
-} from "../src";
+import { bootstrapSomaHome, buildLearningReadback, runSomaLifecycleSessionStart } from "../src/flows/index";
+import { createAlgorithmRun, recordAlgorithmMetaReflection } from "../src/algorithm/algorithm";
+import { writeAlgorithmRun } from "../src/algorithm/algorithm-store";
 
 const NOW = "2026-07-13T12:00:00.000Z";
 

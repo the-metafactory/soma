@@ -16,8 +16,6 @@ import { PROPOSAL_KINDS, type ProposalKind } from "../core/index";
 
 import { buildBriefMissing } from "./build-brief";
 
-export { PROPOSAL_KINDS, type ProposalKind } from "../core/index";
-
 /** The front-matter contract. Strict: a field this schema does not name is a producer bug, not an extension. */
 export const proposalFrontMatterSchema = z.object({
   proposal_kind: z.enum(PROPOSAL_KINDS),

@@ -10,7 +10,9 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, createAlgorithmRun, writeAlgorithmRun } from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { createAlgorithmRun } from "../src/algorithm/algorithm";
+import { writeAlgorithmRun } from "../src/algorithm/algorithm-store";
 import { parsePreCompactArgs, preCompactHandoverPath, runPreCompactCli } from "../src/cli/precompact";
 import { isEnoent } from "../src/core/index";
 

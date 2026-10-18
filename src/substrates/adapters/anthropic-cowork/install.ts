@@ -4,15 +4,8 @@ import { isEnoent } from "../../../core/index";
 import { skillsLoaderUnder, type SubstrateInstallSpec, type UninstallContext } from "../../install-spec";
 import { projectVsaSkillBundleFiles } from "../../vsa-skill-installer";
 import { anthropicCoworkProjectionPrivateRoots } from "../../../policy/private-roots";
-import {
-  ANTHROPIC_COWORK_ACTIVE_VSA_PATH,
-  ANTHROPIC_COWORK_ACTIVE_VSA_MARKER,
-  ANTHROPIC_COWORK_DEFAULT_HOME,
-  ANTHROPIC_COWORK_ENTRYPOINT_PATH,
-  ANTHROPIC_COWORK_GENERATED_HOME_FILE_MARKERS,
-  ANTHROPIC_COWORK_HOME_FILE_PATHS,
-  ANTHROPIC_COWORK_SKILLS_ROOT_PATH,
-} from "../anthropic-cowork";
+import { ANTHROPIC_COWORK_ACTIVE_VSA_PATH, ANTHROPIC_COWORK_ACTIVE_VSA_MARKER, ANTHROPIC_COWORK_ENTRYPOINT_PATH, ANTHROPIC_COWORK_GENERATED_HOME_FILE_MARKERS, ANTHROPIC_COWORK_HOME_FILE_PATHS, ANTHROPIC_COWORK_SKILLS_ROOT_PATH } from "../anthropic-cowork";
+import { ANTHROPIC_COWORK_DEFAULT_HOME } from "../../../policy/private-roots";
 import { isAnthropicCoworkSkillProjectionPath, projectAnthropicCoworkHome } from "../anthropic-cowork";
 
 type CoworkRemovalTargetKind = "entrypoint" | "projection-file" | "vsa-skill";

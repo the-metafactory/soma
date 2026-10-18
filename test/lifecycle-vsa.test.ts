@@ -2,16 +2,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  bootstrapSomaHome,
-  readVsa,
-  runSomaLifecycleVsaUpdated,
-  runSomaLifecycleSessionEnd,
-  runSomaLifecycleSessionStart,
-  scaffoldVsa,
-  setActiveVsa,
-  somaMemoryEventsPath,
-} from "../src/index";
+import { bootstrapSomaHome, runSomaLifecycleVsaUpdated, runSomaLifecycleSessionEnd, runSomaLifecycleSessionStart } from "../src/flows/index";
+import { readVsa, scaffoldVsa, setActiveVsa } from "../src/vsa/index";
+import { somaMemoryEventsPath } from "../src/events/index";
 
 async function withSomaHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-lc-vsa-"));
@@ -88,7 +81,7 @@ test("AC-4: session-end emits tier-gate-unmet warning but returns normally", asy
     // required section to force a gap.
     const isa = await readVsa("demo", { homeDir });
     const stripped = { ...isa, sections: isa.sections.filter((s) => s.name !== "Vision") };
-    const { writeVsa } = await import("../src/index");
+    const { writeVsa } = await import("../src/vsa/index");
     await writeVsa("demo", stripped, { homeDir });
 
     const result = await runSomaLifecycleSessionEnd({ homeDir, timestamp: "2026-05-17T02:00:00.000Z" });

@@ -46,13 +46,12 @@ import {
 } from "../flows/index";
 import { invocationCwd } from "../core/index";
 import { loadSomaHome } from "../home/index";
-import { SHIPPED_SUBSTRATES, type ShippedSubstrate, type SomaInstallPlan } from "../types";
+import { SHIPPED_SUBSTRATES, type ShippedSubstrate } from "../policy/types";
+import type { SomaInstallPlan } from "../flows/types";
 import { type ProjectionInput } from "../home/types";
 import { type InstallSubstrate } from "../policy/types";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
-
-export type { InstallSubstrate } from "../types";
 type InstallCliOptions = SomaInstallOptions &
   Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier" | "policyGuard" | "claudeMd" | "feedbackCapture">>;
 

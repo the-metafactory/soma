@@ -2,49 +2,13 @@ import { basename } from "node:path";
 import { activeGoalLines } from "../../../goal-records";
 import type { SkillsDiscoveryMode } from "../../install-spec";
 import { withProvenance as applyProvenance } from "./provenance";
-import type { SomaSkill, SubstrateId } from "../../../types";
+import type { SomaSkill } from "../../../home/types";
+import type { SubstrateId } from "../../../core/types";
 import type { ProjectionInput } from "../../../home/types";
 import { getCriteria, getGoal } from "../../../vsa/index";
 import { VSA_SKILL_NAME } from "../../vsa-skill-installer";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import { renderSkillRegistryEntry } from "./skill-registry";
-
-export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
-// SelfHealing doctrine (soma#459): single source of the self-healing advisory
-// lines adapters merge into their policy projection. See ../../policy/self-healing-doctrine.
-export {
-  SELF_HEALING_DOCTRINE_ADVISORY,
-  SELF_HEALING_DOCTRINE_PREAMBLE,
-  SELF_HEALING_DOCTRINE_TITLE,
-  SELF_HEALING_ROUTES,
-  renderSelfHealingRoute,
-} from "../../../policy/self-healing-doctrine";
-export type { SelfHealingRoute } from "../../../policy/self-healing-doctrine";
-export {
-  OVERLAY_BEGIN,
-  OVERLAY_END,
-  PROVENANCE_MARKER,
-  extractOverlay,
-  hasProvenanceHeader,
-  provenanceHeader,
-  renderOverlay,
-  stripProvenance,
-  withProvenance,
-} from "./provenance";
-// Only the entry renderer is part of the shared public surface; the parsing/
-// truncation helpers + budget constants stay module-private (tests import them
-// from ./skill-registry directly).
-export { renderSkillRegistryEntry } from "./skill-registry";
-
-// The eager-loader stub renderer (soma#542). Distinct from the registry entry
-// above: that one renders a catalog LINE, this one renders a whole SKILL.md.
-export {
-  isSkillStub,
-  parseSkillStubBodyPath,
-  renderSkillStub,
-  SKILL_STUB_MARKER,
-  type SkillStubOptions,
-} from "./skill-stub";
 
 /**
  * The portable skills a home projection should emit files for. `skills.md`

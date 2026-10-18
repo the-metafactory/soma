@@ -4,12 +4,7 @@ import { isFsUtilsEnoent as isEnoent } from "../../../core/index";
 import { loadSomaHome } from "../../../home/index";
 import type { InstallPostProjectionContext } from "../../install-spec";
 import type { ProjectionInput } from "../../../home/types";
-import {
-  extractOverlay,
-  hasProvenanceHeader,
-  renderOverlay,
-  withProvenance,
-} from "../shared/index";
+import { extractOverlay, hasProvenanceHeader, renderOverlay, withProvenance } from "../shared/provenance";
 import { isClaudeCodeInstallOptions } from "./install-options";
 
 /**

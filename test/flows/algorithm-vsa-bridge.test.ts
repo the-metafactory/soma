@@ -195,7 +195,7 @@ test("suggestVsaAtObserve honors SOMA_NO_HINTS env var", async () => {
 
 test("AC-5: no requireVsaAtObserve export exists", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const idx = require("../../src/index") as Record<string, unknown>;
+  const idx = require("../../src/flows/index") as Record<string, unknown>;
   expect(idx.requireVsaAtObserve).toBeUndefined();
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const bridge = require("../../src/flows/algorithm-vsa-bridge") as Record<string, unknown>;

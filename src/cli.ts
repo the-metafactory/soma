@@ -1,5 +1,5 @@
 import packageJson from "../package.json";
-import { VSA_SUBCOMMAND_HELP, VSA_USAGE_HEADER, runVsaCli } from "./cli-vsa";
+import { VSA_SUBCOMMAND_HELP, VSA_USAGE_HEADER, runVsaCli } from "./cli/vsa";
 import {
   ALGORITHM_COMMAND_HELP,
   parseAlgorithmArgs,
@@ -138,8 +138,6 @@ import {
   type ParsedGraphArgs,
 } from "./cli/graph";
 
-export { SomaCliError } from "./cli/errors";
-
 interface ParsedHelpArgs {
   command: "help";
   topic: string[];
@@ -275,7 +273,7 @@ const COMMAND_HELP: Record<string, { usage: string; subcommands?: Record<string,
   runtime: RUNTIME_COMMAND_HELP,
   adopt: ONBOARDING_COMMAND_HELP.adopt,
   vsa: {
-    // Single source of truth lives in `./cli-vsa.ts` (Sage round-1 dedup).
+    // Single source of truth lives in `./cli/vsa.ts` (Sage round-1 dedup).
     usage: VSA_USAGE_HEADER,
     subcommands: VSA_SUBCOMMAND_HELP,
   },

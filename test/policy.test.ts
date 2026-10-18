@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, checkSomaPolicy, evaluateSomaPolicy, somaMemoryEventsPath } from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { checkSomaPolicy } from "../src/policy/policy-audit";
+import { evaluateSomaPolicy } from "../src/policy/index";
+import { somaMemoryEventsPath } from "../src/events/index";
 import { somaPolicyPrivateMarkers } from "../src/policy/policy";
 import { hasSomaPolicyPrivateMarker as hasSomaPolicyPrivateMarkerTs, renderPolicyMarkerMjs } from "../src/policy/policy-marker";
 

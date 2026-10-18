@@ -3,7 +3,7 @@ import { diagnoseContentCompareDrift } from "./content-compare-doctor";
 import { diagnoseGrokProjectionDrift } from "./grok/doctor";
 import { diagnoseSkillStubDrift } from "./skill-stub-doctor";
 import type { ExecutorRegistry, ExecutionCapabilities } from "../../execution/index";
-import { SHIPPED_SUBSTRATES } from "../../types";
+import { SHIPPED_SUBSTRATES } from "../../policy/types";
 import { type SomaDoctorFinding } from "../types";
 
 // The substrates `soma doctor` can diagnose, and the error strings shown when

@@ -1,5 +1,6 @@
 export { appendEventBatch, beginEventRollback, compressEventSegment, ensureCompressedEventSegments, eventArchiveDir, eventArchiveVersion, eventCountsIndexPath, eventIndexPath, eventSegmentPath, parseTelemetryEventLine, pendingCompressedEventSegments, prepareEventCompression, recoverPendingEventRotation, streamEventLines, streamEventRecords, waitForEventReaders, withEventLogLock, writeCumulativeEventCounts } from "./event-log";
 export { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "./event-journal";
-export { SOMA_FEEDBACK_ACTORS, SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE, SOMA_FEEDBACK_EVENT_SCHEMA_VERSION, SOMA_FEEDBACK_HOOK_TRIGGER_PATTERN_SOURCE, SOMA_FEEDBACK_MACHINE_PROMPT_PREFIXES, SOMA_FEEDBACK_PATTERN_SPECS, SOMA_FEEDBACK_STDIN_MAX_BYTES, isSomaFeedbackMachinePrompt } from "./feedback-contract";
+export { SOMA_FEEDBACK_AUTOMATIC_HOOK_TRIGGER_PATTERN_SOURCE, SOMA_FEEDBACK_EVENT_SCHEMA_VERSION, SOMA_FEEDBACK_HOOK_TRIGGER_PATTERN_SOURCE, SOMA_FEEDBACK_MACHINE_PROMPT_PREFIXES, SOMA_FEEDBACK_PATTERN_SPECS, SOMA_FEEDBACK_STDIN_MAX_BYTES, isSomaFeedbackMachinePrompt } from "./feedback-contract";
+export { SOMA_FEEDBACK_ACTORS } from "./types";
 export { querySomaTelemetryEvents, summarizeSomaTelemetry } from "./observability";
 export type { SomaMemoryEventInput, SomaMemoryEvent, SomaTelemetryQueryOptions, SomaTelemetryQueryResult, SomaTelemetrySummaryOptions, SomaTelemetrySummary, SomaFeedbackKind, SomaFeedbackClassification, SomaFeedbackActor } from "./types";

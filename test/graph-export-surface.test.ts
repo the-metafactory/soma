@@ -2,10 +2,9 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "bun:test";
 import ts from "typescript";
 import * as graph from "../src/graph/index";
-import * as soma from "../src/index";
 
-// Compatibility contract for the temporary root barrel, pinned before the
-// review cleanup. Component tests deliberately use their own public entry.
+// The graph surface the deleted root barrel re-exported (node #816), pinned
+// so removing an export from the public entry is a reviewed change.
 const values = `
   CLOSE_DEADLINE_SEC CLOSE_RECEIPT_MARKER DECISIONS_BEGIN DECISIONS_END FORGES
   PROBE_ESCAPED_PREFIX PROBE_REFUSED_PREFIX PROBE_REGISTRY_RELATIVE_PATH PROBE_REGISTRY_VERSION RECEIPT_COMMENT_BUDGET
@@ -41,24 +40,14 @@ test("test-only receipt helpers stay off graph's public entry", () => {
   expect(graph).not.toHaveProperty("redactHome");
 });
 
-test("the root barrel preserves graph's value and type exports", () => {
-  const source = ts.createSourceFile("index.ts", readFileSync(new URL("../src/index.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest);
-  const actualValues: string[] = [];
-  const actualTypes: string[] = [];
+test("graph's public entry exports the pinned value and type surface", () => {
+  const source = ts.createSourceFile("index.ts", readFileSync(new URL("../src/graph/index.ts", import.meta.url), "utf8"), ts.ScriptTarget.Latest);
+  const exported = new Set<string>();
   for (const statement of source.statements) {
-    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier ||
-        !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== "./graph/index" ||
-        !statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue;
-    for (const symbol of statement.exportClause.elements) {
-      (statement.isTypeOnly || symbol.isTypeOnly ? actualTypes : actualValues).push(symbol.name.text);
-    }
+    if (!ts.isExportDeclaration(statement) || !statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue;
+    for (const symbol of statement.exportClause.elements) exported.add(symbol.name.text);
   }
-  expect(actualValues.sort()).toEqual(values);
-  expect(actualTypes.sort()).toEqual(types);
-  const rootExports = soma as Record<string, unknown>;
   const graphExports = graph as Record<string, unknown>;
-  for (const name of values) {
-    expect(graphExports[name]).toBeDefined();
-    expect(rootExports[name]).toBe(graphExports[name]);
-  }
+  for (const name of values) expect(graphExports[name]).toBeDefined();
+  for (const name of types) expect(exported.has(name)).toBe(true);
 });

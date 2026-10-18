@@ -1,5 +1,6 @@
 import { planProjectSkill, planUnprojectSkill, projectSkill, unprojectSkill, type ProjectSkillOptions, type SkillProjectionPlan, type SkillProjectionResult, type UnprojectSkillOptions } from "../substrates/index";
-import { INSTALL_SUBSTRATES, isInstallSubstrate, type InstallSubstrate } from "./substrate-lifecycle";
+import { INSTALL_SUBSTRATES, isInstallSubstrate } from "./substrate-lifecycle";
+import { type InstallSubstrate } from "../policy/types";
 import { readOption } from "./parse-utils";
 
 export interface ParsedProjectSkillArgs {

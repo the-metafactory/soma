@@ -1,4 +1,4 @@
-import { querySomaTelemetryEvents, summarizeSomaTelemetry } from "../index";
+import { querySomaTelemetryEvents, summarizeSomaTelemetry } from "../events/index";
 import type { SomaMemoryEvent, SomaTelemetryQueryOptions, SomaTelemetryQueryResult, SomaTelemetrySummary, SomaTelemetrySummaryOptions } from "../events/index";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";

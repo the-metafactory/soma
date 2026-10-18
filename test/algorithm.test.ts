@@ -2,27 +2,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  addAlgorithmCapabilities,
-  advanceAlgorithmRun,
-  advanceAlgorithmRunUntil,
-  classifyAlgorithmPrompt,
-  createAlgorithmRun,
-  getCriteria,
-  getRunPhase,
-  recordAlgorithmCapabilityInvocation,
-  recordAlgorithmLearning,
-  recordAlgorithmObservation,
-  registerAlgorithmCapabilityDefinition,
-  registerAlgorithmCapabilityDefinitions,
-  applyAlgorithmBatch,
-  removeAlgorithmCapabilitySelection,
-  setAlgorithmPlan,
-  selectAlgorithmCapability,
-  updateAlgorithmPlanStep,
-  verifyAlgorithmCriterion,
-  writeAlgorithmRun,
-} from "../src/index";
+import { addAlgorithmCapabilities, advanceAlgorithmRun, advanceAlgorithmRunUntil, createAlgorithmRun, recordAlgorithmLearning, recordAlgorithmObservation, applyAlgorithmBatch, setAlgorithmPlan, updateAlgorithmPlanStep, verifyAlgorithmCriterion } from "../src/algorithm/algorithm";
+import { classifyAlgorithmPrompt } from "../src/algorithm/algorithm-classifier";
+import { getCriteria } from "../src/vsa/index";
+import { getRunPhase } from "../src/algorithm/algorithm-lifecycle";
+import { recordAlgorithmCapabilityInvocation, registerAlgorithmCapabilityDefinition, registerAlgorithmCapabilityDefinitions, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../src/algorithm/algorithm-capabilities";
+import { writeAlgorithmRun } from "../src/algorithm/algorithm-store";
 import { loadSomaHomeAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../src/algorithm/algorithm-capabilities";
 import { parseAlgorithmArgs, runAlgorithmCli } from "../src/cli/algorithm";
 
@@ -1454,7 +1439,7 @@ test("records per-hop substrate provenance for Algorithm mutations", () => {
 });
 
 test("abandoned runs cannot advance", async () => {
-  const { abandonAlgorithmRun } = await import("../src/index");
+  const { abandonAlgorithmRun } = await import("../src/algorithm/algorithm-lifecycle");
   const run = createAlgorithmRun({
     id: "abandoned-test",
     timestamp: "2026-05-16T10:00:00.000Z",
