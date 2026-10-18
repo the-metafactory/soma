@@ -162,7 +162,13 @@ export const components: ComponentManifest<ComponentName> = {
     mayImport: ["core", "legacy"],
   },
   substrates: {
-    publicEntries: ["src/substrates/index.ts"],
+    // Leaf entries keep shared types and hook/bootstrap consumers off the adapter barrel.
+    publicEntries: [
+      "src/substrates/index.ts",
+      "src/substrates/types.ts",
+      "src/substrates/runtime-artifact.ts",
+      "src/substrates/adapters/session-env.ts",
+    ],
     files: [
       "src/substrates/**",
     ],

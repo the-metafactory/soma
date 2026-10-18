@@ -74,7 +74,7 @@ Several other ranger paths post to the same per-map thread through `DiscordAnnou
 - **What the comments say is deferred.** The header says the emit wiring and the Discord adapter branch are deferred and "does NOT exist yet" (`attention-notify.ts:17-23`). That comment is stale on `origin/main`. Wiring now exists:
   - the failed_dispatch producer publishes via `publishReconcileDelta` whenever `mc.enabled` (`src/cortex.ts:4928-4955`)
   - the cockpit loop publishes when `cockpit.enabled` (`src/cortex.ts:5879-5884`, `src/surface/mc/refresh.ts:57-66,143`)
-  - the review-sink subscribes to `…system.attention.>` and renders `presentation` to `cockpit.attention.channel` (`src/substrates/adapters/review-sink.ts:73-74,107-114,137`; `src/cortex.ts:4180-4194`)
+  - the review-sink subscribes to `…system.attention.>` and renders `presentation` to `cockpit.attention.channel` (`src/adapters/review-sink.ts:73-74,107-114,137`; `src/cortex.ts:4180-4194`)
 - **What is still missing** in the type and DB layer: the item has no TTL or expiry, `attention-notify.ts` has no rate, budget or digest logic, and each item becomes one envelope (`publishAttentionNotifications`, `:126-139`).
 - **Runs.** cortex is deployed: launchd `ai.meta-factory.cortex.default` and `ai.meta-factory.cortex.switch`, both KeepAlive and running. `mc.enabled: true` in both stacks (`~/.config/cortex/default/stacks/default.yaml`, `~/.config/cortex/switch/stacks/switch.yaml`). Neither stack sets a `cockpit:` block, and `CockpitSchema.enabled` defaults to `false` with `attention.channel` defaulting to `""` (`src/common/types/config.ts:552-575,895-902`). So in the deployed config:
   - the cockpit loop is off
@@ -99,7 +99,7 @@ Several other ranger paths post to the same per-map thread through `DiscordAnnou
 
 ## 7. cortex platform adapters (discord, slack, mattermost, web)
 
-The contract is `PlatformAdapter` (`cortex src/substrates/adapters/types.ts:216-359`). The members relevant here are `postResponse(target, text, files)` (returns `void`, no message id), `sendProgress`/`clearProgress`, `resolveLogicalTarget({surface, channel, thread})`, and `notifyPrincipal(text)`.
+The contract is `PlatformAdapter` (`cortex src/adapters/types.ts:216-359`). The members relevant here are `postResponse(target, text, files)` (returns `void`, no message id), `sendProgress`/`clearProgress`, `resolveLogicalTarget({surface, channel, thread})`, and `notifyPrincipal(text)`.
 
 | adapter | text to principal | edit in place | digest | dashboard entry |
 |---|---|---|---|---|

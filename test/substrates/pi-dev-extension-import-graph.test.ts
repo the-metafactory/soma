@@ -95,11 +95,12 @@ interface GraphWalk {
 }
 
 /** Pi erases type-only imports; they belong to the static boundary closure, not this runtime graph. */
-function runtimeImports(source: string): string[] {
+function moduleSpecifiers(source: string, { includeTypeOnly = false } = {}): string[] {
   const parsed = ts.createSourceFile("extension.ts", source, ts.ScriptTarget.Latest, false);
   return parsed.statements.flatMap((statement) => {
     if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) return [];
     if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) return [];
+    if (includeTypeOnly) return [statement.moduleSpecifier.text];
     if (ts.isImportDeclaration(statement)) {
       if (statement.importClause?.phaseModifier === ts.SyntaxKind.TypeKeyword) return [];
       const bindings = statement.importClause?.namedBindings;
@@ -112,6 +113,10 @@ function runtimeImports(source: string): string[] {
     }
     return [statement.moduleSpecifier.text];
   });
+}
+
+function runtimeImports(source: string): string[] {
+  return moduleSpecifiers(source);
 }
 
 function walkImportGraph(seeds: { label: string; source: string; importerPath: string }[]): GraphWalk {
@@ -162,11 +167,7 @@ test("relocated pi.dev projections have resolvable local imports and CLI entrypo
   let cliEntrypoints = 0;
   for (const seed of seeds) {
     expect(seed.source).not.toContain("src/adapters/");
-    const parsed = ts.createSourceFile(seed.label, seed.source, ts.ScriptTarget.Latest, false);
-    for (const statement of parsed.statements) {
-      if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) ||
-          !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-      const specifier = statement.moduleSpecifier.text;
+    for (const specifier of moduleSpecifiers(seed.source, { includeTypeOnly: true })) {
       if (!specifier.startsWith("file://")) continue;
       localImports++;
       expect(isFile(fileURLToPath(specifier))).toBe(true);

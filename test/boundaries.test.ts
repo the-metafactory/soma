@@ -1,9 +1,10 @@
 import { cp, mkdir, readdir, rename, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { components, type ComponentManifest } from "../src/components";
 import {
+  type BoundaryReport,
   BASELINE_PATH,
   CLOSURE_STEP,
   VIOLATIONS_PATH,
@@ -30,6 +31,18 @@ async function withRepoFixture<T>(prefix: string, fn: (root: string) => Promise<
   }, prefix);
 }
 
+function reachableFrom(report: BoundaryReport, seed: string): Set<string> {
+  const reachable = new Set<string>();
+  const pending = [seed];
+  while (pending.length > 0) {
+    const file = pending.pop()!;
+    if (reachable.has(file)) continue;
+    reachable.add(file);
+    for (const edge of report.edges) if (edge.from === file) pending.push(edge.to);
+  }
+  return reachable;
+}
+
 function commitFixture(root: string): string {
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
   git("init");
@@ -45,11 +58,16 @@ function commitFixture(root: string): string {
 }
 
 describe("component boundaries on the repository", () => {
-  test("substrates has one public entry, rejects internals and preserves its unit boundary", async () => {
-    expect(components.substrates.publicEntries).toEqual(["src/substrates/index.ts"]);
+  test("substrates public entries reject internals and preserve its unit boundary", async () => {
+    expect(components.substrates.publicEntries).toEqual([
+      "src/substrates/index.ts",
+      "src/substrates/types.ts",
+      "src/substrates/runtime-artifact.ts",
+      "src/substrates/adapters/session-env.ts",
+    ]);
     await withRepoFixture("soma-boundaries-substrates-", async (root) => {
       const baseline = checkBoundaries({ root });
-      const internals = baseline.files.filter((file) => file.startsWith("src/substrates/") && file !== "src/substrates/index.ts");
+      const internals = baseline.files.filter((file) => file.startsWith("src/substrates/") && !components.substrates.publicEntries!.includes(file));
       const importer = join(root, "src/cli/substrates-entry-fixture.ts");
       await writeFile(importer, internals.map((file) => `import "../${file.slice(4)}";`).join("\n"));
       const denied = checkBoundaries({ root, updateBaseline: true });
@@ -59,7 +77,8 @@ describe("component boundaries on the repository", () => {
           from: "src/cli/substrates-entry-fixture.ts", to: file, rule: "public-entry",
         }));
       }
-      await writeFile(importer, 'import "../substrates/index";\n');
+      await writeFile(importer, components.substrates.publicEntries!
+        .map((entry) => `import "../${entry.slice(4)}";\n`).join(""));
       const allowed = checkBoundaries({ root, updateBaseline: true });
       if (!allowed.ok) throw new Error(formatReport(allowed));
       expect(allowed.ok).toBe(true);
@@ -203,32 +222,50 @@ describe("component boundaries on the repository", () => {
       expect([...components.algorithm.publicEntries!].sort()).toEqual(
         [...new Set(["src/algorithm/index.ts", ...directEntries])].sort(),
       );
-      const reachable = new Set<string>();
-      const pending = ["src/cli/algorithm.ts"];
-      while (pending.length) {
-        const file = pending.pop()!;
-        if (reachable.has(file)) continue;
-        reachable.add(file);
-        for (const edge of report.edges) if (edge.from === file && !(file === "src/types.ts" && edge.to === "src/substrates/index.ts")) pending.push(edge.to);
-      }
+      const reachable = reachableFrom(report, "src/cli/algorithm.ts");
       expect(reachable.has("src/index.ts")).toBe(false);
       expect(reachable.has("src/algorithm/index.ts")).toBe(false);
     });
   }, { timeout: 30_000 });
 
-  test("shared types directly import only home's dependency-light entries", () => {
+  test("shared types reach only substrates' types entry, even transitively", () => {
     const report = checkBoundaries({ root: repoRoot });
-    const reachable = new Set<string>();
-    const pending = ["src/types.ts"];
-    while (pending.length > 0) {
-      const file = pending.pop()!;
-      if (reachable.has(file)) continue;
-      reachable.add(file);
-      // The legacy spine also re-exports substrates through its single public
-      // entry. That entry intentionally has a broader static (type + value)
-      // closure; check home's own type dependencies independently of it.
-      for (const edge of report.edges) if (edge.from === file && !(file === "src/types.ts" && edge.to === "src/substrates/index.ts")) pending.push(edge.to);
+    const reachable = reachableFrom(report, "src/types.ts");
+    expect([...reachable].filter((file) => file.startsWith("src/substrates/")))
+      .toEqual(["src/substrates/types.ts"]);
+  });
+
+  test("bootstrap and session lookup entries keep their runtime closures off the substrates barrel", async () => {
+    const report = checkBoundaries({ root: repoRoot });
+    // Use emitted JS: type-only contracts belong to the static closure above.
+    const edges = await Promise.all(report.files.filter((file) => file.endsWith(".ts")).map(async (file) => {
+      const emitted = new Bun.Transpiler({ loader: "ts" }).transformSync(await Bun.file(join(repoRoot, file)).text());
+      return [file, collectSpecifiers(file, emitted)] as const;
+    }));
+    const specifiers = new Map(edges);
+    const runtimeEdges = report.edges.filter((edge) =>
+      specifiers.get(edge.from)?.some((entry) => {
+        const target = resolve(repoRoot, dirname(edge.from), entry.specifier);
+        return [target, `${target}.ts`, `${target}.mjs`, `${target}/index.ts`].includes(join(repoRoot, edge.to));
+      }));
+    for (const consumer of ["src/run-ledger.ts", "src/algorithm-vsa-sync.ts", "src/cli/algorithm.ts"]) {
+      expect(report.edges.filter((edge) => edge.from === consumer && edge.to.startsWith("src/substrates/"))
+        .map((edge) => edge.to)).toEqual(["src/substrates/adapters/session-env.ts"]);
     }
+    // cli/algorithm also reaches installation through lifecycle; only its
+    // session lookup dependency is expected to have a leaf runtime closure.
+    for (const seed of ["src/cli-launcher.ts", "src/substrates/adapters/session-env.ts", "src/run-ledger.ts", "src/algorithm-vsa-sync.ts"]) {
+      const reachable = reachableFrom({ ...report, edges: runtimeEdges }, seed);
+      expect(reachable.size).toBeGreaterThan(1);
+      expect(reachable.has("src/substrates/index.ts")).toBe(false);
+      expect(reachable.has("src/substrates/install-spec-registry.ts")).toBe(false);
+      expect(reachable.has("src/substrates/adapters/claude-code/projection-self-repair.ts")).toBe(false);
+    }
+  });
+
+  test("shared types reach home types without its runtime barrel", () => {
+    const report = checkBoundaries({ root: repoRoot });
+    const reachable = reachableFrom(report, "src/types.ts");
     expect([...reachable].filter((file) => file.startsWith("src/home/")).sort()).toEqual([
       "src/home/communication-contract.ts",
       "src/home/types.ts",
@@ -241,14 +278,7 @@ describe("component boundaries on the repository", () => {
     "src/substrates/adapters/codex/session-digest.ts",
   ])("%s reaches only home's dependency-light entries", (entry) => {
     const report = checkBoundaries({ root: repoRoot });
-    const reachable = new Set<string>();
-    const pending: string[] = [entry];
-    while (pending.length > 0) {
-      const file = pending.pop()!;
-      if (reachable.has(file)) continue;
-      reachable.add(file);
-      for (const edge of report.edges) if (edge.from === file && !(file === "src/types.ts" && edge.to === "src/substrates/index.ts")) pending.push(edge.to);
-    }
+    const reachable = reachableFrom(report, entry);
     const homeFiles = [...reachable].filter((file) => file.startsWith("src/home/"));
     expect(homeFiles.length).toBeGreaterThan(0);
     for (const file of homeFiles) {
@@ -334,14 +364,7 @@ describe("component boundaries on the repository", () => {
       const report = checkBoundaries({ root, updateBaseline: true });
       if (!report.ok) throw new Error(formatReport(report));
       expect(report.violations.filter((v) => v.fromComponent === "policy" && v.toComponent !== "legacy")).toEqual([]);
-      const reachable = new Set<string>();
-      const pending = ["src/cli/policy.ts"];
-      while (pending.length) {
-        const file = pending.pop()!;
-        if (reachable.has(file)) continue;
-        reachable.add(file);
-        for (const edge of report.edges) if (edge.from === file && !(file === "src/types.ts" && edge.to === "src/substrates/index.ts")) pending.push(edge.to);
-      }
+      const reachable = reachableFrom(report, "src/cli/policy.ts");
       expect(reachable.has("src/index.ts")).toBe(false);
       expect(reachable.has("src/policy/index.ts")).toBe(false);
     });
@@ -430,16 +453,7 @@ describe("component boundaries on the repository", () => {
   test.each(["memory", "vsa"] as const)("shared types reach only %s's types entry, even transitively", (component) => {
     expect(components[component].publicEntries).toEqual([`src/${component}/index.ts`, `src/${component}/types.ts`]);
     const report = checkBoundaries({ root: repoRoot });
-    const reachable = new Set<string>();
-    const pending = ["src/types.ts"];
-    while (pending.length > 0) {
-      const file = pending.pop()!;
-      if (reachable.has(file)) continue;
-      reachable.add(file);
-      for (const edge of report.edges) {
-        if (edge.from === file && !(file === "src/types.ts" && edge.to === "src/substrates/index.ts")) pending.push(edge.to);
-      }
-    }
+    const reachable = reachableFrom(report, "src/types.ts");
     expect([...reachable].filter((file) => file.startsWith(`src/${component}/`)))
       .toEqual([`src/${component}/types.ts`]);
   });

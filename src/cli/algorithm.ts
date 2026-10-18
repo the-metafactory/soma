@@ -48,7 +48,7 @@ import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../run-ledger";
-import { resolveSubstrateSessionEnv } from "../substrates/index";
+import { resolveSubstrateSessionEnv } from "../substrates/adapters/session-env";
 import { hashJudgmentInput, recordJudgment } from "../core/index";
 import { regexClassifierVersion } from "../router/index";
 import { ALGORITHM_REFERENCE_VERDICTS } from "../algorithm/types";

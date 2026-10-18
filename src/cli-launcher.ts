@@ -1,7 +1,7 @@
 /** Arc's small bootstrap entrypoint. Graph operations execute from the frozen CLI. */
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { inspectRuntimeArtifact, locateRuntimeArtifact } from "./substrates/index";
+import { inspectRuntimeArtifact, locateRuntimeArtifact } from "./substrates/runtime-artifact";
 
 const args = process.argv.slice(2);
 const maintenance = new Set(["init", "install", "reproject", "upgrade", "runtime", "uninstall"]);

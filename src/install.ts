@@ -1,7 +1,40 @@
 import { homedir } from "node:os";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
-import { installClaudeCodeHomeProjection, installAnthropicCoworkHomeProjection, installCodexHomeProjection, installCursorHomeProjection, installDshHomeProjection, installGrokHomeProjection, installPiDevHomeProjection, type ClaudeCodeInstallOptions, pruneLegacyVsaSkill, installBundledSkillsIntoHome, installVsaSkillProjection, isUnderOrEqual, reconcileOwnedDir, isGuardedRuntimeSubstrate, prepareRuntimeSource, type RuntimeArtifactTarget, stageRuntimeArtifacts, SomaInstallExecution, type ImplementedUninstallSpec, type InstallSubstrate, type LifecycleProjectionSpec, type SubstrateInstallSpec, type UninstallContext, allInstallSpecs, defaultSubstrateHome, installSpecFor, projectSkills, scanRegistrySkills, type InstalledSkill, type SomaInstallOptions, type SomaInstallResult, type UninstallableSkillReport } from "./substrates/index";
+import {
+  installClaudeCodeHomeProjection,
+  installAnthropicCoworkHomeProjection,
+  installCodexHomeProjection,
+  installCursorHomeProjection,
+  installDshHomeProjection,
+  installGrokHomeProjection,
+  installPiDevHomeProjection,
+  type ClaudeCodeInstallOptions,
+  pruneLegacyVsaSkill,
+  installBundledSkillsIntoHome,
+  installVsaSkillProjection,
+  isUnderOrEqual,
+  reconcileOwnedDir,
+  isGuardedRuntimeSubstrate,
+  prepareRuntimeSource,
+  type RuntimeArtifactTarget,
+  stageRuntimeArtifacts,
+  SomaInstallExecution,
+  type ImplementedUninstallSpec,
+  type InstallSubstrate,
+  type LifecycleProjectionSpec,
+  type SubstrateInstallSpec,
+  type UninstallContext,
+  allInstallSpecs,
+  defaultSubstrateHome,
+  installSpecFor,
+  projectSkills,
+  scanRegistrySkills,
+  type InstalledSkill,
+  type SomaInstallOptions,
+  type SomaInstallResult,
+  type UninstallableSkillReport,
+} from "./substrates/index";
 import { buildSomaStartupContext, runSomaLifecycleAlgorithmUpdated } from "./lifecycle";
 import { SOMA_MEMORY_CATEGORIES } from "./memory/index";
 import { defaultSomaRepoPath } from "./core/index";

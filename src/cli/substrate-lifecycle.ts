@@ -1,6 +1,24 @@
 import { homedir } from "node:os";
 import { basename, join as pathJoin, relative as pathRelative, resolve as pathResolve } from "node:path";
-import { cursorWorkspaceSubstrateHome, buildAnthropicCoworkHomeProjection, buildClaudeCodeHomeProjection, buildCodexHomeProjection, buildCursorHomeProjection, buildDshHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection, type ClaudeCodeInstallOptions, projectVsaSkillBundleFiles, defaultSubstrateHome, installSpecFor, isGuardedRuntimeSubstrate, scanRegistrySkills, type UnprojectableRegistrySkill, type SomaInstallOptions, type SomaInstallResult } from "../substrates/index";
+import {
+  cursorWorkspaceSubstrateHome,
+  buildAnthropicCoworkHomeProjection,
+  buildClaudeCodeHomeProjection,
+  buildCodexHomeProjection,
+  buildCursorHomeProjection,
+  buildDshHomeProjection,
+  buildGrokHomeProjection,
+  buildPiDevHomeProjection,
+  type ClaudeCodeInstallOptions,
+  projectVsaSkillBundleFiles,
+  defaultSubstrateHome,
+  installSpecFor,
+  isGuardedRuntimeSubstrate,
+  scanRegistrySkills,
+  type UnprojectableRegistrySkill,
+  type SomaInstallOptions,
+  type SomaInstallResult,
+} from "../substrates/index";
 import {
   installSomaForAnthropicCowork,
   installSomaForClaudeCode,

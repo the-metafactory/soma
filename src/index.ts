@@ -301,7 +301,26 @@ export {
   type ReflectionCategoryKey,
 } from "./algorithm/algorithm-reflection-digest";
 export { parsePaiReflections } from "./algorithm/algorithm-reflection-import";
-export { projectClaudeCode, projectClaudeCodeHome, projectCodex, projectCodexHome, projectCursor, projectCursorHome, projectDsh, projectDshHome, projectGrok, projectGrokHome, projectPiDev, projectPiDevHome, claudeCodeAdapter, codexAdapter, cursorAdapter, dshAdapter, grokAdapter, piDevAdapter } from "./substrates/index";
+export {
+  projectClaudeCode,
+  projectClaudeCodeHome,
+  projectCodex,
+  projectCodexHome,
+  projectCursor,
+  projectCursorHome,
+  projectDsh,
+  projectDshHome,
+  projectGrok,
+  projectGrokHome,
+  projectPiDev,
+  projectPiDevHome,
+  claudeCodeAdapter,
+  codexAdapter,
+  cursorAdapter,
+  dshAdapter,
+  grokAdapter,
+  piDevAdapter,
+} from "./substrates/index";
 // NOTE: #43 Algorithm renderer pure-logic helpers (phase parser,
 // widget helpers, extension-source renderer) are intentionally NOT
 // re-exported at the package root. They are scoped to the pi-dev
@@ -311,7 +330,13 @@ export { projectClaudeCode, projectClaudeCodeHome, projectCodex, projectCodexHom
 export { harvestSessions } from "./tools/learning/session-harvester";
 export { writeProjection } from "./substrates/index";
 export { SomaInstallError } from "./substrates/index";
-export type { SomaHomeInstallReceipt, SomaInstallStage, SomaPartialInstallResult, SomaRuntimeArtifactReceipt, SomaSubstrateInstallReceipt } from "./substrates/index";
+export type {
+  SomaHomeInstallReceipt,
+  SomaInstallStage,
+  SomaPartialInstallResult,
+  SomaRuntimeArtifactReceipt,
+  SomaSubstrateInstallReceipt,
+} from "./substrates/index";
 export { createPaths, type SomaPathsOptions } from "./core/index";
 export {
   advisor,
@@ -395,7 +420,21 @@ export {
   type WisdomSynthesisResult,
   type WisdomToolOptions,
 } from "./tools/index";
-export { buildClaudeCodeHomeProjection, buildCodexHomeProjection, buildCursorHomeProjection, buildDshHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection, installClaudeCodeHomeProjection, installCodexHomeProjection, installCursorHomeProjection, installDshHomeProjection, installGrokHomeProjection, installPiDevHomeProjection, resolveHomeProjectionPaths } from "./substrates/index";
+export {
+  buildClaudeCodeHomeProjection,
+  buildCodexHomeProjection,
+  buildCursorHomeProjection,
+  buildDshHomeProjection,
+  buildGrokHomeProjection,
+  buildPiDevHomeProjection,
+  installClaudeCodeHomeProjection,
+  installCodexHomeProjection,
+  installCursorHomeProjection,
+  installDshHomeProjection,
+  installGrokHomeProjection,
+  installPiDevHomeProjection,
+  resolveHomeProjectionPaths,
+} from "./substrates/index";
 export {
   installSomaForClaudeCode,
   installSomaForCodex,

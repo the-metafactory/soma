@@ -1,5 +1,28 @@
-import type { SomaDoctorFinding, SkillNormalizationAction, SkillNormalizationWarning } from "./substrates/index";
-export type { InstalledSkill, Projection, SkillNormalizationAction, SkillNormalizationWarning, SomaAdapter, SomaDoctorFinding, SomaDoctorFindingId, SomaDoctorProjectionFindingId, SomaDoctorSubstrate, SomaHomeBootstrapResult, SomaHomeProjection, SomaHomeProjectionOptions, SomaInstallOptions, SomaInstallResult, SomaLifecycleOptions, SomaSkillBaseline, SomaSkillBaselines, UninstallableSkillReport, VsaSkillInstallAction, VsaSkillInstallOptions, VsaSkillInstallResult, WrittenProjection } from "./substrates/index";
+import type { SomaDoctorFinding, SkillNormalizationAction, SkillNormalizationWarning } from "./substrates/types";
+export type {
+  InstalledSkill,
+  Projection,
+  SkillNormalizationAction,
+  SkillNormalizationWarning,
+  SomaAdapter,
+  SomaDoctorFinding,
+  SomaDoctorFindingId,
+  SomaDoctorProjectionFindingId,
+  SomaDoctorSubstrate,
+  SomaHomeBootstrapResult,
+  SomaHomeProjection,
+  SomaHomeProjectionOptions,
+  SomaInstallOptions,
+  SomaInstallResult,
+  SomaLifecycleOptions,
+  SomaSkillBaseline,
+  SomaSkillBaselines,
+  UninstallableSkillReport,
+  VsaSkillInstallAction,
+  VsaSkillInstallOptions,
+  VsaSkillInstallResult,
+  WrittenProjection,
+} from "./substrates/types";
 import type { AlgorithmRunSummary } from "./algorithm/types";
 import type { ProposalKind } from "./core/index";
 export type { AlgorithmEffortSource, AlgorithmLoopStatus, AlgorithmLoopIteration, AlgorithmLoopState, AlgorithmCriteriaPartition, IdeateParameters, IdeatePresetName, OptimizeParameters, OptimizePresetName, AlgorithmNotificationEvent, AlgorithmNotificationSink, AlgorithmLoopExecutionContext, AlgorithmLoopIterationResult, AlgorithmLoopExecutor, AlgorithmPromptClassification, AlgorithmPlanStep, AlgorithmReferenceVerdict, AlgorithmReference, AlgorithmObservation, AlgorithmGatesFired, AlgorithmMetaReflection, AlgorithmProvenanceOperation, AlgorithmProvenanceEntry, AlgorithmCapabilityKind, AlgorithmCapabilityContract, AlgorithmCapabilityInvocationContract, AlgorithmCapabilitySelectionStatus, AlgorithmCapabilityDefinition, SomaSkillAlgorithmCapabilityManifest, AlgorithmCapabilityInvocation, AlgorithmCapabilitySelection, AlgorithmRun, AlgorithmRunSummary, AlgorithmRunInput, AlgorithmBatchOperation, SomaSkillManifest } from "./algorithm/types";
