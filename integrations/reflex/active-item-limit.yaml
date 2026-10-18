@@ -1,0 +1,12 @@
+# Example only. Acceptance stages the real goal ID and approved public params.
+schema: metafactory/activation/v1
+activations:
+  - id: g0-active-item-limit
+    target: '@jc/goal-sense-active-item-limit'
+    serves: {goal: G0}
+    when:
+      schedule: '0 7 * * 1'
+      timezone: Europe/Zurich
+    policy: auto
+    guards: {run_lock: skip}
+    payload: {goal: G0, max: 3, snapshot_weekday: 1}

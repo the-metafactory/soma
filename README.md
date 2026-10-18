@@ -487,6 +487,78 @@ no private parameters. Its default schedule is `30 6 * * *`, timezone
 `Europe/Zurich`, and target is `@jc/goal-sense-queue`, bound during activation
 setup in the same way as the feed target.
 
+The `active-item-limit` sensor counts a principal-maintained collection by
+state. Public params are `goal`, nonnegative integer `max`, and
+`snapshot_weekday` (cron weekday 0–6, default 1/Monday). Its default snapshot
+is Monday 07:00 Europe/Zurich (`0 7 * * 1`), after the export; choosing another
+weekday derives a weekly 07:00 schedule. It never schedules daily reads.
+
+```sh
+soma goal sense active-item-limit --goal G8 --max 3
+```
+
+A private `tana-collection` resource in `<soma-home>/profile/resources.yaml`
+has this shape (all identifiers below are placeholders):
+
+```yaml
+- name: projects
+  type: tana-collection
+  value:
+    type: tana-collection
+    status_option_states:
+      ACTIVE_OPTION_ID: active
+      ONGOING_OPTION_ID: active
+      LATER_OPTION_ID: parked
+      NEXT_OPTION_ID: parked
+      DELEGATED_OPTION_ID: delegated
+      COMPLETE_OPTION_ID: done
+      CANCELLED_OPTION_ID: done
+    excluded_sphere_option_ids: [EMPLOYER_OPTION_ID]
+    source:
+      index_path: /absolute/path/to/tana-index.sqlite
+      tag_id: PROJECT_TAG_ID
+      status_field_id: STATUS_FIELD_ID
+      sphere_field_id: SPHERE_FIELD_ID
+```
+
+The reader selects tag membership, fields and options by ID, never by label.
+Current `supertag` search uses labels and its display output collapses multiple
+option IDs. The adapter therefore reads membership and all option IDs directly
+from that index with SQLite `readonly: true`, and reads display names through
+`supertag batch get <ids> --offline --db-path <index> --json --select id,name`.
+Every subprocess uses a read verb and closed stdin; no collection writes occur.
+The adapter reports age from `sync_metadata.last_sync_timestamp`. An index
+older than 26 hours, invalid timestamp, unknown tag, unreadable index or failed
+subprocess returns `unknown`, exits 1 and emits a failed run without a goal
+state. The last good local snapshot is retained. Missing resources use the
+existing `needs_input: [tana-collection]` proposal path. Baseline calibration
+uses the same reader and publishes and writes no sensor state.
+
+Excluded spheres are omitted first. A missing sphere or status, unmapped status
+or conflicting non-done statuses makes an item `unclassified`. Among status
+values, `done` wins. `on-track` requires active ≤ max and zero unclassified;
+an empty collection is on-track. The reader registry is keyed by resource
+`value.type`; another source implements `CollectionReader` and registers its
+type without changing classification or the kind. The catalog initially asks
+for `tana-collection`; source configuration stays inside the private value.
+
+Acceptance saves resolved collection config in the mode-0600 file
+`profile/goals/G<n>.active-item-limit.params.json` under soma-home. The staged
+activation contains only public params, and the command loads its config by
+goal ID. Counts (`active`, `max`, `unclassified`, `parked`, `delegated`) are the
+only collection data in stdout and baseline summaries. Run-ledger envelopes
+keep the existing goal ID/state contract and contain no resource data. Names
+appear only in the mode-0600 `profile/goals/G<n>.state.json`: unclassified items
+and active items beyond the limit, ordered by item ID for a stable overflow
+list. The list is a report; it does not rank or modify projects.
+
+`integrations/reflex/active-item-limit.yaml` is a public-params-only blueprint
+example for `@jc/goal-sense-active-item-limit`. Bind that target to the existing
+Cortex process handler running the command above with public payload flags.
+The principal cleans sphere/status options before proposing and accepting the
+goal. `soma goal add --accept` stages its activation; `soma goal activate`
+installs it. No activation or target is installed by this build.
+
 Two mechanism kinds register the landed draft commands. Their default schedules
 use `Europe/Zurich`, and private values are resolved locally before execution:
 

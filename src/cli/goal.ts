@@ -7,6 +7,8 @@ import {
 import { FEED_SENSOR_DEFAULTS, runFeedSensor, type FeedSensorDeps, type FeedSensorOptions } from "../goal-sense";
 import { runQueueSensor, type QueueSensorDeps, type QueueSensorOptions } from "../goal-sense-queue";
 import { runRateSensor, type RateSensorDeps, type RateSensorOptions } from "../goal-sense-rate";
+import { runActiveItemLimitSensor, type ActiveItemSensorDeps } from "../goal-sense-active-items";
+import { activeItemLimitPublicParams, type ActiveItemLimitOptions } from "../goal-kinds/active-item-limit";
 import { rateParams } from "../goal-kinds/rate";
 import { queueParams } from "../goal-kinds/queue";
 import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from "../goal-outline";
@@ -33,6 +35,7 @@ export interface ParsedGoalArgs {
     feed?: FeedSensorOptions;
     queue?: QueueSensorOptions;
     rate?: RateSensorOptions;
+    activeItems?: ActiveItemLimitOptions;
     outline?: GoalOutlineOptions;
     announce?: GoalAnnounceOptions;
     propose?: GoalProposeOptions;
@@ -52,7 +55,7 @@ export const GOAL_COMMAND_HELP = {
     list: "Usage: soma goal list [--wording] [--home-dir <dir>] [--soma-home <dir>]",
     kinds: "Usage: soma goal kinds [--json] [--home-dir <dir>] [--soma-home <dir>]",
     sweep: `Usage: soma goal sweep [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP} (SOMA_PRINCIPAL unset: print checks without publishing)`,
-    sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--link-match <substring>] [--home-dir <dir>] [--soma-home <dir>]\n       soma goal sense queue --goal G<n> --source ranger-escalations --max <n> [--route escalate-hitl|provisioning] [--home-dir <dir>] [--soma-home <dir>]\n       soma goal sense rate --goal G<n> --source ranger-escalations --min <n> --window-workdays <n> [--timezone <iana>] [--route escalate-hitl|provisioning] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
+    sense: `Usage: soma goal sense feed --goal G<n> --url <https-url> [--window-days ${FEED_SENSOR_DEFAULTS.windowDays}] [--min ${FEED_SENSOR_DEFAULTS.min}] [--link-match <substring>] [--home-dir <dir>] [--soma-home <dir>]\n       soma goal sense queue --goal G<n> --source ranger-escalations --max <n> [--route escalate-hitl|provisioning] [--home-dir <dir>] [--soma-home <dir>]\n       soma goal sense rate --goal G<n> --source ranger-escalations --min <n> --window-workdays <n> [--timezone <iana>] [--route escalate-hitl|provisioning] [--home-dir <dir>] [--soma-home <dir>]\n       soma goal sense active-item-limit --goal G<n> --max <n> [--snapshot-weekday <0-6>] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)`,
     outline: "Usage: soma goal outline --goal G<n> --tana-tag <tag> --drafts-dir <dir> [--days 7] [--slot-minutes <n>] [--home-dir <dir>] [--soma-home <dir>] (SOMA_PRINCIPAL unset: nothing is published)",
     announce: "Usage: soma goal announce --goal G<n> --url <https-url> --channels <a,b,...> [--home-dir <dir>] [--soma-home <dir>] (drafts only; SOMA_PRINCIPAL unset: no ledger publication)",
   },
@@ -199,6 +202,23 @@ function parseRateArgs(rest: string[], options: ParsedGoalArgs["options"]): void
 function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): void {
   const usage = (reason: string) => new SomaCliError(`soma goal sense feed: ${reason}. ${GOAL_COMMAND_HELP.subcommands.sense}`, 2);
   const kind = rest.shift();
+  if (kind === "active-item-limit") {
+    const input: Record<string, unknown> = {};
+    const invalid = () => new SomaCliError("soma goal sense active-item-limit: invalid arguments. " + GOAL_COMMAND_HELP.subcommands.sense, 2);
+    for (let i = 0; i < rest.length; i++) {
+      const arg = rest[i];
+      if (!["--goal", "--max", "--snapshot-weekday", "--home-dir", "--soma-home"].includes(arg)) throw invalid();
+      const value = rest[++i];
+      if (!value || value.startsWith("--")) throw invalid();
+      if (arg === "--home-dir") options.homeDir = value;
+      else if (arg === "--soma-home") options.somaHome = value;
+      else input[arg.slice(2).replaceAll("-", "_")] = arg === "--goal" ? value : Number(value);
+    }
+    const parsed = activeItemLimitPublicParams.safeParse(input);
+    if (!parsed.success) throw invalid();
+    options.activeItems = parsed.data;
+    return;
+  }
   if (kind === "rate") {
     parseRateArgs(rest, options);
     return;
@@ -207,7 +227,7 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
     parseQueueArgs(rest, options);
     return;
   }
-  if (kind !== "feed") throw usage("sensor kind must be feed or queue");
+  if (kind !== "feed") throw usage("unsupported sensor kind");
   const feed: Partial<FeedSensorOptions> = { ...FEED_SENSOR_DEFAULTS };
   for (let index = 0; index < rest.length; index++) {
     const arg = rest[index];
@@ -296,7 +316,7 @@ export function parseGoalArgs(args: string[]): ParsedGoalArgs {
 
 export async function runGoalCli(
   parsed: ParsedGoalArgs,
-  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; rateSensor?: Partial<RateSensorDeps>; queueSensor?: Partial<QueueSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps>; sweep?: Partial<GoalSweepDeps>; propose?: Partial<GoalProposeDeps>; accept?: GoalAcceptDeps } = {},
+  dependencies: { activationsDir?: string; env?: Readonly<Record<string, string | undefined>>; feedSensor?: Partial<FeedSensorDeps>; activeItemSensor?: Partial<ActiveItemSensorDeps>; rateSensor?: Partial<RateSensorDeps>; queueSensor?: Partial<QueueSensorDeps>; outline?: Partial<GoalOutlineDeps>; announce?: Partial<GoalAnnounceDeps>; sweep?: Partial<GoalSweepDeps>; propose?: Partial<GoalProposeDeps>; accept?: GoalAcceptDeps } = {},
 ): Promise<string> {
   const { action, options } = parsed;
   const goalsDir = join(defaultSomaHome(options), "profile", "goals");
@@ -358,6 +378,14 @@ export async function runGoalCli(
         : kinds.map((kind) => `${kind.id}\t${kind.role}\t${kind.description}`).join("\n");
     }
     case "sense": {
+      if (options.activeItems) {
+        const lines: string[] = [];
+        const result = await runActiveItemLimitSensor(options.activeItems, {
+          somaHome: defaultSomaHome(options), ...dependencies.activeItemSensor, stdout: (line) => lines.push(line),
+        });
+        if (result.exitCode !== 0) throw new SomaCliError(result.error ?? "soma goal sense active-item-limit failed", result.exitCode);
+        return lines.join("\n");
+      }
       if (options.rate) {
         const lines: string[] = [];
         const result = await runRateSensor(options.rate, join(options.homeDir ?? homedir(), ".config", "ranger", "state.sqlite"), {

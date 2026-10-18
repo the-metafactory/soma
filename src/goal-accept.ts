@@ -160,11 +160,23 @@ async function writeAcceptedGoal(
   const activations = selections.map(({ selection, kind, params }) => ({
     id: `${goalId.toLowerCase()}-${kind.id}`, target: kind.target,
     serves: { goal: goalId }, when: selection.schedule,
-    payload: { ...params, goal: goalId },
+    payload: { ...Object.fromEntries(Object.entries(params).filter(([key]) =>
+      !kind.localPrivateParams || !Object.hasOwn(kind.private, key))), goal: goalId },
   }));
   const stagePath = join(goalsDir, `${goalId}.activations.yaml`);
   let stageCreated = false;
+  const localFiles: string[] = [];
   try {
+    for (const { kind, params } of selections) {
+      if (!kind.localPrivateParams) continue;
+      const path = join(goalsDir, `${goalId}.${kind.id}.params.json`);
+      const file = await open(path, "wx", 0o600);
+      localFiles.push(path);
+      try {
+        await file.writeFile(JSON.stringify(Object.fromEntries(Object.entries(params).filter(([key]) =>
+          Object.hasOwn(kind.private, key)))) + "\n", "utf8");
+      } finally { await file.close(); }
+    }
     const file = await open(stagePath, "wx", 0o600);
     stageCreated = true;
     try {
@@ -176,6 +188,7 @@ async function writeAcceptedGoal(
   } catch (error) {
     // Keep a retryable proposal and avoid leaving a partially accepted design.
     if (stageCreated) await unlink(stagePath);
+    for (const path of localFiles) await unlink(path);
     await unlink(join(goalsDir, `${goalId}.md`));
     throw error;
   }

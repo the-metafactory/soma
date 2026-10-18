@@ -196,6 +196,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/goal-sense",
       "src/goal-sense-queue",
       "src/goal-sense-rate",
+      "src/goal-sense-active-items",
       "src/goal-outline",
       "src/goal-announce",
       "src/goal-sweep",

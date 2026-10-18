@@ -309,7 +309,7 @@ function validateSelection(
   // Acceptance chooses the real id. A model cannot bind a new design to an existing goal.
   if ("goal" in portable) portable.goal = "G0";
   return {
-    kind: kind.id, params: portable, schedule: { ...kind.schedule },
+    kind: kind.id, params: portable, schedule: { ...(kind.scheduleFor?.(local.data) ?? kind.schedule) },
     ...(kind.role === "sensor" ? { state_rule: kind.stateRule(local.data) } : {}),
   };
 }
