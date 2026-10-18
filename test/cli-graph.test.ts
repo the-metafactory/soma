@@ -21,29 +21,7 @@ import {
 // Receipt-rendering tests reach the defining module directly (sage on
 // #584); collapseHome stays internal to graph.
 import { collapseHome, describeProbeTree } from "../src/graph/work-graph";
-import {
-  WorkGraphError,
-  renderCloseReceipt,
-  runProbe,
-  runProbes,
-  scanCommentsForReceipt,
-  type ClaimResult,
-  type ReleaseResult,
-  type CloseReceipt,
-  type CommentRef,
-  type CreateNodeOptions,
-  type CreateNodeSpec,
-  type RehomeSelection,
-  type GraphStore,
-  type NodeComment,
-  type NodeRef,
-  type NodeState,
-  type Probe,
-  type ProbeRegistry,
-  type ProbeResult,
-  type Reaction,
-  type WorkGraphNode,
-} from "../src/index";
+import { WorkGraphError, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const SERVES_CHART = ["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map"];

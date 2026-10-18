@@ -9,7 +9,7 @@ import {
 import { createAlgorithmRun, verifyAlgorithmCriterion } from "../../src/algorithm/algorithm";
 import { writeAlgorithmRun } from "../../src/algorithm/algorithm-store";
 import type { AlgorithmLogEntry } from "../../src/vsa/index";
-import type { ErrataInput } from "../../src/types";
+import type { ErrataInput } from "../../src/flows/types";
 
 const homes: string[] = [];
 async function home() { const dir = await mkdtemp(join(tmpdir(), "soma-errata-")); homes.push(dir); return dir; }

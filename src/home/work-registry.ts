@@ -4,7 +4,7 @@ import { hostname } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createPaths, type SomaPathsOptions } from "../core/index";
-import type { AlgorithmMode } from "../types";
+import type { AlgorithmMode } from "../core/types";
 
 export interface SomaWorkRegistryEntry {
   // soma#329 slice 3: pointer to the session's active VSA. On read we dual-read a

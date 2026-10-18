@@ -1,4 +1,5 @@
-import type { GoalRecord, SomaSkill, VerificationStateArtifact } from "../types";
+import type { GoalRecord } from "../goal-records";
+import type { VerificationStateArtifact } from "../vsa/types";
 import type { BehaviorPolicy } from "../policy/types";
 import type { CommunicationContract } from "./communication-contract";
 
@@ -143,4 +144,15 @@ export interface ProjectionInput {
 /** The rendered working-method rules file; read by `src/home/working-method.ts`. */
 export interface WorkingMethod {
   readonly content: string;
+}
+
+export interface SomaSkill {
+  name: string;
+  path: string;
+  description: string;
+  triggers: string[];
+  files?: {
+    path: string;
+    content: string;
+  }[];
 }

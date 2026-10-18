@@ -9,7 +9,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { auditMemory } from "../src/index";
+import { auditMemory } from "../src/memory/index";
 import { planMemoryBackfill, runMemoryBackfill } from "../src/memory/index";
 import { parseMemoryNote } from "../src/memory/index";
 import { parseMemoryArgs } from "../src/cli/memory";

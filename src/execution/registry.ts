@@ -1,4 +1,4 @@
-import { SUBSTRATE_IDS, type ProjectionSubstrate, type SubstrateId } from "../types";
+import { SUBSTRATE_IDS, type ProjectionSubstrate, type SubstrateId } from "../core/types";
 import { REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, type ExecutionConformanceScenarioId } from "./conformance";
 import type { SubstrateExecutor } from "./types";
 

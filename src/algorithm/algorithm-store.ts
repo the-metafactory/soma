@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase } from "../types";
+import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase } from "../core/types";
 import type { AlgorithmEffortSource, AlgorithmRun, AlgorithmRunSummary } from "./types";
 import type { VerificationStateArtifact, Checkpoint } from "../vsa/index";
 import { buildVsaArtifact, getCriteria, getGoal } from "../vsa/index";

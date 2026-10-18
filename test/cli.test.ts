@@ -14,7 +14,8 @@ import { TELEMETRY_COMMAND_HELP } from "../src/cli/telemetry";
 import { POLICY_COMMAND_HELP } from "../src/cli/policy";
 import { RESULT_COMMAND_HELP } from "../src/cli/result";
 import { TOOL_COMMAND_HELP } from "../src/cli/tools";
-import { appendSomaMemoryEvent, bootstrapSomaHome } from "../src/index";
+import { appendSomaMemoryEvent } from "../src/events/index";
+import { bootstrapSomaHome } from "../src/flows/index";
 import {
   INSTALL_SUBSTRATES,
   PROJECTION_LIFECYCLE_SUBSTRATES,

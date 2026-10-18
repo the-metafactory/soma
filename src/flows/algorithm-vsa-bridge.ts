@@ -16,7 +16,7 @@ import { join, resolve } from "node:path";
 import { appendSomaMemoryEvent } from "../events/index";
 import { getActiveVsa, getCriteria, readVsa, writeVsa, type VerificationStateArtifact } from "../vsa/index";
 import { runSomaLifecycleVsaUpdated } from "./lifecycle";
-import type { AlgorithmEffortTier, AlgorithmPhase, SubstrateId } from "../types";
+import type { AlgorithmEffortTier, AlgorithmPhase, SubstrateId } from "../core/types";
 
 export interface AlgorithmVsaOptions {
   homeDir?: string;

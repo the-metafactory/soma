@@ -2,19 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  advanceAlgorithmRun,
-  applyAlgorithmBatch,
-  createAlgorithmRun,
-  deriveBridgedPlanStepStatus,
-  getRunPhase,
-  readAlgorithmRunById,
-  setAlgorithmPlan,
-  syncBridgedPlanStep,
-  updateAlgorithmPlanStep,
-  writeAlgorithmRun,
-} from "../src/index";
-import type { AlgorithmRun, BridgedNodeReport } from "../src/index";
+import { advanceAlgorithmRun, applyAlgorithmBatch, createAlgorithmRun, deriveBridgedPlanStepStatus, setAlgorithmPlan, syncBridgedPlanStep, updateAlgorithmPlanStep } from "../src/algorithm/algorithm";
+import { getRunPhase } from "../src/algorithm/algorithm-lifecycle";
+import { readAlgorithmRunById, writeAlgorithmRun } from "../src/algorithm/algorithm-store";
+import type { AlgorithmRun } from "../src/algorithm/types";
+import type { BridgedNodeReport } from "../src/algorithm/algorithm";
 // Not on the public barrel — its one production consumer imports it here too.
 import { markUnbridgedPlanStepsDone } from "../src/algorithm/algorithm";
 import {

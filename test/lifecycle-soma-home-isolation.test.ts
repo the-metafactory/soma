@@ -3,7 +3,9 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile 
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { expect, test } from "bun:test";
-import { bootstrapSomaHome, serializeMemoryNote, type SomaHomeProjection, type SomaMemoryNote } from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { serializeMemoryNote, type SomaMemoryNote } from "../src/memory/index";
+import type { SomaHomeProjection } from "../src/substrates/types";
 import { runSomaLifecycleSessionEnd, resolveLifecycleHomeDir, SCRATCH_SUBSTRATE_HOME_DIRNAME } from "../src/flows/lifecycle";
 import { registerSessionEndTranscriptHandler } from "../src/home/index";
 import { memoryNotePath, type WritableType } from "../src/memory/index";

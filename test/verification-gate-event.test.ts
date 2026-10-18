@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAlgorithmRun, verifyAlgorithmCriterion, somaMemoryEventsPath } from "../src/index";
+import { createAlgorithmRun, verifyAlgorithmCriterion } from "../src/algorithm/algorithm";
+import { somaMemoryEventsPath } from "../src/events/index";
 // VerificationGateError is intentionally not on the public barrel (Sage review,
 // PR #455) — import it from its defining module, as the CLI does.
 import { VerificationGateError } from "../src/algorithm/algorithm";

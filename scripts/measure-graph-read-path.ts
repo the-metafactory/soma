@@ -16,7 +16,7 @@
  *
  * Needs a `gh` authenticated for the repo, and makes only read calls.
  */
-import { WorkGraph, createGhCliTransport, createGitHubGraphStore, type GitHubApiRequest } from "../src/index";
+import { WorkGraph, createGhCliTransport, createGitHubGraphStore, type GitHubApiRequest } from "../src/graph/index";
 
 interface Call {
   label: string;

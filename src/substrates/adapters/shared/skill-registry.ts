@@ -1,4 +1,4 @@
-import type { SomaSkill } from "../../../types";
+import type { SomaSkill } from "../../../home/types";
 
 /**
  * soma#371 — the compact skill registry projection.

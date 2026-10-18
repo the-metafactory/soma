@@ -7,7 +7,7 @@ import { inspectRuntimePolicy } from "../src/policy/runtime-policy";
 import { evaluateToolCallPolicyGuard } from "../src/policy/tool-policy-guard";
 import { redactSecrets } from "../src/policy/redact";
 import { parseRedactArgs, runRedactCli } from "../src/cli/redact";
-import type { SubstrateId } from "../src/types";
+import type { SubstrateId } from "../src/core/types";
 import { installSomaForClaudeCode } from "./fixtures/shared-runtime";
 
 // soma#716: raw reads of secret-bearing config into the model's context.

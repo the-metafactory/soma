@@ -45,7 +45,6 @@ export const componentNames = [
   "migrate",
   "flows",
   "cli",
-  "legacy",
 ] as const;
 
 export type ComponentName = (typeof componentNames)[number];
@@ -53,38 +52,37 @@ export type ComponentName = (typeof componentNames)[number];
 const substrateUnitNames = ["anthropic-cowork", "claude-code", "codex", "cursor", "dsh", "grok", "pi-dev"] as const;
 
 function substrateUnit(name: string): ComponentUnit {
-  return { files: [`src/substrates/adapters/${name}/**`, `src/substrates/adapters/${name}`, `src/substrates/experimental/${name}`] };
+  return { files: [`src/substrates/adapters/${name}/**`, `src/substrates/adapters/${name}`] };
 }
 
 export const components: ComponentManifest<ComponentName> = {
   core: {
     files: ["src/core/**", "src/components"],
-    mayImport: ["legacy"],
-    publicEntries: ["src/core/index.ts"],
+    mayImport: [],
+    publicEntries: ["src/core/index.ts", "src/core/types.ts"],
   },
   events: {
     files: ["src/events/**"],
-    mayImport: ["core", "legacy"],
+    mayImport: ["core"],
     publicEntries: ["src/events/index.ts"],
   },
   memory: {
     files: ["src/memory/**"],
-    mayImport: ["core", "events", "legacy"],
+    mayImport: ["core", "events"],
     publicEntries: ["src/memory/index.ts", "src/memory/types.ts"],
   },
   // Typed goal records (soma#784): Soma owns Purpose (docs/boundaries.md).
   purpose: {
     files: ["src/goal-records", "src/goal-reference"],
-    mayImport: ["core", "legacy"],
+    mayImport: ["core"],
   },
   vsa: {
     files: ["src/vsa/**"],
     publicEntries: ["src/vsa/index.ts", "src/vsa/types.ts"],
-    mayImport: ["core", "events", "memory", "purpose", "legacy"],
+    mayImport: ["core", "events", "memory", "purpose"],
   },
   tools: {
     files: ["src/tools/**"],
-    exclude: ["src/tools/*/cli"],
     publicEntries: [
       "src/tools/index.ts",
       "src/tools/inference/index.ts",
@@ -92,7 +90,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/tools/relationship/index.ts",
       "src/tools/wisdom/index.ts",
     ],
-    mayImport: ["core", "legacy"],
+    mayImport: ["core"],
   },
   policy: {
     files: ["src/policy/**"],
@@ -112,7 +110,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/policy/runtime-policy.ts",
       "src/policy/tool-policy-guard.ts",
     ],
-    mayImport: ["core", "events", "tools", "legacy"],
+    mayImport: ["core", "events", "tools"],
   },
   home: {
     files: ["src/home/**"],
@@ -124,7 +122,7 @@ export const components: ComponentManifest<ComponentName> = {
       "src/home/communication-contract.ts",
       "src/home/lifecycle-registry.ts",
     ],
-    mayImport: ["core", "events", "memory", "purpose", "policy", "legacy"],
+    mayImport: ["core", "events", "memory", "purpose", "vsa", "policy"],
   },
   algorithm: {
     files: ["src/algorithm/**"],
@@ -141,24 +139,24 @@ export const components: ComponentManifest<ComponentName> = {
       "src/algorithm/algorithm-provenance.ts",
       "src/algorithm/algorithm-lifecycle.ts",
     ],
-    mayImport: ["core", "home", "vsa", "graph", "legacy"],
+    mayImport: ["core", "home", "vsa", "graph"],
   },
   router: {
     files: ["src/router/**"],
     publicEntries: ["src/router/index.ts"],
-    mayImport: ["core", "algorithm", "legacy"],
+    mayImport: ["core", "algorithm"],
   },
   // Node #810 declares a single public entry. Type-only consumers therefore
   // count the full barrel in the static closure, while Bun erases their imports.
   graph: {
     files: ["src/graph/**"],
     publicEntries: ["src/graph/index.ts"],
-    mayImport: ["core", "legacy"],
+    mayImport: ["core"],
   },
   execution: {
     files: ["src/execution/**"],
     publicEntries: ["src/execution/index.ts"],
-    mayImport: ["core", "legacy"],
+    mayImport: ["core"],
   },
   substrates: {
     // Leaf entries keep shared types, hook/bootstrap and migration consumers off the adapter barrel.
@@ -175,13 +173,13 @@ export const components: ComponentManifest<ComponentName> = {
     files: [
       "src/substrates/**",
     ],
-    mayImport: ["core", "events", "memory", "purpose", "vsa", "policy", "home", "algorithm", "router", "execution", "legacy"],
+    mayImport: ["core", "events", "memory", "purpose", "vsa", "policy", "home", "algorithm", "router", "execution"],
     units: Object.fromEntries(substrateUnitNames.map((name) => [name, substrateUnit(name)])),
   },
   migrate: {
     files: ["src/migrate/**"],
     publicEntries: ["src/migrate/index.ts", "src/migrate/types.ts"],
-    mayImport: ["core", "substrates", "legacy"],
+    mayImport: ["core", "home", "substrates"],
   },
   flows: {
     files: ["src/flows/**"],
@@ -200,18 +198,10 @@ export const components: ComponentManifest<ComponentName> = {
       "execution",
       "substrates",
       "migrate",
-      "legacy",
     ],
   },
   cli: {
-    // `src/tools/*/cli` is CLI glue: only `src/cli/tools.ts` imports it.
-    files: ["src/cli", "src/cli-launcher", "src/cli-vsa", "src/cli/**", "src/tools/*/cli"],
+    files: ["src/cli", "src/cli-launcher", "src/cli/**"],
     mayImport: componentNames.filter((name) => name !== "cli"),
-  },
-  // Temporary: the shared spine. Any component may import it and it may import
-  // any component, until the final seams node removes it.
-  legacy: {
-    files: ["src/types", "src/index"],
-    mayImport: componentNames.filter((name) => name !== "legacy"),
   },
 };

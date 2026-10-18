@@ -5,7 +5,7 @@ import type { SomaFeedbackActor, SomaFeedbackClassification, SomaMemoryEvent } f
 import type { ClaudeSkillsSourceStatus } from "../migrate/types";
 import type { InstallSubstrate } from "../policy/types";
 import type { SomaDoctorFinding } from "../substrates/types";
-import type { AlgorithmPhase, SubstrateId } from "../types";
+import type { AlgorithmPhase, SubstrateId } from "../core/types";
 
 /** Principal rejection of a delivered output; never stores assistant output content. */
 export type ErrataPassedBy =

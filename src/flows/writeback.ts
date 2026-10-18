@@ -3,7 +3,7 @@ import { applyVsaUpdate, getActiveVsa, vsaPath } from "../vsa/index";
 import { appendSomaMemoryEvent, appendSomaMemoryEvents, somaMemoryEventsPath } from "../events/index";
 import { checkSomaPolicy } from "../policy/policy-audit";
 import type { SomaMemoryEventInput } from "../events/index";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { VsaUpdatePayload } from "./types";
 
 export type SomaWritebackMergeSemantics = "append-only" | "vsa-log-append";

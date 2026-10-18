@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { createPaths } from "../core/index";
 import { parsePrivateJsonl, writePrivateJsonl, type RouterCorpusRow } from "./router-corpus";
-import type { AlgorithmEffortTier, AlgorithmMode } from "../types";
+import type { AlgorithmEffortTier, AlgorithmMode } from "../core/types";
 
 /**
  * Arm C of the front-door router: local embeddings of the prompt and of the

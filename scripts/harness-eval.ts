@@ -23,7 +23,7 @@ import type { Readable } from "node:stream";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { streamEventLines } from "../src/events/index";
-import type { ErrataPassedBy } from "../src/types";
+import type { ErrataPassedBy } from "../src/flows/types";
 
 // ---------------------------------------------------------------------------
 // Data model (duck-typed against the run-corpus schema versions in the wild:

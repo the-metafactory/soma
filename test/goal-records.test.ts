@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { bootstrapSomaHome, loadSomaHome } from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { loadSomaHome } from "../src/home/index";
 import { projectAnthropicCoworkHome } from "../src/substrates/adapters/anthropic-cowork";
 import { projectClaudeCode } from "../src/substrates/adapters/claude-code";
 import { projectCodex } from "../src/substrates/adapters/codex/adapter";
@@ -12,7 +13,7 @@ import { projectGrok } from "../src/substrates/adapters/grok/adapter";
 import { projectPiDev } from "../src/substrates/adapters/pi-dev/adapter";
 import { renderAssistantCore } from "../src/substrates/adapters/shared/index";
 import type { GoalRecordWarning } from "../src/goal-records";
-import type { GoalRecord } from "../src/types";
+import type { GoalRecord } from "../src/goal-records";
 import type { ProjectionInput } from "../src/home/index";
 import { portableProjectionInput } from "./fixtures";
 

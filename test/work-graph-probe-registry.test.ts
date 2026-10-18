@@ -3,14 +3,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePolicyArgs, runPolicyCli } from "../src/cli/policy";
-import {
-  authorizeProbe,
-  loadProbeRegistry,
-  parseProbeRegistry,
-  probeRegistryPath,
-  PROBE_REGISTRY_RELATIVE_PATH,
-  type ProbeRegistry,
-} from "../src/index";
+import { authorizeProbe, loadProbeRegistry, parseProbeRegistry, probeRegistryPath, PROBE_REGISTRY_RELATIVE_PATH, type ProbeRegistry } from "../src/graph/index";
 
 const REPO = "github.com/the-metafactory/soma";
 const GITLAB_REPO = "gitlab-int.switch.ch/the-metafactory/soma";

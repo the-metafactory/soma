@@ -3,7 +3,8 @@ import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseWritebackArgs, runWritebackCli } from "../src/cli/writeback";
-import { applySomaWriteback, bootstrapSomaHome, readVsa, scaffoldVsa, setActiveVsa } from "../src/index";
+import { applySomaWriteback, bootstrapSomaHome } from "../src/flows/index";
+import { readVsa, scaffoldVsa, setActiveVsa } from "../src/vsa/index";
 
 async function tempHome(): Promise<string> {
   return mkdtemp(join(tmpdir(), "soma-writeback-"));

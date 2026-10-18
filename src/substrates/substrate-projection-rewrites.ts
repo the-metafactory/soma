@@ -1,5 +1,5 @@
 import { normalizeSkillContent } from "./skill-content-normalizer";
-import type { ProjectionSubstrate } from "../types";
+import type { ProjectionSubstrate } from "../core/types";
 
 const CLAUDE_HOME = "~/" + ".claude";
 const SOMA_HOME = "~/" + ".soma";

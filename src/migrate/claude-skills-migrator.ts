@@ -77,7 +77,7 @@ import type {
   RewriteDescriptionsAgent,
   RewriteDispatchOverride,
 } from "./types";
-import type { SomaSkill } from "../types";
+import type { SomaSkill } from "../home/types";
 import {
   classifyDescriptionStatus,
   DEFAULT_REWRITE_TARGET,

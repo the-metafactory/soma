@@ -2,17 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  bootstrapSomaHome,
-  getCriteria,
-  parseVsa,
-  reconcileVsa,
-  reconcileVsaArtifacts,
-  scaffoldVsa,
-  serializeVsa,
-  somaMemoryEventsPath,
-  writeVsa,
-} from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { getCriteria, parseVsa, reconcileVsa, reconcileVsaArtifacts, scaffoldVsa, serializeVsa, writeVsa } from "../src/vsa/index";
+import { somaMemoryEventsPath } from "../src/events/index";
 import { SECTION_NAME_MAP, getDecisions, getGoal, renderCriteriaMarkdown, renderLogEntries, setSection } from "../src/vsa/vsa-accessors";
 import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint } from "../src/vsa/index";
 

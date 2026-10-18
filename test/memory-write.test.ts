@@ -2,17 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import {
-  MemoryNoteError,
-  parseMemoryNote,
-  rebuildMemoryIndex,
-  resurfaceMemoryNote,
-  somaMemoryEventsPath,
-  verifyMemoryNote,
-  writeMemoryNote,
-  type SomaMemoryNote,
-  type SomaMemoryWriteOptions,
-} from "../src/index";
+import { MemoryNoteError, parseMemoryNote, rebuildMemoryIndex, resurfaceMemoryNote, verifyMemoryNote, writeMemoryNote, type SomaMemoryNote, type SomaMemoryWriteOptions } from "../src/memory/index";
+import { somaMemoryEventsPath } from "../src/events/index";
 // Path/dedup/governance helpers are module-private (not public index API) — import direct.
 import {
   MEMORY_DEDUP_JACCARD_THRESHOLD,

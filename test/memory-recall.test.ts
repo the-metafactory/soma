@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import { recallMemory, serializeMemoryNote, somaMemoryEventsPath, type SomaMemoryEvent, type SomaMemoryNote } from "../src/index";
+import { recallMemory, serializeMemoryNote, type SomaMemoryNote } from "../src/memory/index";
+import { somaMemoryEventsPath, type SomaMemoryEvent } from "../src/events/index";
 import { memoryNotePath, type WritableType } from "../src/memory/index";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 

@@ -4,7 +4,7 @@ import { loadGoalRecords, type GoalRecordWarning } from "../goal-records";
 import { createPaths } from "../core/index";
 import { parseBehaviorPolicy, type BehaviorPolicy } from "../policy/behavior-policy";
 import type { CommunicationContract } from "./communication-contract";
-import type { SomaSkill } from "../types";
+import type { SomaSkill } from "./types";
 import type { ProjectionInput } from "./types";
 import { readWorkingMethod } from "./working-method";
 

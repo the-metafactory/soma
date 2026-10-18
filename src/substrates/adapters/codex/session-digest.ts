@@ -6,7 +6,7 @@ import { createInterface } from "node:readline";
 import { registerSessionEndTranscriptHandler } from "../../../home/lifecycle-registry";
 import { hasSessionDigest, writeSessionDigest } from "../../../memory/index";
 import type { SomaMemoryDigestResult } from "../../../memory/index";
-import type { SubstrateId } from "../../../types";
+import type { SubstrateId } from "../../../core/types";
 
 const FALLBACK_MIN_PROMPTS = 6;
 const FALLBACK_MAX_PROMPT_LINES = 13;

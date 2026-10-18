@@ -1,6 +1,6 @@
 import { harvestSessions } from "../../flows/index";
-import { addOpinion, addOpinionEvidence, captureFailure, completeSessionProgress, createSessionProgress, formatCountsShell, getSomaCounts, listOpinions, listSessionProgress, recordSessionBlocker, recordSessionDecision, recordSessionHandoff, recordSessionNextStep, recordSessionWork, resumeSessionProgress, showOpinion, synthesizeLearningPatterns } from "./index";
-import type { EvidenceType, LearningToolOptions, OpinionCategory } from "./index";
+import { addOpinion, addOpinionEvidence, captureFailure, completeSessionProgress, createSessionProgress, formatCountsShell, getSomaCounts, listOpinions, listSessionProgress, recordSessionBlocker, recordSessionDecision, recordSessionHandoff, recordSessionNextStep, recordSessionWork, resumeSessionProgress, showOpinion, synthesizeLearningPatterns } from "../../tools/learning/index";
+import type { EvidenceType, LearningToolOptions, OpinionCategory } from "../../tools/learning/index";
 
 function readOption(args: string[], index: number, name: string): string {
   const value = args[index + 1];

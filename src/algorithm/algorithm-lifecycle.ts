@@ -1,4 +1,4 @@
-import type { AlgorithmPhase } from "../types";
+import type { AlgorithmPhase } from "../core/types";
 import type { AlgorithmRun } from "./types";
 
 export { detectPlateau } from "./algorithm-execution-modes";

@@ -26,14 +26,7 @@
 import { lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  experimentalAnthropicCowork,
-  installSomaForClaudeCode as installSomaForClaudeCodeUnshared,
-  installSomaForCodex as installSomaForCodexUnshared,
-  installSomaForCursor as installSomaForCursorUnshared,
-  installSomaForGrok as installSomaForGrokUnshared,
-  installSomaForPiDev as installSomaForPiDevUnshared,
-} from "../../src/index";
+import { installSomaForAnthropicCowork as installSomaForAnthropicCoworkUnshared, installSomaForClaudeCode as installSomaForClaudeCodeUnshared, installSomaForCodex as installSomaForCodexUnshared, installSomaForCursor as installSomaForCursorUnshared, installSomaForGrok as installSomaForGrokUnshared, installSomaForPiDev as installSomaForPiDevUnshared } from "../../src/flows/index";
 import { resolveSomaHome } from "../../src/flows/lifecycle";
 import type { SomaInstallOptions } from "../../src/substrates/types";
 
@@ -95,7 +88,7 @@ export function sharingStagedRuntime<O extends SomaInstallOptions, R>(install: (
 
 // The installers wrapped once; a test imports these in place of `../src/index`'s
 // and imports the unwrapped one only where it must keep a private store.
-export const installSomaForAnthropicCowork = sharingStagedRuntime(experimentalAnthropicCowork.installSomaForAnthropicCowork);
+export const installSomaForAnthropicCowork = sharingStagedRuntime(installSomaForAnthropicCoworkUnshared);
 export const installSomaForClaudeCode = sharingStagedRuntime(installSomaForClaudeCodeUnshared);
 export const installSomaForCodex = sharingStagedRuntime(installSomaForCodexUnshared);
 export const installSomaForCursor = sharingStagedRuntime(installSomaForCursorUnshared);

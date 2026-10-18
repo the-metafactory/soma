@@ -2,12 +2,8 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import {
-  parseMemoryNote,
-  somaMemoryEventsPath,
-  writeMemoryAction,
-  writeSessionDigest,
-} from "../src/index";
+import { parseMemoryNote, writeMemoryAction, writeSessionDigest } from "../src/memory/index";
+import { somaMemoryEventsPath } from "../src/events/index";
 import { extractDigestBodyFromTranscript, writeSessionDigestFromTranscript } from "../src/substrates/adapters/claude-code/session-digest";
 import { parseMemoryArgs, runMemoryCli } from "../src/cli/memory";
 

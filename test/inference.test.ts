@@ -2,18 +2,11 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import {
-  advisor,
-  inference,
-  parseInferenceJson,
-  synthesizeAdvisorState,
-  type InferenceBackend,
-  type InferenceRequest,
-} from "../src/index";
+import { advisor, inference, parseInferenceJson, synthesizeAdvisorState, type InferenceBackend, type InferenceRequest } from "../src/tools/index";
 import { createClaudeCodeBackend } from "../src/tools/inference/backends/claude-code";
 import { createAnthropicApiBackend } from "../src/tools/inference/backends/anthropic-api";
 import { createAutoInferenceBackend } from "../src/tools/inference/factory";
-import { parseInferenceCliArgs, runInferenceCli } from "../src/tools/inference/cli";
+import { parseInferenceCliArgs, runInferenceCli } from "../src/cli/tools/inference";
 
 class MockBackend implements InferenceBackend {
   readonly kind = "claude-code" as const;

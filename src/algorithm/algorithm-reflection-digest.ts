@@ -22,7 +22,7 @@
  * Pure module — no IO. The CLI collects reflections (live runs + imported PAI
  * corpus) and renders the result.
  */
-import type { AlgorithmPhase } from "../types";
+import type { AlgorithmPhase } from "../core/types";
 import type { AlgorithmGatesFired, AlgorithmMetaReflection } from "./types";
 
 // A gate-flag is only a MISS if the run reached the phase where that gate is

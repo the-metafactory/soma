@@ -2,13 +2,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
-import {
-  bootstrapSomaHome,
-  inspectRuntimePolicy,
-  type InferenceBackend,
-  type InferenceRequest,
-  runtimePolicyTraceRoot,
-} from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { inspectRuntimePolicy, runtimePolicyTraceRoot } from "../src/policy/runtime-policy";
+import type { InferenceBackend, InferenceRequest } from "../src/tools/index";
 import { runSomaCli } from "../src/cli";
 
 class RuntimePolicyMockBackend implements InferenceBackend {

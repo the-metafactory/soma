@@ -11,7 +11,8 @@ import { proposalNodeSpec, readProposalFile } from "../../src/graph/index";
 import { publishRunFinished, runLedgerSpoolPath } from "../../src/flows/run-ledger";
 import { loadSomaConfig } from "../../src/home/index";
 import type { ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
-import type { ErrataCluster, ErrataEvent, ErrataPassedBy, ErrataRecord, SomaMemoryEvent } from "../../src/types";
+import type { ErrataCluster, ErrataEvent, ErrataPassedBy, ErrataRecord } from "../../src/flows/types";
+import type { SomaMemoryEvent } from "../../src/events/index";
 
 const homes: string[] = [];
 afterEach(async () => { await Promise.all(homes.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });

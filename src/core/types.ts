@@ -48,3 +48,30 @@ export const PROPOSAL_KINDS = [
   "rule-memory",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
+
+/** Every substrate id Soma knows. `SubstrateId` and `KNOWN_SUBSTRATES` derive from this list. */
+export const SUBSTRATE_IDS = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh", "cortex", "custom", "anthropic-cowork"] as const;
+export type SubstrateId = (typeof SUBSTRATE_IDS)[number];
+
+export type ExperimentalScaffoldSubstrate = "anthropic-cowork";
+export type ProjectionSubstrate = SubstrateId | ExperimentalScaffoldSubstrate;
+
+/**
+ * What the verifier CLAIMS about how the evidence was obtained. A caller-asserted
+ * label, NOT a machine-verified fact — Soma records the claim and gates on it, but
+ * does not confirm a `probed`/`tested` label corresponds to a real probe or test
+ * on any surface (CLI, VSA markdown, or library).
+ * - `specified`: a design/spec claim only ("the doc says X") — weak; blocks the LEARN gate.
+ * - `probed`: caller asserts behaviour was observed at runtime (curl, grep of running state).
+ * - `tested`: caller asserts coverage by an automated test.
+ */
+export type EvidenceKind = "specified" | "probed" | "tested";
+
+export const ALGORITHM_PHASES = ["observe", "think", "plan", "build", "execute", "verify", "learn", "complete", "abandoned"] as const;
+export type AlgorithmPhase = (typeof ALGORITHM_PHASES)[number];
+
+export const ALGORITHM_EFFORT_TIERS = ["E1", "E2", "E3", "E4", "E5"] as const;
+export type AlgorithmEffortTier = (typeof ALGORITHM_EFFORT_TIERS)[number];
+
+export const ALGORITHM_MODES = ["minimal", "native", "algorithm"] as const;
+export type AlgorithmMode = (typeof ALGORITHM_MODES)[number];

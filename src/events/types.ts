@@ -1,4 +1,4 @@
-import type { AlgorithmPhase, SubstrateId } from "../types";
+import type { AlgorithmPhase, SubstrateId } from "../core/types";
 
 export interface SomaMemoryEventInput {
   id?: string;

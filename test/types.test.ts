@@ -1,17 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  SOMA_VERSION,
-  type ExecutionCapabilities,
-  type PreparedExecution,
-  type SomaAdapter,
-  type SomaExecutionEvent,
-  type SomaExecutionRequest,
-  type SomaRunResult,
-  type SomaTask,
-  type SubstrateExecutor,
-} from "../src/index";
+import { SOMA_VERSION } from "../src/core/index";
+import type { ExecutionCapabilities, PreparedExecution, SomaExecutionEvent, SomaExecutionRequest, SubstrateExecutor } from "../src/execution/index";
+import type { SomaAdapter } from "../src/substrates/types";
+import type { SomaRunResult, SomaTask } from "../src/execution/types";
 
 test("exports version (source of truth: package.json)", () => {
   // SOMA_VERSION is derived from package.json — bumping the version

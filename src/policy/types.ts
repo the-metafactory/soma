@@ -1,4 +1,4 @@
-import type { ExperimentalScaffoldSubstrate, ProjectionSubstrate, ShippedSubstrate, SubstrateId } from "../types";
+import type { ExperimentalScaffoldSubstrate, ProjectionSubstrate, SubstrateId } from "../core/types";
 import type { SomaMemoryEvent } from "../events/index";
 import type { InferenceBackend, InferenceLevel } from "../tools/inference";
 export type { BehaviorPolicy } from "./behavior-policy";
@@ -284,3 +284,10 @@ export interface SomaPolicyBatchCheckResult {
   reason: string;
   results: SomaPolicyCheckResult[];
 }
+
+/**
+ * The substrates with a shipped adapter. Install, reproject, `soma doctor` and
+ * content-compare all cover exactly these; add a substrate here, not per command.
+ */
+export const SHIPPED_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok", "dsh"] as const satisfies readonly SubstrateId[];
+export type ShippedSubstrate = (typeof SHIPPED_SUBSTRATES)[number];

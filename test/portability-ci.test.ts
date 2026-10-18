@@ -3,26 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { verifySubstrateProjection } from "../src/migrate/claude-skills-substrate-verify";
-import {
-  bootstrapSomaHome,
-  buildClaudeCodeHomeProjection,
-  buildCodexHomeProjection,
-  buildCursorHomeProjection,
-  buildGrokHomeProjection,
-  buildPiDevHomeProjection,
-  loadActiveVsaForBundle,
-  loadSomaHome,
-  projectClaudeCode,
-  projectCodex,
-  projectCursor,
-  projectGrok,
-  projectPiDev,
-  recordVsaDecision,
-  scaffoldVsa,
-  setActiveVsa,
-  type Projection,
-} from "../src/index";
-import type { ClaudeSkillsSmokeSubstrate, SomaSkill } from "../src/types";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { buildClaudeCodeHomeProjection, buildCodexHomeProjection, buildCursorHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection, projectClaudeCode, projectCodex, projectCursor, projectGrok, projectPiDev } from "../src/substrates/index";
+import { loadActiveVsaForBundle, recordVsaDecision, scaffoldVsa, setActiveVsa } from "../src/vsa/index";
+import { loadSomaHome } from "../src/home/index";
+import type { Projection } from "../src/substrates/types";
+import type { ClaudeSkillsSmokeSubstrate } from "../src/migrate/types";
+import type { SomaSkill } from "../src/home/types";
 import type { ProjectionInput } from "../src/home/index";
 import { portableProjectionInput } from "./fixtures";
 

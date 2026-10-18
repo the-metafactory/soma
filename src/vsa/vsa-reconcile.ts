@@ -16,7 +16,7 @@ import { readVsa, resolveSomaHome, vsaDir, writeVsa, type VsaLibraryOptions } fr
 import { appendSomaMemoryEvent } from "../events/index";
 import { parseVsa } from "./vsa-parse";
 import type { AlgorithmLogEntry, VerificationStateArtifact, Checkpoint, VsaSection } from "./types";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 
 export type VsaConflictPolicy = "error" | "prefer-master" | "prefer-feature";
 

@@ -15,7 +15,7 @@ import {
 import { getCriteria, getGoal } from "../vsa/index";
 import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { SOMA_MEMORY_PROMOTION_STORE_DIRS } from "../core/index";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { SomaMemoryPromotionOptions, SomaMemoryPromotionResult } from "./types";
 import type { AlgorithmRun } from "../algorithm/types";
 import type { SomaMemoryPromotionStore } from "../core/index";

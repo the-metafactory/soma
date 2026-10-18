@@ -2,23 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  bootstrapSomaHome,
-  loadSomaHome,
-  projectClaudeCode,
-  projectClaudeCodeHome,
-  projectCodex,
-  projectCodexHome,
-  projectCursor,
-  projectDsh,
-  projectDshHome,
-  projectGrok,
-  projectGrokHome,
-  projectPiDev,
-  projectPiDevHome,
-  type Projection,
-  type ProjectionInput,
-} from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { loadSomaHome, type ProjectionInput } from "../src/home/index";
+import { projectClaudeCode, projectClaudeCodeHome, projectCodex, projectCodexHome, projectCursor, projectDsh, projectDshHome, projectGrok, projectGrokHome, projectPiDev, projectPiDevHome } from "../src/substrates/index";
+import type { Projection } from "../src/substrates/types";
 import { projectAnthropicCoworkHome } from "../src/substrates/adapters/anthropic-cowork";
 import {
   DECISION_REFERENCE_LETTER,

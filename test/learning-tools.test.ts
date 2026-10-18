@@ -2,20 +2,9 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
-import {
-  addOpinion,
-  addOpinionEvidence,
-  captureFailure,
-  getSomaCounts,
-  harvestSessions,
-  resumeSessionProgress,
-  somaWorkRegistryPaths,
-  synthesizeLearningPatterns,
-  upsertSomaCurrentWorkPointer,
-  upsertSomaWorkRegistryEntry,
-  type InferenceBackend,
-  type InferenceRequest,
-} from "../src";
+import { addOpinion, addOpinionEvidence, captureFailure, getSomaCounts, resumeSessionProgress, synthesizeLearningPatterns, type InferenceBackend, type InferenceRequest } from "../src/tools/index";
+import { harvestSessions } from "../src/flows/index";
+import { somaWorkRegistryPaths, upsertSomaCurrentWorkPointer, upsertSomaWorkRegistryEntry } from "../src/home/index";
 import { runSomaCli } from "../src/cli";
 import { formatOpinionsMarkdown, parseOpinionsMarkdown } from "../src/tools/learning/opinion-tracker";
 

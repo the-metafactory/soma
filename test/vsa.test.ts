@@ -2,21 +2,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import {
-  bootstrapSomaHome,
-  checkCompleteness,
-  getActiveVsa,
-  getCriteria,
-  getGoal,
-  listAvailableTiers,
-  listVsas,
-  readVsa,
-  recordVsaDecision,
-  scaffoldVsa,
-  setActiveVsa,
-  writeVsa,
-  somaMemoryEventsPath,
-} from "../src/index";
+import { bootstrapSomaHome } from "../src/flows/index";
+import { checkCompleteness, getActiveVsa, getCriteria, getGoal, listAvailableTiers, listVsas, readVsa, recordVsaDecision, scaffoldVsa, setActiveVsa, writeVsa } from "../src/vsa/index";
+import { somaMemoryEventsPath } from "../src/events/index";
 // Path helpers are intentionally internal (#34 Sage round-2 finding) —
 // tests import them directly from the implementation module.
 import { activeStatePath, vsaPath } from "../src/vsa/vsa";

@@ -12,7 +12,7 @@ import {
   noteIdSlugSegment,
 } from "./memory-note";
 import { SOMA_MEMORY_ACTION_APPROVALS, type SomaMemoryActionOptions, type SomaMemoryActionResult, type SomaMemoryDigestOptions, type SomaMemoryDigestResult, type SomaMemoryNote } from "./types";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 
 /**
  * Episodic capture (subsystem M5). Session digests + a first-class action log,

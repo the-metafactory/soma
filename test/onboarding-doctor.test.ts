@@ -5,7 +5,7 @@ import { PAI_MIGRATION_REMOVED_NOTICE, planSomaInit, diagnoseSomaDoctor } from "
 import { withProvenance } from "../src/substrates/adapters/shared/provenance";
 import { runSomaCli } from "../src/cli";
 import { DOCTOR_SUPPORTED_SUBSTRATES, isDoctorSubstrate } from "../src/substrates/adapters/doctor";
-import { bootstrapSomaHome, installSomaForCodex as installSomaForCodexUnshared } from "../src/index";
+import { bootstrapSomaHome, installSomaForCodex as installSomaForCodexUnshared } from "../src/flows/index";
 import { expectSomaCliError } from "./fixtures/cli-error";
 import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
 import { installSomaForClaudeCode, installSomaForCodex } from "./fixtures/shared-runtime";

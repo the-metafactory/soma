@@ -1,4 +1,4 @@
-import type { ProjectionSubstrate } from "../types";
+import type { ProjectionSubstrate } from "../core/types";
 
 /** Immutable input for preparing one substrate execution. */
 export interface SomaExecutionRequest {
@@ -108,4 +108,27 @@ export interface SubstrateExecutor {
   prepare(request: SomaExecutionRequest, options?: PrepareOptions): Promise<PreparedExecution>;
   execute(prepared: PreparedExecution, options?: ExecuteOptions): AsyncIterable<SomaExecutionEvent>;
   cancel(executionId: string, options?: CancelOptions): Promise<void>;
+}
+
+/**
+ * @deprecated Use {@link SomaExecutionRequest}; retained for source
+ * compatibility while adapters remain projection-only.
+ */
+export interface SomaTask {
+  id: string;
+  substrate: ProjectionSubstrate;
+  prompt: string;
+  cwd?: string;
+}
+
+/**
+ * @deprecated Use {@link SomaExecutionResult}; retained for source
+ * compatibility while adapters remain projection-only.
+ */
+export interface SomaRunResult {
+  taskId: string;
+  substrate: ProjectionSubstrate;
+  status: "completed" | "failed" | "cancelled";
+  summary: string;
+  artifacts?: string[];
 }

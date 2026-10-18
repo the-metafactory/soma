@@ -44,7 +44,7 @@ import { createPaths } from "../core/index";
 import { loadActiveVsaForBundle } from "../vsa/index";
 import { loadMemoryIndexForProjection } from "../memory/index";
 import { isEnoent } from "../core/index";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { SomaInstallPlan } from "./types";
 import type {
   ProjectionInput,

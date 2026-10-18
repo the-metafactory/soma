@@ -30,7 +30,7 @@ import {
   runLedgerSpoolPath,
   type RunLedgerEnv,
 } from "../src/flows/run-ledger";
-import type { AlgorithmPhase } from "../src/types";
+import type { AlgorithmPhase } from "../src/core/types";
 import type { AlgorithmRun } from "../src/algorithm/types";
 
 const RUN_ID = "run-ledger-fixture";

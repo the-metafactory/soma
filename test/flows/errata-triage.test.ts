@@ -10,7 +10,7 @@ import { createAlgorithmRun, verifyAlgorithmCriterion } from "../../src/algorith
 import { writeAlgorithmRun } from "../../src/algorithm/algorithm-store";
 import type { ExecutionRunFinishedEvent } from "@the-metafactory/myelin";
 import type { RunFinishedInput } from "../../src/flows/run-ledger";
-import type { SomaMemoryEvent } from "../../src/types";
+import type { SomaMemoryEvent } from "../../src/events/index";
 
 const homes: string[] = [];
 afterEach(async () => { await Promise.all(homes.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });

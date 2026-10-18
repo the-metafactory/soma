@@ -1,4 +1,5 @@
-import type { SubstrateId, ProjectionSubstrate, ShippedSubstrate } from "../types";
+import type { SubstrateId, ProjectionSubstrate } from "../core/types";
+import type { ShippedSubstrate } from "../policy/types";
 import type { ProjectionInput } from "../home/types";
 import type { InstallSubstrate } from "../policy/types";
 

@@ -5,7 +5,7 @@ import { projectCursor } from "../../src/substrates/adapters/cursor";
 import { projectDsh, projectDshHome } from "../../src/substrates/adapters/dsh/adapter";
 import { projectGrok } from "../../src/substrates/adapters/grok/adapter";
 import { projectPiDev, projectPiDevHome } from "../../src/substrates/adapters/pi-dev/adapter";
-import { type Projection } from "../../src/types";
+import type { Projection } from "../../src/substrates/types";
 import { projectAnthropicCoworkHome } from "../../src/substrates/adapters/anthropic-cowork";
 import { SELF_HEALING_DOCTRINE_ADVISORY, SELF_HEALING_DOCTRINE_TITLE, SELF_HEALING_ROUTES, renderSelfHealingRoute } from "../../src/policy/self-healing-doctrine";
 import { portableProjectionInput } from "../fixtures";

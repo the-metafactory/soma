@@ -4,7 +4,7 @@ import { isEnoent } from "../../../core/index";
 import { rewriteSkillNameFrontmatter } from "../../skill-frontmatter";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import type { Projection } from "../../types";
-import type { SomaSkill } from "../../../types";
+import type { SomaSkill } from "../../../home/types";
 
 export const PI_DEV_VSA_SKILL_ID = "vsa";
 

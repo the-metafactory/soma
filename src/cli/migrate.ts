@@ -9,15 +9,7 @@ import {
   REASON_PREFIX_SLASH_COMMAND,
 } from "../migrate/index";
 import { createSomaSnapshot } from "../home/index";
-import type {
-  ClaudeSkillOutcome,
-  ClaudeSkillsMigrationManifest,
-  ClaudeSkillsMigrationOptions,
-  ClaudeSkillsMigrationPlan,
-  ClaudeSkillsMigrationResult,
-  ClaudeSkillsSmokeSubstrate,
-  RewriteDescriptionsAgent,
-} from "../types";
+import type { ClaudeSkillOutcome, ClaudeSkillsMigrationManifest, ClaudeSkillsMigrationOptions, ClaudeSkillsMigrationPlan, ClaudeSkillsMigrationResult, ClaudeSkillsSmokeSubstrate, RewriteDescriptionsAgent } from "../migrate/types";
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 

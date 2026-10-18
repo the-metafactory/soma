@@ -1,8 +1,8 @@
 import { readSync } from "node:fs";
-import { captureSomaFeedback } from "../index";
+import { captureSomaFeedback } from "../flows/index";
 import { SOMA_FEEDBACK_ACTORS, SOMA_FEEDBACK_STDIN_MAX_BYTES } from "../events/index";
 import type { SomaFeedbackActor } from "../events/index";
-import type { SomaFeedbackCaptureOptions, SomaFeedbackCaptureResult } from "../types";
+import type { SomaFeedbackCaptureOptions, SomaFeedbackCaptureResult } from "../flows/types";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 

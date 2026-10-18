@@ -1,6 +1,5 @@
 /** Public face of the substrates component (node #813). */
 import "./adapters/claude-code/projection-self-repair";
-export * as experimentalAnthropicCowork from "./experimental/anthropic-cowork";
 export { allInstallSpecs, defaultSubstrateHome, installSpecFor, isRegisteredInstallSubstrate } from "./install-spec-registry";
 export { assertActiveCliRuntime, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, isRuntimeArtifactTarget, locateRuntimeArtifact, prepareRuntimeSource, readRuntimeArtifactState, rollbackRuntimeArtifact, stageRuntimeArtifacts } from "./runtime-artifact";
 export { buildAnthropicCoworkHomeProjection, buildClaudeCodeHomeProjection, buildCodexHomeProjection, buildCursorHomeProjection, buildDshHomeProjection, buildGrokHomeProjection, buildPiDevHomeProjection, buildSubstrateHomeProjection, installAnthropicCoworkHomeProjection, installClaudeCodeHomeProjection, installCodexHomeProjection, installCursorHomeProjection, installDshHomeProjection, installGrokHomeProjection, installPiDevHomeProjection, resolveHomeProjectionPaths } from "./home-projection";

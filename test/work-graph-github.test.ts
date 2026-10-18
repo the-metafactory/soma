@@ -1,23 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseGraphArgs, runGraphCli } from "../src/cli/graph";
-import {
-  WorkGraph,
-  WorkGraphError,
-  SUBTREE_QUERY_PRIMARY_RATE_POINTS,
-  checkGitHubConfinement,
-  createGitHubGraphStore,
-  decodeNodeBlock,
-  encodeNodeBlock,
-  estimateSubtreeQueryPrimaryRatePoints,
-  ghApiArgs,
-  hashGatedNodeFields,
-  parseGhApiOutput,
-  parseNodeSpec,
-  type GitHubApiRequest,
-  type ConfinementDeps,
-  type GitHubApiTransport,
-  type Probe,
-} from "../src/index";
+import { WorkGraph, WorkGraphError, SUBTREE_QUERY_PRIMARY_RATE_POINTS, checkGitHubConfinement, createGitHubGraphStore, decodeNodeBlock, encodeNodeBlock, estimateSubtreeQueryPrimaryRatePoints, ghApiArgs, hashGatedNodeFields, parseGhApiOutput, parseNodeSpec, type GitHubApiRequest, type ConfinementDeps, type GitHubApiTransport, type Probe } from "../src/graph/index";
 
 const REPO = "the-metafactory/soma";
 const PROBE: Probe = { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 };

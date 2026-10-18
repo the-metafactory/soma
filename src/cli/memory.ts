@@ -1,26 +1,9 @@
-import {
-  auditMemory,
-  consolidateMemory,
-  promoteAlgorithmRunMemory,
-  rebuildMemoryIndex,
-  recallMemory,
-  reprojectSubstrateMemoryProjection,
-  resurfaceMemoryNote,
-  runMemoryBackfill,
-  searchSomaMemory,
-  verifyMemoryNote,
-  writeMemoryAction,
-  writeMemoryNote,
-  writeSessionDigest,
-  type ReprojectSubstrateMemoryProjectionResult,
-} from "../index";
+import { auditMemory, consolidateMemory, rebuildMemoryIndex, recallMemory, resurfaceMemoryNote, runMemoryBackfill, searchSomaMemory, verifyMemoryNote, writeMemoryAction, writeMemoryNote, writeSessionDigest } from "../memory/index";
+import { promoteAlgorithmRunMemory, reprojectSubstrateMemoryProjection, type ReprojectSubstrateMemoryProjectionResult } from "../flows/index";
 import { WRITABLE_NOTE_TYPES, isWritableNoteType, sanitizeNoteText, SOMA_MEMORY_ACTION_APPROVALS } from "../memory/index";
 import { SOMA_MEMORY_PROMOTION_STORES } from "../core/index";
-import type {
-  SomaMemoryPromotionOptions,
-  SomaMemoryPromotionResult,
-  SubstrateId,
-} from "../types";
+import type { SomaMemoryPromotionOptions, SomaMemoryPromotionResult } from "../flows/types";
+import type { SubstrateId } from "../core/types";
 import type {
   SomaMemoryActionApproval,
   SomaMemoryActionOptions,

@@ -20,7 +20,7 @@ import {
   readVsa,
   type VsaUpdateEntry,
 } from "../vsa/index";
-import type { SubstrateId } from "../types";
+import type { SubstrateId } from "../core/types";
 import type { AlgorithmWorkIndex, VsaUpdatePayload, SomaLifecycleResult, SomaStartupContext } from "./types";
 import type { AlgorithmRun, AlgorithmRunSummary } from "../algorithm/types";
 import type { VerificationStateArtifact } from "../vsa/index";

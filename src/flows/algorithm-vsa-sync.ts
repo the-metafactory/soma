@@ -45,7 +45,7 @@ import { datePrefixSlug } from "../core/index";
 import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { getCriteria, getDecisions, getGoal, isClosedCriterion, parseVsa, serializeVsa, type VerificationStateArtifact, type Checkpoint } from "../vsa/index";
 import { _promoteAlgorithmRunMemoryWithCallback } from "./memory-promotion";
-import type { AlgorithmPhase, SubstrateId } from "../types";
+import type { AlgorithmPhase, SubstrateId } from "../core/types";
 import type { AlgorithmPlanStep, AlgorithmRun } from "../algorithm/types";
 
 export interface SyncAlgorithmRunFromVsaOptions {

@@ -1,4 +1,4 @@
-import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase, EvidenceKind } from "../types";
+import type { AlgorithmEffortTier, AlgorithmMode, AlgorithmPhase, EvidenceKind } from "../core/types";
 
 export type CriterionStatus = "open" | "passed" | "failed" | "dropped" | "deferred-probe";
 

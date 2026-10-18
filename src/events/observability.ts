@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { parseTelemetryEventLine, queryRecentEventRecords, streamEventLines } from "./event-log";
 import { somaMemoryEventsPath } from "./event-journal";
 import type { SomaMemoryEvent, SomaTelemetryQueryOptions, SomaTelemetryQueryResult, SomaTelemetrySummary, SomaTelemetrySummaryOptions } from "./types";
-import { ALGORITHM_PHASES, type AlgorithmPhase, type SubstrateId } from "../types";
+import { ALGORITHM_PHASES, type AlgorithmPhase, type SubstrateId } from "../core/types";
 
 const ALGORITHM_PHASE_SET = new Set<AlgorithmPhase>(ALGORITHM_PHASES);
 
