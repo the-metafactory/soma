@@ -29,9 +29,9 @@ import {
   planClaudeSkillsMigration,
   probeClaudeSkillsSource,
   readClaudeSkillsMigrationStatus,
-} from "../src/claude-skills-migrator";
-import type { ClaudeSkillsMigrationManifest } from "../src/types";
-import { withTempHome } from "./fixtures/temp-home";
+} from "../../src/migrate/claude-skills-migrator";
+import type { ClaudeSkillsMigrationManifest } from "../../src/migrate/types";
+import { withTempHome } from "../fixtures/temp-home";
 
 interface SkillFile {
   // POSIX-style path relative to the skill directory.

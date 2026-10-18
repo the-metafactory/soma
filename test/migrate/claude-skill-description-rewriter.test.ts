@@ -21,7 +21,7 @@ import {
   defaultRewriteDispatch,
   sanitizeRewrittenDescription,
   SUBSTRATE_DESCRIPTION_LIMIT,
-} from "../src/claude-skill-description-rewriter";
+} from "../../src/migrate/claude-skill-description-rewriter";
 
 describe("classifyDescriptionStatus", () => {
   test("description present, ≤1024 chars → ok", () => {

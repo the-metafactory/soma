@@ -21,11 +21,11 @@ import { expect, test } from "bun:test";
 import {
   migrateClaudeSkills,
   planClaudeSkillsMigration,
-} from "../src/claude-skills-migrator";
+} from "../../src/migrate/claude-skills-migrator";
 import type {
   ClaudeSkillsMigrationManifest,
-} from "../src/types";
-import { withTempHome } from "./fixtures/temp-home";
+} from "../../src/migrate/types";
+import { withTempHome } from "../fixtures/temp-home";
 
 interface FixtureSkill {
   name: string;

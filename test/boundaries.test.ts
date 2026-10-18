@@ -197,6 +197,32 @@ describe("component boundaries on the repository", () => {
     });
   }, { timeout: 30_000 });
 
+  test("migrate public entries reject every internal and have no outward violations", async () => {
+    expect(components.migrate.files).toEqual(["src/migrate/**"]);
+    expect(components.migrate.publicEntries).toEqual(["src/migrate/index.ts", "src/migrate/types.ts"]);
+    await withRepoFixture("soma-boundaries-migrate-entry-", async (root) => {
+      const importer = join(root, "src/cli/migrate-entry-fixture.ts");
+      const internals = (await readdir(join(root, "src/migrate")))
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
+      expect(internals.length).toBeGreaterThan(0);
+      await writeFile(importer, internals.map((name) => `import "../migrate/${name.slice(0, -3)}";\n`).join(""));
+      const internal = checkBoundaries({ root, updateBaseline: true });
+      expect(internal.ok).toBe(false);
+      for (const name of internals) {
+        expect(internal.newViolations).toContainEqual(expect.objectContaining({
+          from: "src/cli/migrate-entry-fixture.ts",
+          to: `src/migrate/${name}`,
+          toComponent: "migrate",
+          rule: "public-entry",
+        }));
+      }
+      await writeFile(importer, 'import "../migrate/index";\nimport "../migrate/types";\n');
+      const publicEntry = checkBoundaries({ root, updateBaseline: true });
+      if (!publicEntry.ok) throw new Error(formatReport(publicEntry));
+      expect(publicEntry.violations.filter((v) => v.fromComponent === "migrate" && v.toComponent !== "legacy")).toEqual([]);
+    });
+  }, { timeout: 30_000 });
+
   test("algorithm public entries reject internals and keep classify unbarrelled", async () => {
     expect(components.algorithm.files).toEqual(["src/algorithm/**"]);
     expect(components.algorithm.publicEntries).toContain("src/algorithm/index.ts");
@@ -241,17 +267,17 @@ describe("component boundaries on the repository", () => {
 
   test("skill migration keeps its leaf closure and rejects the substrates barrel's growth", async () => {
     const report = checkBoundaries({ root: repoRoot });
-    const reachable = reachableFrom(report, "src/claude-skills-migrator.ts");
+    const reachable = reachableFrom(report, "src/migrate/claude-skills-migrator.ts");
     expect(reachable.has("src/substrates/index.ts")).toBe(false);
     expect(reachable.has("src/substrates/install-spec-registry.ts")).toBe(false);
-    expect(report.closures.migrate).toBeLessThanOrEqual(19_000);
+    expect(report.closures.migrate).toBeLessThanOrEqual(11_000);
 
     await withRepoFixture("soma-boundaries-migrate-", async (root) => {
-      await writeFile(join(root, "src/claude-skills-barrel-fixture.ts"), 'import "./substrates/index";\n');
+      await writeFile(join(root, "src/migrate/barrel-fixture.ts"), 'import "../substrates/index";\n');
       const grown = checkBoundaries({ root });
       expect(grown.ok).toBe(false);
       expect(grown.closureGrowth).toContainEqual({
-        component: "migrate", baseline: 19_000, actual: grown.closures.migrate,
+        component: "migrate", baseline: 11_000, actual: grown.closures.migrate,
       });
     });
   });

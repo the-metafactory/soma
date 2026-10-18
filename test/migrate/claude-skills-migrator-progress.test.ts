@@ -23,9 +23,9 @@ import { expect, test } from "bun:test";
 import {
   migrateClaudeSkills,
   planClaudeSkillsMigration,
-} from "../src/claude-skills-migrator";
-import { withTempHome as withSharedTempHome } from "./fixtures/temp-home";
-import type { ProgressEmitter, PhaseTimings } from "../src/claude-skills-progress";
+} from "../../src/migrate/claude-skills-migrator";
+import { withTempHome as withSharedTempHome } from "../fixtures/temp-home";
+import type { ProgressEmitter, PhaseTimings } from "../../src/migrate/claude-skills-progress";
 
 const withTempHome = <T>(fn: (homeDir: string) => Promise<T>): Promise<T> =>
   withSharedTempHome(fn, "soma-125-progress-");

@@ -12,7 +12,7 @@
   "graph": 13000,
   "execution": 8000,
   "substrates": 46000,
-  "migrate": 19000,
+  "migrate": 11000,
   "flows": 61000,
   "cli": 77500,
   "legacy": 62000

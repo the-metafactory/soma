@@ -139,7 +139,7 @@
       "count": 3
     }
   },
-  "src/claude-skills-migrator.ts": {
+  "src/migrate/claude-skills-migrator.ts": {
     "soma/no-discarded-error": {
       "count": 1
     }

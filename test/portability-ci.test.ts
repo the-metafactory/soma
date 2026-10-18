@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { verifySubstrateProjection } from "../src/claude-skills-substrate-verify";
+import { verifySubstrateProjection } from "../src/migrate/claude-skills-substrate-verify";
 import {
   bootstrapSomaHome,
   buildClaudeCodeHomeProjection,

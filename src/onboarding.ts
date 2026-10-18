@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift, isDoctorSubstrate, inspectRuntimeArtifact, isGuardedRuntimeSubstrate, readRuntimeArtifactState, type SomaDoctorFinding } from "./substrates/index";
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForDsh, installSomaForGrok, installSomaForPiDev } from "./install";
-import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
+import { migrateClaudeSkills, probeClaudeSkillsSource } from "./migrate/index";
 import { bootstrapSomaHome } from "./home-bootstrap";
 import { isFsUtilsEnoent as isEnoent, pathExists } from "./core/index";
 import type { SomaDoctorDiagnosis, SomaInitApplyResult, SomaInitPlan, SomaInitStep, SomaInitStepId, SomaOnboardingOptions, SomaOnboardingSubstrate } from "./types";
