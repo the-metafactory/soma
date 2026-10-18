@@ -51,10 +51,10 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { kebabSlug } from "./substrates/skill-content-slug";
-import { normalizeSkillContent } from "./substrates/skill-content-normalizer";
-import { EDITOR_CONFIG_DIRS } from "./substrates/skill-content-noise";
-import { runBoundedConcurrent } from "./core/index";
+import { kebabSlug } from "../substrates/skill-content-slug";
+import { normalizeSkillContent } from "../substrates/skill-content-normalizer";
+import { EDITOR_CONFIG_DIRS } from "../substrates/skill-content-noise";
+import { runBoundedConcurrent } from "../core/index";
 import { verifySubstrateProjection } from "./claude-skills-substrate-verify";
 import type {
   ClaudeSkillAuditEntry,
@@ -76,8 +76,8 @@ import type {
   DescriptionStatus,
   RewriteDescriptionsAgent,
   RewriteDispatchOverride,
-  SomaSkill,
 } from "./types";
+import type { SomaSkill } from "../types";
 import {
   classifyDescriptionStatus,
   DEFAULT_REWRITE_TARGET,

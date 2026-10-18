@@ -19,7 +19,7 @@
  *   - Frontmatter rewrite preserves name field on Pi.dev projection.
  */
 import { expect, test } from "bun:test";
-import { verifySubstrateProjection } from "../src/claude-skills-substrate-verify";
+import { verifySubstrateProjection } from "../src/migrate/claude-skills-substrate-verify";
 import type { SomaSkill } from "../src/types";
 
 function buildSkill(name: string, files: { path: string; content: string }[]): SomaSkill {

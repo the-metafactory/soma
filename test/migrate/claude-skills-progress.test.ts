@@ -18,7 +18,7 @@
  */
 import { expect, test } from "bun:test";
 import { Writable } from "node:stream";
-import { createProgressEmitter } from "../src/claude-skills-progress";
+import { createProgressEmitter } from "../../src/migrate/claude-skills-progress";
 
 interface CaptureResult {
   bytes: Buffer[];

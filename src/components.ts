@@ -180,7 +180,8 @@ export const components: ComponentManifest<ComponentName> = {
     units: Object.fromEntries(substrateUnitNames.map((name) => [name, substrateUnit(name)])),
   },
   migrate: {
-    files: ["src/claude-skills-*", "src/claude-skill-description-rewriter"],
+    files: ["src/migrate/**"],
+    publicEntries: ["src/migrate/index.ts", "src/migrate/types.ts"],
     mayImport: ["core", "substrates", "legacy"],
   },
   flows: {

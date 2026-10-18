@@ -1,13 +1,13 @@
 import {
   countOutcomesWithMissingDependencies,
+  createProgressEmitter,
   migrateClaudeSkills,
   planClaudeSkillsMigration,
   readClaudeSkillsMigrationStatus,
   resolveOutcomeReason,
   REASON_PREFIX_HOOK_BINDING,
   REASON_PREFIX_SLASH_COMMAND,
-} from "../claude-skills-migrator";
-import { createProgressEmitter } from "../claude-skills-progress";
+} from "../migrate/index";
 import { createSomaSnapshot } from "../home/index";
 import type {
   ClaudeSkillOutcome,

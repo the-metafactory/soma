@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseDescriptionFromFrontmatter } from "../src/claude-skills-frontmatter";
+import { parseDescriptionFromFrontmatter } from "../../src/migrate/claude-skills-frontmatter";
 
 test("parseDescriptionFromFrontmatter reads literal block scalar descriptions", () => {
   const skillMd = [
