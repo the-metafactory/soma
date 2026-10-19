@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 
 const CLOSING = join(import.meta.dir, "..", "src", "skills", "orienteer", "references", "closing.md");
-const CANONICAL_CLONE = "/Users/fischer/work/ranger-repos/the-metafactory/soma";
 
 test("closing.md tells charting agents to probe the merged base with bun run test in the canonical clone", async () => {
   const text = await readFile(CLOSING, "utf8");
@@ -12,10 +11,11 @@ test("closing.md tells charting agents to probe the merged base with bun run tes
   expect(JSON.parse(probeLine as string)).toEqual({
     type: "command",
     run: "bun run test",
-    cwd: CANONICAL_CLONE,
+    cwd: expect.stringMatching(/^\//),
     timeoutSec: 1800,
     expectExit: 0,
   });
+  expect(text).toContain("as configured on this installation");
   expect(text).toContain("never a bare `bun test`");
   expect(text).toContain("per-test timeout");
   expect(text).toContain("merged base");

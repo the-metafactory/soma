@@ -84,9 +84,10 @@ probe as above:
 - `run` is `bun run test`, never a bare `bun test`. A bare `bun test` gives each
   test the 5 s default; `bun run test` carries the per-test timeout in soma's
   `package.json`, which the suite needs.
-- `cwd` is the walker's canonical clone (`/Users/fischer/work/ranger-repos/the-metafactory/soma`),
-  which a merge fast-forwards. Never name a working checkout (for soma,
-  `/Users/fischer/work/mf/soma`): it sits on whatever branch its owner is
+- `cwd` is the walker's canonical clone as configured on this installation (the
+  path in the example above is one installation's; use your own), which a merge
+  fast-forwards. Never name a working checkout (for the example
+  installation, `/Users/fischer/work/mf/soma`): it sits on whatever branch its owner is
   working, with uncommitted edits, so the probe tests the wrong tree. Nothing
   flags such a `cwd` — the registry does not mark which entries are working
   checkouts, and `soma graph audit` does not check — so avoiding it is the
