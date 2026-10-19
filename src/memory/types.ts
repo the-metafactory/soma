@@ -60,6 +60,11 @@ export type SomaMemoryNoteType = (typeof SOMA_MEMORY_NOTE_TYPES)[number];
 // Soma core noun; the plan's `agent` tier is renamed here at first codification.
 export const SOMA_MEMORY_TRUSTS = ["principal", "assistant", "quarantined"] as const;
 export type SomaMemoryTrust = (typeof SOMA_MEMORY_TRUSTS)[number];
+// Support level = how well a claim has been checked. Its own ladder, separate
+// from `trust` (who vouched). A note without `support` is unrated, never a
+// default level.
+export const SOMA_MEMORY_SUPPORT_LEVELS = ["specified", "probed", "tested", "judged", "outcome-verified"] as const;
+export type SomaMemorySupportLevel = (typeof SOMA_MEMORY_SUPPORT_LEVELS)[number];
 
 export interface SomaMemoryNote {
   id: string;                 // kebab slug; storage layer (M1) binds it to the filename stem
@@ -76,6 +81,8 @@ export interface SomaMemoryNote {
   resurface_count: number;    // integer >= 0
   hook?: string;              // optional: recall-trigger phrase
   review?: string;            // optional: review directive
+  support?: SomaMemorySupportLevel; // optional: absent = unrated; pairs with support_as_of
+  support_as_of?: string;     // YYYY-MM-DD the support level was assessed; pairs with support
   body: string;               // markdown after the closing ---
 }
 
