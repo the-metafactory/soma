@@ -15,3 +15,11 @@ test("neutral session wins and unsupported or empty primitives invent no session
   }
   expect(resolveSubstrateSessionEnv({ SOMA_SESSION_ID: "", CLAUDE_CODE_SESSION_ID: "S1" }).SOMA_SESSION_ID).toBe("S1");
 });
+
+test("a known substrate reads only its own primitive", () => {
+  const env = { CLAUDE_CODE_SESSION_ID: "S1" };
+  expect(resolveSubstrateSessionEnv(env, "claude-code")).toEqual({ ...env, SOMA_SESSION_ID: "S1" });
+  for (const substrate of ["codex", "pi-dev"] as const) {
+    expect(resolveSubstrateSessionEnv(env, substrate)).toBe(env);
+  }
+});

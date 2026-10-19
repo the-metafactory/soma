@@ -500,7 +500,7 @@ async function syncAlgorithmRunFromVsaInner(
 ): Promise<SyncAlgorithmRunFromVsaResult> {
   const somaHome = resolveSomaHome(options);
   const timestamp = options.timestamp ?? new Date().toISOString();
-  const env = resolveSubstrateSessionEnv(options.env ?? process.env);
+  const env = resolveSubstrateSessionEnv(options.env ?? process.env, options.substrate);
 
   let markdown: string;
   try {

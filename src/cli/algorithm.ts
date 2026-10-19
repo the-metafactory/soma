@@ -887,7 +887,7 @@ export async function appendVerificationGateViolationEvent(
   runSubstrate?: AlgorithmRun["substrate"],
   env: RunLedgerDeps["env"] = process.env,
 ): Promise<void> {
-  const sessionId = algorithmSessionId(resolveSubstrateSessionEnv(env));
+  const sessionId = algorithmSessionId(resolveSubstrateSessionEnv(env, options.substrate ?? runSubstrate));
   try {
     await appendSomaMemoryEvent(defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome }), {
       // Attribute to the run's own substrate when the CLI flag is absent — a
@@ -933,15 +933,15 @@ function finishedOutcome(before: AlgorithmRun, after: AlgorithmRun): RunOutcome 
 export async function updateAndReportAlgorithmRun(
   options: AlgorithmCliOptions,
   deps: RunLedgerDeps,
-  update: (run: AlgorithmRun) => AlgorithmRun,
+  update: (run: AlgorithmRun, env: NonNullable<RunLedgerDeps["env"]>) => AlgorithmRun,
   registration: { registerCapabilities?: boolean; batch?: boolean } = {},
 ): Promise<string> {
-  const env = resolveSubstrateSessionEnv(deps.env ?? process.env);
   const id = requireAlgorithmId(options);
   const { run } = await readAlgorithmRunById(id, {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
   });
+  const env = resolveSubstrateSessionEnv(deps.env ?? process.env, options.substrate ?? run.substrate);
   const registered =
     registration.registerCapabilities === true
       ? await registerSomaHomeAlgorithmCapabilities(run, {
@@ -952,7 +952,7 @@ export async function updateAndReportAlgorithmRun(
       : run;
   let updated: AlgorithmRun;
   try {
-    updated = update(registered);
+    updated = update(registered, env);
   } catch (error) {
     // A VerificationGate refusal is the most on-mission signal this CLI sees —
     // an attempted hollow "done". The 2026-07-10 proxy-drift audit found it was
@@ -1066,7 +1066,7 @@ export async function runAlgorithmCli(
 ): Promise<string> {
   const options = parsed.options;
   const deps: AlgorithmCliDeps = { readNode: async (nodeId, opts) => await readNodeForBridge(nodeId, opts), ...overrides };
-  const env = resolveSubstrateSessionEnv(deps.env ?? process.env);
+  const env = resolveSubstrateSessionEnv(deps.env ?? process.env, options.substrate);
 
   if (parsed.action === "classify") {
     if (!options.prompt) throw new Error("--prompt is required.");
@@ -1260,9 +1260,9 @@ export async function runAlgorithmCli(
     // probed/tested claim (or deferred-probe), making a hollow pass auditable — it
     // does not verify the probe actually happened.
     const evidenceKind = defaultEvidenceKind(options.evidenceKind, criterionStatus);
-    return updateAndReportAlgorithmRun(options, deps, (run) =>
+    return updateAndReportAlgorithmRun(options, deps, (run, runEnv) =>
       verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, {
-        provenance: { substrate: options.substrate }, evidenceKind, env,
+        provenance: { substrate: options.substrate }, evidenceKind, env: runEnv,
       }),
     );
   }
@@ -1322,7 +1322,7 @@ export async function runAlgorithmCli(
 
   if (parsed.action === "batch") {
     const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, deps, (run) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }, env), {
+    return updateAndReportAlgorithmRun(options, deps, (run, runEnv) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }, runEnv), {
       registerCapabilities: true,
       batch: true,
     });

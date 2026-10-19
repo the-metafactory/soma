@@ -25,7 +25,7 @@ test("computeGatesFired reads the real gate predicates off the run", () => {
   run = recordAlgorithmObservation(run, { claim: "C1 exists", evidence: "read the isa", evidenceKind: "probed" }, "2026-06-23T10:00:30.000Z");
   expect(computeGatesFired(run).currentStateFloor).toBe(true);
 
-  run = verifyAlgorithmCriterion(run, "C1", "passed", "Test asserts the record.", "2026-06-23T10:01:00.000Z", undefined, "tested");
+  run = verifyAlgorithmCriterion(run, "C1", "passed", "Test asserts the record.", { timestamp: "2026-06-23T10:01:00.000Z", evidenceKind: "tested" });
   expect(computeGatesFired(run)).toEqual({ currentStateFloor: true, learnGateClean: true, completeness: true });
 });
 

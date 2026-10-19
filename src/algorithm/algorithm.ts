@@ -562,32 +562,8 @@ export function verifyAlgorithmCriterion(
   criterionId: string,
   status: "passed" | "failed" | "dropped" | "deferred-probe",
   evidence: string,
-  options?: AlgorithmVerifyOptions,
-): AlgorithmRun;
-/** Compatibility overload for existing timestamp/provenance callers. */
-export function verifyAlgorithmCriterion(
-  run: AlgorithmRun,
-  criterionId: string,
-  status: "passed" | "failed" | "dropped" | "deferred-probe",
-  evidence: string,
-  timestamp?: string,
-  provenance?: Pick<AlgorithmProvenanceInput, "substrate">,
-  evidenceKind?: Checkpoint["evidenceKind"],
-  enforceGate?: boolean,
-): AlgorithmRun;
-export function verifyAlgorithmCriterion(
-  run: AlgorithmRun,
-  criterionId: string,
-  status: "passed" | "failed" | "dropped" | "deferred-probe",
-  evidence: string,
-  optionsOrTimestamp: AlgorithmVerifyOptions | string = {},
-  legacyProvenance?: Pick<AlgorithmProvenanceInput, "substrate">,
-  legacyEvidenceKind?: Checkpoint["evidenceKind"],
-  legacyEnforceGate = true,
+  options: AlgorithmVerifyOptions = {},
 ): AlgorithmRun {
-  const options: AlgorithmVerifyOptions = typeof optionsOrTimestamp === "string"
-    ? { timestamp: optionsOrTimestamp, provenance: legacyProvenance, evidenceKind: legacyEvidenceKind, enforceGate: legacyEnforceGate }
-    : { provenance: legacyProvenance, evidenceKind: legacyEvidenceKind, enforceGate: legacyEnforceGate, ...optionsOrTimestamp };
   const { timestamp, provenance, evidenceKind, enforceGate = true, env = {} } = options;
   assertNonEmpty(evidence, "verification evidence");
 
