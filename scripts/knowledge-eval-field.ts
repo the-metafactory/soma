@@ -161,6 +161,13 @@ export async function readFieldSession(path: string, project: string): Promise<F
 export interface LoadOptions {
   now: Date;
   windowDays?: number;
+  /** Read only transcripts whose file name (the session id) is in this set. */
+  sessionIds?: ReadonlySet<string>;
+}
+
+function restrictToWindow(session: FieldSession, since: string): FieldSession {
+  const turns = session.turns.filter((turn) => turn.timestamp >= since);
+  return { ...session, turns, corrections: turns.filter((turn) => turn.correction).length };
 }
 
 export async function loadFieldSessions(projectsDir: string, options: LoadOptions): Promise<FieldSession[]> {
@@ -171,13 +178,14 @@ export async function loadFieldSessions(projectsDir: string, options: LoadOption
   for (const project of projects) {
     const files = readdirSync(join(projectsDir, project), { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .filter((entry) => options.sessionIds === undefined || options.sessionIds.has(basename(entry.name, ".jsonl")))
       .map((entry) => entry.name)
       .sort();
     for (const file of files) {
       const session = await readFieldSession(join(projectsDir, project, file), project);
       if (session === undefined) continue;
       if (since !== undefined && session.lastActivity < since) continue;
-      sessions.push(session);
+      sessions.push(since === undefined ? session : restrictToWindow(session, since));
     }
   }
   return sessions;
@@ -540,7 +548,10 @@ export async function runField(argv: readonly string[], deps: FieldDeps, env: Re
       throw error;
     }
     const sheet = parseLabelSheet(raw, args.agree);
-    const sessions = await loadFieldSessions(args.projectsDir, { now: deps.now });
+    const sessions = await loadFieldSessions(args.projectsDir, {
+      now: deps.now,
+      sessionIds: new Set(sheet.sessions.map((labelled) => labelled.sessionId)),
+    });
     const agreement = computeAgreement(sheet, sessions);
     deps.write(args.json ? JSON.stringify(agreement, null, 2) : formatAgreement(agreement));
     return;

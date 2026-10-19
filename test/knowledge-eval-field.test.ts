@@ -93,6 +93,26 @@ describe("field report", () => {
     expect(report.overall.sessionIds).not.toContain("s-old");
   });
 
+  test("a session spanning the cutoff counts only its in-window corrections", async () => {
+    session(SOMA, "s-span", [
+      user("Actually, use the other approach instead", daysAgo(200)),
+      user("Wait, you misunderstood the request", daysAgo(3)),
+      user("Run the tests before committing please", daysAgo(1)),
+    ]);
+    const sessions = await loadFieldSessions(projectsDir, { now: NOW, windowDays: 60 });
+    const spanning = sessions.find((candidate) => candidate.sessionId === "s-span");
+    expect(spanning?.corrections).toBe(1);
+    expect(spanning?.turns.map((turn) => turn.turn)).toEqual([2, 3]);
+    const all = await loadFieldSessions(projectsDir, { now: NOW });
+    expect(all.find((candidate) => candidate.sessionId === "s-span")?.corrections).toBe(2);
+  });
+
+  test("sessionIds restricts which transcripts are read", async () => {
+    seedSessions();
+    const sessions = await loadFieldSessions(projectsDir, { now: NOW, sessionIds: new Set(["s-soma-1", "s-old"]) });
+    expect(sessions.map((candidate) => candidate.sessionId).sort()).toEqual(["s-old", "s-soma-1"]);
+  });
+
   test("a tool result that matches a correction pattern is not a principal turn", async () => {
     seedSessions();
     const sessions = await loadFieldSessions(projectsDir, { now: NOW, windowDays: 60 });
