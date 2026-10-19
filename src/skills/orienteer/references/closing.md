@@ -66,7 +66,7 @@ Evidence is typed by whether it was *specified* before the work and then
 point. A probe is a machine-checkable expectation, never prose:
 
 ```json
-{"type": "command", "run": "bun test", "timeoutSec": 900, "expectExit": 0}
+{"type": "command", "run": "bun run test", "cwd": "/Users/fischer/work/ranger-repos/the-metafactory/soma", "timeoutSec": 1800, "expectExit": 0}
 {"type": "url", "target": "https://status.example.com/health", "expectStatus": 200}
 {"type": "git-ref-exists", "ref": "main"}
 {"type": "git-merged-into", "ref": "feat/x", "into": "main"}
@@ -75,6 +75,32 @@ point. A probe is a machine-checkable expectation, never prose:
 
 Timeout expiry is **failure**, never a pass and never a hang. A probe that could
 not run at all is a **failed** probe, never a skipped one.
+
+### Write a soma test probe against the canonical clone
+
+A soma build node's close gate tests the **merged base**, so write the `command`
+probe as above:
+
+- `run` is `bun run test`, never a bare `bun test`. A bare `bun test` gives each
+  test the 5 s default; `bun run test` carries the per-test timeout in soma's
+  `package.json`, which the suite needs.
+- `cwd` is the walker's canonical clone (`/Users/fischer/work/ranger-repos/the-metafactory/soma`),
+  which a merge fast-forwards. Never name a working checkout (for soma,
+  `/Users/fischer/work/mf/soma`): it sits on whatever branch its owner is
+  working, with uncommitted edits, so the probe tests the wrong tree. Nothing
+  flags such a `cwd` — the registry does not mark which entries are working
+  checkouts, and `soma graph audit` does not check — so avoiding it is the
+  charting agent's job.
+- `timeoutSec` is `1800`. The full suite took 603 s alone under walker load; 900
+  refused the closes after PRs #1018, #1020 and #1022, each at about 914 s.
+
+Dependencies in the canonical clone are **ranger's job**, not the probe's: after a
+close fast-forwards the clone past a lockfile change, ranger runs
+`bun install --frozen-lockfile` there before the next close. The probe does not
+install, and a `node_modules` that has drifted from the lockfile is a ranger
+fault to report on the node, not something to patch around with a probe `run`
+such as `bun install && bun run test` (the registry authorises exact `run`
+strings only).
 
 ### The probe registry
 
