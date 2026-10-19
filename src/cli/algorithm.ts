@@ -933,7 +933,7 @@ function finishedOutcome(before: AlgorithmRun, after: AlgorithmRun): RunOutcome 
 export async function updateAndReportAlgorithmRun(
   options: AlgorithmCliOptions,
   deps: RunLedgerDeps,
-  update: (run: AlgorithmRun) => AlgorithmRun,
+  update: (run: AlgorithmRun, env: NonNullable<RunLedgerDeps["env"]>) => AlgorithmRun,
   registration: { registerCapabilities?: boolean; batch?: boolean } = {},
 ): Promise<string> {
   const id = requireAlgorithmId(options);
@@ -952,7 +952,7 @@ export async function updateAndReportAlgorithmRun(
       : run;
   let updated: AlgorithmRun;
   try {
-    updated = update(registered);
+    updated = update(registered, env);
   } catch (error) {
     // A VerificationGate refusal is the most on-mission signal this CLI sees —
     // an attempted hollow "done". The 2026-07-10 proxy-drift audit found it was
@@ -1260,9 +1260,9 @@ export async function runAlgorithmCli(
     // probed/tested claim (or deferred-probe), making a hollow pass auditable — it
     // does not verify the probe actually happened.
     const evidenceKind = defaultEvidenceKind(options.evidenceKind, criterionStatus);
-    return updateAndReportAlgorithmRun(options, deps, (run) =>
+    return updateAndReportAlgorithmRun(options, deps, (run, runEnv) =>
       verifyAlgorithmCriterion(run, criterionId, criterionStatus, evidence, {
-        provenance: { substrate: options.substrate }, evidenceKind, env,
+        provenance: { substrate: options.substrate }, evidenceKind, env: runEnv,
       }),
     );
   }
@@ -1322,7 +1322,7 @@ export async function runAlgorithmCli(
 
   if (parsed.action === "batch") {
     const operations = options.batchOperations ?? [];
-    return updateAndReportAlgorithmRun(options, deps, (run) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }, env), {
+    return updateAndReportAlgorithmRun(options, deps, (run, runEnv) => applyAlgorithmBatch(run, operations, undefined, { substrate: options.substrate }, runEnv), {
       registerCapabilities: true,
       batch: true,
     });

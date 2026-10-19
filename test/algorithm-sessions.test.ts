@@ -152,3 +152,18 @@ test("legacy prose-only entries load, render, and verify without a session", asy
   expect(run.verification[1]).toMatchObject({ criterionId: "C3", outcome: "passed", text: `C3: passed. ${evidence}` });
   expect(run.verification[1]).not.toHaveProperty("sessionId");
 });
+
+for (const action of ["verify", "batch"] as const) {
+  test(`${action} without --substrate on a codex run records no inherited Claude session`, async () => {
+    const somaHome = await home();
+    await writeAlgorithmRun({ ...fixture(), substrate: "codex" }, { somaHome });
+    const args = action === "verify"
+      ? ["verify", "--criterion-id", "C3", "--status", "passed", "--evidence-kind", "tested", "--evidence", evidence]
+      : ["batch", "--op", `verify:C3:passed+tested:${evidence}`];
+    await cli(somaHome, args, S1);
+    const { run } = await readAlgorithmRunById("sessions", { somaHome });
+    expect(run.verification.at(-1)).toMatchObject({ criterionId: "C3", outcome: "passed" });
+    expect(run.verification.at(-1)).not.toHaveProperty("sessionId");
+    expect(run.sessionIds ?? []).toEqual([]);
+  });
+}
