@@ -372,6 +372,23 @@ describe("trial function with the substrate stubbed", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  test("a hook path the substrate plants in the shared cache does not run on the next trial", async () => {
+    const repo = makeRepo(root);
+    writeFixture(baseFixture(repo));
+    const marker = join(root, "post-checkout-ran");
+    const hooks = join(root, "planted-hooks");
+    mkdirSync(hooks);
+    writeFileSync(join(hooks, "post-checkout"), `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+    await runTrial(options(), stubDeps(async (input) => {
+      await runProcess(["git", "config", "core.hooksPath", hooks], { cwd: input.cwd });
+      await runProcess(["git", "config", "core.sshCommand", `touch ${marker}`], { cwd: input.cwd });
+      return { exitCode: 0, stdout: STREAM, stderr: "", timedOut: false };
+    }));
+    expect(existsSync(marker)).toBe(false);
+    await runTrial(options(), stubDeps(writingRun(STREAM)));
+    expect(existsSync(marker)).toBe(false);
+  });
+
   test("the substrate gets the hinted prompt, the worktree at rev, and the isolated environment", async () => {
     const repo = makeRepo(root);
     writeFixture(baseFixture(repo));

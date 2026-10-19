@@ -475,7 +475,7 @@ export async function runProcess(
 const SAFE_GIT_CONFIG = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"] as const;
 
 async function git(args: readonly string[], cwd?: string, env?: Record<string, string | undefined>): Promise<string> {
-  const result = await runProcess(["git", ...(env === undefined ? [] : SAFE_GIT_CONFIG), ...args], {
+  const result = await runProcess(["git", ...SAFE_GIT_CONFIG, ...args], {
     cwd,
     env: env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
   });
@@ -587,12 +587,30 @@ function validateOptions(options: TrialOptions): void {
   if (!existsSync(options.homeSource)) throw new TrialUsageError(`--home-source not found: ${options.homeSource}`);
 }
 
+/**
+ * The substrate runs with the caller's rights and can rewrite the shared cache
+ * repo (config, hooks, attributes) during a trial. The next trial's clone, fetch
+ * and checkout run with the caller's credentials, so the cache is put back to a
+ * known state before any git command touches it: a fresh config that holds only
+ * the origin remote, and none of the files that can carry executable behavior.
+ */
+function resetCache(cache: string, repo: string): void {
+  const quoted = repo.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  writeFileSync(
+    join(cache, "config"),
+    `[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = true\n[remote "origin"]\n\turl = "${quoted}"\n\tfetch = +refs/*:refs/*\n\tmirror = true\n`,
+  );
+  for (const name of ["hooks", "config.worktree", join("info", "attributes")]) rmSync(join(cache, name), { recursive: true, force: true });
+}
+
 async function ensureRevision(cache: string, fixture: Fixture): Promise<void> {
-  if (!existsSync(cache)) {
+  if (existsSync(cache)) {
+    resetCache(cache, fixture.repo);
+  } else {
     mkdirSync(dirname(cache), { recursive: true });
     await git(["clone", "--mirror", "--", fixture.repo, cache]);
   }
-  const has = await runProcess(["git", "cat-file", "-e", `${fixture.rev}^{commit}`], { cwd: cache });
+  const has = await runProcess(["git", ...SAFE_GIT_CONFIG, "cat-file", "-e", `${fixture.rev}^{commit}`], { cwd: cache });
   if (has.exitCode !== 0) {
     await git(["fetch", "--prune", "origin"], cache);
     await git(["cat-file", "-e", `${fixture.rev}^{commit}`], cache);
