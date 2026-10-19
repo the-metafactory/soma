@@ -59,6 +59,23 @@ export function parseVsa(markdown: string, sourcePath?: string, options: ServesO
   return isa;
 }
 
+export interface VsaRecordedFields {
+  serves?: string;
+  phase: AlgorithmPhase;
+  /** Undefined when the file records no update; `parseVsa` would default it to now. */
+  updated?: string;
+}
+
+/** The fields a measurement needs, exactly as recorded: nothing defaulted to the present. */
+export function parseVsaRecordedFields(markdown: string): VsaRecordedFields {
+  const yaml = parseYamlObject(splitFrontmatter(markdown.replace(/\r\n/g, "\n")).frontmatterRaw);
+  return {
+    ...(typeof yaml.serves === "string" ? { serves: yaml.serves } : {}),
+    phase: coercePhase(yaml.phase),
+    ...(typeof yaml.updated === "string" ? { updated: yaml.updated } : {}),
+  };
+}
+
 /**
  * If `isa` is the exact identity returned by `parseVsa`, return the raw input
  * verbatim — no structural mutation occurred (the helpers in `vsa-accessors`

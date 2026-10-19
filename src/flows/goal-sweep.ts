@@ -50,12 +50,25 @@ export async function readGoalSweepRepos(somaHome: string): Promise<string[] | u
     throw new Error("Cannot read sweep.yaml", { cause: error });
   }
   const { z } = await import("zod");
+  const { parseRepoRef } = await import("../graph/index");
+  const graphRepo = z.string().superRefine((text, ctx) => {
+    try {
+      parseRepoRef(graphRepoRef(text));
+    } catch (error) {
+      ctx.addIssue({ code: "custom", message: error instanceof Error ? error.message : "invalid graph ref" });
+    }
+  });
   try {
-    const schema = z.object({ repos: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)) }).strict();
+    const schema = z.object({ repos: z.array(graphRepo) }).strict();
     return [...new Set(schema.parse(Bun.YAML.parse(content)).repos)];
   } catch {
-    throw new Error("Invalid sweep.yaml: expected repos: [owner/name, ...]");
+    throw new Error("Invalid sweep.yaml: expected repos: [owner/name | forge:host/path, ...]");
   }
+}
+
+/** A bare `owner/name` is a github.com repository; anything else must already be a qualified ref. */
+function graphRepoRef(repo: string): string {
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(repo) ? `github:github.com/${repo}` : repo;
 }
 
 /** Read only the fields the sweep consumes; never return blueprint payloads. */
@@ -64,7 +77,8 @@ export async function readGoalSweepBlueprints(dir: string): Promise<GoalSweepBlu
   try {
     files = await readdir(dir);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    // A missing directory is a failed read, not an empty one: an empty one would
+    // publish a regression for every goal's sensor and pursuit.
     throw new Error("Cannot read Reflex blueprints", { cause: error });
   }
   const { z } = await import("zod");
@@ -90,18 +104,71 @@ export async function readGoalSweepBlueprints(dir: string): Promise<GoalSweepBlu
 }
 
 async function readGoalSweepVsas(somaHome: string): Promise<GoalSweepVsa[]> {
-  const { listVsas, vsaPath } = await import("../vsa/index");
-  const { z } = await import("zod");
-  const schema = z.object({
-    serves: z.string().optional(), phase: z.string().default("observe"), updated: z.string().default(""),
-  });
+  const { listVsas, readVsaRecordedFields } = await import("../vsa/index");
   return Promise.all((await listVsas({ somaHome })).map(async ({ slug }) => {
-    const raw = await readFile(vsaPath(somaHome, slug), "utf8");
-    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(raw)?.[1];
-    // The general VSA parser defaults an absent update to now. Measurements
-    // must use the recorded timestamp so a missing date cannot imply pursuit.
-    return schema.parse(frontmatter === undefined ? {} : Bun.YAML.parse(frontmatter));
+    const { serves, phase, updated } = await readVsaRecordedFields(slug, { somaHome });
+    // Measurements use the recorded timestamp: a missing date must not imply pursuit.
+    return { ...(serves === undefined ? {} : { serves }), phase, updated: updated ?? "" };
   }));
+}
+
+interface PursuitSources {
+  vsas: PromiseSettledResult<readonly GoalSweepVsa[]>;
+  blueprints: PromiseSettledResult<readonly GoalSweepBlueprint[]>;
+  repos: PromiseSettledResult<readonly string[] | undefined>;
+  store: (repo: string) => GoalSweepGraphStore;
+  started: Date;
+  stderr: (line: string) => void;
+}
+
+/** undefined means a source could not be read, which is not a regression. */
+async function evaluatePursuit(goal: GoalRecord, sources: PursuitSources): Promise<GoalSweepValue | undefined> {
+  const { vsas, blueprints, repos, store, started, stderr } = sources;
+  let failed = vsas.status === "rejected" || blueprints.status === "rejected" || repos.status === "rejected";
+  const cutoff = started.getTime() - (goal.pursuitWindow ?? 14) * DAY_MS;
+  const recent = (updated: string) => {
+    const time = Date.parse(updated);
+    if (!Number.isFinite(time)) throw new Error("Invalid update timestamp");
+    return time >= cutoff && time <= started.getTime();
+  };
+  let pursued = false;
+  try {
+    pursued = vsas.status === "fulfilled" && vsas.value.some((vsa) =>
+      vsa.serves === goal.id && vsa.phase !== "complete" && recent(vsa.updated));
+  } catch {
+    failed = true;
+    stderr(`soma goal sweep: invalid VSA update for ${goal.id}; pursuit check failed`);
+  }
+  if (blueprints.status === "fulfilled") {
+    pursued ||= blueprints.value.some((blueprint) => blueprint.serves?.goal === goal.id
+      && blueprint.id !== goal.sensor && blueprint.policy !== "disabled" && Boolean(blueprint.when?.schedule));
+  }
+  if (repos.status === "fulfilled") {
+    for (const repo of new Set(repos.value ?? [])) {
+      try {
+        pursued = await repoPursues(store(repo), goal, recent) || pursued;
+      } catch {
+        failed = true;
+        stderr(`soma goal sweep: cannot read map roots in ${repo} for ${goal.id}; pursuit check failed`);
+      }
+    }
+  }
+  return failed ? undefined : pursued ? "ok" : "regressed";
+}
+
+/**
+ * Every listed root is read even once pursuit is proven: a positive link must
+ * not hide a read outage, so the sweep keeps scanning to surface it.
+ */
+async function repoPursues(graph: GoalSweepGraphStore, goal: GoalRecord, recent: (updated: string) => boolean): Promise<boolean> {
+  if (!graph.listOpenRoots) throw new Error("GraphStore cannot list roots");
+  let pursued = false;
+  for (const root of await graph.listOpenRoots(goal.id)) {
+    if (root.status !== "open" || root.node.serves !== goal.id) continue;
+    const subtree = await graph.readSubtree(root.ref, { includeCurrentCloseReceipt: false });
+    pursued ||= [root, ...subtree].some((node) => recent(node.updatedAt));
+  }
+  return pursued;
 }
 
 /** Three independent checks per active goal; failed reads never become regressions. */
@@ -128,52 +195,17 @@ export async function runGoalSweep(deps: GoalSweepDeps): Promise<GoalSweepResult
   if (repos.status === "fulfilled" && repos.value === undefined) {
     stderr("soma goal sweep: sweep.yaml is missing; map roots are not scanned");
   }
-  const createStore = !deps.graphStore && repos.status === "fulfilled" && repos.value?.length
-    ? (await import("../graph/index")).createGitHubGraphStore : undefined;
+  const graph = !deps.graphStore && repos.status === "fulfilled" && repos.value?.length
+    ? await import("../graph/index") : undefined;
   const store = deps.graphStore ?? ((repo: string) => {
-    if (!createStore) throw new Error("GraphStore unavailable");
-    return createStore({ repo });
+    if (!graph) throw new Error("GraphStore unavailable");
+    return graph.createGraphStore(graph.parseRepoRef(graphRepoRef(repo)));
   });
 
   for (const goal of goals) {
-    let pursuitFailed = vsas.status === "rejected" || blueprints.status === "rejected" || repos.status === "rejected";
-    const cutoff = started.getTime() - (goal.pursuitWindow ?? 14) * DAY_MS;
-    const recent = (updated: string) => {
-      const time = Date.parse(updated);
-      if (!Number.isFinite(time)) throw new Error("Invalid update timestamp");
-      return time >= cutoff && time <= started.getTime();
-    };
-    let pursued = false;
-    try {
-      pursued = vsas.status === "fulfilled" && vsas.value.some((vsa) =>
-        vsa.serves === goal.id && vsa.phase !== "complete" && recent(vsa.updated));
-    } catch {
-      pursuitFailed = true;
-      stderr(`soma goal sweep: invalid VSA update for ${goal.id}; pursuit check failed`);
-    }
-    if (blueprints.status === "fulfilled") {
-      pursued ||= blueprints.value.some((blueprint) => blueprint.serves?.goal === goal.id
-        && blueprint.id !== goal.sensor && blueprint.policy !== "disabled" && Boolean(blueprint.when?.schedule));
-    }
-    if (repos.status === "fulfilled") {
-      for (const repo of new Set(repos.value ?? [])) {
-        try {
-          const graph = store(repo);
-          if (!graph.listOpenRoots) throw new Error("GraphStore cannot list roots");
-          for (const root of await graph.listOpenRoots(goal.id)) {
-            if (root.status !== "open" || root.node.serves !== goal.id) continue;
-            const subtree = await graph.readSubtree(root.ref, { includeCurrentCloseReceipt: false });
-            const active = [root, ...subtree].some((node) => recent(node.updatedAt));
-            pursued ||= active;
-          }
-        } catch {
-          pursuitFailed = true;
-          stderr(`soma goal sweep: cannot read map roots in ${repo} for ${goal.id}; pursuit check failed`);
-        }
-      }
-    }
+    const pursuit = await evaluatePursuit(goal, { vsas, blueprints, repos, store, started, stderr });
     const values: [string, GoalSweepValue | undefined][] = [
-      ["pursuit", pursuitFailed ? undefined : pursued ? "ok" : "regressed"],
+      ["pursuit", pursuit],
       ["review", goal.reviewBy !== undefined && goal.reviewBy >= today ? "ok" : "regressed"],
       ["sensor", blueprints.status === "rejected" ? undefined
         : blueprints.value.some((blueprint) => blueprint.id === goal.sensor) ? "ok" : "regressed"],
