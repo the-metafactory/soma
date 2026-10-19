@@ -8,7 +8,7 @@ test("closing.md tells charting agents to probe the merged base with bun run tes
   const text = await readFile(CLOSING, "utf8");
   const probeLine = text.split("\n").find((line) => line.startsWith('{"type": "command"'));
   expect(probeLine).toBeDefined();
-  expect(JSON.parse(probeLine as string)).toEqual({
+  expect(JSON.parse(probeLine!)).toEqual({
     type: "command",
     run: "bun run test",
     cwd: expect.stringMatching(/^\//),
