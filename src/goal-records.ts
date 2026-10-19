@@ -1,5 +1,8 @@
 import { mkdir, open, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { stringify } from "yaml";
+
+const ACTIVATION_SCHEMA = "metafactory/activation/v1";
 
 export const GOAL_STATUSES = ["draft", "active", "paused", "achieved", "dropped"] as const;
 export type GoalStatus = (typeof GOAL_STATUSES)[number];
@@ -289,6 +292,17 @@ export async function addGoalRecord(goalsDir: string, input: AddGoalOptions | ((
   }
 }
 
+/** Remove a goal record written by addGoalRecord, e.g. to roll back a partial acceptance. */
+export async function removeGoalRecord(goalsDir: string, id: string): Promise<void> {
+  if (!/^G\d+$/.test(id)) throw new Error("Goal id must match G<n>");
+  await unlink(join(goalsDir, `${id}.md`));
+}
+
+/** The staged Reflex blueprint that activateGoalRecord installs; the one producer of its envelope. */
+export function serializeStagedActivations(activations: readonly unknown[]): string {
+  return stringify({ schema: ACTIVATION_SCHEMA, activations });
+}
+
 async function readGoalRecord(goalsDir: string, id: string) {
   if (!/^G\d+$/.test(id)) throw new Error("Goal id must match G<n>");
   const path = join(goalsDir, `${id}.md`);
@@ -370,7 +384,7 @@ async function blueprintSensorIds(activationsDir: string): Promise<Set<string>> 
 async function blueprintActivationIds(path: string): Promise<string[]> {
   const { z } = await import("zod");
   const schema = z.object({
-    schema: z.literal("metafactory/activation/v1"),
+    schema: z.literal(ACTIVATION_SCHEMA),
     activations: z.array(z.object({ id: z.string().min(1) })),
   });
   let raw: unknown;

@@ -7,10 +7,13 @@ import { isEnoent } from "../core";
 import { goalKinds } from "./goal-kinds/registry";
 import { goalBaselineSchema } from "./goal-kinds/types";
 import type { GoalKind } from "./goal-kinds/types";
-import { addGoalRecord } from "../goal-records";
+import { addGoalRecord, removeGoalRecord, serializeStagedActivations } from "../goal-records";
 import { loadGoalResources, parseGoalResources, resolveGoalResource, type GoalResource } from "../home/index";
 
 const DAY_MS = 86_400_000;
+/** A lock this old belongs to a process that died; no accept holds it for minutes. */
+const LOCK_STALE_MS = 60_000;
+const PROPOSAL_HASH = /^[a-f0-9]{64}$/;
 const RESOURCE_REF = /^<resource:([a-z][a-z0-9_-]*)>$/;
 const line = z.string().refine((value) => value.trim().length > 0 && !/[\r\n]/.test(value));
 const selectionSchema = z.strictObject({
@@ -47,6 +50,15 @@ export interface GoalAcceptDeps {
 export interface GoalAcceptResult {
   goalId: string;
   activationIds: string[];
+}
+
+export function isProposalHash(value: string): boolean {
+  return PROPOSAL_HASH.test(value);
+}
+
+/** Reflex activation id: the goal's staged activation and the record's reference to it. */
+function activationId(goalId: string, kind: string): string {
+  return `${goalId.toLowerCase()}-${kind}`;
 }
 
 /** Only controlled diagnostics may cross the CLI boundary. */
@@ -87,17 +99,10 @@ export async function acceptGoalProposal(goalsDir: string, hash: string, deps: G
 }
 
 async function accept(goalsDir: string, hash: string, deps: GoalAcceptDeps): Promise<GoalAcceptResult> {
-  if (!/^[a-f0-9]{64}$/.test(hash)) throw new GoalAcceptError("Goal proposal hash must be a SHA-256 hex digest");
+  if (!isProposalHash(hash)) throw new GoalAcceptError("Goal proposal hash must be a SHA-256 hex digest");
   const proposalPath = join(goalsDir, "proposals", `${hash}.yaml`);
-  let content: string;
-  let modifiedAt: number;
-  try {
-    content = await readFile(proposalPath, "utf8");
-    modifiedAt = (await stat(proposalPath)).mtimeMs;
-  } catch (error) {
-    if (isEnoent(error)) throw new GoalAcceptError("Goal proposal does not exist");
-    throw error;
-  }
+  const content = await readProposal(proposalPath);
+  const modifiedAt = (await stat(proposalPath)).mtimeMs;
   if (createHash("sha256").update(content).digest("hex") !== hash) throw new GoalAcceptError("Goal proposal hash mismatch: file changed");
   const parsed = proposalSchema.safeParse(Bun.YAML.parse(content));
   if (!parsed.success) throw new GoalAcceptError("Invalid goal proposal structure");
@@ -122,28 +127,48 @@ async function accept(goalsDir: string, hash: string, deps: GoalAcceptDeps): Pro
 
   // Serialize consumption of this proposal, including across CLI processes.
   const lockPath = `${proposalPath}.lock`;
-  let lock;
-  try {
-    lock = await open(lockPath, "wx", 0o600);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new GoalAcceptError("Goal proposal is already being accepted");
-    throw error;
-  }
+  const lock = await acquireLock(lockPath);
   try {
     // A competing accept may have finished after our initial read.
-    let current: string;
-    try {
-      current = await readFile(proposalPath, "utf8");
-    } catch (error) {
-      if (isEnoent(error)) throw new GoalAcceptError("Goal proposal does not exist");
-      throw error;
-    }
-    if (current !== content) throw new GoalAcceptError("Goal proposal hash mismatch: file changed");
+    if (await readProposal(proposalPath) !== content) throw new GoalAcceptError("Goal proposal hash mismatch: file changed");
     return await writeAcceptedGoal(goalsDir, proposalPath, proposal, selections);
   } finally {
     await lock.close();
     await unlink(lockPath);
   }
+}
+
+async function readProposal(path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (isEnoent(error)) throw new GoalAcceptError("Goal proposal does not exist");
+    throw error;
+  }
+}
+
+async function acquireLock(lockPath: string) {
+  try {
+    return await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  // A process killed between open and unlink leaves the lock behind; break it once it is stale.
+  let lockedAt: number;
+  try {
+    lockedAt = (await stat(lockPath)).mtimeMs;
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    return open(lockPath, "wx", 0o600).catch(heldElsewhere);
+  }
+  if (Date.now() - lockedAt < LOCK_STALE_MS) throw heldElsewhere();
+  await unlink(lockPath).catch((error: unknown) => { if (!isEnoent(error)) throw error; });
+  return open(lockPath, "wx", 0o600).catch(heldElsewhere);
+}
+
+function heldElsewhere(error?: unknown): never {
+  if (error !== undefined && (error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  throw new GoalAcceptError("Goal proposal is already being accepted");
 }
 
 async function writeAcceptedGoal(
@@ -152,13 +177,13 @@ async function writeAcceptedGoal(
 ): Promise<GoalAcceptResult> {
   const goalId = await addGoalRecord(goalsDir, (id) => ({
     wording: proposal.wording, supports: proposal.supports, reviewBy: proposal.review_by,
-    ...(proposal.sensor ? { sensor: `${id.toLowerCase()}-${proposal.sensor.kind}` } : {}),
+    ...(proposal.sensor ? { sensor: activationId(id, proposal.sensor.kind) } : {}),
     body: `\nDrop: ${proposal.drop}\n\nMechanisms:\n${proposal.mechanisms.map((mechanism) =>
-      `- ${id.toLowerCase()}-${mechanism.kind}: ${JSON.stringify(mechanism.params)}`,
+      `- ${activationId(id, mechanism.kind)}: ${JSON.stringify(mechanism.params)}`,
     ).join("\n") || "None."}\n`,
   }));
   const activations = selections.map(({ selection, kind, params }) => ({
-    id: `${goalId.toLowerCase()}-${kind.id}`, target: kind.target,
+    id: activationId(goalId, kind.id), target: kind.target,
     serves: { goal: goalId }, when: selection.schedule,
     payload: { ...Object.fromEntries(Object.entries(params).filter(([key]) =>
       !kind.localPrivateParams || !Object.hasOwn(kind.private, key))), goal: goalId },
@@ -180,7 +205,7 @@ async function writeAcceptedGoal(
     const file = await open(stagePath, "wx", 0o600);
     stageCreated = true;
     try {
-      await file.writeFile(stringify({ schema: "metafactory/activation/v1", activations }), "utf8");
+      await file.writeFile(serializeStagedActivations(activations), "utf8");
     } finally {
       await file.close();
     }
@@ -189,7 +214,7 @@ async function writeAcceptedGoal(
     // Keep a retryable proposal and avoid leaving a partially accepted design.
     if (stageCreated) await unlink(stagePath);
     for (const path of localFiles) await unlink(path);
-    await unlink(join(goalsDir, `${goalId}.md`));
+    await removeGoalRecord(goalsDir, goalId);
     throw error;
   }
   return { goalId, activationIds: activations.map(({ id }) => id) };

@@ -198,6 +198,19 @@ test("concurrent acceptance consumes a proposal once", async () => {
   expect(await readdir(f.proposalsDir)).toEqual([]);
 });
 
+test("a lock left by a killed accept is broken once stale, and a fresh lock still blocks", async () => {
+  const f = await fixture();
+  const saved = await f.save();
+  const lock = `${saved.path}.lock`;
+  await writeFile(lock, "", { mode: 0o600 });
+  await expect(acceptGoalProposal(f.goalsDir, saved.hash, deps)).rejects.toThrow("already being accepted");
+  expect(await readFile(saved.path, "utf8")).toBe(saved.content);
+  const old = new Date(Date.now() - 120_000);
+  await utimes(lock, old, old);
+  expect((await acceptGoalProposal(f.goalsDir, saved.hash, deps)).goalId).toBe("G5");
+  expect(await readdir(f.proposalsDir)).toEqual([]);
+});
+
 test("the real CLI accepts a producer's proposal, prints ids only, and never installs", async () => {
   const f = await fixture();
   const p = proposal();

@@ -14,6 +14,7 @@ import { queueParams } from "../flows/index";
 import { runGoalOutline, type GoalOutlineDeps, type GoalOutlineOptions } from "../flows/index";
 import { announceRefusal, runGoalAnnounce, type GoalAnnounceDeps, type GoalAnnounceOptions } from "../flows/index";
 import { runGoalSweep, type GoalSweepDeps } from "../flows/index";
+import { isProposalHash } from "../flows/index";
 import { defaultSomaHome, type SomaPathsOptions } from "../core/index";
 import { loadSomaConfig } from "../home/index";
 import { SomaCliError } from "./errors";
@@ -71,7 +72,7 @@ function parseAcceptArgs(rest: string[], options: ParsedGoalArgs["options"]): vo
     if (!value || value.startsWith("--")) throw usage(`${arg} requires a value`);
     if (arg === "--accept") {
       if (options.acceptHash !== undefined) throw usage("--accept may only be supplied once");
-      if (!/^[a-f0-9]{64}$/.test(value)) throw usage("--accept requires a SHA-256 hex digest");
+      if (!isProposalHash(value)) throw usage("--accept requires a SHA-256 hex digest");
       options.acceptHash = value;
     }
     if (arg === "--home-dir") options.homeDir = value;
