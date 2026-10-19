@@ -12,7 +12,7 @@ export type { SyncAlgorithmRunFromVsaOptions, SyncAlgorithmRunFromVsaResult } fr
 export { dropErrata, readErrata, runErrataTriage } from "./errata";
 export type { ErrataTriageDeps } from "./errata";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
-export { acceptGoalProposal } from "./goal-accept";
+export { acceptGoalProposal, isProposalHash } from "./goal-accept";
 export type { GoalAcceptDeps } from "./goal-accept";
 export { announceRefusal, runGoalAnnounce } from "./goal-announce";
 export type { GoalAnnounceDeps, GoalAnnounceOptions } from "./goal-announce";

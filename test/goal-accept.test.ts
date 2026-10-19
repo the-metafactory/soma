@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
+import { withExclusiveLock } from "../src/core";
 import { acceptGoalProposal } from "../src/flows/goal-accept";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { goalKinds } from "../src/flows/goal-kinds/registry";
@@ -196,6 +197,34 @@ test("concurrent acceptance consumes a proposal once", async () => {
   expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
   expect((await readdir(f.goalsDir)).sort()).toEqual(["G5.activations.yaml", "G5.md", "proposals"]);
   expect(await readdir(f.proposalsDir)).toEqual([]);
+});
+
+test("a held proposals lock blocks accept without touching the proposal, and releasing it unblocks", async () => {
+  const f = await fixture();
+  const saved = await f.save();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let acquired!: () => void;
+  const locked = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withExclusiveLock(f.proposalsDir, async () => { acquired(); await held; });
+  await locked;
+  await expect(acceptGoalProposal(f.goalsDir, saved.hash, deps)).rejects.toThrow("already being accepted");
+  expect(await readFile(saved.path, "utf8")).toBe(saved.content);
+  release();
+  await holder;
+  expect((await acceptGoalProposal(f.goalsDir, saved.hash, deps)).goalId).toBe("G5");
+  expect(await readdir(f.proposalsDir)).toEqual([]);
+});
+
+test("lock files left by an older accept never block", async () => {
+  const f = await fixture();
+  const saved = await f.save();
+  const old = new Date(Date.now() - 120_000);
+  for (const path of [`${saved.path}.lock`, `${saved.path}.lock.recover`]) {
+    await writeFile(path, "", { mode: 0o600 });
+    await utimes(path, old, old);
+  }
+  expect((await acceptGoalProposal(f.goalsDir, saved.hash, deps)).goalId).toBe("G5");
 });
 
 test("the real CLI accepts a producer's proposal, prints ids only, and never installs", async () => {
