@@ -118,7 +118,9 @@ Before choosing `autonomy` and `kind`, read `references/map.md` — they are
 different vocabularies and only one is enforced. Before declaring probes, read
 `references/closing.md`: an `auto` node with zero probes is refused at creation,
 and a `command` probe the adopter's registry doesn't authorise will refuse at
-close.
+close. Give every `command` probe an absolute `cwd` that matches its registry
+entry: ranger checks the literal `run` and `cwd` before it takes a node, so a
+probe with no `cwd` sends a walkable node to provisioning.
 
 Check the result: `soma graph frontier <root>` should return exactly the nodes
 you expect to be takeable. A short frontier means a missing membership edge.

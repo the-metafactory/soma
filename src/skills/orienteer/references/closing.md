@@ -89,7 +89,9 @@ soma policy probes [--repo <forge>:<host>/<path>]
 ```
 
 - `command` — refused unless the exact `run` string **and** the resolved
-  absolute `cwd` are declared.
+  absolute `cwd` are declared. A missing `cwd` resolves to the base cwd of
+  whatever runs the close, so always declare it: a walker's preflight matches
+  the literal field and treats a probe without one as unregistered.
 - `url` — refused unless the target host is declared; non-http(s) targets are
   refused outright.
 - `git-ref-exists`, `git-merged-into`, `artifact-exists` — ungated by the
