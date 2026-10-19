@@ -153,17 +153,49 @@ async function acquireLock(lockPath: string) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
-  // A process killed between open and unlink leaves the lock behind; break it once it is stale.
-  let lockedAt: number;
-  try {
-    lockedAt = (await stat(lockPath)).mtimeMs;
-  } catch (error) {
-    if (!isEnoent(error)) throw error;
-    return open(lockPath, "wx", 0o600).catch(heldElsewhere);
-  }
-  if (Date.now() - lockedAt < LOCK_STALE_MS) throw heldElsewhere();
-  await unlink(lockPath).catch((error: unknown) => { if (!isEnoent(error)) throw error; });
+  await breakStaleLock(lockPath);
   return open(lockPath, "wx", 0o600).catch(heldElsewhere);
+}
+
+/**
+ * A process killed between open and unlink leaves the lock behind. Contenders break it one at a
+ * time under a recovery guard and recheck staleness inside it, so a second contender cannot
+ * unlink the lock the first one just took.
+ */
+async function breakStaleLock(lockPath: string): Promise<void> {
+  const guardPath = `${lockPath}.recover`;
+  let guard;
+  try {
+    guard = await open(guardPath, "wx", 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    // The guard is held for a few syscalls; one that old was left by a killed process.
+    const guardedAt = await modifiedAt(guardPath);
+    if (guardedAt !== undefined && Date.now() - guardedAt >= LOCK_STALE_MS) await unlink(guardPath).catch(ignoreEnoent);
+    throw heldElsewhere();
+  }
+  try {
+    const lockedAt = await modifiedAt(lockPath);
+    if (lockedAt === undefined) return;
+    if (Date.now() - lockedAt < LOCK_STALE_MS) throw heldElsewhere();
+    await unlink(lockPath).catch(ignoreEnoent);
+  } finally {
+    await guard.close();
+    await unlink(guardPath);
+  }
+}
+
+async function modifiedAt(path: string): Promise<number | undefined> {
+  try {
+    return (await stat(path)).mtimeMs;
+  } catch (error) {
+    if (isEnoent(error)) return undefined;
+    throw error;
+  }
+}
+
+function ignoreEnoent(error: unknown): void {
+  if (!isEnoent(error)) throw error;
 }
 
 function heldElsewhere(error?: unknown): never {

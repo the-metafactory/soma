@@ -211,6 +211,34 @@ test("a lock left by a killed accept is broken once stale, and a fresh lock stil
   expect(await readdir(f.proposalsDir)).toEqual([]);
 });
 
+test("competing recoveries of one stale lock consume the proposal once and leave no lock behind", async () => {
+  const f = await fixture();
+  const saved = await f.save();
+  const lock = `${saved.path}.lock`;
+  await writeFile(lock, "", { mode: 0o600 });
+  const old = new Date(Date.now() - 120_000);
+  await utimes(lock, old, old);
+  const results = await Promise.allSettled(Array.from({ length: 8 }, () => acceptGoalProposal(f.goalsDir, saved.hash, deps)));
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect((await readdir(f.goalsDir)).sort()).toEqual(["G5.activations.yaml", "G5.md", "proposals"]);
+  expect(await readdir(f.proposalsDir)).toEqual([]);
+});
+
+test("a recovery guard left by a killed process is cleared once stale", async () => {
+  const f = await fixture();
+  const saved = await f.save();
+  const lock = `${saved.path}.lock`;
+  const guard = `${lock}.recover`;
+  const old = new Date(Date.now() - 120_000);
+  for (const path of [lock, guard]) {
+    await writeFile(path, "", { mode: 0o600 });
+    await utimes(path, old, old);
+  }
+  await expect(acceptGoalProposal(f.goalsDir, saved.hash, deps)).rejects.toThrow("already being accepted");
+  expect((await acceptGoalProposal(f.goalsDir, saved.hash, deps)).goalId).toBe("G5");
+  expect(await readdir(f.proposalsDir)).toEqual([]);
+});
+
 test("the real CLI accepts a producer's proposal, prints ids only, and never installs", async () => {
   const f = await fixture();
   const p = proposal();
