@@ -3,7 +3,7 @@ import { open, readFile, stat, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { stringify } from "yaml";
 import { z } from "zod";
-import { isEnoent } from "../core";
+import { isEnoent, LockBusyError, withExclusiveLock } from "../core";
 import { goalKinds } from "./goal-kinds/registry";
 import { goalBaselineSchema } from "./goal-kinds/types";
 import type { GoalKind } from "./goal-kinds/types";
@@ -11,8 +11,6 @@ import { addGoalRecord, removeGoalRecord, serializeStagedActivations } from "../
 import { loadGoalResources, parseGoalResources, resolveGoalResource, type GoalResource } from "../home/index";
 
 const DAY_MS = 86_400_000;
-/** A lock this old belongs to a process that died; no accept holds it for minutes. */
-const LOCK_STALE_MS = 60_000;
 const PROPOSAL_HASH = /^[a-f0-9]{64}$/;
 const RESOURCE_REF = /^<resource:([a-z][a-z0-9_-]*)>$/;
 const line = z.string().refine((value) => value.trim().length > 0 && !/[\r\n]/.test(value));
@@ -126,15 +124,15 @@ async function accept(goalsDir: string, hash: string, deps: GoalAcceptDeps): Pro
   }
 
   // Serialize consumption of this proposal, including across CLI processes.
-  const lockPath = `${proposalPath}.lock`;
-  const lock = await acquireLock(lockPath);
   try {
-    // A competing accept may have finished after our initial read.
-    if (await readProposal(proposalPath) !== content) throw new GoalAcceptError("Goal proposal hash mismatch: file changed");
-    return await writeAcceptedGoal(goalsDir, proposalPath, proposal, selections);
-  } finally {
-    await lock.close();
-    await unlink(lockPath);
+    return await withExclusiveLock(dirname(proposalPath), async () => {
+      // A competing accept may have finished after our initial read.
+      if (await readProposal(proposalPath) !== content) throw new GoalAcceptError("Goal proposal hash mismatch: file changed");
+      return writeAcceptedGoal(goalsDir, proposalPath, proposal, selections);
+    });
+  } catch (error) {
+    if (error instanceof LockBusyError) throw new GoalAcceptError("Goal proposal is already being accepted");
+    throw error;
   }
 }
 
@@ -145,62 +143,6 @@ async function readProposal(path: string): Promise<string> {
     if (isEnoent(error)) throw new GoalAcceptError("Goal proposal does not exist");
     throw error;
   }
-}
-
-async function acquireLock(lockPath: string) {
-  try {
-    return await open(lockPath, "wx", 0o600);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  await breakStaleLock(lockPath);
-  return open(lockPath, "wx", 0o600).catch(heldElsewhere);
-}
-
-/**
- * A process killed between open and unlink leaves the lock behind. Contenders break it one at a
- * time under a recovery guard and recheck staleness inside it, so a second contender cannot
- * unlink the lock the first one just took.
- */
-async function breakStaleLock(lockPath: string): Promise<void> {
-  const guardPath = `${lockPath}.recover`;
-  let guard;
-  try {
-    guard = await open(guardPath, "wx", 0o600);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    // The guard is held for a few syscalls; one that old was left by a killed process.
-    const guardedAt = await modifiedAt(guardPath);
-    if (guardedAt !== undefined && Date.now() - guardedAt >= LOCK_STALE_MS) await unlink(guardPath).catch(ignoreEnoent);
-    throw heldElsewhere();
-  }
-  try {
-    const lockedAt = await modifiedAt(lockPath);
-    if (lockedAt === undefined) return;
-    if (Date.now() - lockedAt < LOCK_STALE_MS) throw heldElsewhere();
-    await unlink(lockPath).catch(ignoreEnoent);
-  } finally {
-    await guard.close();
-    await unlink(guardPath);
-  }
-}
-
-async function modifiedAt(path: string): Promise<number | undefined> {
-  try {
-    return (await stat(path)).mtimeMs;
-  } catch (error) {
-    if (isEnoent(error)) return undefined;
-    throw error;
-  }
-}
-
-function ignoreEnoent(error: unknown): void {
-  if (!isEnoent(error)) throw error;
-}
-
-function heldElsewhere(error?: unknown): never {
-  if (error !== undefined && (error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  throw new GoalAcceptError("Goal proposal is already being accepted");
 }
 
 async function writeAcceptedGoal(
