@@ -16,6 +16,7 @@ import {
   parseStream,
   probedAfterLastEdit,
   resolveInsideStore,
+  runProcess,
   runTrial,
   sourcesRead,
   storeRoot,
@@ -213,6 +214,13 @@ describe("transcript analysis", () => {
     expect(sourcesRead(["soma:docs/x.md#H"], bash)).toEqual(["soma:docs/x.md#H"]);
   });
 
+  test("a Bash command that only names a source is not a read", () => {
+    const named = ["rm src/run-ledger.ts", "echo src/run-ledger.ts", "sed -i '' s/a/b/ src/run-ledger.ts", "git add src/run-ledger.ts"];
+    for (const command of named) expect(sourcesRead(["src/run-ledger.ts"], [{ name: "Bash", input: { command } }])).toEqual([]);
+    const reads = ["sed -n 1,20p ./src/run-ledger.ts", "cd /w && head -5 src/run-ledger.ts | wc -l", "grep -n Ledger \"src/run-ledger.ts\""];
+    for (const command of reads) expect(sourcesRead(["src/run-ledger.ts"], [{ name: "Bash", input: { command } }])).toEqual(["src/run-ledger.ts"]);
+  });
+
   test("probed_after_last_edit needs a Bash call after the last edit", () => {
     const edit = { name: "Edit", input: {} };
     const bash = { name: "Bash", input: {} };
@@ -365,6 +373,47 @@ describe("trial function with the substrate stubbed", () => {
     expect(captured?.env.HOME?.startsWith(somaHome)).toBe(false);
     expect(captured?.env.SOMA_HOME?.startsWith(principal)).toBe(false);
     expect(captured?.env.CLAUDE_CONFIG_DIR?.startsWith(principal)).toBe(false);
+  });
+
+  test("only the auth variables reach the substrate and no caller credential reaches the probe", async () => {
+    const saved = { GH_TOKEN: process.env.GH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN };
+    process.env.GH_TOKEN = "gh-caller";
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "claude-caller";
+    try {
+      const repo = makeRepo(root);
+      writeFixture({ ...baseFixture(repo), acceptance_probe: 'test -z "$GH_TOKEN" && test -z "$CLAUDE_CODE_OAUTH_TOKEN"' });
+      let env: Record<string, string | undefined> = {};
+      const { record } = await runTrial(options(), stubDeps((input) => {
+        env = input.env;
+        return Promise.resolve({ exitCode: 0, stdout: STREAM, stderr: "", timedOut: false });
+      }));
+      expect(env.GH_TOKEN).toBeUndefined();
+      expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("claude-caller");
+      expect(env.PATH).toBe(process.env.PATH);
+      expect(record.probe_exit).toBe(0);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+});
+
+describe("process tree", () => {
+  test("a background child cannot write after its parent exits", async () => {
+    const late = join(root, "late-exit");
+    await runProcess(["sh", "-c", `(sleep 1; touch "${late}") & exit 0`], {});
+    await Bun.sleep(1500);
+    expect(existsSync(late)).toBe(false);
+  });
+
+  test("a timeout kills the whole tree, not only the leader", async () => {
+    const late = join(root, "late-timeout");
+    const result = await runProcess(["sh", "-c", `(sleep 1; touch "${late}") & sleep 10`], { timeoutMs: 200 });
+    expect(result.timedOut).toBe(true);
+    await Bun.sleep(1500);
+    expect(existsSync(late)).toBe(false);
   });
 });
 

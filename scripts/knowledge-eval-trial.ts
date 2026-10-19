@@ -17,8 +17,9 @@
  * resolves outside it is refused before anything is written. The trial runs
  * with HOME, SOMA_HOME and CLAUDE_CONFIG_DIR pointed at temp dirs, so the
  * principal's ~/.soma and ~/.claude are never read as configuration or written.
- * Authentication does not carry over: the substrate sees only the credential
- * variables in TRIAL_AUTH_ENV from the caller's environment. This is isolation
+ * The caller's environment does not carry over: the trial sees only the
+ * variables in TRIAL_PASSTHROUGH_ENV, and the substrate alone also gets the
+ * credential variables in TRIAL_AUTH_ENV. This is isolation
  * of configuration, not a sandbox: the substrate runs with the caller's rights.
  */
 
@@ -33,6 +34,8 @@ export const DEFAULT_TRIAL_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_PROBE_TIMEOUT_MS = 10 * 60 * 1000;
 export const TRIAL_AUTH_ENV = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
 export const SUPPORTED_SUBSTRATES = ["claude"] as const;
+/** Caller variables a trial needs to run tools at all; any other variable, a credential included, stays out. */
+export const TRIAL_PASSTHROUGH_ENV = ["PATH", "SHELL", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "TMPDIR"] as const;
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -288,14 +291,31 @@ function pathMatches(actual: string, target: string): boolean {
   return normalized === target || normalized.endsWith(`/${target}`);
 }
 
-function usesTouch(use: ToolUse, target: string): boolean {
+const READ_COMMANDS = new Set(["cat", "head", "tail", "less", "more", "bat", "nl", "grep", "rg", "awk", "sed"]);
+
+/**
+ * True when a segment of `command` runs a read command with `target` as an
+ * argument. Naming a path is not reading it: `rm`, `echo` and `sed -i` do not
+ * count.
+ */
+function bashReads(command: string, target: string): boolean {
+  return command.split(/\|\||&&|[|;\n]/u).some((segment) => {
+    const [program = "", ...args] = segment.trim().split(/\s+/u);
+    const name = basename(program);
+    if (!READ_COMMANDS.has(name)) return false;
+    if (name === "sed" && args.some((arg) => /^-[^-]*i/u.test(arg) || arg.startsWith("--in-place"))) return false;
+    return args.some((arg) => pathMatches(arg.replace(/^["']|["']$/gu, ""), target));
+  });
+}
+
+function usesRead(use: ToolUse, target: string): boolean {
   const str = (key: string): string => {
     const value = use.input[key];
     return typeof value === "string" ? value : "";
   };
   if (use.name === "Read") return pathMatches(str("file_path"), target);
   if (use.name === "Grep") return pathMatches(str("path"), target);
-  if (use.name === "Bash") return str("command").includes(target);
+  if (use.name === "Bash") return bashReads(str("command"), target);
   return false;
 }
 
@@ -303,7 +323,7 @@ function usesTouch(use: ToolUse, target: string): boolean {
 export function sourcesRead(expected: readonly string[], toolUses: readonly ToolUse[]): string[] {
   return expected.filter((source) => {
     const target = routePath(source);
-    return toolUses.some((use) => usesTouch(use, target));
+    return toolUses.some((use) => usesRead(use, target));
   });
 }
 
@@ -377,6 +397,34 @@ async function drain(stream: ReadableStream<Uint8Array>, sink: string[]): Promis
   for await (const chunk of stream) sink.push(decoder.decode(chunk, { stream: true }));
 }
 
+const GROUP_EXIT_WAIT_MS = 5000;
+
+/**
+ * Signal every process in the group led by `pid`; false when no live member
+ * is left. Darwin answers EPERM for a group of zombies awaiting reaping.
+ */
+function signalGroup(pid: number, signal: NodeJS.Signals | 0): boolean {
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH" || code === "EPERM") return false;
+    throw error;
+  }
+}
+
+async function killGroup(pid: number): Promise<void> {
+  if (!signalGroup(pid, "SIGKILL")) return;
+  const deadline = Date.now() + GROUP_EXIT_WAIT_MS;
+  while (signalGroup(pid, 0) && Date.now() < deadline) await Bun.sleep(25);
+}
+
+/**
+ * Run `command` as the leader of its own process group. Once the leader exits
+ * or times out, the whole group is killed and awaited, so a background tool
+ * command cannot keep editing the worktree while the trial scores it.
+ */
 export async function runProcess(
   command: readonly string[],
   options: { cwd?: string; env?: Record<string, string | undefined>; stdin?: string; timeoutMs?: number },
@@ -392,13 +440,14 @@ export async function runProcess(
       stdin: options.stdin === undefined ? "ignore" : new TextEncoder().encode(options.stdin),
       stdout: "pipe",
       stderr: "pipe",
+      detached: true,
     });
   } catch (error) {
     return { exitCode: null, stdout: "", stderr: error instanceof Error ? error.message : String(error), timedOut: false };
   }
   const timer = options.timeoutMs === undefined ? undefined : setTimeout(() => {
     state.timedOut = true;
-    proc.kill("SIGKILL");
+    signalGroup(proc.pid, "SIGKILL");
   }, options.timeoutMs);
   const drained = Promise.all([
     drain(proc.stdout as ReadableStream<Uint8Array>, out),
@@ -406,7 +455,8 @@ export async function runProcess(
   ]);
   const exitCode = await proc.exited;
   if (timer !== undefined) clearTimeout(timer);
-  // A killed substrate can leave grandchildren holding the pipes open.
+  await killGroup(proc.pid);
+  // A descendant that left the group can still hold the pipes open.
   await Promise.race([drained, new Promise((done) => setTimeout(done, 2000))]);
   return { exitCode: state.timedOut ? null : exitCode, stdout: out.join(""), stderr: err.join(""), timedOut: state.timedOut };
 }
@@ -548,10 +598,17 @@ function copyHomeSource(source: string, destination: string): void {
   });
 }
 
+function callerEnv(names: readonly string[]): Record<string, string> {
+  return Object.fromEntries(names.flatMap((name) => {
+    const value = process.env[name];
+    return value === undefined ? [] : [[name, value]];
+  }));
+}
+
 function trialEnv(root: string): Record<string, string | undefined> {
   const home = join(root, "home");
   const env: Record<string, string | undefined> = {
-    ...process.env,
+    ...callerEnv(TRIAL_PASSTHROUGH_ENV),
     HOME: home,
     SOMA_HOME: join(root, "soma"),
     CLAUDE_CONFIG_DIR: join(home, ".claude"),
@@ -587,8 +644,8 @@ export async function runTrial(options: TrialOptions, deps: TrialDeps): Promise<
     const env = trialEnv(root);
     await deps.installProjection({ somaHome, homeDir, env });
 
-    const substrateEnv = { ...env };
-    const probeEnv = Object.fromEntries(Object.entries(env).filter(([name]) => !(TRIAL_AUTH_ENV as readonly string[]).includes(name)));
+    const substrateEnv = { ...env, ...callerEnv(TRIAL_AUTH_ENV) };
+    const probeEnv = env;
 
     const version = await deps.runner.version(substrateEnv);
     const startedAt = new Date();
