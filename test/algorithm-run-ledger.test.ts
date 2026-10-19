@@ -81,7 +81,7 @@ function fixtureRun(phase: AlgorithmPhase, options: { withLearning?: boolean } =
       run = updateAlgorithmPlanStep(run, "P1", "done", "Funnel tests pass.", "2026-05-14T10:08:00.000Z");
     }],
     ["learn", () => {
-      run = verifyAlgorithmCriterion(run, "C1", "passed", "Ledger test captured one envelope.", "2026-05-14T10:10:00.000Z", undefined, "tested");
+      run = verifyAlgorithmCriterion(run, "C1", "passed", "Ledger test captured one envelope.", { timestamp: "2026-05-14T10:10:00.000Z", evidenceKind: "tested" });
     }],
   ];
   for (const [target, prepare] of steps) {
@@ -404,10 +404,18 @@ test("MF_CORRELATION_ID passes through as-is; unset or empty lets the builder ge
   }
 });
 
+test("a codex run records no session from an inherited Claude Code variable", async () => {
+  const somaHome = await homeWith(fixtureRun("learn"));
+  const captured = capture({ SOMA_PRINCIPAL: "jc", CLAUDE_CODE_SESSION_ID: "S1" });
+  await cli(somaHome, ["advance"], captured.deps);
+  expect(captured.events[0].input.payload.correlation_id).not.toBe("S1");
+  expect((await readAlgorithmRunById(RUN_ID, { somaHome })).run.sessionIds ?? []).toEqual([]);
+});
+
 test("Algorithm terminal transitions default correlation to the substrate session with explicit override", async () => {
   for (const phase of ["complete", "abandoned"] as const) {
     for (const override of [undefined, "", "X"]) {
-      const somaHome = await homeWith(fixtureRun("learn"));
+      const somaHome = await homeWith({ ...fixtureRun("learn"), substrate: "claude-code" });
       const captured = capture({ SOMA_PRINCIPAL: "jc", CLAUDE_CODE_SESSION_ID: "S1", MF_CORRELATION_ID: override });
       if (phase === "complete") {
         await cli(somaHome, ["advance"], captured.deps);

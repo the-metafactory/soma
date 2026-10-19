@@ -887,7 +887,7 @@ export async function appendVerificationGateViolationEvent(
   runSubstrate?: AlgorithmRun["substrate"],
   env: RunLedgerDeps["env"] = process.env,
 ): Promise<void> {
-  const sessionId = algorithmSessionId(resolveSubstrateSessionEnv(env));
+  const sessionId = algorithmSessionId(resolveSubstrateSessionEnv(env, options.substrate ?? runSubstrate));
   try {
     await appendSomaMemoryEvent(defaultSomaHome({ homeDir: options.homeDir, somaHome: options.somaHome }), {
       // Attribute to the run's own substrate when the CLI flag is absent — a
@@ -936,12 +936,12 @@ export async function updateAndReportAlgorithmRun(
   update: (run: AlgorithmRun) => AlgorithmRun,
   registration: { registerCapabilities?: boolean; batch?: boolean } = {},
 ): Promise<string> {
-  const env = resolveSubstrateSessionEnv(deps.env ?? process.env);
   const id = requireAlgorithmId(options);
   const { run } = await readAlgorithmRunById(id, {
     homeDir: options.homeDir,
     somaHome: options.somaHome,
   });
+  const env = resolveSubstrateSessionEnv(deps.env ?? process.env, options.substrate ?? run.substrate);
   const registered =
     registration.registerCapabilities === true
       ? await registerSomaHomeAlgorithmCapabilities(run, {
@@ -1066,7 +1066,7 @@ export async function runAlgorithmCli(
 ): Promise<string> {
   const options = parsed.options;
   const deps: AlgorithmCliDeps = { readNode: async (nodeId, opts) => await readNodeForBridge(nodeId, opts), ...overrides };
-  const env = resolveSubstrateSessionEnv(deps.env ?? process.env);
+  const env = resolveSubstrateSessionEnv(deps.env ?? process.env, options.substrate);
 
   if (parsed.action === "classify") {
     if (!options.prompt) throw new Error("--prompt is required.");

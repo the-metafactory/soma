@@ -61,18 +61,6 @@ test("session mutation helper preserves order, deduplicates, and leaves absent k
   expect(recordAlgorithmSession(legacy, neutralS1).sessionIds).toEqual(["S1"]);
 });
 
-test("named verify options preserve the existing positional API including reconstruction", () => {
-  const original = fixture();
-  const timestamp = "2026-10-14T10:00:00.000Z";
-  const provenance = { substrate: "codex" as const };
-  for (const enforceGate of [true, false]) {
-    const evidenceKind = enforceGate ? "tested" as const : "specified" as const;
-    const named = verifyAlgorithmCriterion(original, "C3", "passed", evidence, { timestamp, provenance, evidenceKind, enforceGate });
-    const positional = verifyAlgorithmCriterion(original, "C3", "passed", evidence, timestamp, provenance, evidenceKind, enforceGate);
-    expect(named).toEqual(positional);
-  }
-});
-
 for (const outcome of ["passed", "failed", "dropped", "deferred-probe"] as const) {
   test(`verification stores structured ${outcome} without changing prose`, () => {
     const run = verifyAlgorithmCriterion(fixture(), "C3", outcome, evidence,

@@ -328,7 +328,7 @@ async function recordFailure(options: PublishRunFinishedOptions, input: RunFinis
  * event's append.
  */
 export async function publishRunFinished(input: RunFinishedInput, options: PublishRunFinishedOptions): Promise<RunFinishedResult> {
-  const config = readRunLedgerConfig(resolveSubstrateSessionEnv(options.env ?? process.env));
+  const config = readRunLedgerConfig(resolveSubstrateSessionEnv(options.env ?? process.env, options.substrate));
   if (config === undefined) return "disabled";
 
   const publish = options.publish ?? natsPublisher(config, runLedgerSpoolPath(options.somaHome));

@@ -241,7 +241,7 @@ test("enforces Algorithm phase gates", () => {
   expect(getRunPhase(run)).toBe("verify");
 
   expect(() => advanceAlgorithmRun(run)).toThrow("criterion");
-  run = verifyAlgorithmCriterion(run, "C1", "passed", "Test asserted gate failures and success path.", "2026-05-14T10:10:00.000Z", undefined, "tested");
+  run = verifyAlgorithmCriterion(run, "C1", "passed", "Test asserted gate failures and success path.", { timestamp: "2026-05-14T10:10:00.000Z", evidenceKind: "tested" });
   run = advanceAlgorithmRun(run, "2026-05-14T10:11:00.000Z");
   expect(getRunPhase(run)).toBe("learn");
 
@@ -1394,9 +1394,7 @@ test("records per-hop substrate provenance for Algorithm mutations", () => {
     "C1",
     "passed",
     "Codex verified the criterion.",
-    "2026-05-14T10:02:00.000Z",
-    { substrate: "codex" },
-    "tested",
+    { timestamp: "2026-05-14T10:02:00.000Z", provenance: { substrate: "codex" }, evidenceKind: "tested" },
   );
   run = recordAlgorithmLearning(run, "Pi.dev captured the lesson.", "2026-05-14T10:03:00.000Z", {
     substrate: "pi-dev",

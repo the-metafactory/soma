@@ -41,7 +41,7 @@ function toVerify(): ReturnType<typeof createAlgorithmRun> {
 
 test("verifyAlgorithmCriterion records the evidence kind on the criterion", () => {
   let run = toVerify();
-  run = verifyAlgorithmCriterion(run, "C1", "passed", "curl /health -> 200", "2026-06-22T10:10:00.000Z", undefined, "probed");
+  run = verifyAlgorithmCriterion(run, "C1", "passed", "curl /health -> 200", { timestamp: "2026-06-22T10:10:00.000Z", evidenceKind: "probed" });
   const c1 = getCriteria(run.vsa).find((c) => c.id === "C1");
   expect(c1?.status).toBe("passed");
   expect(c1?.evidenceKind).toBe("probed");
@@ -49,7 +49,7 @@ test("verifyAlgorithmCriterion records the evidence kind on the criterion", () =
 
 test("evidence kind round-trips through VSA markdown serialization", () => {
   let run = toVerify();
-  run = verifyAlgorithmCriterion(run, "C1", "passed", "ran bun test", "2026-06-22T10:10:00.000Z", undefined, "tested");
+  run = verifyAlgorithmCriterion(run, "C1", "passed", "ran bun test", { timestamp: "2026-06-22T10:10:00.000Z", evidenceKind: "tested" });
   // Re-parse from the serialized VSA sections.
   const reparsed = getCriteria(run.vsa).find((c) => c.id === "C1");
   expect(reparsed?.evidenceKind).toBe("tested");
@@ -60,7 +60,7 @@ test("VerificationGate refuses recording a specification-only pass at record tim
   // Layer (a): #330's LEARN gate blocked a hollow pass from COMPLETING; the
   // VerificationGate refuses to RECORD it in the first place — fail-fast.
   expect(() =>
-    verifyAlgorithmCriterion(run, "C1", "passed", "the design says it returns 200", "2026-06-22T10:10:00.000Z", undefined, "specified"),
+    verifyAlgorithmCriterion(run, "C1", "passed", "the design says it returns 200", { timestamp: "2026-06-22T10:10:00.000Z", evidenceKind: "specified" }),
   ).toThrow(/VerificationGate.*C1.*(probe|specified|deferred)/is);
 });
 
@@ -69,20 +69,20 @@ test("VerificationGate refuses recording a rote pass even with a probed kind", (
   // The rote-text guard (ported from EvidenceGate) fires regardless of the
   // caller-asserted kind: "done" is never real evidence.
   expect(() =>
-    verifyAlgorithmCriterion(run, "C1", "passed", "done", "2026-06-22T10:10:00.000Z", undefined, "probed"),
+    verifyAlgorithmCriterion(run, "C1", "passed", "done", { timestamp: "2026-06-22T10:10:00.000Z", evidenceKind: "probed" }),
   ).toThrow(/VerificationGate.*rote/is);
 });
 
 test("a probed pass advances to LEARN", () => {
   let run = toVerify();
-  run = verifyAlgorithmCriterion(run, "C1", "passed", "curl -> 200", "2026-06-22T10:10:00.000Z", undefined, "probed");
+  run = verifyAlgorithmCriterion(run, "C1", "passed", "curl -> 200", { timestamp: "2026-06-22T10:10:00.000Z", evidenceKind: "probed" });
   run = advanceAlgorithmRun(run, "2026-06-22T10:11:00.000Z");
   expect(getRunPhase(run)).toBe("learn");
 });
 
 test("deferred-probe is an honest resolved state accepted by the LEARN gate", () => {
   let run = toVerify();
-  run = verifyAlgorithmCriterion(run, "C1", "deferred-probe", "design-only; real probe deferred to follow-up", "2026-06-22T10:10:00.000Z");
+  run = verifyAlgorithmCriterion(run, "C1", "deferred-probe", "design-only; real probe deferred to follow-up", { timestamp: "2026-06-22T10:10:00.000Z" });
   const c1 = getCriteria(run.vsa).find((c) => c.id === "C1");
   expect(c1?.status).toBe("deferred-probe");
   // verified should NOT be true when a criterion is only deferred-probe.
@@ -99,6 +99,6 @@ test("VerificationGate refuses a passed record with no probe kind (grandfatherin
   // is refused. (Loaded legacy runs are still tolerated by the lenient LEARN
   // gate — the strictness lives on the record path, not on old on-disk state.)
   expect(() =>
-    verifyAlgorithmCriterion(run, "C1", "passed", "the endpoint should return 200 per the spec", "2026-06-22T10:10:00.000Z"),
+    verifyAlgorithmCriterion(run, "C1", "passed", "the endpoint should return 200 per the spec", { timestamp: "2026-06-22T10:10:00.000Z" }),
   ).toThrow(/VerificationGate.*specification/is);
 });

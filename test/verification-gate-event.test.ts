@@ -55,9 +55,7 @@ describe("VerificationGateError", () => {
       "C1",
       "passed",
       "bun test ran 4 tests, 0 failures",
-      undefined,
-      undefined,
-      "tested",
+      { evidenceKind: "tested" },
     );
     expect(updated.verification.length).toBeGreaterThan(0);
   });

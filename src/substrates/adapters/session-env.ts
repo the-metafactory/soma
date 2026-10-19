@@ -9,11 +9,17 @@ const SESSION_RESOLVERS: Partial<Record<SubstrateId, (env: SessionEnv) => string
   "claude-code": claudeCodeSessionId,
 };
 
-/** Project a substrate session into the kernel's neutral environment contract. */
-export function resolveSubstrateSessionEnv(env: SessionEnv): SessionEnv {
+/**
+ * Project a substrate session into the kernel's neutral environment contract.
+ * A known substrate reads only its own primitive, so a codex process that
+ * inherits a Claude variable records no session. The scan over every resolver
+ * is the fallback for an unknown substrate.
+ */
+export function resolveSubstrateSessionEnv(env: SessionEnv, substrate?: SubstrateId): SessionEnv {
   if (env.SOMA_SESSION_ID) return env;
-  for (const resolve of Object.values(SESSION_RESOLVERS)) {
-    const sessionId = resolve(env);
+  const resolvers = substrate === undefined ? Object.values(SESSION_RESOLVERS) : [SESSION_RESOLVERS[substrate]];
+  for (const resolve of resolvers) {
+    const sessionId = resolve?.(env);
     if (sessionId !== undefined) return { ...env, SOMA_SESSION_ID: sessionId };
   }
   return env;
