@@ -317,7 +317,7 @@ describe("trial function with the substrate stubbed", () => {
     expect(record).toMatchObject({
       fixture_id: "tiny-discover-reuse",
       arm: "baseline",
-      substrate: "claude",
+      substrate: "claude-code",
       cli: { name: "claude", version: "9.9.9" },
       model: "claude-sonnet-5-5",
       hint_level: 2,
@@ -356,6 +356,20 @@ describe("trial function with the substrate stubbed", () => {
     const failed = STREAM.replace('"is_error":false', '"is_error":true');
     const { record } = await runTrial(options(), stubDeps(writingRun(failed)));
     expect(record.outcome).toBe("errored");
+    expect(record.error).toBe("result event flagged is_error");
+  });
+
+  test("a config hook the substrate plants in the shared repo does not run when the diff is taken", async () => {
+    const repo = makeRepo(root);
+    writeFixture(baseFixture(repo));
+    const marker = join(root, "fsmonitor-ran");
+    const hook = join(root, "fsmonitor.sh");
+    writeFileSync(hook, `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+    await runTrial(options(), stubDeps(async (input) => {
+      await runProcess(["git", "config", "core.fsmonitor", hook], { cwd: input.cwd });
+      return { exitCode: 0, stdout: STREAM, stderr: "", timedOut: false };
+    }));
+    expect(existsSync(marker)).toBe(false);
   });
 
   test("the substrate gets the hinted prompt, the worktree at rev, and the isolated environment", async () => {

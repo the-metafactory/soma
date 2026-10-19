@@ -33,9 +33,17 @@ export const PINNED_CLAUDE_MODEL = "claude-sonnet-5-5";
 export const DEFAULT_TRIAL_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_PROBE_TIMEOUT_MS = 10 * 60 * 1000;
 export const TRIAL_AUTH_ENV = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
-export const SUPPORTED_SUBSTRATES = ["claude"] as const;
+export const SUPPORTED_SUBSTRATES = ["claude-code"] as const;
+/** Spellings accepted on the command line, mapped to the canonical ProjectionSubstrate id the record stores. */
+const SUBSTRATE_ALIASES: Readonly<Record<string, string>> = { claude: "claude-code" };
+
+function canonicalSubstrate(name: string): string {
+  return SUBSTRATE_ALIASES[name] ?? name;
+}
 /** Caller variables a trial needs to run tools at all; any other variable, a credential included, stays out. */
 export const TRIAL_PASSTHROUGH_ENV = ["PATH", "SHELL", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "TMPDIR"] as const;
+
+const TOTAL_USAGE_FIELDS = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"] as const;
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -251,7 +259,7 @@ export function parseStream(stdout: string): StreamFacts {
     if (event.type === "system" && event.subtype === "init" && typeof event.model === "string") facts.model = event.model;
     if (event.type === "result") {
       facts.resultIsError = event.is_error === true;
-      resultTotal = sumUsage(asRecord(event.usage), ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"]);
+      resultTotal = sumUsage(asRecord(event.usage), TOTAL_USAGE_FIELDS);
     }
     if (event.type !== "assistant") continue;
     const message = asRecord(event.message);
@@ -272,7 +280,7 @@ export function parseStream(stdout: string): StreamFacts {
         sawStart = true;
       }
     }
-    const total = sumUsage(usage, ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"]);
+    const total = sumUsage(usage, TOTAL_USAGE_FIELDS);
     if (total !== undefined) perMessage.set(typeof message.id === "string" ? message.id : `anonymous-${String((anonymous += 1))}`, total);
   }
   if (resultTotal !== undefined) facts.totalTokens = resultTotal;
@@ -423,7 +431,9 @@ async function killGroup(pid: number): Promise<void> {
 /**
  * Run `command` as the leader of its own process group. Once the leader exits
  * or times out, the whole group is killed and awaited, so a background tool
- * command cannot keep editing the worktree while the trial scores it.
+ * command that stayed in the group cannot keep editing the worktree while the
+ * trial scores it. A descendant that called setsid leaves the group and is not
+ * stopped; this is hygiene, not a sandbox.
  */
 export async function runProcess(
   command: readonly string[],
@@ -461,10 +471,13 @@ export async function runProcess(
   return { exitCode: state.timedOut ? null : exitCode, stdout: out.join(""), stderr: err.join(""), timedOut: state.timedOut };
 }
 
-async function git(args: readonly string[], cwd?: string): Promise<string> {
-  const result = await runProcess(["git", ...args], {
+/** Config overrides that win over anything the substrate wrote into the shared cache repo config. */
+const SAFE_GIT_CONFIG = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"] as const;
+
+async function git(args: readonly string[], cwd?: string, env?: Record<string, string | undefined>): Promise<string> {
+  const result = await runProcess(["git", ...(env === undefined ? [] : SAFE_GIT_CONFIG), ...args], {
     cwd,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    env: env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
   });
   if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed (${String(result.exitCode)}): ${result.stderr.trim()}`);
   return result.stdout;
@@ -618,7 +631,61 @@ function trialEnv(root: string): Record<string, string | undefined> {
   return env;
 }
 
-export async function runTrial(options: TrialOptions, deps: TrialDeps): Promise<TrialResult> {
+interface RecordInputs {
+  fixture: Fixture;
+  fixtureSha: string;
+  options: TrialOptions;
+  runnerName: string;
+  version: string;
+  somaSha: string;
+  run: ProcessResult;
+  probe: ProcessResult;
+  facts: StreamFacts;
+  diff: string;
+  startedAt: Date;
+  wallTimeMs: number;
+  transcriptPath: string;
+}
+
+function buildRecord(input: RecordInputs): TrialRecord {
+  const { fixture, options, run, probe, facts } = input;
+  const errored = run.timedOut || run.exitCode !== 0 || facts.resultIsError;
+  const reason = run.timedOut
+    ? `timed out after ${String(options.timeoutMs)} ms`
+    : run.stderr.trim().slice(0, 2000) || (facts.resultIsError ? "result event flagged is_error" : null);
+  return {
+    fixture_id: fixture.id,
+    fixture_sha: input.fixtureSha,
+    arm: options.arm,
+    substrate: options.substrate,
+    cli: { name: input.runnerName, version: input.version },
+    model: facts.model ?? options.model,
+    soma_sha: input.somaSha,
+    hint_level: options.hint,
+    outcome: errored ? "errored" : "completed",
+    substrate_exit: run.exitCode,
+    timed_out: run.timedOut,
+    error: errored ? reason : null,
+    probe_exit: probe.exitCode,
+    start_of_session_tokens: facts.startTokens,
+    total_tokens: facts.totalTokens,
+    wall_time_ms: input.wallTimeMs,
+    sources_read: sourcesRead(fixture.expected_sources, facts.toolUses),
+    duplicates_created: duplicatesCreated(fixture.forbidden_duplicates, parseDiff(input.diff)),
+    probed_after_last_edit: probedAfterLastEdit(facts.toolUses),
+    started_at: input.startedAt.toISOString(),
+    transcript_path: input.transcriptPath,
+  };
+}
+
+function writeRecord(recordPath: string, record: TrialRecord): void {
+  const pending = `${recordPath}.tmp`;
+  writeFileSync(pending, `${JSON.stringify(record, null, 2)}\n`);
+  renameSync(pending, recordPath);
+}
+
+export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promise<TrialResult> {
+  const options = { ...rawOptions, substrate: canonicalSubstrate(rawOptions.substrate) };
   validateOptions(options);
   const store = storeRoot(options.somaHome);
   const loaded = loadFixture(options.fixture, store);
@@ -660,12 +727,14 @@ export async function runTrial(options: TrialOptions, deps: TrialDeps): Promise<
     const wallTimeMs = Math.round(performance.now() - started);
 
     const facts = parseStream(run.stdout);
-    await git(["add", "-A"], worktree);
-    const diff = await git(["diff", "--cached", "--unified=0", "--no-color", "--no-ext-diff", "--no-renames", fixture.rev], worktree);
+    // The substrate can edit the cache repo's config, which the worktree shares:
+    // score its edits with a stripped environment and fixed config overrides.
+    const gitEnv = { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+    await git(["add", "-A"], worktree, gitEnv);
+    const diff = await git(["diff", "--cached", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", fixture.rev], worktree, gitEnv);
 
     const probe = await runProcess(["sh", "-c", fixture.acceptance_probe], { cwd: worktree, env: probeEnv, timeoutMs: options.probeTimeoutMs });
 
-    const errored = run.timedOut || run.exitCode !== 0 || facts.resultIsError;
     const stamp = startedAt.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
     const base = `${fixture.id}.${options.arm}.h${String(options.hint)}.${stamp}.${Math.random().toString(36).slice(2, 6)}`;
     mkdirSync(outDir, { recursive: true });
@@ -673,40 +742,19 @@ export async function runTrial(options: TrialOptions, deps: TrialDeps): Promise<
     const recordPath = join(outDir, `${base}.json`);
     writeFileSync(transcriptPath, run.stdout);
 
-    const record: TrialRecord = {
-      fixture_id: fixture.id,
-      fixture_sha: loaded.sha,
-      arm: options.arm,
-      substrate: options.substrate,
-      cli: { name: deps.runner.name, version },
-      model: facts.model ?? options.model,
-      soma_sha: somaSha,
-      hint_level: options.hint,
-      outcome: errored ? "errored" : "completed",
-      substrate_exit: run.exitCode,
-      timed_out: run.timedOut,
-      error: errored ? (run.timedOut ? `timed out after ${String(options.timeoutMs)} ms` : run.stderr.trim().slice(0, 2000) || null) : null,
-      probe_exit: probe.exitCode,
-      start_of_session_tokens: facts.startTokens,
-      total_tokens: facts.totalTokens,
-      wall_time_ms: wallTimeMs,
-      sources_read: sourcesRead(fixture.expected_sources, facts.toolUses),
-      duplicates_created: duplicatesCreated(fixture.forbidden_duplicates, parseDiff(diff)),
-      probed_after_last_edit: probedAfterLastEdit(facts.toolUses),
-      started_at: startedAt.toISOString(),
-      transcript_path: transcriptPath,
-    };
-    const pending = `${recordPath}.tmp`;
-    writeFileSync(pending, `${JSON.stringify(record, null, 2)}\n`);
-    renameSync(pending, recordPath);
+    const record = buildRecord({
+      fixture, fixtureSha: loaded.sha, options, runnerName: deps.runner.name, version, somaSha, run, probe, facts, diff, startedAt, wallTimeMs, transcriptPath,
+    });
+    writeRecord(recordPath, record);
     return { record, recordPath };
   } finally {
     if (options.keep) {
       process.stderr.write(`Kept trial workdir: ${root}\n`);
     } else {
-      if (worktreeAdded) await runProcess(["git", "worktree", "remove", "--force", worktree], { cwd: cache });
+      const cleanEnv = { ...trialEnv(root), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+      if (worktreeAdded) await runProcess(["git", ...SAFE_GIT_CONFIG, "worktree", "remove", "--force", worktree], { cwd: cache, env: cleanEnv });
       rmSync(root, { recursive: true, force: true });
-      await runProcess(["git", "worktree", "prune"], { cwd: cache });
+      await runProcess(["git", ...SAFE_GIT_CONFIG, "worktree", "prune"], { cwd: cache, env: cleanEnv });
     }
   }
 }
