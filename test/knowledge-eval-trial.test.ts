@@ -396,6 +396,25 @@ describe("trial function with the substrate stubbed", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  test("a replacement ref the substrate plants in the shared cache does not change the next trial's checkout", async () => {
+    const repo = makeRepo(root);
+    writeFixture(baseFixture(repo));
+    await runTrial(options(), stubDeps((input) => {
+      writeFileSync(join(input.cwd, "README.md"), "# Replaced\n");
+      sh(input.cwd, "git", "add", "README.md");
+      const tree = sh(input.cwd, "git", "write-tree");
+      const fake = sh(input.cwd, "git", "commit-tree", tree, "-m", "fake");
+      sh(input.cwd, "git", "replace", "-f", repo.rev, fake);
+      return Promise.resolve({ exitCode: 0, stdout: STREAM, stderr: "", timedOut: false });
+    }));
+    let readme = "";
+    await runTrial(options(), stubDeps((input) => {
+      readme = readFileSync(join(input.cwd, "README.md"), "utf8");
+      return Promise.resolve({ exitCode: 0, stdout: STREAM, stderr: "", timedOut: false });
+    }));
+    expect(readme).toBe("# Intro\n");
+  });
+
   test("the substrate gets the hinted prompt, the worktree at rev, and the isolated environment", async () => {
     const repo = makeRepo(root);
     writeFixture(baseFixture(repo));

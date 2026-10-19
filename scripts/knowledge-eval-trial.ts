@@ -486,8 +486,12 @@ export async function runProcess(
   return { exitCode: state.timedOut ? null : exitCode, stdout: out.join(""), stderr: err.join(""), timedOut: state.timedOut };
 }
 
-/** Config overrides that win over anything the substrate wrote into the shared cache repo config. */
-const SAFE_GIT_CONFIG = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"] as const;
+/**
+ * Config overrides that win over anything the substrate wrote into the shared cache repo config,
+ * and no replacement refs: a refs/replace entry the substrate (or the origin) planted would
+ * otherwise swap the content a frozen rev checks out.
+ */
+const SAFE_GIT_CONFIG = ["--no-replace-objects", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"] as const;
 
 async function git(args: readonly string[], cwd?: string, env?: Record<string, string | undefined>): Promise<string> {
   const result = await runProcess(["git", ...SAFE_GIT_CONFIG, ...args], {
