@@ -216,6 +216,8 @@ export type Measured = number | "unmeasured";
 export interface ToolUse {
   name: string;
   input: Record<string, unknown>;
+  /** The tool_result for this call reported an error; a failed call read nothing. */
+  failed?: boolean;
 }
 
 export interface StreamFacts {
@@ -246,6 +248,7 @@ export function parseStream(stdout: string): StreamFacts {
   let resultTotal: number | undefined;
   let sawStart = false;
   let anonymous = 0;
+  const byId = new Map<string, ToolUse>();
   for (const line of stdout.split("\n")) {
     if (line.trim() === "") continue;
     let event: Record<string, unknown> | undefined;
@@ -261,6 +264,16 @@ export function parseStream(stdout: string): StreamFacts {
       facts.resultIsError = event.is_error === true;
       resultTotal = sumUsage(asRecord(event.usage), TOTAL_USAGE_FIELDS);
     }
+    if (event.type === "user") {
+      const userContent = asRecord(event.message)?.content;
+      for (const block of Array.isArray(userContent) ? (userContent as unknown[]) : []) {
+        const result = asRecord(block);
+        if (result?.type !== "tool_result" || result.is_error !== true || typeof result.tool_use_id !== "string") continue;
+        const use = byId.get(result.tool_use_id);
+        if (use !== undefined) use.failed = true;
+      }
+      continue;
+    }
     if (event.type !== "assistant") continue;
     const message = asRecord(event.message);
     if (message === undefined) continue;
@@ -268,7 +281,9 @@ export function parseStream(stdout: string): StreamFacts {
     for (const block of content) {
       const record = asRecord(block);
       if (record?.type === "tool_use" && typeof record.name === "string") {
-        facts.toolUses.push({ name: record.name, input: asRecord(record.input) ?? {} });
+        const use: ToolUse = { name: record.name, input: asRecord(record.input) ?? {} };
+        facts.toolUses.push(use);
+        if (typeof record.id === "string") byId.set(record.id, use);
       }
     }
     if (message.model === "<synthetic>") continue;
@@ -327,11 +342,11 @@ function usesRead(use: ToolUse, target: string): boolean {
   return false;
 }
 
-/** Expected sources the transcript read; a route counts when its file was read. */
+/** Expected sources the transcript read; a route counts when its file was read. A call whose result errored read nothing. */
 export function sourcesRead(expected: readonly string[], toolUses: readonly ToolUse[]): string[] {
   return expected.filter((source) => {
     const target = routePath(source);
-    return toolUses.some((use) => usesRead(use, target));
+    return toolUses.some((use) => use.failed !== true && usesRead(use, target));
   });
 }
 

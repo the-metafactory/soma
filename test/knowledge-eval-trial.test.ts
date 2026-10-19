@@ -214,6 +214,13 @@ describe("transcript analysis", () => {
     expect(sourcesRead(["soma:docs/x.md#H"], bash)).toEqual(["soma:docs/x.md#H"]);
   });
 
+  test("a read whose tool_result errored does not count as a source read", () => {
+    const call = (id: string, path: string): string => JSON.stringify({ type: "assistant", message: { id: `m-${id}`, content: [{ type: "tool_use", id, name: "Read", input: { file_path: path } }] } });
+    const result = (id: string, isError: boolean): string => JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: isError, content: "x" }] } });
+    const stream = [call("a", "/w/src/missing.ts"), result("a", true), call("b", "/w/src/run-ledger.ts"), result("b", false)].join("\n");
+    expect(sourcesRead(["src/missing.ts", "src/run-ledger.ts"], parseStream(stream).toolUses)).toEqual(["src/run-ledger.ts"]);
+  });
+
   test("a Bash command that only names a source is not a read", () => {
     const named = ["rm src/run-ledger.ts", "echo src/run-ledger.ts", "sed -i '' s/a/b/ src/run-ledger.ts", "git add src/run-ledger.ts"];
     for (const command of named) expect(sourcesRead(["src/run-ledger.ts"], [{ name: "Bash", input: { command } }])).toEqual([]);
