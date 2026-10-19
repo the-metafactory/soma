@@ -9,6 +9,7 @@
     "lint:fix": "eslint . --ignore-pattern \"integrations/**\" --fix",
     "soma": "bun src/cli.ts",
     "harness-eval": "bun scripts/harness-eval.ts",
+    "knowledge-eval": "bun scripts/knowledge-eval.ts",
     "typecheck": "tsc --noEmit",
     "check:boundaries": "bun scripts/check-boundaries.ts",
     "check:literal-sets": "bun scripts/check-literal-sets.ts",

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `bun run knowledge-eval field` reports principal corrections per session over a trailing `--window <days>` (default 60) of Claude Code transcripts, per project directory and overall, beside the in-window `feedback.candidate` events. The classifier is the learning session harvester's correction patterns, applied to the principal's typed turns only. `--sample <n> --seed <n>` writes a labelling sheet of sessions drawn across soma, ranger and ranger-worker directories under `$SOMA_HOME/evals/knowledge-orientation/field/` and never overwrites one; `--agree <labels.json>` prints the classifier's precision and recall against the labels and `field arm: keep` only when both reach 0.7, else `field arm: drop`. A labels file naming a session id with no transcript fails naming the id. (node #1005)
 - A ripe Errata cluster becomes one proposal file under `<soma-home>/proposals/`, ref `errata-<cluster-key>-g<generation>`, drafted from a retro-style reading of the cluster's rejected turns: a build brief naming the check for a `deterministic-check`, a question for every other kind. The triage run carries each ref it minted as `proposal_refs`, the landing map comes from the new `errata.landing` registry, and a cluster whose repo is not registered is reported once as `outputs/errata-unroutable-<date>.md` instead of proposed. soma's myelin dependency moves to v0.11.0, which carries `proposal_refs`. (#852)
 
 ### Removed
