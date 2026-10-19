@@ -431,7 +431,7 @@ describe("trial function with the substrate stubbed", () => {
       expect(record.probe_exit).toBe(0);
     } finally {
       for (const [name, value] of Object.entries(saved)) {
-        if (value === undefined) delete process.env[name];
+        if (value === undefined) Reflect.deleteProperty(process.env, name);
         else process.env[name] = value;
       }
     }
