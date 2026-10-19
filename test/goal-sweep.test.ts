@@ -267,6 +267,29 @@ test.each(["repos: wrong", "repos: [owner/name, ../bad]", "repos: [", `repos: ['
   },
 );
 
+test("missing activations directory fails pursuit and sensor, never publishing a regression", async () => {
+  const h = await filesystemFixture();
+  await rm(h.deps.activationsDir, { recursive: true });
+  await runGoalSweep(h.deps);
+  expect(h.events.map((event) => event.input.payload.outcome)).toEqual(["failed", "succeeded", "failed"]);
+  expect(h.events[0].input.payload).not.toHaveProperty("state");
+  expect(h.events[2].input.payload).not.toHaveProperty("state");
+  expect(h.stderr.join("\n")).toContain("cannot read Reflex blueprints");
+});
+
+test("sweep.yaml accepts qualified refs and bare owner/name alike, and a GitLab ref that cannot list roots fails pursuit", async () => {
+  const h = await filesystemFixture();
+  await writeFile(join(h.goals, "sweep.yaml"), "repos: [owner/listed, 'github:github.com/owner/other', 'gitlab:git.example.org/csoc/a']\n");
+  const repos: string[] = [];
+  await runGoalSweep({
+    ...h.deps,
+    graphStore: (repo) => { repos.push(repo); return repo.startsWith("gitlab:") ? {} as never : { listOpenRoots: async () => [], readSubtree: async () => [] }; },
+  });
+  expect(repos).toEqual(["owner/listed", "github:github.com/owner/other", "gitlab:git.example.org/csoc/a"]);
+  expect(h.events[0].input.payload.outcome).toBe("failed");
+  expect(h.stderr.join("\n")).toContain("gitlab:git.example.org/csoc/a");
+});
+
 test("malformed blueprint fails sensor and pursuit without leaking payload", async () => {
   const h = await filesystemFixture();
   await writeFile(join(h.deps.activationsDir, "jobs.yaml"), `schema: [${PRIVATE}`);

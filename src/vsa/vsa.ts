@@ -14,7 +14,7 @@ import {
   recomputeVerified,
   renderCriteriaMarkdown,
 } from "./vsa-accessors";
-import { parseVsa, serializeVsa } from "./vsa-parse";
+import { parseVsa, parseVsaRecordedFields, serializeVsa, type VsaRecordedFields } from "./vsa-parse";
 import { appendSomaMemoryEvent } from "../events/index";
 import { TIER_REQUIRED_SECTIONS, evaluateCompleteness, type CompletenessReport } from "./vsa-schema";
 import type { AlgorithmEffortTier, AlgorithmPhase, SubstrateId } from "../core/types";
@@ -106,6 +106,10 @@ export async function readVsa(slug: string, options: VsaLibraryOptions = {}): Pr
   const path = vsaPath(somaHome, slug);
   const raw = await readFile(path, "utf8");
   return parseVsa(raw, path, { somaHome });
+}
+
+export async function readVsaRecordedFields(slug: string, options: VsaLibraryOptions = {}): Promise<VsaRecordedFields> {
+  return parseVsaRecordedFields(await readFile(vsaPath(resolveSomaHome(options), slug), "utf8"));
 }
 
 export async function writeVsa(

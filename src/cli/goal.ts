@@ -21,7 +21,8 @@ import { readOption } from "./parse-utils";
 import type { GoalProposeDeps, GoalProposeOptions } from "../flows/index";
 import type { GoalAcceptDeps } from "../flows/index";
 
-type GoalAction = "add" | "activate" | "set-status" | "list" | "sense" | "outline" | "announce" | "kinds" | "sweep" | "propose";
+const GOAL_ACTIONS = ["add", "activate", "set-status", "list", "sense", "outline", "announce", "kinds", "sweep", "propose"] as const;
+type GoalAction = typeof GOAL_ACTIONS[number];
 
 export interface ParsedGoalArgs {
   command: "goal";
@@ -46,7 +47,7 @@ export interface ParsedGoalArgs {
 const ACTIVATIONS_DIRECTORY_HELP = "(REFLEX_ACTIVATIONS_DIR overrides goals.activations_dir in <soma-home>/config.yaml; default: ~/.config/reflex/personal-activations)";
 
 export const GOAL_COMMAND_HELP = {
-  usage: `Usage: soma goal <add|activate|set-status|list|sense|outline|announce|kinds|sweep|propose> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
+  usage: `Usage: soma goal <${GOAL_ACTIONS.join("|")}> ... [--home-dir <dir>] [--soma-home <dir>] ${ACTIVATIONS_DIRECTORY_HELP}`,
   subcommands: {
     propose: "Usage: soma goal propose --wording <text> [--hint <text>] [--param <key=value>]... [--json] [--home-dir <dir>] [--soma-home <dir>]",
     add: "Usage: soma goal add (--accept <hash> | --wording <text> [--supports M<n>...] [--sensor <activation-id>] [--review-by YYYY-MM-DD]) [--home-dir <dir>] [--soma-home <dir>]",
@@ -254,7 +255,7 @@ function parseSenseArgs(rest: string[], options: ParsedGoalArgs["options"]): voi
 
 export function parseGoalArgs(args: string[]): ParsedGoalArgs {
   const [command, action, ...rest] = args;
-  if (command !== "goal" || !["add", "activate", "set-status", "list", "sense", "outline", "announce", "kinds", "sweep", "propose"].includes(action)) {
+  if (command !== "goal" || !(GOAL_ACTIONS as readonly string[]).includes(action)) {
     throw new Error(GOAL_COMMAND_HELP.usage);
   }
   const options: ParsedGoalArgs["options"] = { add: { wording: "", supports: [] }, includeWording: false };
