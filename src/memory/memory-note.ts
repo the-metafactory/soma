@@ -1,4 +1,12 @@
-import { SOMA_MEMORY_NOTE_TYPES, SOMA_MEMORY_TRUSTS, type SomaMemoryNote, type SomaMemoryNoteType, type SomaMemoryTrust } from "./types";
+import {
+  SOMA_MEMORY_NOTE_TYPES,
+  SOMA_MEMORY_SUPPORT_LEVELS,
+  SOMA_MEMORY_TRUSTS,
+  type SomaMemoryNote,
+  type SomaMemoryNoteType,
+  type SomaMemorySupportLevel,
+  type SomaMemoryTrust,
+} from "./types";
 
 /**
  * File-native memory note parser + serializer (memory subsystem M0).
@@ -37,6 +45,7 @@ export const NOTE_ID_MAX_LEN = 64;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NOTE_TYPES: readonly SomaMemoryNoteType[] = SOMA_MEMORY_NOTE_TYPES;
 const TRUSTS: readonly SomaMemoryTrust[] = SOMA_MEMORY_TRUSTS;
+const SUPPORT_LEVELS: readonly SomaMemorySupportLevel[] = SOMA_MEMORY_SUPPORT_LEVELS;
 
 /** True iff `id` matches the note-id slug grammar and fits within `maxLen`
  *  (default 64, the frontmatter `id` field's own cap; a caller building a
@@ -115,7 +124,7 @@ const REQUIRED_KEYS = [
   "links",
   "resurface_count",
 ] as const;
-const OPTIONAL_KEYS = ["hook", "review"] as const;
+const OPTIONAL_KEYS = ["hook", "review", "support", "support_as_of"] as const;
 const ALLOWED_KEYS = new Set<string>([...REQUIRED_KEYS, ...OPTIONAL_KEYS]);
 
 function assert(condition: unknown, message: string, field?: string): asserts condition {
@@ -154,6 +163,8 @@ const ROUND_TRIP_SCALARS = [
   "resurface_count",
   "hook",
   "review",
+  "support",
+  "support_as_of",
 ] as const;
 
 /**
@@ -232,6 +243,12 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
     "provenance",
   );
   assert(body.length > 0, "body must not be empty", "body");
+  assert(!("support" in raw) || "support_as_of" in raw, "support requires support_as_of", "support_as_of");
+  assert(!("support_as_of" in raw) || "support" in raw, "support_as_of requires support", "support");
+  if ("support" in raw) {
+    assert((SUPPORT_LEVELS as readonly string[]).includes(raw.support), `support "${raw.support}" is not valid`, "support");
+    assert(isCalendarDate(raw.support_as_of), `support_as_of "${raw.support_as_of}" must be a valid YYYY-MM-DD date`, "support_as_of");
+  }
 
   const note: SomaMemoryNote = {
     id,
@@ -249,6 +266,10 @@ export function parseMemoryNote(content: string): SomaMemoryNote {
   };
   if ("hook" in raw) note.hook = raw.hook;
   if ("review" in raw) note.review = raw.review;
+  if ("support" in raw) {
+    note.support = raw.support as SomaMemorySupportLevel;
+    note.support_as_of = raw.support_as_of;
+  }
   return note;
 }
 
@@ -285,6 +306,8 @@ export function serializeMemoryNote(note: SomaMemoryNote): string {
   ];
   if (note.hook !== undefined) lines.push(`hook: ${note.hook}`);
   if (note.review !== undefined) lines.push(`review: ${note.review}`);
+  if (note.support !== undefined) lines.push(`support: ${note.support}`);
+  if (note.support_as_of !== undefined) lines.push(`support_as_of: ${note.support_as_of}`);
   lines.push("---", "", note.body.trim(), "");
   const output = lines.join("\n");
   // Enforce the round-trip law by construction: re-parse (validates every field)

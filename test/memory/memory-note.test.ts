@@ -285,3 +285,61 @@ test("multi-entry links round-trip", () => {
   const n = { ...minimalNote(), links: ["a", "b-two", "c3"] };
   expect(parseMemoryNote(serializeMemoryNote(n)).links).toEqual(["a", "b-two", "c3"]);
 });
+
+// ── support level (node #1000) ──────────────────────────────────────────────
+
+function supportedNote(): SomaMemoryNote {
+  return { ...fullNote(), support: "probed", support_as_of: "2026-10-19" };
+}
+
+function parseError(content: string): MemoryNoteError {
+  try {
+    parseMemoryNote(content);
+  } catch (e) {
+    expect(e).toBeInstanceOf(MemoryNoteError);
+    return e as MemoryNoteError;
+  }
+  throw new Error("expected parse to throw");
+}
+
+test("support keys round-trip byte-stably and sit after hook/review", () => {
+  const s = serializeMemoryNote(supportedNote());
+  expect(serializeMemoryNote(parseMemoryNote(s))).toBe(s);
+  expect(parseMemoryNote(s)).toEqual(supportedNote());
+  const keys = s.split("\n").map((l) => l.split(":")[0]);
+  expect(keys.indexOf("review")).toBeLessThan(keys.indexOf("support"));
+  expect(keys.indexOf("support")).toBeLessThan(keys.indexOf("support_as_of"));
+});
+
+test("a note without support parses as unrated and serializes neither key", () => {
+  const parsed = parseMemoryNote(serializeMemoryNote(fullNote()));
+  expect("support" in parsed).toBe(false);
+  expect("support_as_of" in parsed).toBe(false);
+  const s = serializeMemoryNote(parsed);
+  expect(s).not.toContain("support");
+});
+
+test("support without support_as_of fails naming support_as_of", () => {
+  const s = serializeMemoryNote(supportedNote()).replace(/support_as_of: .*\n/, "");
+  expect(parseError(s).field).toBe("support_as_of");
+});
+
+test("support_as_of without support fails naming support", () => {
+  const s = serializeMemoryNote(supportedNote()).replace(/support: .*\n/, "");
+  expect(parseError(s).field).toBe("support");
+});
+
+test("an unknown support level fails naming support", () => {
+  const s = serializeMemoryNote(supportedNote()).replace("support: probed", "support: approved");
+  expect(parseError(s).field).toBe("support");
+});
+
+test("an impossible support_as_of date fails naming support_as_of", () => {
+  const s = serializeMemoryNote(supportedNote()).replace("support_as_of: 2026-10-19", "support_as_of: 2026-02-30");
+  expect(parseError(s).field).toBe("support_as_of");
+});
+
+test("serialize refuses a note with only one support key", () => {
+  expect(() => serializeMemoryNote({ ...fullNote(), support: "tested" })).toThrow(MemoryNoteError);
+  expect(() => serializeMemoryNote({ ...fullNote(), support_as_of: "2026-10-19" })).toThrow(MemoryNoteError);
+});
