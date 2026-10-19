@@ -68,7 +68,7 @@ export interface VsaRecordedFields {
 
 /** The fields a measurement needs, exactly as recorded: nothing defaulted to the present. */
 export function parseVsaRecordedFields(markdown: string): VsaRecordedFields {
-  const yaml = parseYamlObject(splitFrontmatter(markdown).frontmatterRaw);
+  const yaml = parseYamlObject(splitFrontmatter(markdown.replace(/\r\n/g, "\n")).frontmatterRaw);
   return {
     ...(typeof yaml.serves === "string" ? { serves: yaml.serves } : {}),
     phase: coercePhase(yaml.phase),

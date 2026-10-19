@@ -245,6 +245,15 @@ test.each(["vsa", "isa"])("filesystem sweep reads serves, phase and update in %s
   expect(h.events[3].input.payload.state?.value).toBe("regressed");
 });
 
+test("filesystem sweep reads a CRLF VSA's serves, phase and update", async () => {
+  const h = await filesystemFixture();
+  await writeFile(join(h.deps.activationsDir, "jobs.yaml"), "schema: metafactory/activation/v1\nactivations: [{id: feed-check}]\n");
+  await mkdir(join(h.deps.somaHome, "vsa"));
+  await writeFile(join(h.deps.somaHome, "vsa", "work.md"), `---\r\nserves: G5\r\nphase: build\r\nupdated: ${ago(3)}\r\n---\r\n${PRIVATE}\r\n`);
+  await runGoalSweep(h.deps);
+  expect(h.events[0].input.payload.state?.value).toBe("ok");
+});
+
 test("VSA without a recorded update fails pursuit rather than defaulting to now", async () => {
   const h = await filesystemFixture();
   await mkdir(join(h.deps.somaHome, "vsa"));
