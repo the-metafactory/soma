@@ -421,7 +421,7 @@ Schedules and sensor state rules come from kinds;
 warning that nothing moves the goal and the sweep's pursuit check will flag it.
 
 Private params use `<resource:name>`. Values come from `profile/resources.yaml`
-or `--param key=value`: use a private parameter name, `kind.parameter`, resource
+or `--param key=value`: use `kind.parameter`, a private parameter name, resource
 name or resource type (in that precedence order). Values may be JSON for
 structured inputs, such as a channel array. Overrides stay local and are stored
 only in the successful proposal for later staging. Missing required resources
