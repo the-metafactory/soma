@@ -915,3 +915,150 @@ The Soma-native replacement for PAI's **ISA** (Ideal State Artifact): **I**deal 
 - `spec`, `definition of done` — informal glosses; `VSA` is the canonical artifact noun.
 
 **Why:** completes the vocabulary alignment pass of the seven-compartment set (Identity · [[Purpose (compartment, formerly Telos)|Purpose]] · [[Verification (compartment, formerly ISA)|Verification]] · Skills · Memory · Policy · Learning). The `VSA` cadence keeps the CLI familiar (`soma isa` → `soma vsa`) and signals deliberate lineage rather than a clean break. See ADR on the working-method vocabulary alignment.
+
+---
+
+## source
+
+An authoritative artifact with an owner: a repo file, a `~/.soma` policy, profile or goal file, an ADR or DD, a work-graph node body, inbound content, a free-form PAI store file, a skill's `SKILL.md`. *Source* is a role, not a store: the same file is a source when something cites it as the place to read the truth. Its identity is `repo:path@rev`, a URL, or a sha256 for inbound content.
+
+Only the owner writes a source. Knowledge maintenance never edits one. A source's [[authority]] is its writer's own, and its [[support]] is n/a: it *is* the evidence.
+
+**Not synonyms:**
+- `store` — a store is where bytes live; a source is the role an artifact plays when cited as authoritative.
+- `raw transcript source` — a substrate-local transcript directory harvested only on request. A different term, unrelated to the knowledge-model role.
+- `copy`, `mirror` — an independently edited copy is not a source. Prefer the maintained reference over the copy.
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
+
+---
+
+## claim
+
+A statement about something, with a pointer to its evidence. Represented as a memory note (semantic or procedural). A claim carries [[authority]] from its note `trust`, a [[support]] level, and optionally a [[scope]].
+
+The system may form claims from [[runtime observation|runtime observations]], but only at `specified` support, linked back to the observations they came from. A claim never becomes policy or a [[principal decision]] by being well supported; that is proposed only, through `rule-memory`.
+
+**Not synonyms:**
+- `fact`, `knowledge` — they imply settled truth. A claim is a statement with evidence and a rating, and it can be contested.
+- `note` — the storage shape. Not every memory note is a claim.
+- `observation` — a [[runtime observation]] is a timestamped event and makes no general statement. A claim does.
+- `decision` — a [[principal decision]] is a principal act. A claim is never a decision.
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
+
+---
+
+## route
+
+A stable pointer from a need ("how do I X") to a [[source]]. Represented as a procedural memory note: `hook` is the need, `source_of_truth` is `<repo>:<path>#<H2 heading>`. A route can be checked for breakage: if the heading is renamed, the check reports the route broken and does not silently repair it.
+
+A route is never more visible than its target. A route into a private note is private too. A skill's `USE WHEN` / `NOT FOR` text is a route; the registry and the native loader listing are [[orientation view|orientation views]].
+
+How the address prefix resolves to a checkout, and how a note is marked as a route, are unresolved; notes have no `kind` key today.
+
+**Not synonyms:**
+- `link`, `pointer` (bare) — a route has a need on one end and a source on the other, and is checkable.
+- `routing metadata`, `route comment` — the work graph's GitLab routing (see [[work graph]]) is graph topology, unrelated.
+- `skill trigger` — a registry trigger is not yet a route record and gets no breakage detection.
+- `navigation-pointer` — the proposal kind for a route the system may not write itself, not the route.
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
+
+---
+
+## orientation view
+
+A derived arrangement of [[route|routes]] and [[claim|claims]]: what exists, how it connects, where the current map ends. Never authoritative, regenerable, and safe to delete. A [[project (verb) / projection (noun)|projection]] output, written only by the projector. A hand edit is a defect, redirected to the source.
+
+A view holds no [[authority]]; its [[support]] is inherited from what it arranges. A verbatim view, such as `MEMORY.md`, which is `memory/INDEX.md` byte for byte, may carry no provenance header.
+
+**Not synonyms:**
+- `source` — a view is never the place to read the truth. Deleting it loses nothing; reproject rebuilds it.
+- `map` — orienteer doctrine for one [[work graph]] instance. A view is not a graph.
+- `index` as a store — `INDEX.md` is one view, not a second copy of the notes.
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
+
+---
+
+## runtime observation
+
+A timestamped event from execution (Ranger), Vigil, or Errata. Append-only, and it makes no general statement. A correction is an observation, not a separate kind. Soma references `{producer, id}` and never copies the producer's record.
+
+An **[[observability event]]** is a record. A runtime observation is the role such a record plays when it is cited as evidence for a [[claim]]. The same record can be both.
+
+An observation has no [[authority]] and governs nothing. Reproducing one 50 times does not turn [[support]] into authority.
+
+**Not synonyms:**
+- `observability event` — the record. A runtime observation is the evidence role it plays.
+- `claim` — a claim makes a general statement and cites observations.
+- `transcript`, `log` — an observation is one bounded event, not a stream.
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
+
+---
+
+## principal decision
+
+A [[principal]] act. Its record is a [[source]] carrying `authority=principal`; there is no separate decision store. The record lands in the principal source it belongs to: `~/.soma/policy/behavior.md`, an ADR or DD, a work-graph node close receipt, `goal add --accept`, or `memory promote --principal-authority`.
+
+A principal act is a principal-authored commit or edit to a principal source, the principal's 👍 on a close proposal, or `--principal-authority` passed in an interactive session at the principal's instruction. A HITL node closed by an agent without principal ratification carries system [[authority]] only.
+
+**Not synonyms:**
+- `approval` by an agent session — an agent close with no principal 👍 is not a principal decision.
+- `claim` — a well-supported claim is never a decision.
+- `rule-memory` — the proposal kind that turns a claim into policy or a decision. It proposes; only the principal decides.
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
+
+---
+
+## authority
+
+Who stands behind an item and what it may govern. Values: `principal`, `system`, `external`. It changes only through a [[principal decision|principal act]]. Existing note `trust` maps onto it: `trust: principal` is principal, `assistant` is system, `quarantined` is external.
+
+Authority and [[support]] are independent axes. Support never becomes authority, and authority does not raise support: a principal rule may sit at `specified` support, which is fine. The work graph's `approved` evidence kind is read as authority, not support; the schema is unchanged.
+
+A [[runtime observation]] and an [[orientation view]] hold no authority.
+
+**Not synonyms:**
+- `support` — how well evidence backs an item. The other axis.
+- `trust` — the existing note field that maps onto authority; not the axis name.
+- `visibility` — who may see an item, inherited from its most restrictive source. Only the principal widens it, through `information-access`.
+- `permission` — a [[behavioral policy]] concern, not a property of knowledge.
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
+
+---
+
+## support
+
+How well the evidence backs an item. Ladder: `specified`, `probed`, `tested`, `judged`, `outcome-verified`, each with `support_as_of`. It moves both ways: it degrades when stale, and an item is marked `contested` when an observation contradicts it. A contested [[claim]] backed by a [[principal decision]] is escalated to the principal, never demoted by itself.
+
+A run that succeeded is not `outcome-verified`; that needs a probe of the claimed thing. A note with no `support` field is *unrated*, never read as `specified` or any other level.
+
+Support and [[authority]] are independent axes. The work graph's `approved` evidence kind mixes the two and is read as authority, not support.
+
+**Not synonyms:**
+- `authority` — who stands behind an item. The other axis.
+- `confidence` — a feeling about a claim. Support is a rung with a date.
+- `verified` — only `outcome-verified` carries that meaning, and it needs a probe. See [[checkpoint]].
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
+
+---
+
+## scope
+
+An `applies-to` attribute on [[claim|claims]] and [[route|routes]], e.g. `{project, role, task, goal?}`. It is a filter, not a container. A missing key means "general". A goal is never required.
+
+The existing **[[context]]** entry (bytes in the LLM's context window) is unchanged. Scope is not a synonym for it: scope selects which claims and routes apply, context is what was loaded.
+
+**Not synonyms:**
+- `context` — bytes in the context window. Unchanged.
+- `container`, `namespace` — scope narrows a lookup and does not hold items.
+- `write scope` — the work graph store's writable repositories, unrelated.
+- `visibility` — who may see an item. Scope says where it applies.
+
+Authority: [#983](https://github.com/the-metafactory/soma/issues/983).
