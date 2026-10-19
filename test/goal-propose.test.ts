@@ -333,6 +333,8 @@ test.each([
   { mechanisms: [{ kind: "feed", params: fit.sensor.params }] },
   { mechanisms: [fit.mechanisms[0], fit.mechanisms[0]] },
   { review_by: "not a date" },
+  { review_by: "2026-10-16" },
+  { review_by: "2026-01-01" },
   { supports: ["M42"] },
   { drop: undefined },
 ])("invalid-then-valid retries once with controlled validation feedback: %j", async (invalid) => {
