@@ -71,7 +71,7 @@ const tanaSourceSchema = z.strictObject({
   status_field_id: tanaId,
   sphere_field_id: tanaId,
 });
-const tanaFieldSchema = z.object({ field_def_id: tanaId, value_node_id: z.string().min(1) });
+const tanaFieldSchema = z.object({ field_id: tanaId, value_node_id: z.string().min(1) });
 const batchSchema = z.object({
   results: z.array(z.object({ id: z.string(), node: z.object({ id: z.string(), name: z.string() }), error: z.string().optional() })),
   missing: z.literal(0),
@@ -128,15 +128,26 @@ export const readTanaCollection: CollectionReader = async (source, now) => {
         `SELECT DISTINCT n.id FROM nodes n JOIN tag_applications t ON t.data_node_id = n.id
          WHERE t.tag_id = ? AND (n.node_type IS NULL OR n.node_type != 'trash') ORDER BY n.id`,
       ).all(config.tag_id);
-      const fields = db.query<{ field_def_id: string; value_node_id: string }, [string, string, string]>(
-        `SELECT field_def_id, value_node_id FROM field_values
-         WHERE parent_id = ? AND field_def_id IN (?, ?) ORDER BY value_order`,
+      // field_def_id can name a tag/source tuple or be empty. Only the value
+      // tuple's first child identifies the attribute (supertag's
+      // resolveFieldNameFromTuple / extractFieldValuesFromNodes; pinned source
+      // and an anonymized index sample: test/fixtures/tana-collection/README.md).
+      // Keep missing tuples so validation fails the read instead of silently
+      // dropping their values.
+      const fields = db.query<{ field_id: unknown; value_node_id: unknown }, [string]>(
+        `SELECT json_extract(t.raw_data, '$.children[0]') AS field_id, v.value_node_id
+         FROM field_values v LEFT JOIN nodes t ON t.id = v.tuple_id
+         WHERE v.parent_id = ? ORDER BY v.value_order`,
       );
       const items = rows.map(({ id }) => {
         tanaId.parse(id);
-        const values = z.array(tanaFieldSchema).parse(fields.all(id, config.status_field_id, config.sphere_field_id));
-        return { id, statusOptionIds: values.filter((v) => v.field_def_id === config.status_field_id).map((v) => v.value_node_id),
-          sphereOptionIds: values.filter((v) => v.field_def_id === config.sphere_field_id).map((v) => v.value_node_id) };
+        const values = fields.all(id).flatMap((row) => {
+          const fieldId = tanaId.parse(row.field_id);
+          if (fieldId !== config.status_field_id && fieldId !== config.sphere_field_id) return [];
+          return [tanaFieldSchema.parse(row)];
+        });
+        return { id, statusOptionIds: values.filter((v) => v.field_id === config.status_field_id).map((v) => v.value_node_id),
+          sphereOptionIds: values.filter((v) => v.field_id === config.sphere_field_id).map((v) => v.value_node_id) };
       });
       // Including the tag proves supertag access even when the collection is empty.
       const names = await readSupertagNames(config.index_path, [config.tag_id, ...rows.map((row) => row.id)]);
