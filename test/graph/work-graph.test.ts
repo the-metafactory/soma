@@ -186,6 +186,15 @@ test("a probe that ran and failed refuses the close", () => {
   expect(codeOf(() => { assertClosable(AUTO_NODE, failed); })).toBe("close-refused");
 });
 
+test("a failed probe's refusal carries what it observed", () => {
+  const failed = receipt({
+    probeResults: [
+      { probe: PASSING_PROBE, state: "probed", outcome: "fail", observed: "exit 1: (fail) the vent test", at: "2026-08-04T09:59:00.000Z" },
+    ],
+  });
+  expect(() => { assertClosable(AUTO_NODE, failed); }).toThrow(/ran and failed: exit 1: \(fail\) the vent test$/);
+});
+
 test("judged evidence never suffices alone — a model's opinion informs, never decides", () => {
   const judged = receipt({ evidence: [{ kind: "judged", summary: "sage approved", pointer: "https://example.test/review" }] });
   expect(codeOf(() => { assertClosable(AUTO_NODE, judged); })).toBe("close-refused");
