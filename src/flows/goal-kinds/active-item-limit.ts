@@ -46,15 +46,16 @@ export const activeItemLimitKind = {
     const { measureActiveItems, activeItemCountsSummary } = await import("../goal-sense-active-items");
     try {
       const measured = await measureActiveItems(p.collection, p.max, (deps.now ?? (() => new Date()))());
-      return { state: measured.value, summary: activeItemCountsSummary(measured.counts) };
+      return { state: measured.value,
+        summary: `${activeItemCountsSummary(measured.counts)}, snapshot age ${(measured.snapshotAgeMs / 3_600_000).toFixed(1)}h` };
     } catch (error) {
       if (error instanceof Error) return { state: "unknown" };
       throw error;
     }
   },
-  stateRuleTemplate: "At most {max} active items and zero unclassified: on-track; otherwise off-track; failed read or index older than 26 h: unknown, no published state.",
+  stateRuleTemplate: "At most {max} active items and zero unclassified: on-track; otherwise off-track; failed read or snapshot older than 26 h: unknown, no published state.",
   stateRule: (params: ActiveItemLimitParams): string => {
     const { max } = activeItemLimitParams.parse(params);
-    return `At most ${max} active items and zero unclassified: on-track; otherwise off-track; failed read or index older than 26 h: unknown, no published state.`;
+    return `At most ${max} active items and zero unclassified: on-track; otherwise off-track; failed read or snapshot older than 26 h: unknown, no published state.`;
   },
 } as const satisfies GoalKind<typeof activeItemLimitParams>;

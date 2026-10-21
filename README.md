@@ -527,9 +527,13 @@ option IDs. The adapter therefore reads membership and all option IDs directly
 from that index with SQLite `readonly: true`, and reads display names through
 `supertag batch get <ids> --offline --db-path <index> --json --select id,name`.
 Every subprocess uses a read verb and closed stdin; no collection writes occur.
-The adapter reports age from `sync_metadata.last_sync_timestamp`. An index
-older than 26 hours, invalid timestamp, unknown tag, unreadable index or failed
-subprocess returns `unknown`, exits 1 and emits a failed run without a goal
+The adapter measures snapshot age from the newest usable `nodes.updated`
+timestamp (positive integer milliseconds, at or before the read time) across
+the index. This dates the exported data; `sync_metadata.last_sync_timestamp`
+only dates indexing and cannot establish snapshot freshness. Baseline shows
+snapshot age, and the local state file records it as `snapshot_age_ms`.
+A snapshot older than 26 hours, no usable timestamp, unknown tag, unreadable
+index or failed subprocess returns `unknown`, exits 1 and emits a failed run without a goal
 state. The last good local snapshot is retained. Missing resources use the
 existing `needs_input: [tana-collection]` proposal path. Baseline calibration
 uses the same reader and publishes and writes no sensor state.
