@@ -24,6 +24,8 @@ export const activeItemLimitParams = activeItemLimitPublicParams.extend({
 export type ActiveItemLimitParams = z.output<typeof activeItemLimitParams>;
 export type ActiveItemLimitOptions = z.input<typeof activeItemLimitPublicParams>;
 
+const stateRuleTemplate = "At most {max} active items and zero unclassified: on-track; otherwise off-track; failed read or snapshot older than 26 h: unknown, no published state.";
+
 export const activeItemLimitKind = {
   id: "active-item-limit",
   role: "sensor",
@@ -53,9 +55,9 @@ export const activeItemLimitKind = {
       throw error;
     }
   },
-  stateRuleTemplate: "At most {max} active items and zero unclassified: on-track; otherwise off-track; failed read or snapshot older than 26 h: unknown, no published state.",
+  stateRuleTemplate,
   stateRule: (params: ActiveItemLimitParams): string => {
     const { max } = activeItemLimitParams.parse(params);
-    return `At most ${max} active items and zero unclassified: on-track; otherwise off-track; failed read or snapshot older than 26 h: unknown, no published state.`;
+    return stateRuleTemplate.replace("{max}", String(max));
   },
 } as const satisfies GoalKind<typeof activeItemLimitParams>;

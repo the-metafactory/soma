@@ -527,12 +527,17 @@ option IDs. The adapter therefore reads membership and all option IDs directly
 from that index with SQLite `readonly: true`, and reads display names through
 `supertag batch get <ids> --offline --db-path <index> --json --select id,name`.
 Every subprocess uses a read verb and closed stdin; no collection writes occur.
-The adapter measures snapshot age from the newest usable `nodes.updated`
+The adapter estimates snapshot age from the newest usable `nodes.updated`
 timestamp (positive integer milliseconds, at or before the read time) across
-the index. This dates the exported data; `sync_metadata.last_sync_timestamp`
-only dates indexing and cannot establish snapshot freshness. Baseline shows
-snapshot age, and the local state file records it as `snapshot_age_ms`.
-A snapshot older than 26 hours, no usable timestamp, unknown tag, unreadable
+the index. This is time since the newest edit, a conservative upper bound on
+snapshot age, not an export timestamp: even a fresh export of a workspace idle
+for more than 26 hours returns `unknown`. The pinned supertag schema records
+indexing time in `sync_metadata.last_sync_timestamp`, which cannot establish
+snapshot freshness; see the [timestamp provenance](test/fixtures/tana-collection/README.md#timestamp-provenance).
+Baseline labels this estimate as snapshot age, and the local state file records
+it as `snapshot_age_ms`. The reader can use an existing `nodes.updated` index;
+without one it scans the nodes table and never creates an index.
+An estimated snapshot age over 26 hours, no usable timestamp, unknown tag, unreadable
 index or failed subprocess returns `unknown`, exits 1 and emits a failed run without a goal
 state. The last good local snapshot is retained. Missing resources use the
 existing `needs_input: [tana-collection]` proposal path. Baseline calibration

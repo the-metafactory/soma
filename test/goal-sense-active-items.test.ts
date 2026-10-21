@@ -77,6 +77,14 @@ function addFieldValues(db: Database, parentId: string, fieldId: string, values:
     .run(parentId, fieldDefId, tupleId, id, order));
 }
 
+function setUpdated(index: string, value: number | string | null, id?: string) {
+  const db = new Database(index);
+  try {
+    if (id === undefined) db.query("UPDATE nodes SET updated = ?").run(value);
+    else db.query("UPDATE nodes SET updated = ? WHERE id = ?").run(value, id);
+  } finally { db.close(); }
+}
+
 async function fixture(options: { age?: number; indexAge?: number; empty?: boolean; script?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "soma-active-items-"));
   roots.push(root);
@@ -161,15 +169,18 @@ test("a 2h snapshot proceeds independently of indexing time and reports snapshot
   expect(await readFile(f.index)).toEqual(before);
 });
 
-test("snapshot time uses the newest valid update across the index, ignoring future and malformed values", async () => {
+test.each([false, true])("snapshot proxy uses the newest valid update, ignoring future and malformed values (updated index: %s)", async (indexed) => {
   const f = await fixture({ age: 30 * 60 * 60 * 1000 });
-  const db = new Database(f.index);
-  // A node outside the collection still dates the exported snapshot.
-  db.query("UPDATE nodes SET updated = ? WHERE id = 'other'").run(now.getTime() - 7_200_000);
-  db.query("UPDATE nodes SET updated = ? WHERE id = 'a'").run(now.getTime() + 3_600_000);
-  db.query("UPDATE nodes SET updated = ? WHERE id = 'b'").run("Private invalid timestamp");
-  db.query("UPDATE nodes SET updated = ? WHERE id = 'c'").run(now.getTime() - 0.5);
-  db.close();
+  if (indexed) {
+    const db = new Database(f.index);
+    try { db.run("CREATE INDEX nodes_updated ON nodes(updated)"); }
+    finally { db.close(); }
+  }
+  // A node outside the collection still supplies the newest-edit proxy.
+  setUpdated(f.index, now.getTime() - 7_200_000, "other");
+  setUpdated(f.index, now.getTime() + 3_600_000, "a");
+  setUpdated(f.index, "Private invalid timestamp", "b");
+  setUpdated(f.index, now.getTime() - 0.5, "c");
   const before = await readFile(f.index);
   expect(await readTanaCollection(f.resource.source, now)).toMatchObject({ ok: true, snapshotAgeMs: 7_200_000 });
   expect(await readFile(f.index)).toEqual(before);
@@ -177,9 +188,7 @@ test("snapshot time uses the newest valid update across the index, ignoring futu
 
 test("a future update cannot hide a stale snapshot", async () => {
   const f = await fixture({ age: 30 * 60 * 60 * 1000 });
-  const db = new Database(f.index);
-  db.query("UPDATE nodes SET updated = ? WHERE id = 'other'").run(now.getTime() + 3_600_000);
-  db.close();
+  setUpdated(f.index, now.getTime() + 3_600_000, "other");
   expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false, snapshotAgeMs: 108_000_000 });
   expect(await runActiveItemLimitSensor({ goal: "G8", max: 100 }, f.deps)).toMatchObject({ exitCode: 1, value: "unknown" });
   expect(f.events[0].input.payload.state).toBeUndefined();
@@ -188,9 +197,7 @@ test("a future update cannot hide a stale snapshot", async () => {
 test.each([null, 0, -1, now.getTime() + 1, now.getTime() - 0.5, "Private invalid timestamp"])(
   "no usable updated value (%s) gives unknown without private diagnostics or state publication", async (updated) => {
     const f = await fixture({ empty: true });
-    const db = new Database(f.index);
-    db.query("UPDATE nodes SET updated = ?").run(updated);
-    db.close();
+    setUpdated(f.index, updated);
     const before = await readFile(f.index);
     expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false });
     expect(await activeItemLimitKind.baseline(activeItemLimitParams.parse({ goal: "G8", max: 0, collection: f.resource }),
@@ -374,11 +381,7 @@ test.each(["missing", "corrupt", "unknown-tag", "ordinary-node-as-tag", "bad-tim
   if (mode === "corrupt") await writeFile(f.index, "Private corrupt index");
   if (mode === "unknown-tag") f.resource.source.tag_id = "absent";
   if (mode === "ordinary-node-as-tag") f.resource.source.tag_id = "other";
-  if (mode === "bad-timestamp") {
-    const db = new Database(f.index);
-    db.run("UPDATE nodes SET updated = NULL");
-    db.close();
-  }
+  if (mode === "bad-timestamp") setUpdated(f.index, null);
   if (mode === "missing-binary") process.env.PATH = f.root;
   expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false });
 });
@@ -399,9 +402,7 @@ test("baseline reads the same source with counts and snapshot age, without state
   expect(await activeItemLimitKind.baseline(params, { now: () => now })).toEqual({ state: "off-track",
     summary: "active 4, max 3, unclassified 1, parked 1, delegated 1, snapshot age 0.0h" });
   expect(await readdir(f.goals)).toEqual(before);
-  const db = new Database(f.index);
-  db.run("UPDATE nodes SET updated = 0");
-  db.close();
+  setUpdated(f.index, 0);
   expect(await activeItemLimitKind.baseline(params, { now: () => now })).toEqual({ state: "unknown" });
 });
 
@@ -470,16 +471,14 @@ test("propose baseline calibrates once; acceptance keeps resolved collection out
 
 test("executable command uses only public flags and returns private-safe stdout/stderr and exit codes", async () => {
   const f = await fixture();
-  const db = new Database(f.index);
-  db.query("UPDATE nodes SET updated = ?").run(Date.now());
-  db.close();
+  setUpdated(f.index, Date.now());
   for (const mode of ["fresh", "stale", "corrupt"]) {
     const failed = mode !== "fresh";
     if (mode === "stale") {
       const db = new Database(f.index);
       db.query("UPDATE sync_metadata SET last_sync_timestamp = ?").run(Date.now() - 60_000);
-      db.query("UPDATE nodes SET updated = ?").run(Date.now() - 30 * 60 * 60 * 1000);
       db.close();
+      setUpdated(f.index, Date.now() - 30 * 60 * 60 * 1000);
     }
     if (mode === "corrupt") await writeFile(f.index, "Private corrupt index");
     const proc = Bun.spawn([process.execPath, "run", "src/cli.ts", "goal", "sense", "active-item-limit", "--goal", "G8", "--max", "3", "--soma-home", f.deps.somaHome], {

@@ -118,11 +118,14 @@ export const readTanaCollection: CollectionReader = async (source, now) => {
       db.run("BEGIN");
       const nowMs = now.getTime();
       if (!Number.isFinite(nowMs)) return { ok: false };
-      // updated comes from the export's modifiedTs[0], in milliseconds.
-      // Sync metadata only dates the indexing run and can mask a stale snapshot.
+      // Conservative snapshot-time proxy: newest edit, not export time. An idle
+      // workspace can also exceed the gate. modifiedTs[0] maps to updated in
+      // epoch milliseconds; pinned source: test/fixtures/tana-collection/README.md.
+      // Prefer an existing updated index, but never create one in this reader.
       const snapshot = db.query<{ updated: number | null }, [number]>(
-        `SELECT MAX(updated) AS updated FROM nodes
-         WHERE typeof(updated) = 'integer' AND updated > 0 AND updated <= ?`,
+        `SELECT updated FROM nodes
+         WHERE updated > 0 AND updated <= ? AND typeof(updated) = 'integer'
+         ORDER BY updated DESC LIMIT 1`,
       ).get(nowMs);
       if (!snapshot?.updated || !Number.isSafeInteger(snapshot.updated)) return { ok: false };
       const snapshotAgeMs = nowMs - snapshot.updated;
