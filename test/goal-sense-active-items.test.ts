@@ -15,6 +15,7 @@ import { proposeGoal } from "../src/flows/goal-propose";
 import { buildRunFinishedEnvelope } from "../src/flows/run-ledger";
 import { acceptGoalProposal } from "../src/flows/goal-accept";
 import type { InferenceBackend } from "../src/tools/inference";
+import tupleSample from "./fixtures/tana-collection/tuple-sample.json";
 
 const now = new Date("2026-10-19T05:00:00Z");
 const roots: string[] = [];
@@ -30,6 +31,8 @@ const collection: ItemCollection = {
 };
 const item = (id: string, statuses: string[] = ["a"], spheres: string[] = ["own"]): CollectionItem =>
   ({ id, statusOptionIds: statuses, sphereOptionIds: spheres });
+const FIXTURE_ITEMS = [item("a"), item("b"), item("c"), item("d"), item("e", []),
+  item("f", ["a", "x"]), item("g", ["a"], ["employer"]), item("h", ["p"]), item("j", ["d"])];
 
 test.each([
   { statuses: ["a"], spheres: ["own"], state: "active" },
@@ -92,8 +95,7 @@ async function fixture(options: { age?: number; empty?: boolean; script?: string
     CREATE TABLE sync_metadata (id INTEGER PRIMARY KEY, last_sync_timestamp INTEGER);`);
   db.query("INSERT INTO sync_metadata VALUES (1, ?)").run(now.getTime() - (options.age ?? 0));
   db.query("INSERT INTO nodes (id, name) VALUES (?, ?)").run("private-tag", "Private collection");
-  const fixtureItems = options.empty ? [] : [item("a"), item("b"), item("c"), item("d"), item("e", []),
-    item("f", ["a", "x"]), item("g", ["a"], ["employer"]), item("h", ["p"]), item("j", ["d"])];
+  const fixtureItems = options.empty ? [] : FIXTURE_ITEMS;
   for (const [index, i] of fixtureItems.entries()) {
     db.query("INSERT INTO nodes (id, name) VALUES (?, ?)").run(i.id, `Private item ${i.id}`);
     db.query("INSERT INTO tag_applications VALUES (?, ?, ?)").run(i.id, "private-tag", "label-is-irrelevant");
@@ -134,8 +136,7 @@ test("Tana reader preserves all option IDs, tag-ID membership and sync age witho
   expect(read.ok).toBe(true);
   if (!read.ok) throw new Error("expected read");
   expect(read.indexAgeMs).toBe(COLLECTION_MAX_AGE_MS);
-  expect(read.items).toEqual([item("a"), item("b"), item("c"), item("d"), item("e", []),
-    item("f", ["a", "x"]), item("g", ["a"], ["employer"]), item("h", ["p"]), item("j", ["d"])]);
+  expect(read.items).toEqual(FIXTURE_ITEMS);
   expect(read.items.some((i) => i.id === "other")).toBe(false);
   expect(read.items.every((i) => !JSON.stringify(i).includes("Private"))).toBe(true);
   expect(await readFile(f.index)).toEqual(before);
@@ -147,6 +148,32 @@ test("Tana reader preserves all option IDs, tag-ID membership and sync age witho
     expect(call).not.toContain("label-is-irrelevant");
   }
   expect(await measureActiveItems(f.resource, 3, now)).toMatchObject({ value: "off-track", counts: { active: 4, unclassified: 1, parked: 1, delegated: 1 } });
+});
+
+test("Tana reader replays anonymized index tuples independently of the fixture builder", async () => {
+  const f = await fixture({ empty: true });
+  const db = new Database(f.index);
+  db.run("INSERT INTO nodes (id) VALUES ('sample-item'); INSERT INTO tag_applications (data_node_id, tag_id) VALUES ('sample-item', 'private-tag');");
+  // Captured raw tuple/row pairs, not constructed by addFieldValues; provenance
+  // and the upstream extraction contract are in fixtures/tana-collection/README.md.
+  for (const node of tupleSample.nodes) {
+    db.query("INSERT INTO nodes (id, node_type, raw_data) VALUES (?, ?, ?)")
+      .run(node.id, node.node_type, JSON.stringify(node.raw_data));
+  }
+  for (const value of tupleSample.field_values) {
+    db.query("INSERT INTO field_values (parent_id, field_def_id, tuple_id, value_node_id, value_order) VALUES (?, ?, ?, ?, ?)")
+      .run(value.parent_id, value.field_def_id, value.tuple_id, value.value_node_id, value.value_order);
+  }
+  db.close();
+  const before = await readFile(f.index);
+  const read = await readTanaCollection(f.resource.source, now);
+  expect(read.ok).toBe(true);
+  if (!read.ok) throw new Error("expected sample read");
+  expect(read.items).toEqual([item("sample-item")]);
+  expect(await measureActiveItems(f.resource, 1, now)).toMatchObject({
+    value: "on-track", counts: { active: 1, unclassified: 0, parked: 0, delegated: 0 },
+  });
+  expect(await readFile(f.index)).toEqual(before);
 });
 
 test("Tana reader ignores values whose tuple names another attribute", async () => {

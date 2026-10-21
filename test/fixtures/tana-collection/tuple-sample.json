@@ -1,0 +1,49 @@
+{
+  "nodes": [
+    {
+      "id": "private-status-sample-tuple",
+      "node_type": "node",
+      "raw_data": {
+        "id": "private-status-sample-tuple",
+        "children": [
+          "private-status",
+          "a"
+        ],
+        "props": {
+          "_docType": "tuple",
+          "_sourceId": "private-status-source-tuple"
+        }
+      }
+    },
+    {
+      "id": "private-sphere-sample-tuple",
+      "node_type": "node",
+      "raw_data": {
+        "id": "private-sphere-sample-tuple",
+        "children": [
+          "private-sphere",
+          "own"
+        ],
+        "props": {
+          "_docType": "tuple"
+        }
+      }
+    }
+  ],
+  "field_values": [
+    {
+      "parent_id": "sample-item",
+      "field_def_id": "private-status-source-tuple",
+      "tuple_id": "private-status-sample-tuple",
+      "value_node_id": "a",
+      "value_order": 0
+    },
+    {
+      "parent_id": "sample-item",
+      "field_def_id": "",
+      "tuple_id": "private-sphere-sample-tuple",
+      "value_node_id": "own",
+      "value_order": 0
+    }
+  ]
+}

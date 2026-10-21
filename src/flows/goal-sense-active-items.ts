@@ -129,8 +129,11 @@ export const readTanaCollection: CollectionReader = async (source, now) => {
          WHERE t.tag_id = ? AND (n.node_type IS NULL OR n.node_type != 'trash') ORDER BY n.id`,
       ).all(config.tag_id);
       // field_def_id can name a tag/source tuple or be empty. Only the value
-      // tuple's first child identifies the attribute. Keep missing tuples so
-      // validation fails the read instead of silently dropping their values.
+      // tuple's first child identifies the attribute (supertag's
+      // resolveFieldNameFromTuple / extractFieldValuesFromNodes; pinned source
+      // and an anonymized index sample: test/fixtures/tana-collection/README.md).
+      // Keep missing tuples so validation fails the read instead of silently
+      // dropping their values.
       const fields = db.query<{ field_id: unknown; value_node_id: unknown }, [string]>(
         `SELECT json_extract(t.raw_data, '$.children[0]') AS field_id, v.value_node_id
          FROM field_values v LEFT JOIN nodes t ON t.id = v.tuple_id
