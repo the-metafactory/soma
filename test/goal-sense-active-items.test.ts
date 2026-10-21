@@ -66,6 +66,14 @@ test("excluded and done items do not count; duplicate item records are a read fa
   expect(() => countActiveItems([item("a"), item("a")], collection, 1)).toThrow("duplicate");
 });
 
+function addFieldValues(db: Database, parentId: string, fieldId: string, values: string[], fieldDefId: string) {
+  const tupleId = `${parentId}-${fieldId}-tuple`;
+  db.query("INSERT INTO nodes (id, node_type, raw_data) VALUES (?, 'tuple', ?)")
+    .run(tupleId, JSON.stringify({ children: [fieldId, ...values] }));
+  values.forEach((id, order) => db.query("INSERT INTO field_values VALUES (?, ?, ?, ?, ?)")
+    .run(parentId, fieldDefId, tupleId, id, order));
+}
+
 async function fixture(options: { age?: number; empty?: boolean; script?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "soma-active-items-"));
   roots.push(root);
@@ -76,25 +84,27 @@ async function fixture(options: { age?: number; empty?: boolean; script?: string
   await mkdir(goals, { recursive: true });
   const index = join(root, "private-index.sqlite");
   const db = new Database(index);
-  db.run(`CREATE TABLE nodes (id TEXT PRIMARY KEY, name TEXT, node_type TEXT);
+  db.run(`CREATE TABLE nodes (id TEXT PRIMARY KEY, name TEXT, node_type TEXT, raw_data TEXT);
     CREATE TABLE tag_applications (data_node_id TEXT, tag_id TEXT, tag_name TEXT);
     CREATE TABLE supertag_metadata (tag_id TEXT PRIMARY KEY);
     INSERT INTO supertag_metadata VALUES ('private-tag');
-    CREATE TABLE field_values (parent_id TEXT, field_def_id TEXT, value_node_id TEXT, value_order INTEGER);
+    CREATE TABLE field_values (parent_id TEXT, field_def_id TEXT, tuple_id TEXT, value_node_id TEXT, value_order INTEGER);
     CREATE TABLE sync_metadata (id INTEGER PRIMARY KEY, last_sync_timestamp INTEGER);`);
   db.query("INSERT INTO sync_metadata VALUES (1, ?)").run(now.getTime() - (options.age ?? 0));
-  db.query("INSERT INTO nodes VALUES (?, ?, NULL)").run("private-tag", "Private collection");
+  db.query("INSERT INTO nodes (id, name) VALUES (?, ?)").run("private-tag", "Private collection");
   const fixtureItems = options.empty ? [] : [item("a"), item("b"), item("c"), item("d"), item("e", []),
     item("f", ["a", "x"]), item("g", ["a"], ["employer"]), item("h", ["p"]), item("j", ["d"])];
-  for (const i of fixtureItems) {
-    db.query("INSERT INTO nodes VALUES (?, ?, NULL)").run(i.id, `Private item ${i.id}`);
+  for (const [index, i] of fixtureItems.entries()) {
+    db.query("INSERT INTO nodes (id, name) VALUES (?, ?)").run(i.id, `Private item ${i.id}`);
     db.query("INSERT INTO tag_applications VALUES (?, ?, ?)").run(i.id, "private-tag", "label-is-irrelevant");
     for (const [field, values] of [["private-status", i.statusOptionIds], ["private-sphere", i.sphereOptionIds]] as const) {
-      values.forEach((id, order) => db.query("INSERT INTO field_values VALUES (?, ?, ?, ?)").run(i.id, field, id, order));
+      // The index stores tag tuples, source tuples or nothing here, never the attribute definition.
+      const fieldDefId = index % 3 === 0 ? `${field}-tag-tuple` : index % 3 === 1 ? `${field}-source-tuple` : "";
+      addFieldValues(db, i.id, field, values, fieldDefId);
     }
   }
   // Same label, different tag ID: must never enter the collection.
-  db.run("INSERT INTO nodes VALUES ('other', 'Private unrelated', NULL); INSERT INTO tag_applications VALUES ('other', 'other-tag', 'label-is-irrelevant');");
+  db.run("INSERT INTO nodes (id, name) VALUES ('other', 'Private unrelated'); INSERT INTO tag_applications VALUES ('other', 'other-tag', 'label-is-irrelevant');");
   db.close();
   const resource = { ...collection, source: { index_path: index, tag_id: "private-tag", status_field_id: "private-status", sphere_field_id: "private-sphere" } };
   const log = join(root, "calls.jsonl");
@@ -124,7 +134,8 @@ test("Tana reader preserves all option IDs, tag-ID membership and sync age witho
   expect(read.ok).toBe(true);
   if (!read.ok) throw new Error("expected read");
   expect(read.indexAgeMs).toBe(COLLECTION_MAX_AGE_MS);
-  expect(read.items.find((i) => i.id === "f")?.statusOptionIds).toEqual(["a", "x"]);
+  expect(read.items).toEqual([item("a"), item("b"), item("c"), item("d"), item("e", []),
+    item("f", ["a", "x"]), item("g", ["a"], ["employer"]), item("h", ["p"]), item("j", ["d"])]);
   expect(read.items.some((i) => i.id === "other")).toBe(false);
   expect(read.items.every((i) => !JSON.stringify(i).includes("Private"))).toBe(true);
   expect(await readFile(f.index)).toEqual(before);
@@ -136,6 +147,56 @@ test("Tana reader preserves all option IDs, tag-ID membership and sync age witho
     expect(call).not.toContain("label-is-irrelevant");
   }
   expect(await measureActiveItems(f.resource, 3, now)).toMatchObject({ value: "off-track", counts: { active: 4, unclassified: 1, parked: 1, delegated: 1 } });
+});
+
+test("Tana reader ignores values whose tuple names another attribute", async () => {
+  const f = await fixture();
+  const db = new Database(f.index);
+  addFieldValues(db, "a", "legacy-status", ["x"], "private-status-tag-tuple");
+  addFieldValues(db, "a", "other-sphere", ["employer"], "private-sphere-source-tuple");
+  addFieldValues(db, "a", "other-text", [""], "");
+  db.close();
+  const read = await readTanaCollection(f.resource.source, now);
+  expect(read.ok).toBe(true);
+  if (!read.ok) throw new Error("expected read");
+  expect(read.items.find((i) => i.id === "a")).toEqual(item("a"));
+  expect(await measureActiveItems(f.resource, 3, now)).toMatchObject({
+    counts: { active: 4, unclassified: 1, parked: 1, delegated: 1 },
+  });
+});
+
+test.each(["private-status", "private-sphere", "other-attribute"])("missing %s tuple makes the read unknown without publishing state", async (field) => {
+  const f = await fixture();
+  const db = new Database(f.index);
+  if (field === "other-attribute") addFieldValues(db, "a", field, ["Private-value"], "");
+  db.query("DELETE FROM nodes WHERE id = ?").run(`a-${field}-tuple`);
+  db.close();
+  const before = await readFile(f.index);
+  const state = join(f.goals, "G8.state.json");
+  await writeFile(state, "last good snapshot");
+  expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false });
+  expect(await activeItemLimitKind.baseline(activeItemLimitParams.parse({ goal: "G8", max: 100, collection: f.resource }),
+    { now: () => now })).toEqual({ state: "unknown" });
+  const result = await runActiveItemLimitSensor({ goal: "G8", max: 100 }, f.deps);
+  expect(result).toMatchObject({ exitCode: 1, value: "unknown" });
+  expect(f.events[0].input.payload.outcome).toBe("failed");
+  expect(f.events[0].input.payload.state).toBeUndefined();
+  expect(f.stdout).toEqual([]);
+  for (const text of [JSON.stringify(result), JSON.stringify(f.events)]) {
+    expect(text).not.toContain("Private");
+    expect(text).not.toContain(field);
+    expect(text).not.toContain(f.index);
+  }
+  expect(await readFile(state, "utf8")).toBe("last good snapshot");
+  expect(await readFile(f.index)).toEqual(before);
+});
+
+test.each([null, "Private malformed JSON", "{}", '{"children":[]}', '{"children":[null]}'])("invalid tuple data %s fails closed", async (rawData) => {
+  const f = await fixture();
+  const db = new Database(f.index);
+  db.query("UPDATE nodes SET raw_data = ? WHERE id = 'a-private-status-tuple'").run(rawData);
+  db.close();
+  expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false });
 });
 
 test("sensor emits a valid ledger state and counts only, storing names in a 0600 local snapshot", async () => {
@@ -317,10 +378,10 @@ test("large collections use complete read-only batches rather than truncating th
   const db = new Database(f.index);
   for (let i = 0; i < 205; i++) {
     const id = `item${i}`;
-    db.query("INSERT INTO nodes VALUES (?, ?, NULL)").run(id, "Private project");
+    db.query("INSERT INTO nodes (id, name) VALUES (?, ?)").run(id, "Private project");
     db.query("INSERT INTO tag_applications VALUES (?, ?, ?)").run(id, "private-tag", "ignored label");
-    db.query("INSERT INTO field_values VALUES (?, ?, ?, 0)").run(id, "private-status", "a");
-    db.query("INSERT INTO field_values VALUES (?, ?, ?, 0)").run(id, "private-sphere", "own");
+    addFieldValues(db, id, "private-status", ["a"], "private-status-tag-tuple");
+    addFieldValues(db, id, "private-sphere", ["own"], "");
   }
   db.close();
   expect(await measureActiveItems(f.resource, 205, now)).toMatchObject({ value: "on-track", counts: { active: 205 } });
