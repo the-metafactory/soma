@@ -1228,7 +1228,13 @@ export function assertClosable(node: WorkGraphNode, receipt: CloseReceipt): void
       );
     }
     if (result.outcome !== "pass") {
-      throw new WorkGraphError("close-refused", `probe ${probeKey(probe)} on node ${node.id} ran and failed`);
+      // The bounded tail is the only record of why: without it a caller that
+      // parks on this refusal has nothing to diagnose (ranger, soma #1002).
+      const observed = result.observed.trim();
+      throw new WorkGraphError(
+        "close-refused",
+        `probe ${probeKey(probe)} on node ${node.id} ran and failed${observed === "" ? "" : `: ${observed}`}`,
+      );
     }
   }
 
