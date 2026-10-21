@@ -77,7 +77,15 @@ function addFieldValues(db: Database, parentId: string, fieldId: string, values:
     .run(parentId, fieldDefId, tupleId, id, order));
 }
 
-async function fixture(options: { age?: number; empty?: boolean; script?: string } = {}) {
+function setUpdated(index: string, value: number | string | null, id?: string) {
+  const db = new Database(index);
+  try {
+    if (id === undefined) db.query("UPDATE nodes SET updated = ?").run(value);
+    else db.query("UPDATE nodes SET updated = ? WHERE id = ?").run(value, id);
+  } finally { db.close(); }
+}
+
+async function fixture(options: { age?: number; indexAge?: number; empty?: boolean; script?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "soma-active-items-"));
   roots.push(root);
   const bin = join(root, "bin");
@@ -87,13 +95,13 @@ async function fixture(options: { age?: number; empty?: boolean; script?: string
   await mkdir(goals, { recursive: true });
   const index = join(root, "private-index.sqlite");
   const db = new Database(index);
-  db.run(`CREATE TABLE nodes (id TEXT PRIMARY KEY, name TEXT, node_type TEXT, raw_data TEXT);
+  db.run(`CREATE TABLE nodes (id TEXT PRIMARY KEY, name TEXT, node_type TEXT, raw_data TEXT, updated INTEGER);
     CREATE TABLE tag_applications (data_node_id TEXT, tag_id TEXT, tag_name TEXT);
     CREATE TABLE supertag_metadata (tag_id TEXT PRIMARY KEY);
     INSERT INTO supertag_metadata VALUES ('private-tag');
     CREATE TABLE field_values (parent_id TEXT, field_def_id TEXT, tuple_id TEXT, value_node_id TEXT, value_order INTEGER);
     CREATE TABLE sync_metadata (id INTEGER PRIMARY KEY, last_sync_timestamp INTEGER);`);
-  db.query("INSERT INTO sync_metadata VALUES (1, ?)").run(now.getTime() - (options.age ?? 0));
+  db.query("INSERT INTO sync_metadata VALUES (1, ?)").run(now.getTime() - (options.indexAge ?? 60_000));
   db.query("INSERT INTO nodes (id, name) VALUES (?, ?)").run("private-tag", "Private collection");
   const fixtureItems = options.empty ? [] : FIXTURE_ITEMS;
   for (const [index, i] of fixtureItems.entries()) {
@@ -107,6 +115,7 @@ async function fixture(options: { age?: number; empty?: boolean; script?: string
   }
   // Same label, different tag ID: must never enter the collection.
   db.run("INSERT INTO nodes (id, name) VALUES ('other', 'Private unrelated'); INSERT INTO tag_applications VALUES ('other', 'other-tag', 'label-is-irrelevant');");
+  db.query("UPDATE nodes SET updated = ?").run(now.getTime() - (options.age ?? 0));
   db.close();
   const resource = { ...collection, source: { index_path: index, tag_id: "private-tag", status_field_id: "private-status", sphere_field_id: "private-sphere" } };
   const log = join(root, "calls.jsonl");
@@ -128,14 +137,108 @@ async function fixture(options: { age?: number; empty?: boolean; script?: string
   return { root, bin, goals, index, resource, deps, events, stdout, log, binary };
 }
 
-test("Tana reader preserves all option IDs, tag-ID membership and sync age without writes", async () => {
+test("recent indexing cannot refresh a 30h snapshot or publish an on-track state", async () => {
+  const f = await fixture({ age: 30 * 60 * 60 * 1000, indexAge: 60_000, empty: true });
+  const before = await readFile(f.index);
+  const state = join(f.goals, "G8.state.json");
+  await writeFile(state, "last good snapshot");
+  expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false, snapshotAgeMs: 108_000_000 });
+  expect(await activeItemLimitKind.baseline(activeItemLimitParams.parse({ goal: "G8", max: 0, collection: f.resource }),
+    { now: () => now })).toEqual({ state: "unknown" });
+  expect(await runActiveItemLimitSensor({ goal: "G8", max: 0 }, f.deps)).toMatchObject({ exitCode: 1, value: "unknown" });
+  expect(f.stdout).toEqual([]);
+  expect(f.events).toHaveLength(1);
+  expect(f.events[0].input.payload.outcome).toBe("failed");
+  expect(f.events[0].input.payload.state).toBeUndefined();
+  expect(await readFile(state, "utf8")).toBe("last good snapshot");
+  expect(await readFile(f.index)).toEqual(before);
+});
+
+test("a 2h snapshot proceeds independently of indexing time and reports snapshot age locally", async () => {
+  const f = await fixture({ age: 7_200_000, indexAge: 30 * 60 * 60 * 1000, empty: true });
+  const before = await readFile(f.index);
+  expect(await readTanaCollection(f.resource.source, now)).toMatchObject({ ok: true, snapshotAgeMs: 7_200_000 });
+  expect(await activeItemLimitKind.baseline(activeItemLimitParams.parse({ goal: "G8", max: 0, collection: f.resource }),
+    { now: () => now })).toEqual({ state: "on-track",
+    summary: "active 0, max 0, unclassified 0, parked 0, delegated 0, snapshot age 2.0h" });
+  expect(await runActiveItemLimitSensor({ goal: "G8", max: 0 }, f.deps)).toMatchObject({ exitCode: 0, value: "on-track" });
+  const state = JSON.parse(await readFile(join(f.goals, "G8.state.json"), "utf8"));
+  expect(state.snapshot_age_ms).toBe(7_200_000);
+  expect(state.index_age_ms).toBeUndefined();
+  expect(f.events[0].input.payload.state).toEqual({ subject: "G8", value: "on-track" });
+  expect(await readFile(f.index)).toEqual(before);
+});
+
+test.each([false, true])("snapshot proxy uses the newest valid update, ignoring future and malformed values (updated index: %s)", async (indexed) => {
+  const f = await fixture({ age: 30 * 60 * 60 * 1000 });
+  if (indexed) {
+    const db = new Database(f.index);
+    try { db.run("CREATE INDEX nodes_updated ON nodes(updated)"); }
+    finally { db.close(); }
+  }
+  // A node outside the collection still supplies the newest-edit proxy.
+  setUpdated(f.index, now.getTime() - 7_200_000, "other");
+  setUpdated(f.index, now.getTime() + 3_600_000, "a");
+  setUpdated(f.index, "Private invalid timestamp", "b");
+  setUpdated(f.index, now.getTime() - 0.5, "c");
+  const before = await readFile(f.index);
+  expect(await readTanaCollection(f.resource.source, now)).toMatchObject({ ok: true, snapshotAgeMs: 7_200_000 });
+  expect(await readFile(f.index)).toEqual(before);
+});
+
+test("a future update cannot hide a stale snapshot", async () => {
+  const f = await fixture({ age: 30 * 60 * 60 * 1000 });
+  setUpdated(f.index, now.getTime() + 3_600_000, "other");
+  expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false, snapshotAgeMs: 108_000_000 });
+  expect(await runActiveItemLimitSensor({ goal: "G8", max: 100 }, f.deps)).toMatchObject({ exitCode: 1, value: "unknown" });
+  expect(f.events[0].input.payload.state).toBeUndefined();
+});
+
+test.each([null, 0, -1, now.getTime() + 1, now.getTime() - 0.5, "Private invalid timestamp"])(
+  "no usable updated value (%s) gives unknown without private diagnostics or state publication", async (updated) => {
+    const f = await fixture({ empty: true });
+    setUpdated(f.index, updated);
+    const before = await readFile(f.index);
+    expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false });
+    expect(await activeItemLimitKind.baseline(activeItemLimitParams.parse({ goal: "G8", max: 0, collection: f.resource }),
+      { now: () => now })).toEqual({ state: "unknown" });
+    const result = await runActiveItemLimitSensor({ goal: "G8", max: 0 }, f.deps);
+    expect(result).toMatchObject({ exitCode: 1, value: "unknown" });
+    expect(f.events[0].input.payload.outcome).toBe("failed");
+    expect(f.events[0].input.payload.state).toBeUndefined();
+    expect(f.stdout).toEqual([]);
+    for (const text of [JSON.stringify(result), JSON.stringify(f.events)]) {
+      expect(text).not.toContain("Private");
+      expect(text).not.toContain(f.index);
+    }
+    expect(await readdir(f.goals)).not.toContain("G8.state.json");
+    expect(await readFile(f.index)).toEqual(before);
+  });
+
+test("an empty nodes table has no usable snapshot time", async () => {
+  const f = await fixture({ empty: true });
+  const db = new Database(f.index);
+  db.run("DELETE FROM nodes");
+  db.close();
+  expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false });
+});
+
+test("snapshot freshness does not require indexing metadata", async () => {
+  const f = await fixture({ age: 7_200_000 });
+  const db = new Database(f.index);
+  db.run("DROP TABLE sync_metadata");
+  db.close();
+  expect(await readTanaCollection(f.resource.source, now)).toMatchObject({ ok: true, snapshotAgeMs: 7_200_000 });
+});
+
+test("Tana reader preserves all option IDs, tag-ID membership and snapshot age without writes", async () => {
   const f = await fixture({ age: COLLECTION_MAX_AGE_MS });
   expect(Bun.which("supertag", { PATH: process.env.PATH })).toBe(f.binary);
   const before = await readFile(f.index);
   const read = await readTanaCollection(f.resource.source, now);
   expect(read.ok).toBe(true);
   if (!read.ok) throw new Error("expected read");
-  expect(read.indexAgeMs).toBe(COLLECTION_MAX_AGE_MS);
+  expect(read.snapshotAgeMs).toBe(COLLECTION_MAX_AGE_MS);
   expect(read.items).toEqual(FIXTURE_ITEMS);
   expect(read.items.some((i) => i.id === "other")).toBe(false);
   expect(read.items.every((i) => !JSON.stringify(i).includes("Private"))).toBe(true);
@@ -253,7 +356,7 @@ test("empty collection and max zero is on-track after a real offline read", asyn
 
 test.each([
   { label: "older than 26h", age: COLLECTION_MAX_AGE_MS + 1 },
-  { label: "future index", age: -1 },
+  { label: "future snapshot", age: -1 },
   { label: "nonzero process", script: "console.error('Private resource secret'); process.exit(7);" },
   { label: "bad JSON", script: "console.log('Private resource secret');" },
   { label: "partial batch", script: "console.log(JSON.stringify({ results: [], missing: 0 }));" },
@@ -278,11 +381,7 @@ test.each(["missing", "corrupt", "unknown-tag", "ordinary-node-as-tag", "bad-tim
   if (mode === "corrupt") await writeFile(f.index, "Private corrupt index");
   if (mode === "unknown-tag") f.resource.source.tag_id = "absent";
   if (mode === "ordinary-node-as-tag") f.resource.source.tag_id = "other";
-  if (mode === "bad-timestamp") {
-    const db = new Database(f.index);
-    db.run("UPDATE sync_metadata SET last_sync_timestamp = NULL");
-    db.close();
-  }
+  if (mode === "bad-timestamp") setUpdated(f.index, null);
   if (mode === "missing-binary") process.env.PATH = f.root;
   expect(await readTanaCollection(f.resource.source, now)).toEqual({ ok: false });
 });
@@ -292,19 +391,18 @@ test("a second resource-type adapter uses the unchanged state model and runner",
   const resource = { ...collection, type: "fixture-collection", source: {} };
   await writeFile(join(f.goals, "G8.active-item-limit.params.json"), JSON.stringify({ collection: resource }));
   expect(await runActiveItemLimitSensor({ goal: "G8", max: 1 }, { ...f.deps,
-    readers: { "fixture-collection": async () => ({ ok: true, items: [item("a")], names: new Map(), indexAgeMs: 0 }) },
+    readers: { "fixture-collection": async () => ({ ok: true, items: [item("a")], names: new Map(), snapshotAgeMs: 0 }) },
   })).toMatchObject({ exitCode: 0, value: "on-track", counts: { active: 1 } });
 });
 
-test("baseline reads the same source with counts only and no state or publication", async () => {
+test("baseline reads the same source with counts and snapshot age, without state or publication", async () => {
   const f = await fixture();
   const before = await readdir(f.goals);
   const params = activeItemLimitParams.parse({ goal: "G8", max: 3, collection: f.resource });
-  expect(await activeItemLimitKind.baseline(params, { now: () => now })).toEqual({ state: "off-track", summary: "active 4, max 3, unclassified 1, parked 1, delegated 1" });
+  expect(await activeItemLimitKind.baseline(params, { now: () => now })).toEqual({ state: "off-track",
+    summary: "active 4, max 3, unclassified 1, parked 1, delegated 1, snapshot age 0.0h" });
   expect(await readdir(f.goals)).toEqual(before);
-  const db = new Database(f.index);
-  db.run("UPDATE sync_metadata SET last_sync_timestamp = 0");
-  db.close();
+  setUpdated(f.index, 0);
   expect(await activeItemLimitKind.baseline(params, { now: () => now })).toEqual({ state: "unknown" });
 });
 
@@ -373,11 +471,16 @@ test("propose baseline calibrates once; acceptance keeps resolved collection out
 
 test("executable command uses only public flags and returns private-safe stdout/stderr and exit codes", async () => {
   const f = await fixture();
-  const db = new Database(f.index);
-  db.query("UPDATE sync_metadata SET last_sync_timestamp = ?").run(Date.now());
-  db.close();
-  for (const failed of [false, true]) {
-    if (failed) await writeFile(f.index, "Private corrupt index");
+  setUpdated(f.index, Date.now());
+  for (const mode of ["fresh", "stale", "corrupt"]) {
+    const failed = mode !== "fresh";
+    if (mode === "stale") {
+      const db = new Database(f.index);
+      db.query("UPDATE sync_metadata SET last_sync_timestamp = ?").run(Date.now() - 60_000);
+      db.close();
+      setUpdated(f.index, Date.now() - 30 * 60 * 60 * 1000);
+    }
+    if (mode === "corrupt") await writeFile(f.index, "Private corrupt index");
     const proc = Bun.spawn([process.execPath, "run", "src/cli.ts", "goal", "sense", "active-item-limit", "--goal", "G8", "--max", "3", "--soma-home", f.deps.somaHome], {
       cwd: join(import.meta.dir, ".."), env: { ...process.env, SOMA_PRINCIPAL: "" }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });

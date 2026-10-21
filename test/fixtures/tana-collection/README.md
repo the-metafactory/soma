@@ -41,3 +41,28 @@ This probe describes the captured index, not a guarantee about future index
 versions. The replay test pins the observed shape; the reader separately
 fails closed for missing or malformed tuple data and ignores other attributes,
 as node #1031 requires.
+
+## Timestamp provenance
+
+The timestamp contract is pinned to the same supertag-cli commit
+`3deda461cde1762ba6e517759d282edccff2918e`, independently of the synthetic
+SQLite fixtures:
+
+- [`initializeSchema`](https://github.com/jcfischer/supertag-cli/blob/3deda461cde1762ba6e517759d282edccff2918e/src/db/indexer.ts#L96-L105)
+  declares `nodes.updated INTEGER`.
+- [`fullReindex`](https://github.com/jcfischer/supertag-cli/blob/3deda461cde1762ba6e517759d282edccff2918e/src/db/indexer.ts#L360-L385)
+  writes `node.modifiedTs[0]` directly into `updated`, or null without an array.
+  [Incremental indexing](https://github.com/jcfischer/supertag-cli/blob/3deda461cde1762ba6e517759d282edccff2918e/src/db/indexer.ts#L632-L665)
+  uses the same mapping.
+- [`nodes` display](https://github.com/jcfischer/supertag-cli/blob/3deda461cde1762ba6e517759d282edccff2918e/src/commands/nodes.ts#L289-L305)
+  passes `node.updated` directly to `new Date`, establishing epoch milliseconds.
+- [`fullReindex` metadata](https://github.com/jcfischer/supertag-cli/blob/3deda461cde1762ba6e517759d282edccff2918e/src/db/indexer.ts#L346-L346)
+  captures `Date.now()` for the indexing run and
+  [writes it to `last_sync_timestamp`](https://github.com/jcfischer/supertag-cli/blob/3deda461cde1762ba6e517759d282edccff2918e/src/db/indexer.ts#L465-L469).
+  That value is not the export's snapshot timestamp.
+
+Node #1034 therefore uses the newest usable edit across all indexed nodes as
+a conservative snapshot-time proxy. It bounds the snapshot time from below,
+and the reported age from above; it cannot distinguish a stalled snapshot from
+an idle workspace. A fresh export after more than 26 hours without edits also
+returns `unknown`. Re-indexing alone never refreshes this estimate.

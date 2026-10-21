@@ -15,10 +15,10 @@ export interface CollectionItem {
 export type CollectionRead = {
   ok: true;
   items: CollectionItem[];
-  indexAgeMs: number;
+  snapshotAgeMs: number;
   /** Local display only; never passed to classification or publishing. */
   names: ReadonlyMap<string, string>;
-} | { ok: false; indexAgeMs?: number };
+} | { ok: false; snapshotAgeMs?: number };
 export type CollectionReader = (source: unknown, now: Date) => Promise<CollectionRead>;
 export type CollectionReaders = Readonly<Record<string, CollectionReader>>;
 
@@ -116,13 +116,20 @@ export const readTanaCollection: CollectionReader = async (source, now) => {
     const db = new Database(config.index_path, { readonly: true, create: false, strict: true });
     try {
       db.run("BEGIN");
-      const sync = db.query<{ last_sync_timestamp: number }, []>(
-        "SELECT last_sync_timestamp FROM sync_metadata WHERE id = 1",
-      ).get();
-      if (!sync || !Number.isSafeInteger(sync.last_sync_timestamp) || sync.last_sync_timestamp <= 0) return { ok: false };
-      const indexAgeMs = now.getTime() - sync.last_sync_timestamp;
-      if (!Number.isFinite(indexAgeMs) || indexAgeMs < 0) return { ok: false };
-      if (indexAgeMs > COLLECTION_MAX_AGE_MS) return { ok: false, indexAgeMs };
+      const nowMs = now.getTime();
+      if (!Number.isFinite(nowMs)) return { ok: false };
+      // Conservative snapshot-time proxy: newest edit, not export time. An idle
+      // workspace can also exceed the gate. modifiedTs[0] maps to updated in
+      // epoch milliseconds; pinned source: test/fixtures/tana-collection/README.md.
+      // Prefer an existing updated index, but never create one in this reader.
+      const snapshot = db.query<{ updated: number | null }, [number]>(
+        `SELECT updated FROM nodes
+         WHERE updated > 0 AND updated <= ? AND typeof(updated) = 'integer'
+         ORDER BY updated DESC LIMIT 1`,
+      ).get(nowMs);
+      if (!snapshot?.updated || !Number.isSafeInteger(snapshot.updated)) return { ok: false };
+      const snapshotAgeMs = nowMs - snapshot.updated;
+      if (snapshotAgeMs > COLLECTION_MAX_AGE_MS) return { ok: false, snapshotAgeMs };
       if (!db.query("SELECT n.id FROM nodes n JOIN supertag_metadata t ON t.tag_id = n.id WHERE n.id = ?").get(config.tag_id)) return { ok: false };
       const rows = db.query<{ id: string }, [string]>(
         `SELECT DISTINCT n.id FROM nodes n JOIN tag_applications t ON t.data_node_id = n.id
@@ -152,7 +159,7 @@ export const readTanaCollection: CollectionReader = async (source, now) => {
       // Including the tag proves supertag access even when the collection is empty.
       const names = await readSupertagNames(config.index_path, [config.tag_id, ...rows.map((row) => row.id)]);
       names.delete(config.tag_id);
-      return { ok: true, items, indexAgeMs, names };
+      return { ok: true, items, snapshotAgeMs, names };
     } finally { db.close(); }
   } catch (error) {
     // Never surface SQLite, schema, process or JSON diagnostics containing resource data.
@@ -169,10 +176,10 @@ export async function measureActiveItems(resource: unknown, max: number, now: Da
   const reader = Object.hasOwn(readers, collection.type) ? readers[collection.type] : undefined;
   if (!reader) throw new Error("Collection reader unavailable");
   const read = await reader(collection.source, now);
-  if (!read.ok || !Number.isFinite(read.indexAgeMs) || read.indexAgeMs < 0 || read.indexAgeMs > COLLECTION_MAX_AGE_MS) {
+  if (!read.ok || !Number.isFinite(read.snapshotAgeMs) || read.snapshotAgeMs < 0 || read.snapshotAgeMs > COLLECTION_MAX_AGE_MS) {
     throw new Error("Collection read unavailable or stale");
   }
-  return { ...countActiveItems(read.items, collection, max), names: read.names, indexAgeMs: read.indexAgeMs };
+  return { ...countActiveItems(read.items, collection, max), names: read.names, snapshotAgeMs: read.snapshotAgeMs };
 }
 
 export interface ActiveItemSensorDeps {
@@ -218,7 +225,7 @@ export async function runActiveItemLimitSensor(options: ActiveItemLimitOptions, 
     measured = await measureActiveItems(local.collection, p.max, instant, deps.readers);
     await writeActiveItemState(deps.somaHome, p.goal, {
       measured_at: instant.toISOString(), value: measured.value, ...measured.counts,
-      index_age_ms: measured.indexAgeMs,
+      snapshot_age_ms: measured.snapshotAgeMs,
       over_limit: measured.overLimitIds.map((id) => measured?.names.get(id) ?? "(unnamed)"),
       unclassified_items: measured.unclassifiedIds.map((id) => measured?.names.get(id) ?? "(unnamed)"),
     });
