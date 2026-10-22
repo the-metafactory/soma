@@ -37,7 +37,7 @@ export const SUPPORTED_SUBSTRATES = ["claude-code"] as const;
 /** Spellings accepted on the command line, mapped to the canonical ProjectionSubstrate id the record stores. */
 const SUBSTRATE_ALIASES: Readonly<Record<string, string>> = { claude: "claude-code" };
 
-function canonicalSubstrate(name: string): string {
+export function canonicalSubstrate(name: string): string {
   return SUBSTRATE_ALIASES[name] ?? name;
 }
 /** Caller variables a trial needs to run tools at all; any other variable, a credential included, stays out. */
@@ -597,7 +597,7 @@ export interface TrialResult {
 
 const SLUG_ARM = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-function validateOptions(options: TrialOptions): void {
+export function validateTrialOptions(options: TrialOptions): void {
   if (!SLUG_ARM.test(options.arm)) throw new TrialUsageError(`Invalid arm label: ${options.arm}`);
   if (!(SUPPORTED_SUBSTRATES as readonly string[]).includes(options.substrate)) {
     throw new TrialUsageError(`Unsupported substrate "${options.substrate}"; supported: ${SUPPORTED_SUBSTRATES.join(", ")}`);
@@ -723,7 +723,7 @@ function writeRecord(recordPath: string, record: TrialRecord): void {
 
 export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promise<TrialResult> {
   const options = { ...rawOptions, substrate: canonicalSubstrate(rawOptions.substrate) };
-  validateOptions(options);
+  validateTrialOptions(options);
   const store = storeRoot(options.somaHome);
   const loaded = loadFixture(options.fixture, store);
   const { fixture } = loaded;
@@ -857,6 +857,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   };
 }
 
+export function defaultTrialDeps(claudeBin: string): TrialDeps {
+  return { runner: claudeRunner(claudeBin), installProjection: installClaudeProjection };
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   let parsed: ParsedArgs;
   try {
@@ -869,10 +873,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     throw error;
   }
   try {
-    const { record, recordPath } = await runTrial(parsed.options, {
-      runner: claudeRunner(parsed.claudeBin),
-      installProjection: installClaudeProjection,
-    });
+    const { record, recordPath } = await runTrial(parsed.options, defaultTrialDeps(parsed.claudeBin));
     console.log(`${record.outcome}: ${recordPath}`);
     return 0;
   } catch (error) {
