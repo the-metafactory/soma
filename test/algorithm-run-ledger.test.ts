@@ -186,7 +186,7 @@ test("advance from learn to complete publishes one valid execution.run.finished 
   expect(events).toHaveLength(1);
   const [event] = events;
   expect(event.subject).toBe("local.jc.default.execution.run.finished");
-  expect(event.input.source).toBe("jc.soma.run");
+  expect(event.input.source).toBe("jc.default.soma");
   expect(event.input.sovereignty).toEqual(RUN_LEDGER_SOVEREIGNTY);
   expect(event.input.payload).toMatchObject({
     producer: "soma",
@@ -584,7 +584,7 @@ test("the real outbox over InMemoryTransport delivers a valid envelope and acks 
   expect(built).toBeDefined();
   expect(received).toHaveLength(1);
   expect(validateExecutionRunFinished(received[0])).toEqual({ valid: true, errors: [] });
-  expect(received[0].source).toBe("jc.soma.run");
+  expect(received[0].source).toBe("jc.default.soma");
   expect(received[0].payload).toMatchObject({ run_id: RUN_ID, correlation_id: "graph-walk-17" });
   const spool = (await readFile(spoolPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { op: string; id: string });
   expect(spool.map((line) => line.op)).toEqual(["put", "ack"]);

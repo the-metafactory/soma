@@ -282,7 +282,7 @@ async function emit(input: RunFinishedInput, config: RunLedgerConfig, publish: R
   let event: ExecutionRunFinishedEvent;
   try {
     event = createExecutionRunFinished({
-      source: `${config.principal}.soma.run`,
+      source: `${config.principal}.${config.stack}.soma`,
       principal: config.principal,
       stack: config.stack,
       sovereignty: RUN_LEDGER_SOVEREIGNTY,
