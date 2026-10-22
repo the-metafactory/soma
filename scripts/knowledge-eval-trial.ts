@@ -23,22 +23,32 @@
  * of configuration, not a sandbox: the substrate runs with the caller's rights.
  */
 
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 
 export const PINNED_CLAUDE_MODEL = "claude-sonnet-5-5";
+/** The model and effort ranger dispatches on Codex (ranger src/config.ts, CodexSubstrateSchema defaults). */
+export const PINNED_CODEX_MODEL = "gpt-6.1-sol";
+export const PINNED_CODEX_REASONING_EFFORT = "high";
 export const DEFAULT_TRIAL_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_PROBE_TIMEOUT_MS = 10 * 60 * 1000;
 export const TRIAL_AUTH_ENV = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
-export const SUPPORTED_SUBSTRATES = ["claude-code"] as const;
+/** Credential variables only the Codex substrate gets; an API key here wins over a copied auth.json. */
+export const CODEX_AUTH_ENV = ["CODEX_API_KEY", "OPENAI_API_KEY"] as const;
+export const SUPPORTED_SUBSTRATES = ["claude-code", "codex"] as const;
 /** Spellings accepted on the command line, mapped to the canonical ProjectionSubstrate id the record stores. */
 const SUBSTRATE_ALIASES: Readonly<Record<string, string>> = { claude: "claude-code" };
 
 export function canonicalSubstrate(name: string): string {
   return SUBSTRATE_ALIASES[name] ?? name;
+}
+
+/** The model ranger dispatches on a substrate; comparisons only hold within one substrate and model. */
+export function pinnedModelFor(substrate: string): string {
+  return canonicalSubstrate(substrate) === "codex" ? PINNED_CODEX_MODEL : PINNED_CLAUDE_MODEL;
 }
 /** Caller variables a trial needs to run tools at all; any other variable, a credential included, stays out. */
 export const TRIAL_PASSTHROUGH_ENV = ["PATH", "SHELL", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "TMPDIR"] as const;
@@ -303,6 +313,76 @@ export function parseStream(stdout: string): StreamFacts {
   return facts;
 }
 
+/** The script a `sh -lc '<script>'` wrapper runs; Codex reports shell calls wrapped this way. */
+function unwrapShell(command: string): string {
+  const wrapped = /^(?:\S*\/)?(?:ba|z|da)?sh\s+-\w*c\s+(["'])([\s\S]*)\1$/u.exec(command.trim());
+  if (wrapped === null) return command;
+  return wrapped[1] === "'" ? (wrapped[2] ?? "").replaceAll("'\\''", "'") : (wrapped[2] ?? "");
+}
+
+/**
+ * Facts from `codex exec --json` stdout, plus optionally the session rollout
+ * Codex writes under CODEX_HOME/sessions. The exec stream carries one
+ * cumulative `turn.completed` usage per turn, so it measures the total only;
+ * the first per-call `token_count` event in the rollout carries what the first
+ * model call was sent, which is the start of the session. Input counts include
+ * cached tokens, so a total is input plus output.
+ */
+export function parseCodexStream(stdout: string, rollout = ""): StreamFacts {
+  const facts: StreamFacts = { model: undefined, startTokens: "unmeasured", totalTokens: "unmeasured", toolUses: [], resultIsError: false };
+  let streamTotal: number | undefined;
+  for (const line of stdout.split("\n")) {
+    const event = parseJsonLine(line);
+    if (event === undefined) continue;
+    if (event.type === "turn.failed") facts.resultIsError = true;
+    if (event.type === "turn.completed") {
+      const turn = codexTokens(asRecord(event.usage));
+      if (turn !== undefined) streamTotal = (streamTotal ?? 0) + turn;
+    }
+    const item = asRecord(event.item);
+    if (event.type !== "item.completed" || item === undefined) continue;
+    const failed = item.status === "failed" || (num(item.exit_code) ?? 0) !== 0;
+    if (item.type === "command_execution" && typeof item.command === "string") {
+      facts.toolUses.push({ name: "Bash", input: { command: unwrapShell(item.command) }, ...(failed ? { failed } : {}) });
+    } else if (item.type === "file_change" && Array.isArray(item.changes)) {
+      for (const change of item.changes as unknown[]) {
+        const path = asRecord(change)?.path;
+        if (typeof path === "string") facts.toolUses.push({ name: "Edit", input: { file_path: path }, ...(failed ? { failed } : {}) });
+      }
+    } else if (item.type === "mcp_tool_call") {
+      facts.toolUses.push({ name: `mcp:${String(item.server)}.${String(item.tool)}`, input: asRecord(item.arguments) ?? {}, ...(failed ? { failed } : {}) });
+    }
+  }
+  let rolloutTotal: number | undefined;
+  for (const line of rollout.split("\n")) {
+    const payload = asRecord(asRecord(parseJsonLine(line))?.payload);
+    if (payload?.type !== "token_count") continue;
+    const info = asRecord(payload.info);
+    const firstCall = num(asRecord(info?.last_token_usage)?.input_tokens);
+    if (facts.startTokens === "unmeasured" && firstCall !== undefined) facts.startTokens = firstCall;
+    rolloutTotal = codexTokens(asRecord(info?.total_token_usage)) ?? rolloutTotal;
+  }
+  facts.totalTokens = streamTotal ?? rolloutTotal ?? "unmeasured";
+  return facts;
+}
+
+function parseJsonLine(line: string): Record<string, unknown> | undefined {
+  if (line.trim() === "") return undefined;
+  try {
+    return asRecord(JSON.parse(line));
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+}
+
+/** Input plus output for a Codex usage record, or undefined when either is absent. */
+function codexTokens(usage: Record<string, unknown> | undefined): number | undefined {
+  const input = num(usage?.input_tokens);
+  const output = num(usage?.output_tokens);
+  return input === undefined || output === undefined ? undefined : input + output;
+}
+
 function routePath(source: string): string {
   const withoutFragment = source.split("#")[0] ?? source;
   const route = /^[A-Za-z][\w.-]*:(?!\/)(.+)$/.exec(withoutFragment);
@@ -512,12 +592,20 @@ export interface SubstrateRun {
   prompt: string;
   model: string;
   timeoutMs: number;
+  /** The shared cache repo the worktree commits into; a sandboxed substrate needs it writable. */
+  gitDir?: string;
 }
 
 export interface SubstrateRunner {
   name: string;
+  /** Caller credential variables this substrate alone receives; defaults to TRIAL_AUTH_ENV. */
+  authEnv?: readonly string[];
+  /** Refuses with a TrialUsageError when the CLI is not installed; runs before anything is cloned. */
+  preflight?(): Promise<void>;
   version(env: Record<string, string | undefined>): Promise<string>;
   run(input: SubstrateRun): Promise<ProcessResult>;
+  /** Facts from a finished run; defaults to the Claude stream-json reader. */
+  parse?(run: ProcessResult, env: Record<string, string | undefined>): StreamFacts;
 }
 
 export function claudeRunner(bin: string): SubstrateRunner {
@@ -539,17 +627,87 @@ export function claudeRunner(bin: string): SubstrateRunner {
   };
 }
 
+/** Argv for one headless Codex trial; the prompt arrives on stdin (`-`). Model and effort are pinned here, never the caller's config.toml. */
+export function codexCommand(bin: string, input: { cwd: string; model: string; gitDir?: string }): string[] {
+  return [
+    bin, "exec", "--json", "-C", input.cwd, "-m", input.model,
+    "-c", `model_reasoning_effort="${PINNED_CODEX_REASONING_EFFORT}"`,
+    "--sandbox", "workspace-write",
+    ...(input.gitDir === undefined ? [] : ["--add-dir", input.gitDir]),
+    "-",
+  ];
+}
+
+/** The session rollouts Codex wrote under the trial's CODEX_HOME, concatenated. */
+function readCodexRollouts(codexHome: string | undefined): string {
+  if (codexHome === undefined) return "";
+  const sessions = join(codexHome, "sessions");
+  if (!existsSync(sessions)) return "";
+  const files = (readdirSync(sessions, { recursive: true }) as string[]).filter((name) => basename(name).startsWith("rollout-") && name.endsWith(".jsonl")).sort();
+  return files.map((name) => readFileSync(join(sessions, name), "utf8")).join("\n");
+}
+
+export function codexRunner(bin: string): SubstrateRunner {
+  return {
+    name: "codex",
+    authEnv: CODEX_AUTH_ENV,
+    async preflight() {
+      const result = await runProcess([bin, "--version"], { env: callerEnv(TRIAL_PASSTHROUGH_ENV), timeoutMs: 30_000 });
+      if (result.exitCode !== 0) throw new TrialUsageError(`codex is not installed or does not run (${bin} --version exited ${String(result.exitCode)}): ${result.stderr.trim()}`);
+    },
+    async version(env) {
+      const result = await runProcess([bin, "--version"], { env, timeoutMs: 30_000 });
+      return result.exitCode === 0 ? (result.stdout.trim().split(/\s+/).at(-1) ?? "unknown") : "unknown";
+    },
+    run(input) {
+      return runProcess(codexCommand(bin, input), { cwd: input.cwd, env: input.env, stdin: input.prompt, timeoutMs: input.timeoutMs });
+    },
+    parse(run, env) {
+      return parseCodexStream(run.stdout, readCodexRollouts(env.CODEX_HOME));
+    },
+  };
+}
+
 export interface TrialDeps {
   runner: SubstrateRunner;
   installProjection(input: { somaHome: string; homeDir: string; env: Record<string, string | undefined> }): Promise<void>;
 }
 
-async function installClaudeProjection(input: { somaHome: string; homeDir: string; env: Record<string, string | undefined> }): Promise<void> {
+async function installProjectionVia(substrate: string, extraArgs: readonly string[], input: { somaHome: string; homeDir: string; env: Record<string, string | undefined> }): Promise<void> {
   const result = await runProcess(
-    [process.execPath, join(REPO_ROOT, "src", "cli.ts"), "install", "claude-code", "--apply", "--soma-home", input.somaHome, "--home-dir", input.homeDir],
+    [process.execPath, join(REPO_ROOT, "src", "cli.ts"), "install", substrate, "--apply", "--soma-home", input.somaHome, "--home-dir", input.homeDir, ...extraArgs],
     { cwd: REPO_ROOT, env: input.env, timeoutMs: 5 * 60 * 1000 },
   );
-  if (result.exitCode !== 0) throw new Error(`soma install claude-code failed (${String(result.exitCode)}): ${result.stderr.trim() || result.stdout.trim()}`);
+  if (result.exitCode !== 0) throw new Error(`soma install ${substrate} failed (${String(result.exitCode)}): ${result.stderr.trim() || result.stdout.trim()}`);
+}
+
+function installClaudeProjection(input: { somaHome: string; homeDir: string; env: Record<string, string | undefined> }): Promise<void> {
+  return installProjectionVia("claude-code", [], input);
+}
+
+/** The principal's Codex home, read-only: only auth.json is ever copied out of it. */
+function principalCodexHome(): string {
+  return resolve(process.env.CODEX_HOME ?? join(homedir(), ".codex"));
+}
+
+/**
+ * Projects Soma into the trial's CODEX_HOME, then gives that home the caller's
+ * login. Codex reads auth.json from CODEX_HOME, so without a credential variable
+ * the trial needs its own copy; the principal's home is only read.
+ */
+export function codexProjectionInstaller(authSource: () => string = principalCodexHome): TrialDeps["installProjection"] {
+  return async (input) => {
+    const codexHome = input.env.CODEX_HOME;
+    if (codexHome === undefined) throw new Error("Codex trial environment has no CODEX_HOME");
+    await installProjectionVia("codex", ["--substrate-home", codexHome], input);
+    const hasKey = CODEX_AUTH_ENV.some((name) => process.env[name] !== undefined);
+    const auth = join(authSource(), "auth.json");
+    if (!hasKey && existsSync(auth)) {
+      const target = join(codexHome, "auth.json");
+      cpSync(auth, target);
+      chmodSync(target, 0o600);
+    }
+  };
 }
 
 export interface TrialOptions {
@@ -655,7 +813,7 @@ function callerEnv(names: readonly string[]): Record<string, string> {
   }));
 }
 
-function trialEnv(root: string): Record<string, string | undefined> {
+function trialEnv(root: string, substrate?: string): Record<string, string | undefined> {
   const home = join(root, "home");
   const env: Record<string, string | undefined> = {
     ...callerEnv(TRIAL_PASSTHROUGH_ENV),
@@ -665,6 +823,7 @@ function trialEnv(root: string): Record<string, string | undefined> {
     XDG_CONFIG_HOME: join(home, ".config"),
     GIT_TERMINAL_PROMPT: "0",
   };
+  if (substrate === "codex") env.CODEX_HOME = join(home, ".codex");
   return env;
 }
 
@@ -724,6 +883,7 @@ function writeRecord(recordPath: string, record: TrialRecord): void {
 export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promise<TrialResult> {
   const options = { ...rawOptions, substrate: canonicalSubstrate(rawOptions.substrate) };
   validateTrialOptions(options);
+  await deps.runner.preflight?.();
   const store = storeRoot(options.somaHome);
   const loaded = loadFixture(options.fixture, store);
   const { fixture } = loaded;
@@ -745,10 +905,10 @@ export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promi
     mkdirSync(homeDir, { recursive: true });
     copyHomeSource(options.homeSource, somaHome);
     applySeed(somaHome, fixture.seed);
-    const env = trialEnv(root);
+    const env = trialEnv(root, options.substrate);
     await deps.installProjection({ somaHome, homeDir, env });
 
-    const substrateEnv = { ...env, ...callerEnv(TRIAL_AUTH_ENV) };
+    const substrateEnv = { ...env, ...callerEnv(deps.runner.authEnv ?? TRIAL_AUTH_ENV) };
     const probeEnv = env;
 
     const version = await deps.runner.version(substrateEnv);
@@ -760,10 +920,11 @@ export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promi
       prompt: composePrompt(fixture, options.hint),
       model: options.model,
       timeoutMs: options.timeoutMs,
+      gitDir: cache,
     });
     const wallTimeMs = Math.round(performance.now() - started);
 
-    const facts = parseStream(run.stdout);
+    const facts = deps.runner.parse?.(run, substrateEnv) ?? parseStream(run.stdout);
     // The substrate can edit the cache repo's config, which the worktree shares:
     // score its edits with a stripped environment and fixed config overrides.
     const gitEnv = { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
@@ -788,7 +949,7 @@ export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promi
     if (options.keep) {
       process.stderr.write(`Kept trial workdir: ${root}\n`);
     } else {
-      const cleanEnv = { ...trialEnv(root), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
+      const cleanEnv = { ...trialEnv(root, options.substrate), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
       if (worktreeAdded) await runProcess(["git", ...SAFE_GIT_CONFIG, "worktree", "remove", "--force", worktree], { cwd: cache, env: cleanEnv });
       rmSync(root, { recursive: true, force: true });
       await runProcess(["git", ...SAFE_GIT_CONFIG, "worktree", "prune"], { cwd: cache, env: cleanEnv });
@@ -801,12 +962,13 @@ export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promi
 // ---------------------------------------------------------------------------
 
 const USAGE =
-  "Usage: bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate claude " +
-  "[--hint <0-3>] [--model <id>] [--timeout-ms <n>] [--probe-timeout-ms <n>] [--soma-home <dir>] [--out <dir>] [--claude-bin <path>] [--keep]";
+  "Usage: bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate <claude|codex> " +
+  "[--hint <0-3>] [--model <id>] [--timeout-ms <n>] [--probe-timeout-ms <n>] [--soma-home <dir>] [--out <dir>] [--claude-bin <path>] [--codex-bin <path>] [--keep]";
 
 interface ParsedArgs {
   options: TrialOptions;
   claudeBin: string;
+  codexBin: string;
 }
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
@@ -814,7 +976,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (command !== "trial") throw new TrialUsageError(USAGE);
   const values = new Map<string, string>();
   let keep = false;
-  const valueFlags = ["--fixture", "--arm", "--home-source", "--substrate", "--hint", "--model", "--timeout-ms", "--probe-timeout-ms", "--soma-home", "--out", "--claude-bin"];
+  const valueFlags = ["--fixture", "--arm", "--home-source", "--substrate", "--hint", "--model", "--timeout-ms", "--probe-timeout-ms", "--soma-home", "--out", "--claude-bin", "--codex-bin"];
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] ?? "";
     if (flag === "--keep") {
@@ -841,13 +1003,14 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   };
   return {
     claudeBin: values.get("--claude-bin") ?? "claude",
+    codexBin: values.get("--codex-bin") ?? "codex",
     options: {
       fixture: required("--fixture"),
       arm: required("--arm"),
       homeSource: resolve(required("--home-source")),
       substrate: required("--substrate"),
       hint: integer("--hint", 0),
-      model: values.get("--model") ?? PINNED_CLAUDE_MODEL,
+      model: values.get("--model") ?? pinnedModelFor(required("--substrate")),
       somaHome: resolve(values.get("--soma-home") ?? process.env.SOMA_HOME ?? join(homedir(), ".soma")),
       out: values.get("--out"),
       timeoutMs: integer("--timeout-ms", DEFAULT_TRIAL_TIMEOUT_MS),
@@ -857,8 +1020,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   };
 }
 
-export function defaultTrialDeps(claudeBin: string): TrialDeps {
-  return { runner: claudeRunner(claudeBin), installProjection: installClaudeProjection };
+/** The runner and projection installer for a substrate, from the CLI binaries the caller named. */
+export function defaultTrialDeps(substrate: string, bins: { claudeBin: string; codexBin: string }): TrialDeps {
+  switch (canonicalSubstrate(substrate)) {
+    case "codex":
+      return { runner: codexRunner(bins.codexBin), installProjection: codexProjectionInstaller() };
+    case "claude-code":
+      return { runner: claudeRunner(bins.claudeBin), installProjection: installClaudeProjection };
+    default:
+      throw new TrialUsageError(`Unsupported substrate "${substrate}"; supported: ${SUPPORTED_SUBSTRATES.join(", ")}`);
+  }
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
@@ -873,7 +1044,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     throw error;
   }
   try {
-    const { record, recordPath } = await runTrial(parsed.options, defaultTrialDeps(parsed.claudeBin));
+    const { record, recordPath } = await runTrial(parsed.options, defaultTrialDeps(parsed.options.substrate, parsed));
     console.log(`${record.outcome}: ${recordPath}`);
     return 0;
   } catch (error) {
