@@ -299,11 +299,11 @@ export async function runBatch(options: BatchOptions, deps: BatchDeps): Promise<
   return { report, outDir };
 }
 
-const USAGE = "Usage: bun run knowledge-eval batch --arms <a>[,<b>] --home-source <dir> --substrate claude " +
+const USAGE = "Usage: bun run knowledge-eval batch --arms <a>[,<b>] --home-source <dir> --substrate <claude|codex> " +
   "[--fixtures <id,...>] [--arm-home <label>=<dir>] [--model <id>] [--soma-home <dir>] [--out <new-dir>] " +
-  "[--timeout-ms <n>] [--probe-timeout-ms <n>] [--claude-bin <path>] [--keep]";
+  "[--timeout-ms <n>] [--probe-timeout-ms <n>] [--claude-bin <path>] [--codex-bin <path>] [--keep]";
 
-export function parseArgs(argv: readonly string[]): { options: BatchOptions; claudeBin: string } {
+export function parseArgs(argv: readonly string[]): { options: BatchOptions; claudeBin: string; codexBin: string } {
   if (argv[0] !== "batch") throw new TrialUsageError(USAGE);
   const trialArgs = ["trial", "--fixture", "batch", "--arm", "batch"];
   let labels: string[] = [];
@@ -344,6 +344,7 @@ export function parseArgs(argv: readonly string[]): { options: BatchOptions; cla
   }
   return {
     claudeBin: parsed.claudeBin,
+    codexBin: parsed.codexBin,
     options: { ...parsed.options, fixtures, arms: labels.map((label) => ({ label, homeSource: resolve(homes.get(label) ?? parsed.options.homeSource) })) },
   };
 }
@@ -351,7 +352,8 @@ export function parseArgs(argv: readonly string[]): { options: BatchOptions; cla
 export async function main(argv: readonly string[]): Promise<number> {
   try {
     const parsed = parseArgs(argv);
-    const deps = defaultTrialDeps(parsed.claudeBin);
+    const deps = defaultTrialDeps(parsed.options.substrate, parsed);
+    await deps.runner.preflight?.();
     const { report, outDir } = await runBatch(parsed.options, { trial: (options) => runTrial(options, deps) });
     console.log(`${report.status}: ${join(outDir, "report.json")}\n${join(outDir, "report.md")}`);
     return report.status === "aborted" || report.scenarios.some((scenario) => scenario.arms.some((arm) => arm.errored > 0)) ? 1 : 0;

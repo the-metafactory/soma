@@ -15,9 +15,10 @@ bun run knowledge-eval batch --arms baseline,candidate --substrate claude \
 change the treatment. `--fixtures <id,...>` selects fixtures; omitting it selects
 all `.json` fixtures in sorted filename order under
 `$SOMA_HOME/evals/knowledge-orientation/fixtures/`. Fixture schemas and the
-supported substrate are the same as for `trial` (`claude` aliases `claude-code`).
-The batch accepts the trial options `--model`, `--soma-home`, `--timeout-ms`,
-`--probe-timeout-ms`, `--claude-bin`, and `--keep`.
+supported substrates are the same as for `trial` (`claude` aliases `claude-code`;
+`codex` is described below). The batch accepts the trial options `--model`,
+`--soma-home`, `--timeout-ms`, `--probe-timeout-ms`, `--claude-bin`,
+`--codex-bin`, and `--keep`.
 
 Each fixture gets three repeats per arm. Every repeat starts at H0. Each hint
 level calls `runTrial` afresh, with its own isolated home and detached worktree;
@@ -55,3 +56,34 @@ retained. These count observed occurrences, not unique sources across repeats.
 A trial that throws before returning telemetry leaves its counts `unmeasured`.
 The CLI exits 0 for a completed batch without errors, 1 for an aborted batch or
 errored repeats, and 2 for usage errors.
+
+## Codex substrate
+
+`--substrate codex` runs each trial through `codex exec --json` instead of
+Claude. The model defaults to the one ranger dispatches on Codex (`gpt-6.1-sol`,
+effort `high`, set with `-c model_reasoning_effort`), never the caller's
+`config.toml`. Compare only within one substrate and model; there is no
+cross-substrate pass/fail.
+
+- The trial home gets the Soma Codex projection from `soma install codex --apply
+  --soma-home <tmp> --home-dir <tmp> --substrate-home <tmp>/.codex`, and the run
+  sets `CODEX_HOME` to that directory. The command is
+  `codex exec --json -C <worktree> -m <model> --sandbox workspace-write
+  --add-dir <cache repo> -`, with the prompt on stdin.
+- Auth: Codex reads `auth.json` from `CODEX_HOME`. A caller `CODEX_API_KEY` or
+  `OPENAI_API_KEY` is passed to the substrate alone; otherwise the caller's
+  `auth.json` (from `$CODEX_HOME`, else `~/.codex`) is copied into the trial
+  home. The principal's Codex home is only read, and nothing else is copied.
+  A ChatGPT login refreshed inside the trial rotates tokens in the copy only.
+- The record carries CLI `codex` and its `--version`. `total_tokens` is input
+  plus output from the stream's `turn.completed` usage (input already includes
+  cached tokens). `start_of_session_tokens` is the first model call's input,
+  read from the `token_count` events of the session rollout Codex writes under
+  the trial's `CODEX_HOME/sessions`; the exec stream alone carries one
+  cumulative usage and cannot give it. Without usage the field is `unmeasured`.
+- Tool use is read from `command_execution` (as `Bash`, with the `sh -lc`
+  wrapper removed; a non-zero exit is a failed call) and `file_change` (as
+  `Edit`) items. An edit made through a shell command is not an edit, as for
+  Claude.
+- `codex` missing or not running refuses the trial or batch before anything is
+  cloned (`--codex-bin <path>` names another binary).
