@@ -89,7 +89,7 @@ function hintStats(scores: readonly Score[]): Pick<ArmReport, "median" | "spread
 }
 
 function sumMeasured(values: readonly Measured[]): Measured {
-  if (values.some((value) => value === "unmeasured")) return "unmeasured";
+  if (values.length === 0 || values.some((value) => value === "unmeasured")) return "unmeasured";
   return (values as number[]).reduce((sum, value) => sum + value, 0);
 }
 
@@ -116,7 +116,7 @@ function emptyArm(arm: string): ArmReport {
   return {
     arm, repeats: [], scores: [], median: "unmeasured", spread: "unmeasured", errored: 0,
     start_of_session_tokens_median: "unmeasured", total_tokens_median: "unmeasured",
-    duplicates_created_counts: [], sources_read_counts: [], duplicates_created: 0, sources_read: 0,
+    duplicates_created_counts: [], sources_read_counts: [], duplicates_created: "unmeasured", sources_read: "unmeasured",
   };
 }
 
@@ -132,6 +132,23 @@ function drift(report: BatchReport, record: TrialRecord, loaded: LoadedFixture, 
   report.model ??= record.model;
   report.cli ??= { ...record.cli };
   return null;
+}
+
+function classifyAttempt(attempt: BatchTrial, hint: Hint): { error: string | null; score: Score; done: boolean } {
+  const record = attempt.record;
+  const error = attempt.error
+    ?? (record?.outcome === "errored" ? record.error ?? "Trial errored" : null)
+    ?? (record?.probe_exit === null ? "Acceptance probe did not exit normally" : null);
+  if (error !== null) return { error, score: "errored", done: true };
+  if (record?.probe_exit === 0) return { error: null, score: hint, done: true };
+  if (hint === 3) return { error: null, score: "fail", done: true };
+  return { error: null, score: "errored", done: false };
+}
+
+function assertArmLabels(labels: readonly string[]): void {
+  if (labels.length < 1 || labels.length > 2 || labels.some((label) => label === "") || new Set(labels).size !== labels.length) {
+    throw new TrialUsageError(`--arms requires one or two distinct arm labels.\n${USAGE}`);
+  }
 }
 
 function cell(value: unknown): string { return String(value).replaceAll("|", "\\|").replaceAll("\n", "<br>").replaceAll("\r", ""); }
@@ -170,10 +187,67 @@ function writeReports(outDir: string, report: BatchReport): void {
   }
 }
 
-export async function runBatch(options: BatchOptions, deps: BatchDeps): Promise<BatchResult> {
-  if (options.arms.length < 1 || options.arms.length > 2 || new Set(options.arms.map((arm) => arm.label)).size !== options.arms.length) {
-    throw new TrialUsageError("--arms requires one or two distinct arm labels");
+interface RepeatContext {
+  options: BatchOptions;
+  deps: BatchDeps;
+  report: BatchReport;
+  outDir: string;
+}
+
+async function runRepeat(context: RepeatContext, scenario: ScenarioReport, fixture: LoadedFixture, repeat: number): Promise<boolean> {
+  const { options, deps, report, outDir } = context;
+  const pending = scenario.arms.map((arm) => {
+    const result: RepeatResult = { repeat, score: "errored", trials: [], error: null };
+    arm.repeats.push(result);
+    return { arm, result, done: false };
+  });
+  for (const hint of [0, 1, 2, 3] as const) {
+    for (const [index, state] of pending.entries()) {
+      if (state.done) continue;
+      const attempt: BatchTrial = {
+        fixture_id: scenario.fixture_id, arm: state.arm.arm, repeat, hint_level: hint,
+        record_path: null, record: null, error: null,
+      };
+      state.result.trials.push(report.trials.length);
+      report.trials.push(attempt);
+      try {
+        const trial = await deps.trial({
+          ...options, substrate: report.substrate, fixture: scenario.snapshot_path, arm: state.arm.arm,
+          homeSource: options.arms[index].homeSource, hint, out: join(outDir, "trials"),
+        });
+        attempt.record = trial.record;
+        attempt.record_path = trial.recordPath;
+      } catch (error) {
+        attempt.error = message(error);
+      }
+      if (attempt.record !== null) {
+        const mismatch = drift(report, attempt.record, fixture, state.arm.arm, hint);
+        if (mismatch !== null) {
+          report.status = "aborted";
+          report.abort_reason = mismatch;
+          attempt.error = mismatch;
+        }
+      }
+      const classified = classifyAttempt(attempt, hint);
+      attempt.error = classified.error;
+      state.result.error = classified.error;
+      state.result.score = classified.score;
+      state.done = classified.done;
+      if (report.status === "aborted") {
+        // Do not leave phantom errored repeats for arms that were never attempted.
+        for (const other of pending) {
+          if (other.result.trials.length === 0) other.arm.repeats.pop();
+          else if (!other.done) other.result.error = `Batch aborted: ${report.abort_reason}`;
+        }
+        return true;
+      }
+    }
   }
+  return false;
+}
+
+export async function runBatch(options: BatchOptions, deps: BatchDeps): Promise<BatchResult> {
+  assertArmLabels(options.arms.map((arm) => arm.label));
   if (options.fixtures.length === 0) throw new TrialUsageError("No fixtures selected");
   const substrate = canonicalSubstrate(options.substrate);
   for (const arm of options.arms) validateTrialOptions({ ...options, substrate, fixture: "", arm: arm.label, homeSource: arm.homeSource, hint: 0 });
@@ -206,75 +280,17 @@ export async function runBatch(options: BatchOptions, deps: BatchDeps): Promise<
       };
     }),
   };
-  async function runRepeat(scenario: ScenarioReport, fixture: LoadedFixture, repeat: number): Promise<boolean> {
-    const pending = scenario.arms.map((arm) => {
-      const result: RepeatResult = { repeat, score: "errored", trials: [], error: null };
-      arm.repeats.push(result);
-      return { arm, result, done: false };
-    });
-    for (const hint of [0, 1, 2, 3] as const) {
-      for (const [index, state] of pending.entries()) {
-        if (state.done) continue;
-        const attempt: BatchTrial = {
-          fixture_id: scenario.fixture_id, arm: state.arm.arm, repeat, hint_level: hint,
-          record_path: null, record: null, error: null,
-        };
-        state.result.trials.push(report.trials.length);
-        report.trials.push(attempt);
-        try {
-          const trial = await deps.trial({
-            ...options, substrate, fixture: scenario.snapshot_path, arm: state.arm.arm,
-            homeSource: options.arms[index].homeSource, hint, out: join(outDir, "trials"),
-          });
-          attempt.record = trial.record;
-          attempt.record_path = trial.recordPath;
-        } catch (error) {
-          attempt.error = message(error);
-        }
-        if (attempt.record !== null) {
-          const mismatch = drift(report, attempt.record, fixture, state.arm.arm, hint);
-          if (mismatch !== null) {
-            report.status = "aborted";
-            report.abort_reason = mismatch;
-            attempt.error = mismatch;
-          } else if (attempt.record.outcome === "errored") {
-            attempt.error = attempt.record.error ?? "Trial errored";
-          } else if (attempt.record.probe_exit === null) {
-            attempt.error = "Acceptance probe did not exit normally";
-          }
-        }
-        if (attempt.error !== null) {
-          state.result.error = attempt.error;
-          state.done = true;
-        } else if (attempt.record?.probe_exit === 0) {
-          state.result.score = hint;
-          state.done = true;
-        } else if (hint === 3) {
-          state.result.score = "fail";
-          state.done = true;
-        }
-        if (report.status === "aborted") {
-          // Do not leave phantom errored repeats for arms that were never attempted.
-          for (const other of pending) {
-            if (other.result.trials.length === 0) other.arm.repeats.pop();
-            else if (!other.done) other.result.error = `Batch aborted: ${report.abort_reason}`;
-          }
-          return true;
-        }
-      }
-    }
-    return false;
-  }
+  const context: RepeatContext = { options, deps, report, outDir };
   scenarios: for (const [index, scenario] of report.scenarios.entries()) {
     for (let repeat = 1; repeat <= 3; repeat += 1) {
-      if (await runRepeat(scenario, loaded[index], repeat)) break scenarios;
+      if (await runRepeat(context, scenario, loaded[index], repeat)) break scenarios;
     }
     scenario.extra_repeats = scenario.arms.some((arm) => {
       const spread = hintStats(arm.repeats.map((repeat) => repeat.score)).spread;
       return typeof spread === "number" && spread > 1;
     });
     if (scenario.extra_repeats) for (let repeat = 4; repeat <= 5; repeat += 1) {
-      if (await runRepeat(scenario, loaded[index], repeat)) break scenarios;
+      if (await runRepeat(context, scenario, loaded[index], repeat)) break scenarios;
     }
   }
   for (const scenario of report.scenarios) for (const arm of scenario.arms) summarize(arm, report.trials);
@@ -293,11 +309,16 @@ export function parseArgs(argv: readonly string[]): { options: BatchOptions; cla
   let labels: string[] = [];
   let fixtures: string[] | undefined;
   const homes = new Map<string, string>();
-  for (let index = 1; index < argv.length; index += 1) {
+  let index = 1;
+  const takeValue = (flag: string): string => {
+    const value = argv.at(++index);
+    if (value === undefined || value.startsWith("--")) throw new TrialUsageError(`${flag} requires a value.\n${USAGE}`);
+    return value;
+  };
+  for (; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--arms" || flag === "--fixtures" || flag === "--arm-home") {
-      const value = argv.at(++index);
-      if (value === undefined || value.startsWith("--")) throw new TrialUsageError(`${flag} requires a value.\n${USAGE}`);
+      const value = takeValue(flag);
       if (flag === "--arms") labels = value.split(",");
       if (flag === "--fixtures") fixtures = value.split(",");
       if (flag === "--arm-home") {
@@ -311,16 +332,10 @@ export function parseArgs(argv: readonly string[]): { options: BatchOptions; cla
       throw new TrialUsageError(`Batch does not take ${flag}.\n${USAGE}`);
     } else {
       trialArgs.push(flag);
-      if (flag !== "--keep") {
-        const value = argv.at(++index);
-        if (value === undefined || value.startsWith("--")) throw new TrialUsageError(`${flag} requires a value.\n${USAGE}`);
-        trialArgs.push(value);
-      }
+      if (flag !== "--keep") trialArgs.push(takeValue(flag));
     }
   }
-  if (labels.length < 1 || labels.length > 2 || labels.some((label) => label === "") || new Set(labels).size !== labels.length) {
-    throw new TrialUsageError(`--arms requires one or two distinct arm labels.\n${USAGE}`);
-  }
+  assertArmLabels(labels);
   for (const label of homes.keys()) if (!labels.includes(label)) throw new TrialUsageError(`--arm-home names an unselected arm: ${label}`);
   const parsed = parseTrialArgs(trialArgs);
   if (fixtures === undefined) {

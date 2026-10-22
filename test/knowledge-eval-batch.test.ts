@@ -161,6 +161,29 @@ describe("batch scheduling through the B1 trial seam", () => {
     expect(report.scenarios[0].arms[1].scores).toEqual([]);
   });
 
+  test("an abort leaves never-attempted arms and fixtures unmeasured in both reports", async () => {
+    const { report, outDir } = await runBatch(options({ fixtures: ["one", "two"] }), {
+      trial: (input) => Promise.resolve(result(input, { cli: { name: "claude", version: "unknown" } })),
+    });
+    expect(report.status).toBe("aborted");
+    expect(report.trials).toHaveLength(1);
+    const json = JSON.parse(readFileSync(join(outDir, "report.json"), "utf8")) as BatchReport;
+    const markdown = readFileSync(join(outDir, "report.md"), "utf8");
+    for (const persisted of [report, json]) {
+      for (const arm of [persisted.scenarios[0].arms[1], ...persisted.scenarios[1].arms]) {
+        expect(arm).toMatchObject({
+          scores: [], repeats: [], duplicates_created_counts: [], sources_read_counts: [],
+          duplicates_created: "unmeasured", sources_read: "unmeasured",
+          start_of_session_tokens_median: "unmeasured", total_tokens_median: "unmeasured",
+        });
+      }
+      expect(persisted.scenarios[0].arms[0]).toMatchObject({ duplicates_created: 0, sources_read: 1 });
+    }
+    for (const [id, arm] of [["one", "b"], ["two", "a"], ["two", "b"]]) {
+      expect(markdown).toContain(`| ${id} | ${arm} |  | unmeasured | unmeasured | 0 | unmeasured | unmeasured | unmeasured () | unmeasured () |`);
+    }
+  });
+
   test("trial-level token medians and per-repeat counts include failed hint attempts", async () => {
     let count = 0;
     const { report, outDir } = await runBatch(options({ arms: [{ label: "a", homeSource: somaHome }] }), { trial: (input) => {
