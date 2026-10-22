@@ -807,10 +807,17 @@ function copyHomeSource(source: string, destination: string): void {
 }
 
 function callerEnv(names: readonly string[]): Record<string, string> {
-  return Object.fromEntries(names.flatMap((name) => {
+  const env: Record<string, string> = Object.fromEntries(names.flatMap((name) => {
     const value = process.env[name];
     return value === undefined ? [] : [[name, value]];
   }));
+  return names.includes("CODEX_API_KEY") ? withCodexApiKey(env) : env;
+}
+
+/** Codex reads its environment key from CODEX_API_KEY only; an OPENAI_API_KEY alone is mapped onto it. */
+export function withCodexApiKey(env: Record<string, string>): Record<string, string> {
+  const key = env.CODEX_API_KEY ?? env.OPENAI_API_KEY;
+  return key === undefined ? env : { ...env, CODEX_API_KEY: key };
 }
 
 function trialEnv(root: string, substrate?: string): Record<string, string | undefined> {

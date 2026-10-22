@@ -154,6 +154,7 @@ describe("end to end with a stub codex", () => {
       `if [ -f "$CODEX_HOME/AGENTS.md" ]; then echo "projected=yes" >> "${log}"; fi`,
       `if [ -f "$CODEX_HOME/auth.json" ]; then echo "auth=copied" >> "${log}"; fi`,
       `echo "key=$OPENAI_API_KEY" >> "${log}"`,
+      `echo "codexkey=$CODEX_API_KEY" >> "${log}"`,
       "cat >/dev/null",
       "echo done > made.txt",
       'mkdir -p "$CODEX_HOME/sessions/2026/10/22"',
@@ -230,6 +231,7 @@ describe("end to end with a stub codex", () => {
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
     const seen = readFileSync(log, "utf8").split("\n");
     expect(seen).toContain("key=sk-caller");
+    expect(seen).toContain("codexkey=sk-caller");
     expect(seen).not.toContain("auth=copied");
   }, 120_000);
 
