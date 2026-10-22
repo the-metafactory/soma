@@ -43,20 +43,13 @@ async function emit(stack?: string, input: Partial<RunFinishedInput> = {}): Prom
   return events[0];
 }
 
-test("default stack names the same stack in the source and subject", async () => {
-  for (const stack of [undefined, "default"]) {
+test("configured stack names the same stack in the source and subject", async () => {
+  for (const [stack, expected] of [[undefined, "default"], ["default", "default"], ["work", "work"]] as const) {
     const event = await emit(stack);
     const envelope = await buildRunFinishedEnvelope(event);
-    expect(envelope.source).toBe("jc.default.soma");
-    expect(event.subject).toBe("local.jc.default.execution.run.finished");
+    expect(envelope.source).toBe(`jc.${expected}.soma`);
+    expect(event.subject).toBe(`local.jc.${expected}.execution.run.finished`);
   }
-});
-
-test("work stack names the same stack in the source and subject", async () => {
-  const event = await emit("work");
-  const envelope = await buildRunFinishedEnvelope(event);
-  expect(envelope.source).toBe("jc.work.soma");
-  expect(event.subject).toBe("local.jc.work.execution.run.finished");
 });
 
 test("every emitted run kind and outcome keeps source and subject stacks equal", async () => {
