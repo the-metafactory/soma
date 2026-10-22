@@ -317,7 +317,7 @@ export function parseStream(stdout: string): StreamFacts {
 function unwrapShell(command: string): string {
   const wrapped = /^(?:\S*\/)?(?:ba|z|da)?sh\s+-\w*c\s+(["'])([\s\S]*)\1$/u.exec(command.trim());
   if (wrapped === null) return command;
-  return wrapped[1] === "'" ? (wrapped[2] ?? "").replaceAll("'\\''", "'") : (wrapped[2] ?? "");
+  return wrapped[1] === "'" ? wrapped[2].replaceAll("'\\''", "'") : wrapped[2];
 }
 
 /**
@@ -816,7 +816,8 @@ function callerEnv(names: readonly string[]): Record<string, string> {
 
 /** Codex reads its environment key from CODEX_API_KEY only; an OPENAI_API_KEY alone is mapped onto it. */
 export function withCodexApiKey(env: Record<string, string>): Record<string, string> {
-  const key = env.CODEX_API_KEY ?? env.OPENAI_API_KEY;
+  const present: Partial<Record<string, string>> = env;
+  const key = present.CODEX_API_KEY ?? present.OPENAI_API_KEY;
   return key === undefined ? env : { ...env, CODEX_API_KEY: key };
 }
 

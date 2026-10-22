@@ -182,8 +182,9 @@ describe("end to end with a stub codex", () => {
   }
 
   async function runCli(args: string[], extraEnv: Record<string, string> = {}): Promise<{ code: number; stdout: string; stderr: string }> {
-    const env: Record<string, string | undefined> = { ...process.env, HOME: principal, SOMA_HOME: somaHome, BUN_RUNTIME_TRANSPILER_CACHE_PATH: join(root, "bun-cache"), ...extraEnv };
-    for (const name of ["CODEX_HOME", "CODEX_API_KEY", "OPENAI_API_KEY"]) if (!(name in extraEnv)) delete env[name];
+    const scrubbed = new Set(["CODEX_HOME", "CODEX_API_KEY", "OPENAI_API_KEY"]);
+    const inherited = Object.entries(process.env).filter(([name]) => !scrubbed.has(name));
+    const env: Record<string, string | undefined> = { ...Object.fromEntries(inherited), HOME: principal, SOMA_HOME: somaHome, BUN_RUNTIME_TRANSPILER_CACHE_PATH: join(root, "bun-cache"), ...extraEnv };
     const proc = Bun.spawn([process.execPath, SCRIPT, ...args], { env, stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     return { code, stdout, stderr };
