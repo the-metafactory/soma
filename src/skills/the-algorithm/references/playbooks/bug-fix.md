@@ -5,7 +5,7 @@
 
 ## Steps
 
-1. Reproduce the failure on the surface the report names, before any edit. Capture the output.
+1. Reproduce the failure on the surface the report names, before any edit, through the project's verify skill (`verify-<project>`) when it has one. Capture the output.
 2. If it will not reproduce, tighten conditions, synthesize the trigger or instrument until it fires.
 3. List candidate causes, then rule them out one at a time with runtime evidence, taking the split that eliminates the most each pass.
 4. Name where the bad state enters the system, and place the fix there if that removes the class.
