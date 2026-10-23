@@ -116,14 +116,18 @@ describe("bundled skill references", () => {
   const LAYERS: { dir: string; count: [number, number]; indexMaxLines: number; maxLines: number; shape: (body: string[]) => string[] }[] = [
     {
       dir: "playbooks",
-      count: [8, 10],
+      count: [8, 11], // Nine original cards plus prototype and planning (node #1053).
       indexMaxLines: 40,
       maxLines: 39,
       shape: (body) => {
         const steps = body.filter((line) => /^\d+\. /.test(line)).length;
         return [
           ...(steps < 6 || steps > 10 ? [`${steps} numbered steps`] : []),
+          ...(hasLine(body, "**Task shape:**") ? [] : ["no Task shape"]),
+          ...(hasLine(body, "**You own:**") ? [] : ["no You own"]),
+          ...(hasLine(body, "## Steps") ? [] : ["no Steps section"]),
           ...(hasLine(body, "## Criteria") ? [] : ["no Criteria section"]),
+          ...(hasLine(body, "## Principles") ? [] : ["no Principles section"]),
           ...(body.at(-1)?.startsWith("**Reply:**") === true ? [] : ["does not end with a Reply line"]),
         ];
       },

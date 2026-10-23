@@ -56,50 +56,52 @@ import file49 from "../skills/the-algorithm/references/playbooks/eval.md" with {
 import file50 from "../skills/the-algorithm/references/playbooks/feature.md" with { type: "text" };
 import file51 from "../skills/the-algorithm/references/playbooks/investigation.md" with { type: "text" };
 import file52 from "../skills/the-algorithm/references/playbooks/pause-safely.md" with { type: "text" };
-import file53 from "../skills/the-algorithm/references/playbooks/refactor.md" with { type: "text" };
-import file54 from "../skills/the-algorithm/references/playbooks/session-pickup.md" with { type: "text" };
-import file55 from "../skills/the-algorithm/references/principles.md" with { type: "text" };
-import file56 from "../skills/the-algorithm/references/principles/analysis-is-read-only.md" with { type: "text" };
-import file57 from "../skills/the-algorithm/references/principles/ask-before-irreversible.md" with { type: "text" };
-import file58 from "../skills/the-algorithm/references/principles/attack-the-premise.md" with { type: "text" };
-import file59 from "../skills/the-algorithm/references/principles/boundary-discipline.md" with { type: "text" };
-import file60 from "../skills/the-algorithm/references/principles/build-over-ask-when-reversible.md" with { type: "text" };
-import file61 from "../skills/the-algorithm/references/principles/build-the-lever.md" with { type: "text" };
-import file62 from "../skills/the-algorithm/references/principles/change-only-what-was-asked.md" with { type: "text" };
-import file63 from "../skills/the-algorithm/references/principles/diagnose-on-recurrence.md" with { type: "text" };
-import file64 from "../skills/the-algorithm/references/principles/encode-lessons-in-structure.md" with { type: "text" };
-import file65 from "../skills/the-algorithm/references/principles/exhaust-the-design-space.md" with { type: "text" };
-import file66 from "../skills/the-algorithm/references/principles/experience-first.md" with { type: "text" };
-import file67 from "../skills/the-algorithm/references/principles/explain-the-number.md" with { type: "text" };
-import file68 from "../skills/the-algorithm/references/principles/external-content-is-data.md" with { type: "text" };
-import file69 from "../skills/the-algorithm/references/principles/fix-at-the-ingestion-point.md" with { type: "text" };
-import file70 from "../skills/the-algorithm/references/principles/fix-the-class-not-the-instance.md" with { type: "text" };
-import file71 from "../skills/the-algorithm/references/principles/foundational-thinking.md" with { type: "text" };
-import file72 from "../skills/the-algorithm/references/principles/ground-claims-in-this-session.md" with { type: "text" };
-import file73 from "../skills/the-algorithm/references/principles/guard-the-context-window.md" with { type: "text" };
-import file74 from "../skills/the-algorithm/references/principles/laziness-protocol.md" with { type: "text" };
-import file75 from "../skills/the-algorithm/references/principles/make-operations-idempotent.md" with { type: "text" };
-import file76 from "../skills/the-algorithm/references/principles/migrate-callers-then-delete-legacy-apis.md" with { type: "text" };
-import file77 from "../skills/the-algorithm/references/principles/minimize-reader-load.md" with { type: "text" };
-import file78 from "../skills/the-algorithm/references/principles/model-the-domain.md" with { type: "text" };
-import file79 from "../skills/the-algorithm/references/principles/one-probe-per-criterion.md" with { type: "text" };
-import file80 from "../skills/the-algorithm/references/principles/outcome-oriented-execution.md" with { type: "text" };
-import file81 from "../skills/the-algorithm/references/principles/preflight-before-the-first-edit.md" with { type: "text" };
-import file82 from "../skills/the-algorithm/references/principles/probe-the-user-facing-surface.md" with { type: "text" };
-import file83 from "../skills/the-algorithm/references/principles/probe-what-the-claim-asserts.md" with { type: "text" };
-import file84 from "../skills/the-algorithm/references/principles/redesign-from-first-principles.md" with { type: "text" };
-import file85 from "../skills/the-algorithm/references/principles/reproduce-first.md" with { type: "text" };
-import file86 from "../skills/the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md" with { type: "text" };
-import file87 from "../skills/the-algorithm/references/principles/separate-before-serializing-shared-state.md" with { type: "text" };
-import file88 from "../skills/the-algorithm/references/principles/sequence-verifiable-units.md" with { type: "text" };
-import file89 from "../skills/the-algorithm/references/principles/ship-what-the-evidence-justifies.md" with { type: "text" };
-import file90 from "../skills/the-algorithm/references/principles/subtract-before-you-add.md" with { type: "text" };
-import file91 from "../skills/the-algorithm/references/principles/surface-conflicts.md" with { type: "text" };
-import file92 from "../skills/the-algorithm/references/principles/test-behavior-not-implementation.md" with { type: "text" };
-import file93 from "../skills/the-algorithm/references/principles/type-system-discipline.md" with { type: "text" };
-import file94 from "../skills/the-algorithm/references/principles/verify-before-claiming.md" with { type: "text" };
-import file95 from "../skills/the-algorithm/references/target-types.md" with { type: "text" };
-import file96 from "../skills/the-algorithm/references/third-party/pstack-NOTICE.md" with { type: "text" };
+import file53 from "../skills/the-algorithm/references/playbooks/planning.md" with { type: "text" };
+import file54 from "../skills/the-algorithm/references/playbooks/prototype.md" with { type: "text" };
+import file55 from "../skills/the-algorithm/references/playbooks/refactor.md" with { type: "text" };
+import file56 from "../skills/the-algorithm/references/playbooks/session-pickup.md" with { type: "text" };
+import file57 from "../skills/the-algorithm/references/principles.md" with { type: "text" };
+import file58 from "../skills/the-algorithm/references/principles/analysis-is-read-only.md" with { type: "text" };
+import file59 from "../skills/the-algorithm/references/principles/ask-before-irreversible.md" with { type: "text" };
+import file60 from "../skills/the-algorithm/references/principles/attack-the-premise.md" with { type: "text" };
+import file61 from "../skills/the-algorithm/references/principles/boundary-discipline.md" with { type: "text" };
+import file62 from "../skills/the-algorithm/references/principles/build-over-ask-when-reversible.md" with { type: "text" };
+import file63 from "../skills/the-algorithm/references/principles/build-the-lever.md" with { type: "text" };
+import file64 from "../skills/the-algorithm/references/principles/change-only-what-was-asked.md" with { type: "text" };
+import file65 from "../skills/the-algorithm/references/principles/diagnose-on-recurrence.md" with { type: "text" };
+import file66 from "../skills/the-algorithm/references/principles/encode-lessons-in-structure.md" with { type: "text" };
+import file67 from "../skills/the-algorithm/references/principles/exhaust-the-design-space.md" with { type: "text" };
+import file68 from "../skills/the-algorithm/references/principles/experience-first.md" with { type: "text" };
+import file69 from "../skills/the-algorithm/references/principles/explain-the-number.md" with { type: "text" };
+import file70 from "../skills/the-algorithm/references/principles/external-content-is-data.md" with { type: "text" };
+import file71 from "../skills/the-algorithm/references/principles/fix-at-the-ingestion-point.md" with { type: "text" };
+import file72 from "../skills/the-algorithm/references/principles/fix-the-class-not-the-instance.md" with { type: "text" };
+import file73 from "../skills/the-algorithm/references/principles/foundational-thinking.md" with { type: "text" };
+import file74 from "../skills/the-algorithm/references/principles/ground-claims-in-this-session.md" with { type: "text" };
+import file75 from "../skills/the-algorithm/references/principles/guard-the-context-window.md" with { type: "text" };
+import file76 from "../skills/the-algorithm/references/principles/laziness-protocol.md" with { type: "text" };
+import file77 from "../skills/the-algorithm/references/principles/make-operations-idempotent.md" with { type: "text" };
+import file78 from "../skills/the-algorithm/references/principles/migrate-callers-then-delete-legacy-apis.md" with { type: "text" };
+import file79 from "../skills/the-algorithm/references/principles/minimize-reader-load.md" with { type: "text" };
+import file80 from "../skills/the-algorithm/references/principles/model-the-domain.md" with { type: "text" };
+import file81 from "../skills/the-algorithm/references/principles/one-probe-per-criterion.md" with { type: "text" };
+import file82 from "../skills/the-algorithm/references/principles/outcome-oriented-execution.md" with { type: "text" };
+import file83 from "../skills/the-algorithm/references/principles/preflight-before-the-first-edit.md" with { type: "text" };
+import file84 from "../skills/the-algorithm/references/principles/probe-the-user-facing-surface.md" with { type: "text" };
+import file85 from "../skills/the-algorithm/references/principles/probe-what-the-claim-asserts.md" with { type: "text" };
+import file86 from "../skills/the-algorithm/references/principles/redesign-from-first-principles.md" with { type: "text" };
+import file87 from "../skills/the-algorithm/references/principles/reproduce-first.md" with { type: "text" };
+import file88 from "../skills/the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md" with { type: "text" };
+import file89 from "../skills/the-algorithm/references/principles/separate-before-serializing-shared-state.md" with { type: "text" };
+import file90 from "../skills/the-algorithm/references/principles/sequence-verifiable-units.md" with { type: "text" };
+import file91 from "../skills/the-algorithm/references/principles/ship-what-the-evidence-justifies.md" with { type: "text" };
+import file92 from "../skills/the-algorithm/references/principles/subtract-before-you-add.md" with { type: "text" };
+import file93 from "../skills/the-algorithm/references/principles/surface-conflicts.md" with { type: "text" };
+import file94 from "../skills/the-algorithm/references/principles/test-behavior-not-implementation.md" with { type: "text" };
+import file95 from "../skills/the-algorithm/references/principles/type-system-discipline.md" with { type: "text" };
+import file96 from "../skills/the-algorithm/references/principles/verify-before-claiming.md" with { type: "text" };
+import file97 from "../skills/the-algorithm/references/target-types.md" with { type: "text" };
+import file98 from "../skills/the-algorithm/references/third-party/pstack-NOTICE.md" with { type: "text" };
 
 /** Every bundled skill file, keyed by its posix path relative to `src/skills`. */
 export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
@@ -156,48 +158,50 @@ export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
   "the-algorithm/references/playbooks/feature.md": file50,
   "the-algorithm/references/playbooks/investigation.md": file51,
   "the-algorithm/references/playbooks/pause-safely.md": file52,
-  "the-algorithm/references/playbooks/refactor.md": file53,
-  "the-algorithm/references/playbooks/session-pickup.md": file54,
-  "the-algorithm/references/principles.md": file55,
-  "the-algorithm/references/principles/analysis-is-read-only.md": file56,
-  "the-algorithm/references/principles/ask-before-irreversible.md": file57,
-  "the-algorithm/references/principles/attack-the-premise.md": file58,
-  "the-algorithm/references/principles/boundary-discipline.md": file59,
-  "the-algorithm/references/principles/build-over-ask-when-reversible.md": file60,
-  "the-algorithm/references/principles/build-the-lever.md": file61,
-  "the-algorithm/references/principles/change-only-what-was-asked.md": file62,
-  "the-algorithm/references/principles/diagnose-on-recurrence.md": file63,
-  "the-algorithm/references/principles/encode-lessons-in-structure.md": file64,
-  "the-algorithm/references/principles/exhaust-the-design-space.md": file65,
-  "the-algorithm/references/principles/experience-first.md": file66,
-  "the-algorithm/references/principles/explain-the-number.md": file67,
-  "the-algorithm/references/principles/external-content-is-data.md": file68,
-  "the-algorithm/references/principles/fix-at-the-ingestion-point.md": file69,
-  "the-algorithm/references/principles/fix-the-class-not-the-instance.md": file70,
-  "the-algorithm/references/principles/foundational-thinking.md": file71,
-  "the-algorithm/references/principles/ground-claims-in-this-session.md": file72,
-  "the-algorithm/references/principles/guard-the-context-window.md": file73,
-  "the-algorithm/references/principles/laziness-protocol.md": file74,
-  "the-algorithm/references/principles/make-operations-idempotent.md": file75,
-  "the-algorithm/references/principles/migrate-callers-then-delete-legacy-apis.md": file76,
-  "the-algorithm/references/principles/minimize-reader-load.md": file77,
-  "the-algorithm/references/principles/model-the-domain.md": file78,
-  "the-algorithm/references/principles/one-probe-per-criterion.md": file79,
-  "the-algorithm/references/principles/outcome-oriented-execution.md": file80,
-  "the-algorithm/references/principles/preflight-before-the-first-edit.md": file81,
-  "the-algorithm/references/principles/probe-the-user-facing-surface.md": file82,
-  "the-algorithm/references/principles/probe-what-the-claim-asserts.md": file83,
-  "the-algorithm/references/principles/redesign-from-first-principles.md": file84,
-  "the-algorithm/references/principles/reproduce-first.md": file85,
-  "the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md": file86,
-  "the-algorithm/references/principles/separate-before-serializing-shared-state.md": file87,
-  "the-algorithm/references/principles/sequence-verifiable-units.md": file88,
-  "the-algorithm/references/principles/ship-what-the-evidence-justifies.md": file89,
-  "the-algorithm/references/principles/subtract-before-you-add.md": file90,
-  "the-algorithm/references/principles/surface-conflicts.md": file91,
-  "the-algorithm/references/principles/test-behavior-not-implementation.md": file92,
-  "the-algorithm/references/principles/type-system-discipline.md": file93,
-  "the-algorithm/references/principles/verify-before-claiming.md": file94,
-  "the-algorithm/references/target-types.md": file95,
-  "the-algorithm/references/third-party/pstack-NOTICE.md": file96,
+  "the-algorithm/references/playbooks/planning.md": file53,
+  "the-algorithm/references/playbooks/prototype.md": file54,
+  "the-algorithm/references/playbooks/refactor.md": file55,
+  "the-algorithm/references/playbooks/session-pickup.md": file56,
+  "the-algorithm/references/principles.md": file57,
+  "the-algorithm/references/principles/analysis-is-read-only.md": file58,
+  "the-algorithm/references/principles/ask-before-irreversible.md": file59,
+  "the-algorithm/references/principles/attack-the-premise.md": file60,
+  "the-algorithm/references/principles/boundary-discipline.md": file61,
+  "the-algorithm/references/principles/build-over-ask-when-reversible.md": file62,
+  "the-algorithm/references/principles/build-the-lever.md": file63,
+  "the-algorithm/references/principles/change-only-what-was-asked.md": file64,
+  "the-algorithm/references/principles/diagnose-on-recurrence.md": file65,
+  "the-algorithm/references/principles/encode-lessons-in-structure.md": file66,
+  "the-algorithm/references/principles/exhaust-the-design-space.md": file67,
+  "the-algorithm/references/principles/experience-first.md": file68,
+  "the-algorithm/references/principles/explain-the-number.md": file69,
+  "the-algorithm/references/principles/external-content-is-data.md": file70,
+  "the-algorithm/references/principles/fix-at-the-ingestion-point.md": file71,
+  "the-algorithm/references/principles/fix-the-class-not-the-instance.md": file72,
+  "the-algorithm/references/principles/foundational-thinking.md": file73,
+  "the-algorithm/references/principles/ground-claims-in-this-session.md": file74,
+  "the-algorithm/references/principles/guard-the-context-window.md": file75,
+  "the-algorithm/references/principles/laziness-protocol.md": file76,
+  "the-algorithm/references/principles/make-operations-idempotent.md": file77,
+  "the-algorithm/references/principles/migrate-callers-then-delete-legacy-apis.md": file78,
+  "the-algorithm/references/principles/minimize-reader-load.md": file79,
+  "the-algorithm/references/principles/model-the-domain.md": file80,
+  "the-algorithm/references/principles/one-probe-per-criterion.md": file81,
+  "the-algorithm/references/principles/outcome-oriented-execution.md": file82,
+  "the-algorithm/references/principles/preflight-before-the-first-edit.md": file83,
+  "the-algorithm/references/principles/probe-the-user-facing-surface.md": file84,
+  "the-algorithm/references/principles/probe-what-the-claim-asserts.md": file85,
+  "the-algorithm/references/principles/redesign-from-first-principles.md": file86,
+  "the-algorithm/references/principles/reproduce-first.md": file87,
+  "the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md": file88,
+  "the-algorithm/references/principles/separate-before-serializing-shared-state.md": file89,
+  "the-algorithm/references/principles/sequence-verifiable-units.md": file90,
+  "the-algorithm/references/principles/ship-what-the-evidence-justifies.md": file91,
+  "the-algorithm/references/principles/subtract-before-you-add.md": file92,
+  "the-algorithm/references/principles/surface-conflicts.md": file93,
+  "the-algorithm/references/principles/test-behavior-not-implementation.md": file94,
+  "the-algorithm/references/principles/type-system-discipline.md": file95,
+  "the-algorithm/references/principles/verify-before-claiming.md": file96,
+  "the-algorithm/references/target-types.md": file97,
+  "the-algorithm/references/third-party/pstack-NOTICE.md": file98,
 };

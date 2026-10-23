@@ -14,6 +14,8 @@ import { projectAnthropicCoworkHome } from "../../src/substrates/adapters/anthro
 import { configureCodexAgentsImport } from "../../src/substrates/adapters/codex/install";
 import { readWorkingMethod, WORKING_METHOD_HEADING } from "../../src/home/index";
 import { portableProjectionInput } from "../fixtures";
+import routingFixtures from "../fixtures/harness-eval/playbook-routing.json";
+import { readBundledSkillFile } from "../../src/substrates/bundled-skill-source";
 
 const WORKING_METHOD = `${WORKING_METHOD_HEADING}\n\n## Principles\n\n| \`/home/references/principles/reproduce-first.md\` | a bug report |\n`;
 
@@ -145,6 +147,38 @@ test("the shipped indexes leave no relative pointer behind after rendering", asy
   expect(content).toContain("## Principles");
   expect(content).toContain("## Playbooks");
   expect(content).not.toContain("`references/");
+});
+
+test("routing fixtures resolve through the bundled index on every substrate", async () => {
+  const referencesDir = join(import.meta.dir, "../../src/skills/the-algorithm/references");
+  const playbooks = await readBundledSkillFile("the-algorithm", "references/playbooks.md");
+  expect(playbooks).toBe(await readFile(join(referencesDir, "playbooks.md"), "utf8"));
+  const content = (await readWorkingMethod(referencesDir))?.content ?? "";
+  const input = {
+    ...portableProjectionInput,
+    profile: { ...portableProjectionInput.profile, workingMethod: { content } },
+  };
+
+  for (const { prompt, expectedCard } of routingFixtures) {
+    const path = `references/playbooks/${expectedCard}.md`;
+    const card = await readBundledSkillFile("the-algorithm", path);
+    const source = await readFile(join(import.meta.dir, "../../src/skills/the-algorithm", path), "utf8");
+    expect(card, prompt).toBe(source);
+    const shape = /^\*\*Task shape:\*\* (.+)\.$/m.exec(card)?.[1];
+    expect(shape, prompt).toBeDefined();
+    const rows = playbooks.split("\n").filter((line) => line.includes(`\`${path}\``));
+    expect(rows, prompt).toHaveLength(1);
+    const [row] = rows;
+    // Existing cards may abbreviate their shape in the index; the new rows
+    // preserve the shapes settled in node #1042 exactly.
+    if (expectedCard !== "bug-fix") expect(row, prompt).toBe(`| \`${path}\` | ${shape} |`);
+
+    for (const { name, file } of methodFiles(input)) {
+      const projectedRow = row.replace(path, `${referencesDir}/playbooks/${expectedCard}.md`);
+      expect(file?.content.split("\n").filter((line) => line.includes(`/playbooks/${expectedCard}.md\``)), `${name}: ${prompt}`)
+        .toEqual([projectedRow]);
+    }
+  }
 });
 
 test("codex AGENTS import follows the working method: appended when projected, removed when not", async () => {

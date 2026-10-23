@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "prototype a few options for the dropdown",
+    "context": "Choose the dropdown interaction by comparing runnable variants.",
+    "expectedCard": "prototype"
+  },
+  {
+    "prompt": "turn this design into a plan",
+    "context": "The design is accepted and needs several PRs; it is not an obvious one- or two-PR change.",
+    "expectedCard": "planning"
+  },
+  {
+    "prompt": "fix this bug",
+    "context": "Existing behavior has regressed.",
+    "expectedCard": "bug-fix"
+  }
+]
