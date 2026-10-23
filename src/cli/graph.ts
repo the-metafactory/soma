@@ -1645,8 +1645,6 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
   const buildBriefNotReady = subtree.flatMap((state) => {
     if (state.status !== "open" || state.node.kind !== "build") return [];
     const missing = buildBriefMissing(state.body);
-    const criteria = selectMarkdownSections(state.body ?? "", ["Acceptance criteria"]).sections;
-    if (!criteria.some((section) => /^Live probe:[\t ]*\S/m.test(section.markdown))) missing.push("Live probe");
     return missing.length === 0 ? [] : [{ state, missing }];
   });
 

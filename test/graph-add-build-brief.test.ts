@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseGraphArgs, runGraphCli } from "../src/cli/graph";
-import { renderCloseReceipt, type GraphStore, type NodeState } from "../src/graph/index";
+import { buildBriefMissing, renderCloseReceipt, type GraphStore, type NodeState } from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma" } as const;
@@ -76,6 +76,15 @@ function fixture(...children: NodeState[]) {
 function findings(output: string): unknown {
   return (JSON.parse(output) as { buildBriefNotReady: unknown }).buildBriefNotReady;
 }
+
+test("shared brief readiness includes the section-scoped Live probe requirement last", () => {
+  expect(buildBriefMissing(READY)).toEqual([]);
+  expect(buildBriefMissing("[NEEDS CLARIFICATION]")).toEqual([
+    "## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]", "Live probe",
+  ]);
+  expect(buildBriefMissing("## Deliverable\nLive probe: soma graph audit 1\n\n## Acceptance criteria\nLive probe: \t\n"))
+    .toEqual(["Live probe"]);
+});
 
 test("audit reports an open build brief missing Acceptance criteria in JSON and text", async () => {
   const run = fixture(state("2", "## Deliverable\nReport readiness.\n"));
