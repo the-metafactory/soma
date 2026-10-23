@@ -9,7 +9,7 @@
 2. Build 2–3 throwaway variants with the `prototype` skill, outside production source. UI variants go behind one switcher.
 3. Drive each variant through `verify-<project>` (or `run`). Capture a screenshot for each, or the measured number for behaviour or timing.
 4. Compare on that evidence. Give tradeoffs and a recommendation, and add an unasked variant when it earns a place.
-5. The principal picks. The choice and the rejected variants go into the run's decisions. The prototype is captured per the skill's rule 6 (throwaway branch).
+5. The principal picks. The choice and the rejected variants go into the run's decisions. Capture the prototype on a throwaway branch, per the `prototype` skill.
 6. Hand off to Feature, or to Planning when it needs several PRs.
 
 ## Criteria

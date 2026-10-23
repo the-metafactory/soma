@@ -159,7 +159,7 @@ test("routing fixtures resolve through the bundled index on every substrate", as
     profile: { ...portableProjectionInput.profile, workingMethod: { content } },
   };
 
-  for (const { prompt, expectedCard } of routingFixtures) {
+  for (const { prompt, expectedCard, exactIndexRow } of routingFixtures) {
     const path = `references/playbooks/${expectedCard}.md`;
     const card = await readBundledSkillFile("the-algorithm", path);
     const source = await readFile(join(import.meta.dir, "../../src/skills/the-algorithm", path), "utf8");
@@ -169,9 +169,8 @@ test("routing fixtures resolve through the bundled index on every substrate", as
     const rows = playbooks.split("\n").filter((line) => line.includes(`\`${path}\``));
     expect(rows, prompt).toHaveLength(1);
     const [row] = rows;
-    // Existing cards may abbreviate their shape in the index; the new rows
-    // preserve the shapes settled in node #1042 exactly.
-    if (expectedCard !== "bug-fix") expect(row, prompt).toBe(`| \`${path}\` | ${shape} |`);
+    // Fixtures opt into exact index/card shape equality; other rows may abbreviate.
+    if (exactIndexRow) expect(row, prompt).toBe(`| \`${path}\` | ${shape} |`);
 
     for (const { name, file } of methodFiles(input)) {
       const projectedRow = row.replace(path, `${referencesDir}/playbooks/${expectedCard}.md`);
