@@ -187,15 +187,15 @@ test("installs soma source home and codex home projection", async () => {
     expect(result.substrate).toBe("codex");
     expect(result.somaHome.somaHome).toBe(join(homeDir, ".soma"));
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".codex"));
-    // 23 static (the working method included) + 75 bundled-skill projections (Memory ×5, the-algorithm
-    // Workflows ×1 and its 59 references — algorithm, capabilities,
+    // 23 static (the working method included) + 77 bundled-skill projections (Memory ×5, the-algorithm
+    // Workflows ×1 and its 61 references — algorithm, capabilities,
     // eval-guide, ideate-loop, mode-detection, optimize-loop, parameter-schema,
-    // target-types, plus the playbooks and principles indexes with their nine
+    // target-types, plus the playbooks and principles indexes with their eleven
     // cards and thirty-nine principles and the pstack notice (soma#922, #924) — the portable
     // the-algorithm/SKILL.md that the static rendering contract overwrites —
     // double-written by design, grok/codex — migrate-pai-purpose/SKILL.md ×1,
     // and orienteer ×8: SKILL.md, two Workflows, five references).
-    expect(result.substrateHome.files).toHaveLength(99);
+    expect(result.substrateHome.files).toHaveLength(101);
 
     const telos = await readFile(join(homeDir, ".soma/profile/purpose.md"), "utf8");
     const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
@@ -1751,11 +1751,11 @@ test("installs soma source home and pi.dev home projection", async () => {
     expect(result.substrateHome.rootDir).toBe(join(homeDir, ".pi"));
     // #43 — Algorithm phase renderer extension shipped alongside
     // existing soma.ts + soma-path-guard.ts; brings the count to 13.
-    // + the working method + 75 bundled-skill projections (the-algorithm ×61 — SKILL.md, Workflows,
+    // + the working method + 77 bundled-skill projections (the-algorithm ×63 — SKILL.md, Workflows,
     // eight references, and the playbooks and principles indexes with their
-    // nine cards, thirty-nine principles and the pstack notice (soma#922, #924) — Memory ×5,
+    // eleven cards, thirty-nine principles and the pstack notice (soma#922, #924) — Memory ×5,
     // migrate-pai-purpose ×1, orienteer ×8).
-    expect(result.substrateHome.files).toHaveLength(90);
+    expect(result.substrateHome.files).toHaveLength(92);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");

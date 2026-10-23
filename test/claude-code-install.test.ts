@@ -235,11 +235,20 @@ test("AC-4: installSomaForClaudeCode is idempotent (second install bytes-identic
     await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const before = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
     const settingsBefore = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
+    const principlesPath = join(homeDir, ".claude/rules/soma/PRINCIPLES.md");
+    const principlesBefore = await readFile(principlesPath, "utf8");
+    for (const card of ["prototype", "planning"]) {
+      const path = join(homeDir, ".soma/skills/the-algorithm/references/playbooks", `${card}.md`);
+      expect(principlesBefore.split("\n").filter((line) => line.includes(`\`${path}\``))).toHaveLength(1);
+      expect(await readFile(join(homeDir, ".claude/skills/the-algorithm/references/playbooks", `${card}.md`), "utf8"))
+        .toBe(await readFile(path, "utf8"));
+    }
     await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const after = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
     const settingsAfter = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
     expect(after).toBe(before);
     expect(settingsAfter).toBe(settingsBefore);
+    expect(await readFile(principlesPath, "utf8")).toBe(principlesBefore);
   });
 });
 

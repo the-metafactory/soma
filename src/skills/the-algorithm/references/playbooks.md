@@ -11,6 +11,8 @@ A playbook card is the step list for one task shape. Cards apply in every mode: 
 | `references/playbooks/bug-fix.md` | something that worked is broken, throws or regressed |
 | `references/playbooks/investigation.md` | a how or why question, or a choice between alternatives; no change asked |
 | `references/playbooks/feature.md` | new behavior, a new command or surface |
+| `references/playbooks/prototype.md` | a design choice with several plausible answers that a run can settle |
+| `references/playbooks/planning.md` | an accepted design that needs more than one PR |
 | `references/playbooks/refactor.md` | the structure changes, the behavior does not |
 | `references/playbooks/session-pickup.md` | resuming what a prior session or handoff left |
 | `references/playbooks/pause-safely.md` | the principal says stop, or the substrate signals the context is about to run out |
