@@ -2098,8 +2098,8 @@ test("audit build-brief scope reads no comments and omits findings it did not ch
   expect(scoped).toEqual({
     repo: REPO, root: "495", nodes: 4,
     buildBriefNotReady: [
-      { id: "495", missing: ["## Acceptance criteria"] },
-      { id: "521", missing: ["## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]"] },
+      { id: "495", missing: ["## Acceptance criteria", "Live probe"] },
+      { id: "521", missing: ["## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]", "Live probe"] },
     ],
   });
   expect(scoped.buildBriefNotReady).toEqual(full.buildBriefNotReady);
