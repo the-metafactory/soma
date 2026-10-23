@@ -141,7 +141,7 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
   throw new Error("expected a refusal");
 }
 
-test("a deterministic-check proposal files a build node under landing#map_root and prints its ref", async () => {
+test("a deterministic-check proposal without a Live probe still files a build node and prints its ref", async () => {
   await writeProposal("errata-check-algorithm-verify-g1");
   const fx = fixture();
   const output = await run(fx, "errata-check-algorithm-verify-g1");
@@ -156,6 +156,7 @@ test("a deterministic-check proposal files a build node under landing#map_root a
   expect(spec.checkpointId).toBe("errata-check-algorithm-verify");
   expect(spec.parent).toEqual({ id: "777" });
   expect(spec.body).toContain("## Deliverable\nA check that refuses the bad output.");
+  expect(spec.body).not.toContain("Live probe:");
   expect(spec.body).toContain(proposalMarker("errata-check-algorithm-verify-g1"));
 });
 

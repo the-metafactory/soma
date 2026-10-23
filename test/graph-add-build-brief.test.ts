@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { parseGraphArgs, runGraphCli } from "../src/cli/graph";
-import { renderCloseReceipt, type GraphStore, type NodeState } from "../src/graph/index";
+import { buildBriefMissing, renderCloseReceipt, type GraphStore, type NodeState } from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma" } as const;
-const READY = "## Deliverable\nReport readiness.\n\n## Acceptance criteria\n- Audit reports gaps.\n";
+const READY = "## Deliverable\nReport readiness.\n\n## Acceptance criteria\n- Audit reports gaps.\n\nLive probe: soma graph audit 1\n";
 
 function state(id: string, body: string | undefined, kind: string | undefined = "build"): NodeState {
   return {
@@ -77,10 +77,19 @@ function findings(output: string): unknown {
   return (JSON.parse(output) as { buildBriefNotReady: unknown }).buildBriefNotReady;
 }
 
+test("shared brief readiness includes the section-scoped Live probe requirement last", () => {
+  expect(buildBriefMissing(READY)).toEqual([]);
+  expect(buildBriefMissing("[NEEDS CLARIFICATION]")).toEqual([
+    "## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]", "Live probe",
+  ]);
+  expect(buildBriefMissing("## Deliverable\nLive probe: soma graph audit 1\n\n## Acceptance criteria\nLive probe: \t\n"))
+    .toEqual(["Live probe"]);
+});
+
 test("audit reports an open build brief missing Acceptance criteria in JSON and text", async () => {
   const run = fixture(state("2", "## Deliverable\nReport readiness.\n"));
   expect(findings(await run(["audit", "1", "--json"]))).toEqual([
-    { id: "2", missing: ["## Acceptance criteria"] },
+    { id: "2", missing: ["## Acceptance criteria", "Live probe"] },
   ]);
   const text = await run(["audit", "1"]);
   expect(text).toContain("build-brief-not-ready");
@@ -98,7 +107,7 @@ test("audit names a literal clarification marker anywhere in an open build body"
 });
 
 test("audit reports an open build brief missing Deliverable in JSON and text", async () => {
-  const run = fixture(state("2", "## Acceptance criteria\n- Audit reports gaps.\n"));
+  const run = fixture(state("2", "## Acceptance criteria\n- Audit reports gaps.\nLive probe: soma graph audit 1\n"));
   expect(findings(await run(["audit", "1", "--json"]))).toEqual([
     { id: "2", missing: ["## Deliverable"] },
   ]);
@@ -112,8 +121,8 @@ test("audit reports every incomplete open build, including descendants of a clos
     state("3", "[NEEDS CLARIFICATION]"),
   );
   expect(findings(await run(["audit", "1", "--json"]))).toEqual([
-    { id: "2", missing: ["## Deliverable", "## Acceptance criteria"] },
-    { id: "3", missing: ["## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]"] },
+    { id: "2", missing: ["## Deliverable", "## Acceptance criteria", "Live probe"] },
+    { id: "3", missing: ["## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]", "Live probe"] },
   ]);
 });
 
@@ -127,31 +136,68 @@ test("audit excludes closed builds and every other kind with the same incomplete
   expect(await run(["audit", "1"])).toContain("Clean:");
 });
 
-test("a ready open build keeps audit clean even when its criteria are empty", async () => {
-  const run = fixture(state("2", "## Deliverable\r\n\r\n## Acceptance criteria\t\r\n[needs clarification]\r\nTBD\r\n"));
+test("a ready open build keeps audit clean even when its criteria are vague", async () => {
+  const run = fixture(state("2", "## Deliverable\r\n\r\n## Acceptance criteria\t\r\n[needs clarification]\r\nTBD\r\nLive probe:\t /verify-soma\t\r\n"));
   expect(findings(await run(["audit", "1", "--json"]))).toEqual([]);
   expect(await run(["audit", "1"])).toContain("Clean:");
+});
+
+test("audit accepts a nonempty Live probe under Acceptance criteria in full and scoped output", async () => {
+  const run = fixture(state("2", READY));
+  for (const scope of [[], ["--scope", "build-brief-not-ready"]]) {
+    expect(findings(await run(["audit", "1", ...scope, "--json"]))).toEqual([]);
+    expect(await run(["audit", "1", ...scope])).not.toContain("2 Brief 2");
+  }
+});
+
+test.each([
+  ["absent", ""],
+  ["empty", "Live probe:"],
+  ["spaces and tabs only", "Live probe: \t  \r\n"],
+  ["text only on the next line", "Live probe: \t\nRun soma graph audit 1"],
+  ["in another H2 section", "## Touches\nLive probe: soma graph audit 1"],
+  ["after an H1 boundary", "# Appendix\nLive probe: soma graph audit 1"],
+  ["inline mention", "See Live probe: soma graph audit 1"],
+  ["list item", "- Live probe: soma graph audit 1"],
+])("audit reports a Live probe that is %s in JSON and text", async (_name, suffix) => {
+  const body = `${READY.slice(0, READY.indexOf("Live probe:"))}${suffix}`;
+  const run = fixture(state("2", body));
+  for (const scope of [[], ["--scope", "build-brief-not-ready"]]) {
+    expect(findings(await run(["audit", "1", ...scope, "--json"]))).toEqual([
+      { id: "2", missing: ["Live probe"] },
+    ]);
+    expect(await run(["audit", "1", ...scope])).toMatch(/^- 2 Brief 2 .* — Live probe$/m);
+  }
+});
+
+test("audit ignores a Live probe before Acceptance criteria", async () => {
+  const body = "## Deliverable\nLive probe: soma graph audit 1\n\n## Acceptance criteria\n- Audit reports gaps.\n";
+  const run = fixture(state("2", body));
+  expect(findings(await run(["audit", "1", "--json"]))).toEqual([
+    { id: "2", missing: ["Live probe"] },
+  ]);
+  expect(await run(["audit", "1"])).toMatch(/^- 2 Brief 2 .* — Live probe$/m);
 });
 
 test("audit checks headings as whole lines and only the literal clarification marker", async () => {
   const run = fixture(state("2", "Mention ## Deliverable\n### Acceptance criteria\n[needs clarification]"));
   expect(findings(await run(["audit", "1", "--json"]))).toEqual([
-    { id: "2", missing: ["## Deliverable", "## Acceptance criteria"] },
+    { id: "2", missing: ["## Deliverable", "## Acceptance criteria", "Live probe"] },
   ]);
 });
 
 test("audit checks a standalone open build root too", async () => {
   const run = fixture(state("2", ""));
   expect(findings(await run(["audit", "2", "--json"]))).toEqual([
-    { id: "2", missing: ["## Deliverable", "## Acceptance criteria"] },
+    { id: "2", missing: ["## Deliverable", "## Acceptance criteria", "Live probe"] },
   ]);
 });
 
 test.each([
-  { body: undefined, missing: ["## Deliverable", "## Acceptance criteria"] },
-  { body: "[NEEDS CLARIFICATION]", missing: ["## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]"] },
-  { body: "## Deliverable", missing: ["## Acceptance criteria"] },
-  { body: "## Acceptance criteria", missing: ["## Deliverable"] },
+  { body: undefined, missing: ["## Deliverable", "## Acceptance criteria", "Live probe"] },
+  { body: "[NEEDS CLARIFICATION]", missing: ["## Deliverable", "## Acceptance criteria", "[NEEDS CLARIFICATION]", "Live probe"] },
+  { body: "## Deliverable", missing: ["## Acceptance criteria", "Live probe"] },
+  { body: "## Acceptance criteria", missing: ["## Deliverable", "Live probe"] },
 ])(
   "graph add accepts an incomplete build brief: %j",
   async ({ body, missing }) => {

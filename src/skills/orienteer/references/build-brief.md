@@ -30,10 +30,13 @@ walker deleted. A `[NEEDS CLARIFICATION]` marker anywhere in the body means
 the same thing: not ready to file as build.
 
 `soma graph audit <root>` reports every open `kind: build` node missing the exact
-`## Deliverable` or `## Acceptance criteria` heading, or carrying the literal
+`## Deliverable` or `## Acceptance criteria` heading, missing a `Live probe:`
+line with non-empty text under `## Acceptance criteria`, or carrying the literal
 `[NEEDS CLARIFICATION]` marker, as `build-brief-not-ready`. JSON lists these under
 `buildBriefNotReady` with the node `id` and a `missing` array naming absent
-headings and any marker found. It checks structure only; empty or vague criteria
+headings, `Live probe`, and any marker found. A line outside the acceptance
+section or with only whitespace after `Live probe:` does not count. It checks
+structure only; empty or vague criteria and the probe's meaning
 remain a review concern. `graph add` and the store accept these bodies; a consumer
 such as ranger may refuse to execute them at walk time (`references/map.md`).
 
@@ -66,6 +69,9 @@ in one or two lines; never restate a map constraint>
 
 Test seam: <the interface the tests drive, the highest one that reaches the
 behaviour>
+
+Live probe: <command or verify-skill run that shows the change working beyond
+the test suite>
 
 ## Touches
 

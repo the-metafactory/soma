@@ -1627,8 +1627,8 @@ async function scanClosedNodes(
  * - **Open with no checkpoint** — a node that can never close. `add` now refuses
  *   to create one, but hand-authored tickets and pre-rule nodes still exist.
  * - **Open and claimed** — informational: in flight somewhere, or stale.
- * - **Open build brief not ready** — required sections absent or clarification
- *   outstanding. Reporting on kind does not enforce it at creation.
+ * - **Open build brief not ready** — required sections or live probe absent,
+ *   or clarification outstanding. Reporting on kind does not enforce it at creation.
  *
  * Read-only, deliberately: an auditor that reopened nodes would be a second
  * writer with its own race. It names; the human acts.

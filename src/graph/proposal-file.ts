@@ -123,9 +123,10 @@ export function parseProposal(ref: string, content: string): Omit<ProposalFile, 
   if (body.length === 0) throw new ProposalFileError(`proposal ${ref}: the body below the front-matter is empty`);
   // A body that already names a ref would make the marker search match the wrong node.
   if (body.includes(MARKER_PREFIX)) throw new ProposalFileError(`proposal ${ref}: the body carries a proposal-ref marker; the verb writes that marker itself`);
-  // The same check `soma graph audit` reports as build-brief-not-ready; for a
+  // Live probe readiness is reported by audit, not enforced at filing. For a
   // grilling node only the clarification marker applies, since it is no brief.
-  const missing = buildBriefMissing(body).filter((entry) => proposalNodeKind(parsed.data.proposal_kind) === "build" || entry === "[NEEDS CLARIFICATION]");
+  const missing = buildBriefMissing(body).filter((entry) => entry !== "Live probe"
+    && (proposalNodeKind(parsed.data.proposal_kind) === "build" || entry === "[NEEDS CLARIFICATION]"));
   if (missing.length > 0) throw new ProposalFileError(`proposal ${ref}: build-brief-not-ready — ${missing.join(", ")}`);
 
   return { ref, frontMatter: parsed.data, body };
