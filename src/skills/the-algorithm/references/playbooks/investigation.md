@@ -7,7 +7,7 @@
 
 1. Restate the question in one sentence. If the premise looks wrong, say so before answering it.
 2. Recall prior work on the topic before reading fresh (the registry's `RecallPriorWork`).
-3. Read the code, docs and records the answer depends on. Cite each claim with `file:line`, a command or a URL.
+3. Read the code, docs and records the answer depends on. Cite each claim with `file:line`, a command or a URL. For a how question, trace it through the registry's `TraceMechanics`; for a why question, through `TraceIntent`.
 4. Separate what you read from what you infer; mark inference as such.
 5. For a choice between alternatives, compare them in a table with the dimensions that decide it.
 6. Give your own judgment with reasons, not only the evidence.
