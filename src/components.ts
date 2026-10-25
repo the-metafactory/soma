@@ -59,7 +59,8 @@ export const components: ComponentManifest<ComponentName> = {
   core: {
     files: ["src/core/**", "src/components"],
     mayImport: [],
-    publicEntries: ["src/core/index.ts", "src/core/types.ts"],
+    // dir-lock.ts is its own entry, outside index.ts: it imports bun:ffi, and pi loads extensions that import the barrel under Node.
+    publicEntries: ["src/core/index.ts", "src/core/types.ts", "src/core/dir-lock.ts"],
   },
   events: {
     files: ["src/events/**"],
