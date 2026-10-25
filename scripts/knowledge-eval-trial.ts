@@ -1,9 +1,9 @@
 /**
  * Knowledge-orientation eval: one frozen fixture, one trial.
  *
- *   bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate claude
+ *   bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate <claude|codex|pi>
  *       [--hint <0-3>] [--model <id>] [--timeout-ms <n>] [--probe-timeout-ms <n>]
- *       [--soma-home <dir>] [--out <dir>] [--claude-bin <path>] [--keep]
+ *       [--soma-home <dir>] [--out <dir>] [--claude-bin <path>] [--codex-bin <path>] [--pi-bin <path>] [--keep]
  *
  * A trial clones the fixture's repo into the private store's cache, adds a
  * detached worktree at the pinned rev, copies --home-source into a temp
@@ -33,14 +33,16 @@ export const PINNED_CLAUDE_MODEL = "claude-sonnet-5-5";
 /** The model and effort ranger dispatches on Codex (ranger src/config.ts, CodexSubstrateSchema defaults). */
 export const PINNED_CODEX_MODEL = "gpt-6.1-sol";
 export const PINNED_CODEX_REASONING_EFFORT = "high";
+/** The provider and model ranger dispatches on pi (ranger src/config.ts, PiSubstrateSchema defaults), as pi's `provider/id`. */
+export const PINNED_PI_MODEL = "spark/longctx-think";
 export const DEFAULT_TRIAL_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_PROBE_TIMEOUT_MS = 10 * 60 * 1000;
 export const TRIAL_AUTH_ENV = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
 /** Credential variables only the Codex substrate gets; an API key here wins over a copied auth.json. */
 export const CODEX_AUTH_ENV = ["CODEX_API_KEY", "OPENAI_API_KEY"] as const;
-export const SUPPORTED_SUBSTRATES = ["claude-code", "codex"] as const;
+export const SUPPORTED_SUBSTRATES = ["claude-code", "codex", "pi-dev"] as const;
 /** Spellings accepted on the command line, mapped to the canonical ProjectionSubstrate id the record stores. */
-const SUBSTRATE_ALIASES: Readonly<Record<string, string>> = { claude: "claude-code" };
+const SUBSTRATE_ALIASES: Readonly<Record<string, string>> = { claude: "claude-code", pi: "pi-dev" };
 
 export function canonicalSubstrate(name: string): string {
   return SUBSTRATE_ALIASES[name] ?? name;
@@ -48,7 +50,14 @@ export function canonicalSubstrate(name: string): string {
 
 /** The model ranger dispatches on a substrate; comparisons only hold within one substrate and model. */
 export function pinnedModelFor(substrate: string): string {
-  return canonicalSubstrate(substrate) === "codex" ? PINNED_CODEX_MODEL : PINNED_CLAUDE_MODEL;
+  switch (canonicalSubstrate(substrate)) {
+    case "codex":
+      return PINNED_CODEX_MODEL;
+    case "pi-dev":
+      return PINNED_PI_MODEL;
+    default:
+      return PINNED_CLAUDE_MODEL;
+  }
 }
 /** Caller variables a trial needs to run tools at all; any other variable, a credential included, stays out. */
 export const TRIAL_PASSTHROUGH_ENV = ["PATH", "SHELL", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "TMPDIR"] as const;
@@ -366,6 +375,64 @@ export function parseCodexStream(stdout: string, rollout = ""): StreamFacts {
   return facts;
 }
 
+/** pi's built-in tool names, mapped onto the names and inputs the read and edit analysis scores. */
+function piToolUse(name: string, args: Record<string, unknown>): ToolUse {
+  const path = typeof args.path === "string" ? args.path : "";
+  switch (name) {
+    case "bash":
+      return { name: "Bash", input: { command: typeof args.command === "string" ? args.command : "" } };
+    case "read":
+      return { name: "Read", input: { file_path: path } };
+    case "edit":
+      return { name: "Edit", input: { file_path: path } };
+    case "write":
+      return { name: "Write", input: { file_path: path } };
+    case "grep":
+      return { name: "Grep", input: { path } };
+    default:
+      return { name, input: args };
+  }
+}
+
+/**
+ * Facts from `pi --print --mode json` stdout. Each assistant `message_end`
+ * carries that model call's usage; pi reports cached input in `cacheRead` and
+ * `cacheWrite`, apart from `input`, so what a call was sent is their sum. The
+ * first call's sum is the start of the session; the total sums every call's
+ * input and output. A usage of all zeros is a provider that reported none.
+ */
+export function parsePiStream(stdout: string): StreamFacts {
+  const facts: StreamFacts = { model: undefined, startTokens: "unmeasured", totalTokens: "unmeasured", toolUses: [], resultIsError: false };
+  const byId = new Map<string, ToolUse>();
+  let total: number | undefined;
+  for (const line of stdout.split("\n")) {
+    const event = parseJsonLine(line);
+    if (event === undefined) continue;
+    if (event.type === "tool_execution_start" && typeof event.toolName === "string") {
+      const use = piToolUse(event.toolName, asRecord(event.args) ?? {});
+      facts.toolUses.push(use);
+      if (typeof event.toolCallId === "string") byId.set(event.toolCallId, use);
+    }
+    if (event.type === "tool_execution_end" && event.isError === true && typeof event.toolCallId === "string") {
+      const use = byId.get(event.toolCallId);
+      if (use !== undefined) use.failed = true;
+    }
+    if (event.type === "agent_settled" && event.aborted === true) facts.resultIsError = true;
+    const message = asRecord(event.message);
+    if (event.type !== "message_end" || message?.role !== "assistant") continue;
+    if (typeof message.provider === "string" && typeof message.model === "string") facts.model = `${message.provider}/${message.model}`;
+    facts.resultIsError = message.stopReason === "error" || message.stopReason === "aborted";
+    const usage = asRecord(message.usage);
+    const sent = (num(usage?.input) ?? 0) + (num(usage?.cacheRead) ?? 0) + (num(usage?.cacheWrite) ?? 0);
+    const output = num(usage?.output) ?? 0;
+    if (sent + output === 0) continue;
+    if (facts.startTokens === "unmeasured") facts.startTokens = sent;
+    total = (total ?? 0) + sent + output;
+  }
+  facts.totalTokens = total ?? "unmeasured";
+  return facts;
+}
+
 function parseJsonLine(line: string): Record<string, unknown> | undefined {
   if (line.trim() === "") return undefined;
   try {
@@ -600,8 +667,8 @@ export interface SubstrateRunner {
   name: string;
   /** Caller credential variables this substrate alone receives; defaults to TRIAL_AUTH_ENV. */
   authEnv?: readonly string[];
-  /** Refuses with a TrialUsageError when the CLI is not installed; runs before anything is cloned. */
-  preflight?(): Promise<void>;
+  /** Refuses with a TrialUsageError when the CLI is not installed or the model's provider is not ready; runs before anything is cloned. */
+  preflight?(model: string): Promise<void>;
   version(env: Record<string, string | undefined>): Promise<string>;
   run(input: SubstrateRun): Promise<ProcessResult>;
   /** Facts from a finished run; defaults to the Claude stream-json reader. */
@@ -665,6 +732,90 @@ export function codexRunner(bin: string): SubstrateRunner {
     parse(run, env) {
       return parseCodexStream(run.stdout, readCodexRollouts(env.CODEX_HOME));
     },
+  };
+}
+
+/** A pi `provider/id` model, split for `--provider` and `--model`. */
+export function splitPiModel(model: string): { provider: string; id: string } {
+  const slash = model.indexOf("/");
+  if (slash <= 0 || slash === model.length - 1) throw new TrialUsageError(`pi model must be provider/id, got "${model}"`);
+  return { provider: model.slice(0, slash), id: model.slice(slash + 1) };
+}
+
+/** Argv for one headless pi trial: print mode, JSON events, no saved session, the pinned provider and model. */
+export function piCommand(bin: string, input: { model: string; prompt: string }): string[] {
+  const { provider, id } = splitPiModel(input.model);
+  return [bin, "--print", "--mode", "json", "--no-session", "--provider", provider, "--model", id, "--", input.prompt];
+}
+
+/** The principal's pi agent dir, read-only: only one provider's entry in models.json is ever copied out of it. */
+function principalPiAgentDir(): string {
+  return resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"));
+}
+
+/**
+ * A models.json holding only the model's provider, taken from the principal's.
+ * pi registers custom providers and their keys in `~/.pi/agent/models.json`, so
+ * a fresh trial HOME knows none; the trial gets this one provider and nothing
+ * else of the principal's pi configuration.
+ */
+export function piProviderModels(model: string, agentDir: string = principalPiAgentDir()): string {
+  const { provider } = splitPiModel(model);
+  const source = join(agentDir, "models.json");
+  const providers = existsSync(source) ? asRecord(asRecord(JSON.parse(readFileSync(source, "utf8")))?.providers) : undefined;
+  const entry = providers?.[provider];
+  if (entry === undefined) throw new TrialUsageError(`pi provider "${provider}" is not registered in ${source}`);
+  return `${JSON.stringify({ providers: { [provider]: entry } }, null, 2)}\n`;
+}
+
+function writePiProviderModels(homeDir: string, models: string): void {
+  const agentDir = join(homeDir, ".pi", "agent");
+  mkdirSync(agentDir, { recursive: true });
+  const target = join(agentDir, "models.json");
+  writeFileSync(target, models, { mode: 0o600 });
+  chmodSync(target, 0o600);
+}
+
+export function piRunner(bin: string, agentDir?: () => string): SubstrateRunner {
+  const models = (model: string): string => piProviderModels(model, agentDir?.());
+  return {
+    name: "pi",
+    authEnv: [],
+    async preflight(model) {
+      const version = await runProcess([bin, "--version"], { env: callerEnv(TRIAL_PASSTHROUGH_ENV), timeoutMs: 30_000 });
+      if (version.exitCode !== 0) throw new TrialUsageError(`pi is not installed or does not run (${bin} --version exited ${String(version.exitCode)}): ${version.stderr.trim()}`);
+      // Check readiness in a HOME built the way the trial builds its own.
+      const home = mkdtempSync(join(tmpdir(), "knowledge-eval-pi-auth-"));
+      try {
+        writePiProviderModels(home, models(model));
+        const { provider, id } = splitPiModel(model);
+        const check = await runProcess([bin, "auth", "check", "--provider", provider, "--model", id, "--json", "--no-refresh"], {
+          env: { ...callerEnv(TRIAL_PASSTHROUGH_ENV), HOME: home, XDG_CONFIG_HOME: join(home, ".config") },
+          timeoutMs: 30_000,
+        });
+        if (check.exitCode !== 0) throw new TrialUsageError(`pi provider for ${model} is not ready (pi auth check exited ${String(check.exitCode)}): ${(check.stdout.trim() || check.stderr.trim()).slice(0, 500)}`);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
+    async version(env) {
+      const result = await runProcess([bin, "--version"], { env, timeoutMs: 30_000 });
+      return result.exitCode === 0 ? (result.stdout.trim().split(/\s+/).at(-1) ?? "unknown") : "unknown";
+    },
+    run(input) {
+      return runProcess(piCommand(bin, input), { cwd: input.cwd, env: input.env, timeoutMs: input.timeoutMs });
+    },
+    parse(run) {
+      return parsePiStream(run.stdout);
+    },
+  };
+}
+
+/** Projects Soma into the trial HOME's ~/.pi/agent, then registers the model's provider there. */
+export function piProjectionInstaller(model: string, agentDir: () => string = principalPiAgentDir): TrialDeps["installProjection"] {
+  return async (input) => {
+    await installProjectionVia("pi-dev", [], input);
+    writePiProviderModels(input.homeDir, piProviderModels(model, agentDir()));
   };
 }
 
@@ -891,7 +1042,7 @@ function writeRecord(recordPath: string, record: TrialRecord): void {
 export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promise<TrialResult> {
   const options = { ...rawOptions, substrate: canonicalSubstrate(rawOptions.substrate) };
   validateTrialOptions(options);
-  await deps.runner.preflight?.();
+  await deps.runner.preflight?.(options.model);
   const store = storeRoot(options.somaHome);
   const loaded = loadFixture(options.fixture, store);
   const { fixture } = loaded;
@@ -970,13 +1121,14 @@ export async function runTrial(rawOptions: TrialOptions, deps: TrialDeps): Promi
 // ---------------------------------------------------------------------------
 
 const USAGE =
-  "Usage: bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate <claude|codex> " +
-  "[--hint <0-3>] [--model <id>] [--timeout-ms <n>] [--probe-timeout-ms <n>] [--soma-home <dir>] [--out <dir>] [--claude-bin <path>] [--codex-bin <path>] [--keep]";
+  "Usage: bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate <claude|codex|pi> " +
+  "[--hint <0-3>] [--model <id>] [--timeout-ms <n>] [--probe-timeout-ms <n>] [--soma-home <dir>] [--out <dir>] [--claude-bin <path>] [--codex-bin <path>] [--pi-bin <path>] [--keep]";
 
 interface ParsedArgs {
   options: TrialOptions;
   claudeBin: string;
   codexBin: string;
+  piBin: string;
 }
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
@@ -984,7 +1136,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   if (command !== "trial") throw new TrialUsageError(USAGE);
   const values = new Map<string, string>();
   let keep = false;
-  const valueFlags = ["--fixture", "--arm", "--home-source", "--substrate", "--hint", "--model", "--timeout-ms", "--probe-timeout-ms", "--soma-home", "--out", "--claude-bin", "--codex-bin"];
+  const valueFlags = ["--fixture", "--arm", "--home-source", "--substrate", "--hint", "--model", "--timeout-ms", "--probe-timeout-ms", "--soma-home", "--out", "--claude-bin", "--codex-bin", "--pi-bin"];
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index] ?? "";
     if (flag === "--keep") {
@@ -1012,6 +1164,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   return {
     claudeBin: values.get("--claude-bin") ?? "claude",
     codexBin: values.get("--codex-bin") ?? "codex",
+    piBin: values.get("--pi-bin") ?? "pi",
     options: {
       fixture: required("--fixture"),
       arm: required("--arm"),
@@ -1029,10 +1182,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
 }
 
 /** The runner and projection installer for a substrate, from the CLI binaries the caller named. */
-export function defaultTrialDeps(substrate: string, bins: { claudeBin: string; codexBin: string }): TrialDeps {
+export function defaultTrialDeps(substrate: string, bins: { claudeBin: string; codexBin: string; piBin: string }, model: string): TrialDeps {
   switch (canonicalSubstrate(substrate)) {
     case "codex":
       return { runner: codexRunner(bins.codexBin), installProjection: codexProjectionInstaller() };
+    case "pi-dev":
+      return { runner: piRunner(bins.piBin), installProjection: piProjectionInstaller(model) };
     case "claude-code":
       return { runner: claudeRunner(bins.claudeBin), installProjection: installClaudeProjection };
     default:
@@ -1052,7 +1207,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     throw error;
   }
   try {
-    const { record, recordPath } = await runTrial(parsed.options, defaultTrialDeps(parsed.options.substrate, parsed));
+    const { record, recordPath } = await runTrial(parsed.options, defaultTrialDeps(parsed.options.substrate, parsed, parsed.options.model));
     console.log(`${record.outcome}: ${recordPath}`);
     return 0;
   } catch (error) {

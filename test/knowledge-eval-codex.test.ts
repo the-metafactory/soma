@@ -97,7 +97,7 @@ describe("codex usage parser against recorded events", () => {
 
 describe("codex preflight", () => {
   test("a missing codex binary refuses with a usage error", async () => {
-    await expect(codexRunner("/nonexistent/codex").preflight?.()).rejects.toBeInstanceOf(TrialUsageError);
+    await expect(codexRunner("/nonexistent/codex").preflight?.(PINNED_CODEX_MODEL)).rejects.toBeInstanceOf(TrialUsageError);
   });
 });
 

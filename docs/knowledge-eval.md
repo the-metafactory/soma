@@ -15,10 +15,10 @@ bun run knowledge-eval batch --arms baseline,candidate --substrate claude \
 change the treatment. `--fixtures <id,...>` selects fixtures; omitting it selects
 all `.json` fixtures in sorted filename order under
 `$SOMA_HOME/evals/knowledge-orientation/fixtures/`. Fixture schemas and the
-supported substrates are the same as for `trial` (`claude` aliases `claude-code`;
-`codex` is described below). The batch accepts the trial options `--model`,
-`--soma-home`, `--timeout-ms`, `--probe-timeout-ms`, `--claude-bin`,
-`--codex-bin`, and `--keep`.
+supported substrates are the same as for `trial` (`claude` aliases `claude-code`,
+`pi` aliases `pi-dev`; `codex` and `pi` are described below). The batch accepts
+the trial options `--model`, `--soma-home`, `--timeout-ms`, `--probe-timeout-ms`,
+`--claude-bin`, `--codex-bin`, `--pi-bin`, and `--keep`.
 
 Each fixture gets three repeats per arm. Every repeat starts at H0. Each hint
 level calls `runTrial` afresh, with its own isolated home and detached worktree;
@@ -87,3 +87,37 @@ cross-substrate pass/fail.
   Claude.
 - `codex` missing or not running refuses the trial or batch before anything is
   cloned (`--codex-bin <path>` names another binary).
+
+## pi substrate
+
+`--substrate pi` runs each trial through `pi --print --mode json`. The model
+defaults to the provider and model ranger dispatches on pi
+(`spark/longctx-think`, passed as `--provider spark --model longctx-think`),
+never the caller's pi settings. Compare only within one substrate and model.
+
+- The trial HOME gets the Soma pi projection from `soma install pi-dev --apply
+  --soma-home <tmp> --home-dir <tmp-home>`, and pi runs with `HOME=<tmp-home>`,
+  so its extension reads `$HOME/.pi/agent/soma`. The command is
+  `pi --print --mode json --no-session --provider <p> --model <id> -- <prompt>`,
+  run in the worktree.
+- Provider: pi registers custom providers, with their endpoints and keys, in
+  `~/.pi/agent/models.json`, so a fresh HOME knows none of them. The trial copies
+  only the pinned model's provider entry from the caller's `models.json`
+  (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`) into
+  `<tmp-home>/.pi/agent/models.json`, mode 0600. Nothing else of the caller's pi
+  configuration is copied, and the caller's `~/.pi` is only read. The copy is
+  removed with the trial workdir; `--keep` keeps it.
+- The record carries CLI `pi` and its `--version`. Each assistant `message_end`
+  carries that call's usage, with cached input in `cacheRead` and `cacheWrite`,
+  apart from `input`. `start_of_session_tokens` is the first call's input plus
+  cached input; `total_tokens` sums every call's input, cached input and output.
+  A usage that is absent or all zeros is `unmeasured`.
+- Tool use is read from `tool_execution_start` (`bash`, `read`, `edit`, `write`
+  and `grep` map onto `Bash`, `Read`, `Edit`, `Write` and `Grep`). A
+  `tool_execution_end` with `isError` marks its call failed, matched by
+  `toolCallId` because parallel calls end out of order.
+- Before anything is cloned, `pi --version` must run and `pi auth check
+  --provider <p> --model <id> --json --no-refresh` must pass in a throwaway HOME
+  built the same way; otherwise the trial or batch refuses (`--pi-bin <path>`
+  names another binary). The check proves the provider is registered with a
+  key, not that the key works.
