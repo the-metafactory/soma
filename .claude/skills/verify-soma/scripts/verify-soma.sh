@@ -10,6 +10,7 @@ die() { echo "verify-soma: $*" >&2; exit 2; }
 [ -n "$CMD" ] || die "usage: verify-soma.sh <launch|doctor|soma|raw|hook|real-home-check|cleanup> <run-dir> [args...]"
 [ -n "$RUN" ] || die "missing <run-dir>"
 case "$RUN" in /*) ;; *) RUN="$PWD/$RUN" ;; esac
+while [ "${RUN%/}" != "$RUN" ] && [ "$RUN" != "/" ]; do RUN="${RUN%/}"; done
 shift 2
 
 H="$RUN/home"

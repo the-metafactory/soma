@@ -28,7 +28,7 @@ $V launch "$RUN"
 
 Runs `soma init --apply --substrate claude-code` into the scratch home: Soma home skeleton, starter profile, bundled skills, then the claude-code projection (rules, hooks, settings). Ready when it prints `READY run=<dir>`; it checks `$RUN/home/.claude/rules/soma/CONTEXT.md` exists. Takes about a second. There is no server: every drive is a fresh CLI process. Refuses to reuse a run dir that already has a home.
 
-Isolation: each run dir is independent; two agents can drive side by side with different `$RUN`s.
+Isolation: each run dir is independent; two Claude Code sessions can drive side by side with different `$RUN`s.
 
 ## Doctor
 

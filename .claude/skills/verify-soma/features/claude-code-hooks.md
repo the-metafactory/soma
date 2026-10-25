@@ -27,4 +27,4 @@ Preconditions:
 
 - The hook resolves the Soma home from `HOME`; without the helper's `HOME=$RUN/home` it writes into the principal's live Soma home.
 - Hooks must not fail a session: a broken payload may still exit 0. Prove effects in `events.jsonl`, not by exit code.
-- The live Claude Code session running the agent fires its own hooks into the principal's `memory/STATE`; that is why `real-home-check` excludes that directory.
+- The live Claude Code session driving the verification fires its own hooks into the principal's `memory/STATE`; that is why `real-home-check` only attributes events there instead of diffing it.
