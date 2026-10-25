@@ -12,8 +12,8 @@ import { main as runBatchCommand } from "./knowledge-eval-batch";
 
 const USAGE = [
   "usage: bun run knowledge-eval field [--window <days>] [--sample <n> --seed <n>] [--agree <labels.json>] [--projects-dir <dir>] [--soma-home <dir>] [--json]",
-  "       bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate <claude|codex> [...]",
-  "       bun run knowledge-eval batch --arms <a>[,<b>] --home-source <dir> --substrate <claude|codex> [--fixtures <id,...>] [...]",
+  "       bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate <claude|codex|pi> [...]",
+  "       bun run knowledge-eval batch --arms <a>[,<b>] --home-source <dir> --substrate <claude|codex|pi> [--fixtures <id,...>] [...]",
 ].join("\n");
 
 export async function main(argv: readonly string[]): Promise<number> {
