@@ -94,8 +94,47 @@ const URL_TIMEOUT_SEC = 30;
  * Both are left rather than fixed: closing them means widening the `fetchStatus`
  * seam and threading a live clock through every git call, to buy at most 60
  * seconds on a 900-second bound. Named here so the number is not read as exact.
+ *
+ * A **floor**, not the whole bound (#1064): {@link closeDeadlineSec} raises it
+ * to what the node's command probes declare.
  */
 export const CLOSE_DEADLINE_SEC = 900;
+
+/**
+ * The deadline one close runs under: {@link CLOSE_DEADLINE_SEC}, or the sum of
+ * every probe's own bound when that is larger (#1064).
+ *
+ * A fixed 900 overrode a probe's declared `timeoutSec` without saying so: a
+ * `bun run test` declared at 1800s that finished in 886s was killed at 900s and
+ * the close refused (#1053). The bound still comes from the node, as #527
+ * wanted; it now comes from what the node declares. Summing every probe's bound,
+ * not only the commands', is what makes that hold by construction: a git or
+ * `url` probe that runs first spends its time from this same clock, so a
+ * command-only sum would still clamp the command after it (#1078 review). A
+ * probe that outruns its own `timeoutSec` still fails on its own clock.
+ */
+export function closeDeadlineSec(probes: readonly Probe[]): number {
+  let declared = 0;
+  for (const probe of probes) declared += probeBoundSec(probe);
+  return Math.max(CLOSE_DEADLINE_SEC, declared);
+}
+
+/** The most one probe can take on its own clock: its declared timeout, or one fixed timeout per spawn it issues. */
+function probeBoundSec(probe: Probe): number {
+  switch (probe.type) {
+    case "command":
+      return probe.timeoutSec;
+    case "url":
+      return URL_TIMEOUT_SEC;
+    case "git-ref-exists":
+      return GIT_TIMEOUT_SEC;
+    case "git-merged-into":
+      return 2 * GIT_TIMEOUT_SEC;
+    case "artifact-exists":
+      // Unpinned, it is a filesystem check with no spawn; pinned, two git commands.
+      return probe.atRef === undefined ? 0 : 2 * GIT_TIMEOUT_SEC;
+  }
+}
 
 export interface CommandOutcome {
   /** Null when the process was killed before reporting a code (timeout, signal). */
@@ -158,7 +197,7 @@ export interface ProbeRunnerOptions {
    * probe.
    */
   remainingSec?: number;
-  /** Override the close deadline. Tests and callers that measure their own clock; defaults to {@link CLOSE_DEADLINE_SEC}. */
+  /** Override the close deadline. Tests and callers that measure their own clock; defaults to {@link closeDeadlineSec} of the probes. */
   deadlineSec?: number;
   deps?: Partial<ProbeRunnerDeps>;
 }
@@ -789,7 +828,7 @@ export async function runProbes(
   options: ProbeRunnerOptions,
 ): Promise<ProbeResult[]> {
   const deps = resolveDeps(options);
-  const deadlineSec = options.deadlineSec ?? CLOSE_DEADLINE_SEC;
+  const deadlineSec = options.deadlineSec ?? closeDeadlineSec(probes);
   const startedMs = deps.now().getTime();
 
   const results: ProbeResult[] = [];

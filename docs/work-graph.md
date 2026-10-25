@@ -244,7 +244,10 @@ refuse before anything runs, and the exception is named as such.
   content sizing a tracker comment), and one lowered limit for both (a cheaper
   success bought with a less diagnosable failure).
 
-- **A close has a 15-minute wall-clock deadline** (`CLOSE_DEADLINE_SEC`), one
+- **A close has a wall-clock deadline**: 15 minutes (`CLOSE_DEADLINE_SEC`), or
+  the sum of every probe's own bound when that is larger (#1064): a `command`'s
+  declared `timeoutSec`, 60s per git spawn, 30s per `url`. Summing them all is
+  what keeps a declared timeout from being clamped by a probe ahead of it. One
   clock over the whole probe sequence, clamping each probe's own timeout to what
   remains. Past it, the remaining probes are recorded as **failed** without
   running — not skipped, since a probe that could not run is already a failed

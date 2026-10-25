@@ -1465,7 +1465,7 @@ async function runClose(
 
   // Deliberately NOT seeded with the `state` read at the top of this function
   // (#530 finding 3, reverted on review of #578). Probes run in between and may
-  // take minutes — `command` probes are declared with timeouts up to 900s — so
+  // take minutes — the close deadline grows with the declared probe timeouts (#1064) — so
   // a re-parent during the close would derive the root, its author, and the
   // whole attestation from a graph that no longer exists. The saved spawn is
   // ~600ms; what it buys is a read taken *after* the work, which is the only
