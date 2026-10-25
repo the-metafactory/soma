@@ -21,9 +21,8 @@ import type { ProjectionInput } from "../home/types";
  * Materialises an invocable skill directory into one or more substrate skill
  * loaders (e.g. `~/.claude/skills/<Name>`) and refreshes the Soma skill catalog
  * (`rules/soma/SKILLS.md`) so the skill is both loadable AND listed. This is the
- * primitive `soma install --skills` and arc will delegate to in later #354 /
- * arc#251 slices, so soma can be the single projection truth (ADR 0002); this
- * slice ships the primitive only and does not yet wire those callers.
+ * primitive arc delegates to, so soma is the single projection truth (ADR 0002).
+ * Arc calls it through `soma project-skill` (arc `src/lib/soma-projection.ts`).
  *
  * Skills are linked, not copied: `~/.soma/skills/<Name>` (the registry the
  * catalog scans) and each substrate loader point at the source dir, so edits to

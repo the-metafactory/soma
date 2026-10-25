@@ -37,6 +37,12 @@ export interface SomaHomeAlgorithmCapabilityOptions {
 export interface SomaHomeAlgorithmCapabilityRegistry {
   definitions: AlgorithmCapabilityDefinition[];
   unsupported: string[];
+  /**
+   * Manifest `satisfies` declarations the resolver could not honour: an unknown
+   * capability name, a malformed list, two claimants. Reported by
+   * `algorithm capabilities --list`; never fatal.
+   */
+  warnings: string[];
 }
 
 export interface SelectAlgorithmCapabilityInput {
@@ -451,6 +457,96 @@ const CAPABILITY_REFERENCE_FILE = "capabilities.md";
  */
 const CAPABILITY_LOCAL_REFERENCE_FILE = "capabilities.local.md";
 
+/** The name, phases and trigger signals a table row declares, whatever it binds to. */
+function capabilityRowShape(row: string[]): { name: string; phases: AlgorithmPhase[]; triggerSignals: string[] } {
+  const phaseCell = row[1] ?? "";
+  const triggerCell = row.length >= 5 ? row[2] ?? "" : row[1] ?? "";
+  return {
+    name: stripCapabilityLabel(row[0] ?? ""),
+    phases: parsePhaseCell(phaseCell, row.length >= 5 ? ["think"] : ["plan"]),
+    triggerSignals: [stripMarkdownEmphasis(triggerCell)].filter((signal) => signal.length > 0),
+  };
+}
+
+/**
+ * Manifest `algorithmCapability.satisfies` (node #1095, soma#1068 Q3/Q14/Q15): a
+ * skill names the capabilities it fills, so an arc-installed pack can bind a
+ * contract row such as `TraceMechanics` without touching the principal's
+ * `capabilities.local.md`. Returns the trimmed, de-duplicated names, or a
+ * reason the field is unusable — `undefined` names mean "not declared".
+ */
+function skillSatisfies(skill: AvailableSkill): { names: string[]; invalid?: string } {
+  const metadata = skill.manifest?.algorithmCapability;
+  if (!isRecord(metadata) || !hasOwnField(metadata, "satisfies")) return { names: [] };
+  const declared: unknown = metadata.satisfies;
+  if (!Array.isArray(declared) || declared.some((item) => typeof item !== "string" || item.trim().length === 0)) {
+    return { names: [], invalid: "`satisfies` must be an array of non-empty strings" };
+  }
+  return { names: Array.from(new Set((declared as string[]).map((item) => item.trim()))) };
+}
+
+/**
+ * Pass 2 of the resolver. A name already in `definitions`/`unsupported` was
+ * claimed by the adopter's table and stays theirs. Otherwise one claimant binds
+ * the capability to `Skill("<skill>")`, keeping the shipped row's phases and
+ * trigger signals (the tier floor lives in the row's cost column and is read by
+ * name, so it is unchanged); two claimants fail closed.
+ */
+function registerSatisfiedCapabilities(
+  definitions: Map<string, AlgorithmCapabilityDefinition>,
+  unsupported: Set<string>,
+  warnings: string[],
+  availableSkills: Awaited<ReturnType<typeof loadAvailableSkills>>,
+  localMarkdown: string,
+  shippedMarkdown: string,
+  substrate: SubstrateId | undefined,
+): void {
+  const shipped = new Map<string, ReturnType<typeof capabilityRowShape>>();
+  for (const definition of DEFAULT_CAPABILITY_REGISTRY) {
+    shipped.set(definition.name, { name: definition.name, phases: definition.phases, triggerSignals: definition.triggerSignals });
+  }
+  for (const row of parseMarkdownTableRows(shippedMarkdown)) {
+    const shape = capabilityRowShape(row);
+    if (shape.name) shipped.set(shape.name, shape);
+  }
+  const localNames = new Set(parseMarkdownTableRows(localMarkdown).map((row) => capabilityRowShape(row).name));
+
+  const claimants = new Map<string, AvailableSkill[]>();
+  for (const skill of availableSkills.skills) {
+    const { names, invalid } = skillSatisfies(skill);
+    if (invalid) {
+      warnings.push(`Skill "${skill.name}": ${invalid}; ignored. The skill still registers under its own name.`);
+      continue;
+    }
+    if (!isSubstrateSupported(skill.manifest, substrate)) continue;
+    for (const name of names) {
+      if (!shipped.has(name) && !localNames.has(name)) {
+        warnings.push(`Skill "${skill.name}" declares satisfies: ["${name}"], but no capability of that name exists in the shipped or local table; ignored.`);
+        continue;
+      }
+      claimants.set(name, [...(claimants.get(name) ?? []), skill]);
+    }
+  }
+
+  for (const [name, skills] of claimants) {
+    if (definitions.has(name) || unsupported.has(name)) continue;
+    const shape = shipped.get(name);
+    if (!shape) continue;
+    if (skills.length > 1) {
+      unsupported.add(name);
+      const names = skills.map((skill) => `"${skill.name}"`).join(" and ");
+      warnings.push(
+        `Capability "${name}" is claimed by ${names} through satisfies; it is left unbound. `
+        + `Fix: add a "${name}" row to capabilities.local.md naming the one you want, e.g. Skill("${skills[0]?.name}").`,
+      );
+      continue;
+    }
+    const [skill] = skills;
+    if (!skill) continue;
+    definitions.set(name, buildCapabilityDefinition(name, "skill", shape.phases, shape.triggerSignals, skill.name));
+  }
+}
+
 function registerCapabilityTableRows(
   markdown: string,
   definitions: Map<string, AlgorithmCapabilityDefinition>,
@@ -459,16 +555,12 @@ function registerCapabilityTableRows(
   substrate: SubstrateId | undefined,
 ): void {
   for (const row of markdown ? parseMarkdownTableRows(markdown) : []) {
-    const name = stripCapabilityLabel(row[0] ?? "");
-    const phaseCell = row[1] ?? "";
-    const triggerCell = row.length >= 5 ? row[2] ?? "" : row[1] ?? "";
+    const { name, phases, triggerSignals } = capabilityRowShape(row);
     const invokeCell = row.length >= 5 ? row[3] ?? "" : row[2] ?? "";
 
     if (!name) continue;
     if (definitions.has(name) || unsupported.has(name)) continue;
 
-    const phases = parsePhaseCell(phaseCell, row.length >= 5 ? ["think"] : ["plan"]);
-    const triggerSignals = [stripMarkdownEmphasis(triggerCell)].filter((signal) => signal.length > 0);
     const skillTarget = skillInvocationTarget(invokeCell);
     const agentTarget = agentInvocationTarget(invokeCell, name);
     const commandTarget = commandInvocationTarget(invokeCell);
@@ -543,6 +635,7 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
   const availableSkills = await loadAvailableSkills(somaHome);
   const definitions = new Map<string, AlgorithmCapabilityDefinition>();
   const unsupported = new Set<string>();
+  const warnings: string[] = [];
 
   // Resolution order, first definition of a name winning. Every pass skips a
   // name already registered or already marked unsupported.
@@ -559,16 +652,22 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
   //    than silently fall back to the shipped definition.
   registerCapabilityTableRows(localMarkdown, definitions, unsupported, availableSkills, options.substrate);
 
-  // 2. Skills declaring `algorithmCapability` in their manifest — the skill
+  // 2. Skills whose manifest lists the capability under
+  //    `algorithmCapability.satisfies`. After the local table, so the principal
+  //    still has the last word; before the shipped table, so a skill fills a
+  //    contract row and replaces an already-bound one.
+  registerSatisfiedCapabilities(definitions, unsupported, warnings, availableSkills, localMarkdown, markdown, options.substrate);
+
+  // 3. Skills declaring `algorithmCapability` in their manifest — the skill
   //    author's own phase/trigger metadata, preferred over the bundled table.
   for (const skill of availableSkills.skills) {
     maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: true });
   }
 
-  // 3. The shipped table.
+  // 4. The shipped table.
   registerCapabilityTableRows(markdown, definitions, unsupported, availableSkills, options.substrate);
 
-  // 4. Every remaining skill, under its own name, admissible in all phases.
+  // 5. Every remaining skill, under its own name, admissible in all phases.
   for (const skill of availableSkills.skills) {
     maybeRegisterSkillCapability(definitions, unsupported, skill, options.substrate, { requireManifestCapability: false });
   }
@@ -583,6 +682,7 @@ export async function loadSomaHomeAlgorithmCapabilityRegistry(
       origin: "soma-home" as const,
     })),
     unsupported: Array.from(unsupported).sort(),
+    warnings,
   };
 }
 
@@ -663,6 +763,7 @@ export function mergedAlgorithmCapabilityRegistry(
     // it in both arrays would give consumers two contradictory answers to "can I
     // select this?", and the honest one is the definition.
     unsupported: resolved.unsupported.filter((name) => !byName.has(name)),
+    warnings: resolved.warnings,
   };
 }
 
