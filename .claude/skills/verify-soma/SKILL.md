@@ -34,7 +34,7 @@ Isolation: each run dir is independent; two agents can drive side by side with d
 $V doctor "$RUN"
 ```
 
-Read-only. Checks the run dir was made by `launch`, the scratch Soma home and projection exist, `soma --version` equals `package.json` (so you drive this checkout, not an installed `soma`), and `settings.json` hooks point into the scratch home. Exit 0 = worth driving.
+Read-only. Checks the run dir was made by `launch`, the scratch Soma home and projection exist, `soma --version` equals `package.json` (so you drive this checkout, not an installed `soma`), and every soma hook path in `settings.json` sits under the scratch home (none at all, or any outside it, fails). Exit 0 = worth driving.
 
 The product's own `soma doctor` (`$V soma "$RUN" doctor --substrate claude-code`) reports `drift detected` on a fresh home (`starter-profile`, `claude-skills-not-migrated`) and still exits 0. That is expected, not a failure.
 
@@ -58,7 +58,9 @@ Proof standards:
 - Prove side effects in files, not only stdout: `grep` the projected file or event log.
 - `--dry-run` claims "no changes written": confirm with `find "$RUN/home" -newer <marker>`, not the label.
 - Exit codes: never read `$?` after a pipe (`cmd | tail` reports `tail`'s code). The helper's transcript records the real code.
-- Run `$V real-home-check "$RUN"` at the end. It lists principal-home files changed since launch, excluding `memory/STATE` (the live session's own hooks write there). Anything listed: inspect before claiming isolation; a live session can touch `~/.claude/rules/soma/MEMORY.md` too.
+- Run `$V real-home-check "$RUN"` at the end. It makes two checks, and its claim is only as wide as they are:
+  1. Principal-home files outside `memory/STATE` changed since launch (mtime). Anything listed: inspect before claiming isolation; a live session can touch `rules/soma/MEMORY.md` too.
+  2. New lines in the principal's `memory/STATE/events.jsonl` since launch that name this run dir or a session id the run sent through `hook`. Those fail the check. Other new lines are counted, not attributed: the live session writes there continuously, so a leaked event that names neither (a bare `memory.recall`) is not caught. Other `memory/STATE` files are not checked.
 
 ## Cleanup
 
