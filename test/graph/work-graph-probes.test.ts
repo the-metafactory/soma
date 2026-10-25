@@ -3,6 +3,7 @@ import { allProbesPassed, assertClosable, authorizeProbeTree, boundObserved, isP
 // Not on the public barrel — publication-rendering helpers, reached for where
 // they live, the way `cli-graph.test.ts` reaches for the receipt internals.
 import { collapseHome, redactHome } from "../../src/graph/work-graph";
+import { CLOSE_DEADLINE_SEC, closeDeadlineSec, type ProbeRunnerDeps } from "../../src/graph/work-graph-probes";
 
 const AT = new Date("2026-08-04T09:00:00.000Z");
 const REPO = "github.com/the-metafactory/soma";
@@ -486,6 +487,75 @@ test("git probes are clamped too, so a probe cannot outlive the close it belongs
 
   // GIT_TIMEOUT_SEC is 60; the remainder is 10, and the smaller wins.
   expect(seen[0].timeoutSec).toBe(10);
+});
+
+/** A command runner whose clock advances while each command runs, killing it past the request's own timeout. */
+function clockedRun(runSec: readonly number[]): { seen: CommandRequest[]; deps: Partial<ProbeRunnerDeps> } {
+  let elapsedMs = 0;
+  const seen: CommandRequest[] = [];
+  return {
+    seen,
+    deps: {
+      runCommand: async (request) => {
+        const took = runSec[seen.length] ?? 0;
+        seen.push(request);
+        elapsedMs += Math.min(took, request.timeoutSec) * 1_000;
+        return took > request.timeoutSec
+          ? { exitCode: null, stdout: "", stderr: "", timedOut: true }
+          : { exitCode: 0, stdout: "3983 pass", stderr: "", timedOut: false };
+      },
+      now: () => new Date(AT.getTime() + elapsedMs),
+    },
+  };
+}
+
+const SUITE: Probe = { type: "command", run: "bun run test", timeoutSec: 1800, expectExit: 0 };
+const SUITE_DECLARED = registry([{ run: "bun run test", cwd: "/repo" }]);
+
+test("a declared timeout past 900s is honoured, so a 1000s suite closes (#1064)", async () => {
+  const clock = clockedRun([1000]);
+  const results = await runProbes([SUITE], { cwd: "/repo", registry: SUITE_DECLARED, deps: clock.deps });
+
+  expect(clock.seen[0].timeoutSec).toBe(1800);
+  expect(allProbesPassed(results)).toBe(true);
+});
+
+test("a probe that outruns its own declared timeout still fails on its own clock (#1064)", async () => {
+  const clock = clockedRun([2000]);
+  const results = await runProbes([SUITE], { cwd: "/repo", registry: SUITE_DECLARED, deps: clock.deps });
+
+  const observed = results[0].state === "probed" ? results[0].observed : "";
+  expect(observed).toContain("timed out after 1800s (killed)");
+  expect(observed).not.toContain("the close deadline left no more time");
+  expect(allProbesPassed(results)).toBe(false);
+});
+
+test("the deadline is the declared command sum, so a later probe keeps its own timeout (#1064)", async () => {
+  const clock = clockedRun([890, 800]);
+  const results = await runProbes(
+    [
+      { type: "command", run: "first", timeoutSec: 900, expectExit: 0 },
+      { type: "command", run: "second", timeoutSec: 900, expectExit: 0 },
+    ],
+    { cwd: "/repo", registry: ALL_DECLARED, deps: clock.deps },
+  );
+
+  // 1800 - 890 leaves 910, more than the second probe's own 900.
+  expect(clock.seen.map((request) => request.timeoutSec)).toEqual([900, 900]);
+  expect(allProbesPassed(results)).toBe(true);
+});
+
+test("900s stays the floor, and only command timeouts count toward the deadline (#1064)", () => {
+  expect(closeDeadlineSec([])).toBe(CLOSE_DEADLINE_SEC);
+  expect(closeDeadlineSec([{ type: "command", run: "first", timeoutSec: 300, expectExit: 0 }])).toBe(900);
+  expect(
+    closeDeadlineSec([
+      SUITE,
+      { type: "command", run: "bunx tsc --noEmit", timeoutSec: 300, expectExit: 0 },
+      { type: "git-ref-exists", ref: "HEAD" },
+      { type: "url", target: "https://example.test", expectStatus: 200 },
+    ]),
+  ).toBe(2100);
 });
 
 test("a close inside the deadline is untouched", async () => {

@@ -94,8 +94,34 @@ const URL_TIMEOUT_SEC = 30;
  * Both are left rather than fixed: closing them means widening the `fetchStatus`
  * seam and threading a live clock through every git call, to buy at most 60
  * seconds on a 900-second bound. Named here so the number is not read as exact.
+ *
+ * A **floor**, not the whole bound (#1064): {@link closeDeadlineSec} raises it
+ * to what the node's command probes declare.
  */
 export const CLOSE_DEADLINE_SEC = 900;
+
+/**
+ * The deadline one close runs under: {@link CLOSE_DEADLINE_SEC}, or the sum of
+ * the declared `command` timeouts when that is larger (#1064).
+ *
+ * A fixed 900 overrode a probe's declared `timeoutSec` without saying so: a
+ * `bun run test` declared at 1800s that finished in 886s was killed at 900s and
+ * the close refused (#1053). The bound still comes from the node, as #527
+ * wanted; it now comes from what the node *declares*, so a declared timeout is
+ * true. A probe that outruns its own `timeoutSec` still fails on its own clock.
+ *
+ * Only `command` probes count, the same sum ranger's `closeTimeoutMs` takes, so
+ * the two layers size one close by one rule. Git and `url` probes keep their
+ * fixed timeouts inside the floor, and ranger's 60s margin over the sum covers
+ * them.
+ */
+export function closeDeadlineSec(probes: readonly Probe[]): number {
+  let declared = 0;
+  for (const probe of probes) {
+    if (probe.type === "command") declared += probe.timeoutSec;
+  }
+  return Math.max(CLOSE_DEADLINE_SEC, declared);
+}
 
 export interface CommandOutcome {
   /** Null when the process was killed before reporting a code (timeout, signal). */
@@ -158,7 +184,7 @@ export interface ProbeRunnerOptions {
    * probe.
    */
   remainingSec?: number;
-  /** Override the close deadline. Tests and callers that measure their own clock; defaults to {@link CLOSE_DEADLINE_SEC}. */
+  /** Override the close deadline. Tests and callers that measure their own clock; defaults to {@link closeDeadlineSec} of the probes. */
   deadlineSec?: number;
   deps?: Partial<ProbeRunnerDeps>;
 }
@@ -789,7 +815,7 @@ export async function runProbes(
   options: ProbeRunnerOptions,
 ): Promise<ProbeResult[]> {
   const deps = resolveDeps(options);
-  const deadlineSec = options.deadlineSec ?? CLOSE_DEADLINE_SEC;
+  const deadlineSec = options.deadlineSec ?? closeDeadlineSec(probes);
   const startedMs = deps.now().getTime();
 
   const results: ProbeResult[] = [];
