@@ -5,14 +5,15 @@
 
 ## Steps
 
-1. Reproduce the failure on the surface the report names, before any edit, through the project's verify skill (`verify-<project>`) when it has one. Capture the output.
-2. If it will not reproduce, tighten conditions, synthesize the trigger or instrument until it fires.
-3. List candidate causes, then rule them out one at a time with runtime evidence, taking the split that eliminates the most each pass.
-4. Name where the bad state enters the system, and place the fix there if that removes the class.
-5. Commit the failing reproduction as a test where a cheap one exists.
-6. Make the smallest change the evidence justifies. Revert anything a refuted hypothesis motivated.
-7. Rerun the original reproduction on the same surface. Wrong surface or "inconclusive" is not a pass.
-8. Run the suites the change can reach, then open the change for review.
+1. Restate the report in one plain sentence. If it rests on a wrong premise or chases a red herring, say so before reproducing.
+2. Reproduce the failure on the surface the report names, before any edit, through the project's verify skill (`verify-<project>`) when it has one. Capture the output.
+3. If it will not reproduce, tighten conditions, synthesize the trigger or instrument until it fires.
+4. List candidate causes, then rule them out one at a time with runtime evidence, taking the split that eliminates the most each pass.
+5. Name where the bad state enters the system, and place the fix there if that removes the class.
+6. Commit the failing reproduction as a test where a cheap one exists.
+7. Make the smallest change the evidence justifies. Revert anything a refuted hypothesis motivated.
+8. Rerun the original reproduction on the same surface. Wrong surface or "inconclusive" is not a pass.
+9. Run the suites the change can reach, then open the change for review.
 
 ## Criteria
 
