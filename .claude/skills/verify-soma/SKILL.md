@@ -5,6 +5,8 @@ description: Drive the real soma CLI (bun src/cli.ts) from this checkout against
 
 # verify-soma
 
+A repo-local Claude Code skill (not a Soma skill: it is not projected by `soma install`).
+
 Soma's user surface is the `soma` CLI plus the files it projects into a substrate home (`~/.claude/rules/soma/`, hooks in `settings.json`, skill symlinks). Verification runs the CLI from this checkout against a scratch `HOME`, never the principal's `~/.soma` or `~/.claude`.
 
 Secondary surfaces, not covered here: `bun run dashboard` (mission dashboard, WIP on `feat/mission-dashboard`), and `soma graph` (talks to real GitHub/GitLab work graphs; never drive it against a real map, use a throwaway root).
@@ -59,7 +61,7 @@ Proof standards:
 - `--dry-run` claims "no changes written": confirm with `find "$RUN/home" -newer <marker>`, not the label.
 - Exit codes: never read `$?` after a pipe (`cmd | tail` reports `tail`'s code). The helper's transcript records the real code.
 - Run `$V real-home-check "$RUN"` at the end. It makes two checks, and its claim is only as wide as they are:
-  1. Principal-home files outside `memory/STATE` changed since launch (mtime). Anything listed: inspect before claiming isolation; a live session can touch `rules/soma/MEMORY.md` too.
+  1. Files and symlinks changed since launch (mtime) in the principal's Soma home (outside `memory/STATE`) and in every surface the claude-code projection writes: `rules/soma/`, `hooks/soma/`, `skills/`, `settings.json`. Anything listed: inspect before claiming isolation; a live session can touch `rules/soma/MEMORY.md` too.
   2. New lines in the principal's `memory/STATE/events.jsonl` since launch that name this run dir or a session id the run sent through `hook`. Those fail the check. Other new lines are counted, not attributed: the live session writes there continuously, so a leaked event that names neither (a bare `memory.recall`) is not caught. Other `memory/STATE` files are not checked.
 
 ## Cleanup

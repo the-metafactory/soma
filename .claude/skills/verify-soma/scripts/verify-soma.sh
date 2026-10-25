@@ -81,8 +81,10 @@ case "$CMD" in
     [ -f "$RUN/.started" ] || die "no .started marker"
     ok=0
     # 1. Files outside memory/STATE: nothing else writes there during a run.
-    changed="$(find "$HOME/.soma" "$HOME/.claude/rules/soma" "$HOME/.claude/skills" "$HOME/.claude/settings.json" \
-      -newer "$RUN/.started" -type f -not -path '*/memory/STATE/*' -not -path '*/.git/*' 2>/dev/null)"
+    # Covers every surface the claude-code projection writes: rules, hook
+    # scripts, settings, and skill symlinks (-type l, not followed).
+    changed="$(find "$HOME/.soma" "$HOME/.claude/rules/soma" "$HOME/.claude/hooks/soma" "$HOME/.claude/skills" "$HOME/.claude/settings.json" \
+      -newer "$RUN/.started" \( -type f -o -type l \) -not -path '*/memory/STATE/*' -not -path '*/.git/*' 2>/dev/null)"
     if [ -z "$changed" ]; then echo "ok   no principal-home file outside memory/STATE changed since launch"
     else echo "CHECK files changed since launch (may be the live session; inspect before blaming the run):"; echo "$changed"; ok=1; fi
     # 2. memory/STATE: the live session writes there too, so attribute new

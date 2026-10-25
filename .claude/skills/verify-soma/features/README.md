@@ -1,6 +1,6 @@
 # Soma verification map
 
-The maintained source for verifying Soma's user-facing behavior. Read this index before driving, then use the matching feature file as the recipe.
+The maintained source for verifying Soma's user-facing behavior, used by the repo-local `verify-soma` Claude Code skill. Read this index before driving, then use the matching feature file as the recipe.
 
 ## Baseline preconditions
 
