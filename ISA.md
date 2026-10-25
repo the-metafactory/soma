@@ -206,6 +206,37 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 
 ## Verification
 
+### Mission dashboard prototype (2026-10-18)
+
+The principal requested a prototype web dashboard for missions, goals and status.
+This is an explicit local preview beyond the initial scaffold's dashboard exclusion.
+Run state and detailed criteria: Algorithm `mission-dashboard-prototype`.
+
+- Scope: read-only loopback web surface, existing profile loader and canonical
+  goal lifecycle states; no new core architecture, deployments or profile writes.
+- Criteria: local mission and goal data, browser-probed search/filter/details,
+  documented launch and verified local privacy/read-only boundary.
+- Decision: mission summaries count explicitly linked goals; sensor configuration
+  does not establish outcomes. Review dates describe reviews, not delivery deadlines.
+- Artifacts: `scripts/mission-dashboard.ts`, `scripts/mission-dashboard.html`,
+  `docs/mission-dashboard.md`, `test/mission-dashboard.test.ts`.
+- Verification: 3,753 tests passed across 206 files (0 failures); typecheck,
+  new-file ESLint, boundary and literal-set checks passed. Browser probes passed
+  live data, search, mission/status filters, details, focus return, narrow layout,
+  empty/error states, safe text rendering and fresh-detail consistency.
+
+Sensor-reading follow-up: Algorithm `mission-dashboard-readings` adds a bounded
+GET of Vigil's public loopback subjects API. Exact goal-state/sensor-run
+correlation, source timestamps, explicit failure/history/missing states and
+Vigil-derived freshness preserve the distinction between a goal's lifecycle
+and measured outcome. No sensor execution, alerts or profile writes are added.
+The source supplies goal-level state, not numeric counts or activation identity.
+Verification: 3,762 tests passed across 207 files (0 failures); typecheck,
+changed-file ESLint, boundary/literal-set checks and browser probes passed.
+Sensor-specific tests cover correlation, failed-run history, staleness, unavailable
+sources, malformed data and transport limits. The live browser confirmed recorded
+states/timestamps, detail provenance, mobile layout and explicit snapshot wording.
+
 - 2026-05-14: `bun test` passed with 2 tests across 1 file.
 - 2026-05-14: `bun run typecheck` passed after `bun install` installed declared dev dependencies.
 - 2026-05-14: `git init` initialized `/Users/fischer/work/soma` as a repository.
