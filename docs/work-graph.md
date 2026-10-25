@@ -245,9 +245,11 @@ refuse before anything runs, and the exception is named as such.
   success bought with a less diagnosable failure).
 
 - **A close has a wall-clock deadline**: 15 minutes (`CLOSE_DEADLINE_SEC`), or
-  the sum of the node's declared `command` timeouts when that is larger (#1064),
-  the same sum ranger's `closeTimeoutMs` sizes its call by. One clock over the
-  whole probe sequence, clamping each probe's own timeout to what remains. Past it, the remaining probes are recorded as **failed** without
+  the sum of every probe's own bound when that is larger (#1064): a `command`'s
+  declared `timeoutSec`, 60s per git spawn, 30s per `url`. Summing them all is
+  what keeps a declared timeout from being clamped by a probe ahead of it. One
+  clock over the whole probe sequence, clamping each probe's own timeout to what
+  remains. Past it, the remaining probes are recorded as **failed** without
   running — not skipped, since a probe that could not run is already a failed
   probe. A probe killed by the deadline says so, because "outran its own timeout"
   and "the close ran out of time" have different fixes.

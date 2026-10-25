@@ -545,7 +545,19 @@ test("the deadline is the declared command sum, so a later probe keeps its own t
   expect(allProbesPassed(results)).toBe(true);
 });
 
-test("900s stays the floor, and only command timeouts count toward the deadline (#1064)", () => {
+test("a git probe ahead of a command does not eat into the command's declared timeout (#1064)", async () => {
+  const clock = clockedRun([50, 1000]);
+  await runProbes([{ type: "git-ref-exists", ref: "HEAD" }, SUITE], {
+    cwd: "/repo",
+    registry: SUITE_DECLARED,
+    deps: clock.deps,
+  });
+
+  // A command-only sum (1800) would leave 1750 after the git probe's 50s.
+  expect(clock.seen[1].timeoutSec).toBe(1800);
+});
+
+test("900s stays the floor, and every probe counts its own bound toward the deadline (#1064)", () => {
   expect(closeDeadlineSec([])).toBe(CLOSE_DEADLINE_SEC);
   expect(closeDeadlineSec([{ type: "command", run: "first", timeoutSec: 300, expectExit: 0 }])).toBe(900);
   expect(
@@ -554,8 +566,11 @@ test("900s stays the floor, and only command timeouts count toward the deadline 
       { type: "command", run: "bunx tsc --noEmit", timeoutSec: 300, expectExit: 0 },
       { type: "git-ref-exists", ref: "HEAD" },
       { type: "url", target: "https://example.test", expectStatus: 200 },
+      { type: "git-merged-into", ref: "feature", into: "main" },
+      { type: "artifact-exists", path: "docs/x.md" },
+      { type: "artifact-exists", path: "docs/x.md", atRef: "main" },
     ]),
-  ).toBe(2100);
+  ).toBe(1800 + 300 + 60 + 30 + 120 + 0 + 120);
 });
 
 test("a close inside the deadline is untouched", async () => {
