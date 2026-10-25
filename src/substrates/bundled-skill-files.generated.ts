@@ -86,22 +86,24 @@ import file79 from "../skills/the-algorithm/references/principles/minimize-reade
 import file80 from "../skills/the-algorithm/references/principles/model-the-domain.md" with { type: "text" };
 import file81 from "../skills/the-algorithm/references/principles/one-probe-per-criterion.md" with { type: "text" };
 import file82 from "../skills/the-algorithm/references/principles/outcome-oriented-execution.md" with { type: "text" };
-import file83 from "../skills/the-algorithm/references/principles/preflight-before-the-first-edit.md" with { type: "text" };
-import file84 from "../skills/the-algorithm/references/principles/probe-the-user-facing-surface.md" with { type: "text" };
-import file85 from "../skills/the-algorithm/references/principles/probe-what-the-claim-asserts.md" with { type: "text" };
-import file86 from "../skills/the-algorithm/references/principles/redesign-from-first-principles.md" with { type: "text" };
-import file87 from "../skills/the-algorithm/references/principles/reproduce-first.md" with { type: "text" };
-import file88 from "../skills/the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md" with { type: "text" };
-import file89 from "../skills/the-algorithm/references/principles/separate-before-serializing-shared-state.md" with { type: "text" };
-import file90 from "../skills/the-algorithm/references/principles/sequence-verifiable-units.md" with { type: "text" };
-import file91 from "../skills/the-algorithm/references/principles/ship-what-the-evidence-justifies.md" with { type: "text" };
-import file92 from "../skills/the-algorithm/references/principles/subtract-before-you-add.md" with { type: "text" };
-import file93 from "../skills/the-algorithm/references/principles/surface-conflicts.md" with { type: "text" };
-import file94 from "../skills/the-algorithm/references/principles/test-behavior-not-implementation.md" with { type: "text" };
-import file95 from "../skills/the-algorithm/references/principles/type-system-discipline.md" with { type: "text" };
-import file96 from "../skills/the-algorithm/references/principles/verify-before-claiming.md" with { type: "text" };
-import file97 from "../skills/the-algorithm/references/target-types.md" with { type: "text" };
-import file98 from "../skills/the-algorithm/references/third-party/pstack-NOTICE.md" with { type: "text" };
+import file83 from "../skills/the-algorithm/references/principles/own-delegated-work.md" with { type: "text" };
+import file84 from "../skills/the-algorithm/references/principles/preflight-before-the-first-edit.md" with { type: "text" };
+import file85 from "../skills/the-algorithm/references/principles/probe-the-user-facing-surface.md" with { type: "text" };
+import file86 from "../skills/the-algorithm/references/principles/probe-what-the-claim-asserts.md" with { type: "text" };
+import file87 from "../skills/the-algorithm/references/principles/redesign-from-first-principles.md" with { type: "text" };
+import file88 from "../skills/the-algorithm/references/principles/reproduce-first.md" with { type: "text" };
+import file89 from "../skills/the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md" with { type: "text" };
+import file90 from "../skills/the-algorithm/references/principles/separate-before-serializing-shared-state.md" with { type: "text" };
+import file91 from "../skills/the-algorithm/references/principles/sequence-verifiable-units.md" with { type: "text" };
+import file92 from "../skills/the-algorithm/references/principles/ship-what-the-evidence-justifies.md" with { type: "text" };
+import file93 from "../skills/the-algorithm/references/principles/subtract-before-you-add.md" with { type: "text" };
+import file94 from "../skills/the-algorithm/references/principles/surface-conflicts.md" with { type: "text" };
+import file95 from "../skills/the-algorithm/references/principles/test-behavior-not-implementation.md" with { type: "text" };
+import file96 from "../skills/the-algorithm/references/principles/type-system-discipline.md" with { type: "text" };
+import file97 from "../skills/the-algorithm/references/principles/verify-before-claiming.md" with { type: "text" };
+import file98 from "../skills/the-algorithm/references/principles/weigh-review-findings-on-merit.md" with { type: "text" };
+import file99 from "../skills/the-algorithm/references/target-types.md" with { type: "text" };
+import file100 from "../skills/the-algorithm/references/third-party/pstack-NOTICE.md" with { type: "text" };
 
 /** Every bundled skill file, keyed by its posix path relative to `src/skills`. */
 export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
@@ -188,20 +190,22 @@ export const BUNDLED_SKILL_FILES: Readonly<Record<string, string>> = {
   "the-algorithm/references/principles/model-the-domain.md": file80,
   "the-algorithm/references/principles/one-probe-per-criterion.md": file81,
   "the-algorithm/references/principles/outcome-oriented-execution.md": file82,
-  "the-algorithm/references/principles/preflight-before-the-first-edit.md": file83,
-  "the-algorithm/references/principles/probe-the-user-facing-surface.md": file84,
-  "the-algorithm/references/principles/probe-what-the-claim-asserts.md": file85,
-  "the-algorithm/references/principles/redesign-from-first-principles.md": file86,
-  "the-algorithm/references/principles/reproduce-first.md": file87,
-  "the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md": file88,
-  "the-algorithm/references/principles/separate-before-serializing-shared-state.md": file89,
-  "the-algorithm/references/principles/sequence-verifiable-units.md": file90,
-  "the-algorithm/references/principles/ship-what-the-evidence-justifies.md": file91,
-  "the-algorithm/references/principles/subtract-before-you-add.md": file92,
-  "the-algorithm/references/principles/surface-conflicts.md": file93,
-  "the-algorithm/references/principles/test-behavior-not-implementation.md": file94,
-  "the-algorithm/references/principles/type-system-discipline.md": file95,
-  "the-algorithm/references/principles/verify-before-claiming.md": file96,
-  "the-algorithm/references/target-types.md": file97,
-  "the-algorithm/references/third-party/pstack-NOTICE.md": file98,
+  "the-algorithm/references/principles/own-delegated-work.md": file83,
+  "the-algorithm/references/principles/preflight-before-the-first-edit.md": file84,
+  "the-algorithm/references/principles/probe-the-user-facing-surface.md": file85,
+  "the-algorithm/references/principles/probe-what-the-claim-asserts.md": file86,
+  "the-algorithm/references/principles/redesign-from-first-principles.md": file87,
+  "the-algorithm/references/principles/reproduce-first.md": file88,
+  "the-algorithm/references/principles/second-opinion-at-commitment-boundaries.md": file89,
+  "the-algorithm/references/principles/separate-before-serializing-shared-state.md": file90,
+  "the-algorithm/references/principles/sequence-verifiable-units.md": file91,
+  "the-algorithm/references/principles/ship-what-the-evidence-justifies.md": file92,
+  "the-algorithm/references/principles/subtract-before-you-add.md": file93,
+  "the-algorithm/references/principles/surface-conflicts.md": file94,
+  "the-algorithm/references/principles/test-behavior-not-implementation.md": file95,
+  "the-algorithm/references/principles/type-system-discipline.md": file96,
+  "the-algorithm/references/principles/verify-before-claiming.md": file97,
+  "the-algorithm/references/principles/weigh-review-findings-on-merit.md": file98,
+  "the-algorithm/references/target-types.md": file99,
+  "the-algorithm/references/third-party/pstack-NOTICE.md": file100,
 };

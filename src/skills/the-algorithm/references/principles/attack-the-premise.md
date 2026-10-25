@@ -5,9 +5,10 @@
 **Rule:** suspect the premise, not the fixes. Write it down and test it directly before writing another fix that assumes it.
 
 1. Write the premise as one sentence that every failed fix assumed.
-2. Find an observation that would come out differently if the premise were false, and make it. Look at how the failures are distributed, not only how large they are.
+2. Find an observation that would come out differently if the premise were false, and make it. Look at how the failures are distributed, not only how large they are. Make the check rerunnable (`references/principles/build-the-lever.md`).
 3. If the evidence contradicts the premise, the cause is elsewhere: look for what the failures share that the premise did not predict.
 4. If it confirms the premise, ask the next "why"; the fixes may have treated a consequence.
+5. Remove the condition instead of compensating for it (`references/principles/laziness-protocol.md`). If the evidence shows one part always lands on the losing side, change what puts it there. A cleanup mechanism leaves the cause in place and adds work on every run.
 
 Stop: no next fix before the premise is written down and tested.
 

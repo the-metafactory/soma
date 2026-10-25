@@ -1,9 +1,10 @@
 # Fix at the ingestion point
 
-**When it applies:** a fix would change output-side behavior (a display, a report, a formatter, a downstream consumer), or add a guard where a symptom surfaced.
+**When it applies:** you debug a fault, or a fix would change output-side behavior (a display, a report, a formatter, a downstream consumer), or add a guard where a symptom surfaced.
 
 **Rule:** name where the bad state enters the system, and fix it there if that removes the class of bug. Ask "why" at each step until the answer is a wrong decision in the code, not a consequence of an earlier one.
 
+- When stuck, instrument: read the actual error and the actual state, do not guess.
 - Ask: if I fix it upstream, do similar bugs disappear too? If yes, move the fix upstream.
 - Trace from the data up, not from the display down, unless the reproduction forces display-down.
 - Ask whether the state that triggered the symptom is legitimate. If the system may be in that state, the code that broke on it is the cause, and handling the state there is the fix. If the state should never exist, a check where it broke hides the bug: find what produced the state.

@@ -4,6 +4,8 @@ Several playbook cards (`references/playbooks.md`) and principles (`references/p
 
 From commit `99743e9`: the principles explain-the-number, attack-the-premise, separate-before-serializing-shared-state and encode-lessons-in-structure, and the task shapes and step order of the nine cards.
 
+From commit `b6375f1` (node #1082), restored claims and two new principles: own-delegated-work and weigh-review-findings-on-merit, adapted from the poteto-mode rules on subagent ownership and on automated review findings; one rule on a broken skill mid-task merged into build-over-ask-when-reversible.
+
 From commit `f713f14`, the remaining pstack principles:
 
 - Adapted as new principles: laziness-protocol, foundational-thinking, redesign-from-first-principles, subtract-before-you-add, minimize-reader-load, outcome-oriented-execution, experience-first, exhaust-the-design-space, build-the-lever, model-the-domain, boundary-discipline, type-system-discipline, make-operations-idempotent, migrate-callers-then-delete-legacy-apis, sequence-verifiable-units, test-behavior-not-implementation, guard-the-context-window.

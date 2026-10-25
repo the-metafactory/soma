@@ -1,6 +1,6 @@
 # Migrate callers then delete legacy APIs
 
-**When it applies:** you introduce a new internal API while callers of the old one still exist, no external user depends on backward compatibility, and the project can absorb a coordinated breaking change.
+**When it applies:** you introduce a new internal API while callers of the old one still exist, no external user depends on backward compatibility, the project can absorb a coordinated breaking change, and the new API is part of a simplification or refactor.
 
 **Rule:** migrate every caller and delete the old API in the same wave. Do not keep a compatibility layer.
 

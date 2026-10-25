@@ -14,4 +14,5 @@ Keep tests that catch the first edit and survive the second. Rewrite or delete t
 - Drive the code through its users' interface with a concrete input. Derive the expected value from the requirement, not from a run of the code.
 - The contract decides. The payload a mocked external service receives is behavior; a call to an internal helper is not. Pair a "no call happened" assertion with a case where the call does happen.
 - The error type callers branch on is contract. Exact message wording usually is not.
+- An empty list is the exact answer when no record matches, and a hollow check when the test only needs some result.
 - An invariant (a key present in two tables, a compile-time check) is behavior too.

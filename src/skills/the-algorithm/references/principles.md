@@ -13,7 +13,7 @@ Read `references/principles.local.md` first when it exists: its rows add princip
 | `references/principles/preflight-before-the-first-edit.md` | OBSERVE, before the work starts |
 | `references/principles/second-opinion-at-commitment-boundaries.md` | before an approach, after two failed attempts, before declaring a deliverable done |
 | `references/principles/reproduce-first.md` | a bug report, a regression, "it broke" |
-| `references/principles/fix-at-the-ingestion-point.md` | a fix would change output-side behavior or add a guard |
+| `references/principles/fix-at-the-ingestion-point.md` | debugging a fault, or a fix would change output-side behavior or add a guard |
 | `references/principles/diagnose-on-recurrence.md` | the same symptom reported a second time |
 | `references/principles/attack-the-premise.md` | two fixes sharing one premise failed the same gate |
 | `references/principles/fix-the-class-not-the-instance.md` | a defect could exist elsewhere, or a claim says "every" |
@@ -45,6 +45,8 @@ Read `references/principles.local.md` first when it exists: its rows add princip
 | `references/principles/exhaust-the-design-space.md` | a novel interaction or architecture with no precedent |
 | `references/principles/experience-first.md` | a product, UX or feature-scope tradeoff |
 | `references/principles/guard-the-context-window.md` | context filling with large outputs or repeated reads |
+| `references/principles/own-delegated-work.md` | handing work to a subagent, reading its report, or giving it a next round |
+| `references/principles/weigh-review-findings-on-merit.md` | an automated reviewer comments on your change |
 
 Local row format, same columns: `| references/principles-local/<name>.md | <when it applies> |`.
 

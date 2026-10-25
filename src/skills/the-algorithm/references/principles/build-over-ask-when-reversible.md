@@ -7,6 +7,7 @@
 - Proceed, then present: do X and say why, instead of asking whether to.
 - An experiment beats a question when it settles the question.
 - A problem noticed along the way gets logged and the run keeps going. Fix it in a later round only if it falls inside the ask (`references/principles/change-only-what-was-asked.md`).
+- A broken skill mid-task: fix it in its own change or file it. Never silently work around it, and do not block on it.
 - Product direction comes from the principal. Execution does not wait on them.
 - Still ask before: deleting files or branches, pushing, deploying, changing `.env` or secrets, editing the principal's own writing, sending content to any external service or team chat, and anything else irreversible (`references/principles/ask-before-irreversible.md`).
 - A request for analysis or a plan still stops at the report or the plan (`references/principles/analysis-is-read-only.md`).
