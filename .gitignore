@@ -8,6 +8,7 @@ dist/
 .worktrees/
 .tmp-tests/
 .pi/
-.claude/
+.claude/*
+!.claude/skills/
 .specflow/
 *.bun-build
