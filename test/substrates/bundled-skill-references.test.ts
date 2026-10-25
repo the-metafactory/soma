@@ -105,6 +105,45 @@ describe("bundled skill references", () => {
     expect(staleBundledTargets).toEqual([]);
   });
 
+  test("Investigation trace capabilities ship as unbound OBSERVE contracts without the optional pack", async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), "soma-trace-contracts-"));
+    try {
+      await installBundledSkillsIntoHome({ homeDir });
+      const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+      const expected = [
+        {
+          name: "TraceMechanics",
+          trigger: "A how-does-X-work, walkthrough or placement/ownership question.",
+          target: "trace the runtime path of a subsystem from entry to effect, fanning out read-only explorers when it spans directories, and return a cited explanation",
+        },
+        {
+          name: "TraceIntent",
+          trigger: "A why-is-it-this-way, design-rationale or regression-history question.",
+          target: "reconstruct the motivation behind code from git lineage, PR reviews, issues and graph nodes, docs, chat and Soma's own record, separating found from inferred and listing every source consulted, null or skipped",
+        },
+      ];
+      const references = join(homeDir, ".soma", "skills", "the-algorithm", "references");
+      const table = await readFile(join(references, "capabilities.md"), "utf8");
+      for (const { name, trigger, target } of expected) {
+        expect(registry.definitions.find((definition) => definition.name === name)).toMatchObject({
+          kind: "contract",
+          phases: ["observe"],
+          triggerSignals: [trigger],
+          invoke: { contract: "contract", target },
+        });
+        expect(registry.unsupported).not.toContain(name);
+        expect(table.split("\n").find((line) => line.startsWith(`| ${name} |`))).toEndWith("| E1+ |");
+      }
+
+      const investigation = await readFile(join(references, "playbooks", "investigation.md"), "utf8");
+      const steps = investigation.split("\n").filter((line) => /^\d+\. /.test(line));
+      expect(steps.map((line) => Number(line.split(".")[0]))).toEqual([1, 2, 3, 4, 5, 6, 7]);
+      expect(steps[2]).toContain("For a how question, trace it through the registry's `TraceMechanics`; for a why question, through `TraceIntent`.");
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   // soma#922: the playbook cards and the principles are short by contract — the
   // whole point of the layer is text cheap enough to load per run. A leaf the
   // index does not name is unreachable (the agent routes through the index), so
