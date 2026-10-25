@@ -284,7 +284,7 @@ describe("component boundaries on the repository", () => {
   }, { timeout: 30_000 });
 
   test("core's shared types entry reaches no other component", () => {
-    expect(components.core.publicEntries).toEqual(["src/core/index.ts", "src/core/types.ts"]);
+    expect(components.core.publicEntries).toEqual(["src/core/index.ts", "src/core/types.ts", "src/core/dir-lock.ts"]);
     const report = checkBoundaries({ root: repoRoot });
     expect([...reachableFrom(report, "src/core/types.ts")].filter((file) => !file.startsWith("src/core/"))).toEqual([]);
   });

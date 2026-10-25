@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
-import { withExclusiveLock } from "../src/core";
+import { withExclusiveLock } from "../src/core/dir-lock";
 import { acceptGoalProposal } from "../src/flows/goal-accept";
 import { parseGoalArgs, runGoalCli } from "../src/cli/goal";
 import { goalKinds } from "../src/flows/goal-kinds/registry";
