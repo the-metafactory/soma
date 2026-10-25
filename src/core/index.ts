@@ -16,4 +16,4 @@ export { SOMA_MEMORY_PROMOTION_STORE_DIRS, SOMA_MEMORY_PROMOTION_STORES } from "
 export { PROPOSAL_KINDS, type ProposalKind } from "./types";
 export { hashJudgmentInput, judgeLedgerPath, matchesFilter, readJudgments, recordJudgment } from "./judge-ledger";
 export type { JudgmentFilter, JudgmentRecord } from "./judge-ledger";
-export { LockBusyError, withExclusiveLock } from "./dir-lock";
+// dir-lock.ts is not re-exported: it imports bun:ffi, and pi loads extensions that import this barrel under Node.
