@@ -530,7 +530,7 @@ test("a probe that outruns its own declared timeout still fails on its own clock
   expect(allProbesPassed(results)).toBe(false);
 });
 
-test("the deadline is the declared command sum, so a later probe keeps its own timeout (#1064)", async () => {
+test("the deadline is the sum of every probe's bound, so a later probe keeps its own timeout (#1064)", async () => {
   const clock = clockedRun([890, 800]);
   const results = await runProbes(
     [
