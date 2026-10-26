@@ -197,6 +197,16 @@ async function readSomaSkillManifest(skillRoot: string): Promise<SomaSkillManife
   }
 }
 
+/** True when a registry symlink resolves to a directory; a dangling link is not a skill. */
+async function isDirectoryLink(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    if (isEnoent(error)) return false;
+    throw error;
+  }
+}
+
 async function loadAvailableSkills(somaHome: string): Promise<{ skills: AvailableSkill[]; byKey: Map<string, AvailableSkill> }> {
   const skillsRoot = join(somaHome, "skills");
   const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => []);
@@ -207,9 +217,7 @@ async function loadAvailableSkills(somaHome: string): Promise<{ skills: Availabl
       .map(async (entry): Promise<AvailableSkill | undefined> => {
         const skillRoot = join(skillsRoot, entry.name);
         // `soma project-skill` links installed skills into the registry, so a symlink to a directory counts.
-        const isSkillDir = entry.isDirectory()
-          || (entry.isSymbolicLink() && (await stat(skillRoot).catch(() => undefined))?.isDirectory() === true);
-        if (!isSkillDir) return undefined;
+        if (!entry.isDirectory() && !(entry.isSymbolicLink() && await isDirectoryLink(skillRoot))) return undefined;
         const skillMd = await readFile(join(skillRoot, "SKILL.md"), "utf8").catch(() => undefined);
         if (!skillMd) return undefined;
 
@@ -544,9 +552,7 @@ function registerSatisfiedCapabilities(
       );
       continue;
     }
-    const [skill] = skills;
-    if (!skill) continue;
-    definitions.set(name, buildCapabilityDefinition(name, "skill", shape.phases, shape.triggerSignals, skill.name));
+    definitions.set(name, buildCapabilityDefinition(name, "skill", shape.phases, shape.triggerSignals, skills[0].name));
   }
 }
 
