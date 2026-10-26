@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.27.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.28.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,19 @@
 
 ---
 
-## Current release: 0.27.0
+## Current release: 0.28.0
+
+[0.28.0](https://github.com/the-metafactory/soma/releases/tag/v0.28.0) lets a
+skill manifest fill a capability with `algorithmCapability.satisfies`, so an
+arc pack can bind contract rows such as `TraceMechanics`. It adds the
+prototype and planning playbook cards, two more principles, the `verify-soma`
+skill, a `Live probe` requirement in audited build briefs, and Codex and pi
+substrates for knowledge-eval. Breaking: the root barrel `src/index.ts` and
+`src/types.ts` are removed. See the
+[changelog](CHANGELOG.md#0280---2026-10-26) for the complete changes. GitHub
+releases and Arc registry publication are verified separately.
+
+### 0.27.0
 
 [0.27.0](https://github.com/the-metafactory/soma/releases/tag/v0.27.0) turns
 goals into records that pursue themselves: a goal-kind catalog with `feed`,
