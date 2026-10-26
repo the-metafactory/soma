@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -426,6 +426,143 @@ test("a capabilities.local.md row overrides the bundled table of the same name",
     // The bundled table still supplies everything the local one does not name.
     expect(registry.definitions.find((definition) => definition.name === "Forge")).toMatchObject({ kind: "agent" });
   });
+});
+
+const TRACE_MECHANICS_ROW =
+  '| TraceMechanics | OBSERVE | A how-does-X-work question. | `Contract("trace the runtime path of a subsystem")` | E1+ |';
+
+async function writeSatisfyingSkill(homeDir: string, slug: string, satisfies: unknown): Promise<void> {
+  await writeSkill(homeDir, slug, slug);
+  await writeSkillManifest(homeDir, slug, {
+    schema: "soma.skill.v1",
+    name: slug,
+    description: `${slug} test skill.`,
+    algorithmCapability: { satisfies },
+  });
+}
+
+test("a skill manifest satisfies a contract capability, keeping the shipped row's phases", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [TRACE_MECHANICS_ROW], "capabilities.md");
+    await writeSatisfyingSkill(homeDir, "how", ["TraceMechanics"]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "TraceMechanics")).toMatchObject({
+      kind: "skill",
+      phases: ["observe"],
+      triggerSignals: ["A how-does-X-work question."],
+      invoke: { contract: "skill", target: "how" },
+    });
+    expect(registry.unsupported).not.toContain("TraceMechanics");
+    expect(registry.warnings).toEqual([]);
+  });
+});
+
+test("a projected skill, linked into the registry by symlink, satisfies a contract capability", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [TRACE_MECHANICS_ROW], "capabilities.md");
+    // The pack lives outside the registry, as an arc install does; project-skill links it in.
+    const packRoot = join(homeDir, "arc-pack", "how");
+    await mkdir(packRoot, { recursive: true });
+    await writeFile(join(packRoot, "SKILL.md"), ["---", "name: how", "description: how test skill.", "---", "", "# how", ""].join("\n"), "utf8");
+    await writeFile(
+      join(packRoot, "soma-skill.json"),
+      JSON.stringify({ schema: "soma.skill.v1", name: "how", description: "how test skill.", algorithmCapability: { satisfies: ["TraceMechanics"] } }),
+      "utf8",
+    );
+    await mkdir(join(homeDir, ".soma", "skills"), { recursive: true });
+    await symlink(packRoot, join(homeDir, ".soma", "skills", "how"));
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "TraceMechanics")).toMatchObject({
+      kind: "skill",
+      invoke: { contract: "skill", target: "how" },
+    });
+  });
+});
+
+test("a local row beats a manifest satisfies of the same name", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [TRACE_MECHANICS_ROW], "capabilities.md");
+    await writeSatisfyingSkill(homeDir, "how", ["TraceMechanics"]);
+    await writeSkill(homeDir, "mine", "mine");
+    await writeCapabilityTable(homeDir, ['| TraceMechanics | OBSERVE | Local | `Skill("mine")` | E1+ |']);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "TraceMechanics")?.invoke.target).toBe("mine");
+    expect(registry.warnings).toEqual([]);
+  });
+});
+
+test("a manifest satisfies replaces an already-bound shipped row", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSkill(homeDir, "first-principles", "FirstPrinciples");
+    await writeCapabilityTable(
+      homeDir,
+      ['| FirstPrinciples | THINK | Architecture decisions | `Skill("FirstPrinciples")` | E2+ |'],
+      "capabilities.md",
+    );
+    await writeSatisfyingSkill(homeDir, "better", ["FirstPrinciples"]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "FirstPrinciples")).toMatchObject({
+      kind: "skill",
+      phases: ["think"],
+      invoke: { target: "better" },
+    });
+  });
+});
+
+test("two skills satisfying one capability fail closed and --list names both and the fix", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [TRACE_MECHANICS_ROW], "capabilities.md");
+    await writeSatisfyingSkill(homeDir, "how", ["TraceMechanics"]);
+    await writeSatisfyingSkill(homeDir, "walkthrough", ["TraceMechanics"]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+    expect(registry.definitions.some((definition) => definition.name === "TraceMechanics")).toBe(false);
+    expect(registry.unsupported).toContain("TraceMechanics");
+
+    const listing = await runAlgorithmCli(parseAlgorithmArgs(["algorithm", "capabilities", "--list", "--home-dir", homeDir]));
+    expect(listing).toContain('"how"');
+    expect(listing).toContain('"walkthrough"');
+    expect(listing).toContain("capabilities.local.md");
+  });
+});
+
+test("a satisfies naming no known capability warns and the skill still registers under its own name", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [TRACE_MECHANICS_ROW], "capabilities.md");
+    await writeSatisfyingSkill(homeDir, "how", ["NoSuchCapability"]);
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.some((definition) => definition.name === "NoSuchCapability")).toBe(false);
+    expect(registry.definitions.find((definition) => definition.name === "how")).toBeDefined();
+    expect(registry.warnings).toHaveLength(1);
+    expect(registry.warnings[0]).toContain('"how"');
+    expect(registry.warnings[0]).toContain("NoSuchCapability");
+  });
+});
+
+test("a malformed satisfies is ignored with a warning", async () => {
+  for (const bad of ["TraceMechanics", [1], ["TraceMechanics", " "], { a: 1 }]) {
+    await withTempHome(async (homeDir) => {
+      await writeCapabilityTable(homeDir, [TRACE_MECHANICS_ROW], "capabilities.md");
+      await writeSatisfyingSkill(homeDir, "how", bad);
+
+      const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+      expect(registry.definitions.find((definition) => definition.name === "TraceMechanics")?.kind).toBe("contract");
+      expect(registry.definitions.find((definition) => definition.name === "how")).toBeDefined();
+      expect(registry.warnings).toHaveLength(1);
+      expect(registry.warnings[0]).toContain('"how"');
+    });
+  }
 });
 
 test("a Contract(...) row registers a contract-declared capability", async () => {

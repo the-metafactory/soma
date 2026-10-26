@@ -10,14 +10,24 @@ not an error.
 
 ## Where capability names come from
 
-Four sources, merged in this order, the first definition of a name winning:
+Five sources, merged in this order, the first definition of a name winning:
 
 1. **`capabilities.local.md`, the adopter's own table** (see below). First, so a
    local row wins over everything else — the principal has the last word.
-2. **Skills declaring `algorithmCapability` in their manifest** — the skill
+2. **Skills naming the capability in `algorithmCapability.satisfies`** in their
+   manifest. A skill declaring `"satisfies": ["TraceMechanics"]` binds that
+   capability to `Skill("<skill>")`, keeping the shipped row's phases, trigger
+   signals and tier floor, so an arc-installed pack can fill a contract row with
+   no write to `capabilities.local.md`. It also replaces an already-bound
+   shipped row. Two skills claiming one name leave it unbound and
+   `algorithm capabilities --list` names both and the fix (a local row). A name
+   found in neither table, or a `satisfies` that is not an array of non-empty
+   strings, is ignored with a `--list` warning; the skill still registers under
+   its own name.
+3. **Skills declaring `algorithmCapability` in their manifest** — the skill
    author's phase and trigger metadata, preferred over the shipped table.
-3. **The table in this file.**
-4. **Every remaining skill under `<soma-home>/skills`** — registered under its
+4. **The table in this file.**
+5. **Every remaining skill under `<soma-home>/skills`** — registered under its
    own name, admissible in all seven phases, with trigger signals from its
    `## Triggers` bullets, falling back to its description. **Except** when a
    substrate is named (`--substrate <id>`) and the skill's manifest declares a
@@ -25,13 +35,13 @@ Four sources, merged in this order, the first definition of a name winning:
    than registered. A skill in the catalogue is not automatically selectable
    from every substrate.
 
-Because of (4), **you do not need to list a skill here to select it.** A row
+Because of (5), **you do not need to list a skill here to select it.** A row
 exists to *narrow* a capability — to say which phases it belongs to and what
 signal should trigger it — or to register something that is not a skill at all.
 
 Two capabilities are compiled in and need no declaration anywhere: `ReReadCheck`
 (inline; verify, learn) and `sequential-analysis` (inline; think, plan). They sit
-underneath all four sources, so a row of the same name retargets them — but an
+underneath all five sources, so a row of the same name retargets them — but an
 *unresolvable* local row does not disable them. Both are `inline`: they name a
 discipline and need no tool, so there is nothing an installation can lack, and
 `ReReadCheck` is mandatory at every tier. A mistyped row must not remove a floor

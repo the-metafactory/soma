@@ -330,6 +330,12 @@ export interface SomaSkillAlgorithmCapabilityManifest {
   kind?: AlgorithmCapabilityKind;
   phases?: AlgorithmPhase[];
   triggerSignals?: string[];
+  /**
+   * Capability names this skill fills (node #1095). Each binds to
+   * `Skill("<skill>")`, ahead of the shipped table and behind the adopter's
+   * `capabilities.local.md`. Validated at resolution, not here.
+   */
+  satisfies?: string[];
 }
 
 export interface AlgorithmCapabilityInvocation {

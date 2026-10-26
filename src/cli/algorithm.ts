@@ -748,6 +748,14 @@ function formatAlgorithmCapabilityRegistry(
     );
   }
 
+  if (registry.warnings.length > 0) {
+    lines.push(
+      "",
+      `Warnings — ${registry.warnings.length}:`,
+      ...registry.warnings.map((warning) => `- ${warning}`),
+    );
+  }
+
   return lines.join("\n");
 }
 
