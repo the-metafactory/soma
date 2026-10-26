@@ -7,12 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-26
+
 ### Added
 
+- Skill manifests can fill a capability: `algorithmCapability.satisfies: [<Name>]` binds each named capability to `Skill("<skill>")` after the local table and before the shipped table, keeping the shipped row's phases and trigger signals. Two claimants fail closed and `algorithm capabilities --list` names both; an unknown name is ignored with a warning. An arc-installed pack can now fill a contract row without writing to `capabilities.local.md`. (node #1095)
+- `TraceMechanics` and `TraceIntent` capability contracts; the investigation card routes how and why questions to them. (node #1067)
+- Prototype and planning playbook cards (node #1053). The principles vocabulary grows from 39 to 41 with own-delegated-work and weigh-review-findings-on-merit, and pstack claims lost in the port are restored in nine principle files. (node #1082)
+- `verify-soma` project skill: drives the real CLI against a disposable home, so a change is shown working beyond `bun test`. (#1080)
+- `soma graph audit` reports an open build node whose `## Acceptance criteria` has no non-empty `Live probe:` line as `build-brief-not-ready`. (node #1054)
+- `soma goal sense active-item-limit` counts a collection's items by state against a max, Tana adapter first. (node #991)
+- `soma goal propose` reads the chosen sensor once and calibrates the threshold against that baseline. (node #977)
+- Memory notes carry an optional `support` level (`specified`, `probed`, `tested`, `judged`, `outcome-verified`) with `support_as_of`; both or neither. (node #1000)
+- knowledge-eval runs trials through Codex (`codex exec --json`) and pi (`pi --print --mode json`) with their Soma projections. (nodes #1006, #1007)
 - `bun run knowledge-eval batch --arms <a>[,<b>] --home-source <dir> --substrate claude` runs interleaved fresh H0–H3 trials with three repeats, adding two repeats for both arms when either arm's hint spread exceeds one. Private `report.json` and `report.md` retain scores, medians, spread, token measurements, duplicates, sources read, and explicit errors; model or CLI drift aborts the batch. See [batch usage and measurement semantics](docs/knowledge-eval.md). (node #1003)
 - `bun run knowledge-eval field` reports principal corrections per session over a trailing `--window <days>` (default 60) of Claude Code transcripts, per project directory and overall, beside the in-window `feedback.candidate` events. The classifier is the learning session harvester's correction patterns, applied to the principal's typed turns only. `--sample <n> --seed <n>` writes a labelling sheet of sessions drawn across soma, ranger and ranger-worker directories under `$SOMA_HOME/evals/knowledge-orientation/field/` and never overwrites one; `--agree <labels.json>` prints the classifier's precision and recall against the labels and `field arm: keep` only when both reach 0.7, else `field arm: drop`. A labels file naming a session id with no transcript fails naming the id. (node #1005)
 - `bun run knowledge-eval trial --fixture <id> --arm <label> --home-source <dir> --substrate claude` runs one frozen knowledge-orientation fixture once in an isolated home and worktree and writes one result record under `$SOMA_HOME/evals/knowledge-orientation/results/`. A fixture or output path outside that store is refused. The trial inherits only an allow-list of operational variables (`PATH`, locale, `TERM`, `TMPDIR` and the like); `claude -p` alone also gets `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` to authenticate. When the substrate exits or times out, its whole process group is killed before the diff and the probe run, and the diff is taken with a stripped environment and fixed git config so a config hook the substrate plants cannot run with the caller's credentials. The shared cache repo's config is rewritten to the origin remote alone, and its hooks and attributes are removed, before the next trial's clone, fetch or checkout, and every git command runs with hooks and fsmonitor disabled and with replacement refs ignored, so a `refs/replace` entry in the cache cannot change the content a frozen `rev` checks out. Records store the canonical substrate id `claude-code` (`--substrate claude` stays an alias). A Bash call counts toward `sources_read` only when a read command (`cat`, `sed -n`, `grep`, …) takes the source as an argument. (node #1002)
 - A ripe Errata cluster becomes one proposal file under `<soma-home>/proposals/`, ref `errata-<cluster-key>-g<generation>`, drafted from a retro-style reading of the cluster's rejected turns: a build brief naming the check for a `deterministic-check`, a question for every other kind. The triage run carries each ref it minted as `proposal_refs`, the landing map comes from the new `errata.landing` registry, and a cluster whose repo is not registered is reported once as `outputs/errata-unroutable-<date>.md` instead of proposed. soma's myelin dependency moves to v0.11.0, which carries `proposal_refs`. (#852)
+
+### Changed
+
+- A close's deadline is sized from the declared command timeouts instead of a fixed 900 s, so a probe declared at 1800 s is no longer killed at 900 s. (node #1064)
+- A close refused on a failed probe names what the probe observed. (#1035)
+- Run envelopes name their stack in `source`, not the producer. (node #1039)
+- Playbook doctrine: the bug-fix card opens with a restate step (node #1066); feature and bug-fix cards drive the project's verify skill (#1052); prototype evidence is judged at approach boundaries (node #1057).
+- Orienteer: a command probe declares an absolute `cwd`, and a soma test probe is `bun run test` on the walker's canonical clone with `timeoutSec: 1800`. (#1024, node #1025)
+- Source: the substrates, migrate and flows components live in `src/substrates/`, `src/migrate/` and `src/flows/`. (nodes #812–#815)
+- Glossary entries for the knowledge model. (node #1001)
+
+### Fixed
+
+- pi loads Soma's extensions again: `bun:ffi` is kept out of the core barrel. (#1076)
+- The `active-item-limit` Tana reader matches field values through their tuple and measures age from the Tana snapshot. (nodes #1031, #1034)
+- Review findings left open on goal records, `goal sweep`, `goal propose`, `goal add --accept` and Algorithm run sessions. (nodes #858, #927, #937, #939, #883)
 
 ### Removed
 
