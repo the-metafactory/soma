@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -456,6 +456,30 @@ test("a skill manifest satisfies a contract capability, keeping the shipped row'
     });
     expect(registry.unsupported).not.toContain("TraceMechanics");
     expect(registry.warnings).toEqual([]);
+  });
+});
+
+test("a projected skill, linked into the registry by symlink, satisfies a contract capability", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeCapabilityTable(homeDir, [TRACE_MECHANICS_ROW], "capabilities.md");
+    // The pack lives outside the registry, as an arc install does; project-skill links it in.
+    const packRoot = join(homeDir, "arc-pack", "how");
+    await mkdir(packRoot, { recursive: true });
+    await writeFile(join(packRoot, "SKILL.md"), ["---", "name: how", "description: how test skill.", "---", "", "# how", ""].join("\n"), "utf8");
+    await writeFile(
+      join(packRoot, "soma-skill.json"),
+      JSON.stringify({ schema: "soma.skill.v1", name: "how", description: "how test skill.", algorithmCapability: { satisfies: ["TraceMechanics"] } }),
+      "utf8",
+    );
+    await mkdir(join(homeDir, ".soma", "skills"), { recursive: true });
+    await symlink(packRoot, join(homeDir, ".soma", "skills", "how"));
+
+    const registry = await loadSomaHomeAlgorithmCapabilityRegistry({ homeDir });
+
+    expect(registry.definitions.find((definition) => definition.name === "TraceMechanics")).toMatchObject({
+      kind: "skill",
+      invoke: { contract: "skill", target: "how" },
+    });
   });
 });
 

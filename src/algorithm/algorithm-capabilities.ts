@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import type { AlgorithmPhase, SubstrateId } from "../core/types";
@@ -204,9 +204,12 @@ async function loadAvailableSkills(somaHome: string): Promise<{ skills: Availabl
 
   const skillCandidates: (AvailableSkill | undefined)[] = await Promise.all(
     entries
-      .filter((entry) => entry.isDirectory())
       .map(async (entry): Promise<AvailableSkill | undefined> => {
         const skillRoot = join(skillsRoot, entry.name);
+        // `soma project-skill` links installed skills into the registry, so a symlink to a directory counts.
+        const isSkillDir = entry.isDirectory()
+          || (entry.isSymbolicLink() && (await stat(skillRoot).catch(() => undefined))?.isDirectory() === true);
+        if (!isSkillDir) return undefined;
         const skillMd = await readFile(join(skillRoot, "SKILL.md"), "utf8").catch(() => undefined);
         if (!skillMd) return undefined;
 
