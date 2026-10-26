@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Substrate-portable Personal AI Assistant core.",
   "scripts": {
+    "dashboard": "bun scripts/mission-dashboard.ts",
     "lint": "eslint . --ignore-pattern \"integrations/**\"",
     "lint:fix": "eslint . --ignore-pattern \"integrations/**\" --fix",
     "soma": "bun src/cli.ts",

@@ -1215,6 +1215,7 @@ writeback boundaries as substrate sessions. See
 
 ## Documentation
 
+- [docs/mission-dashboard.md](docs/mission-dashboard.md), local read-only missions and goals prototype (`bun run dashboard`)
 - [CONTEXT.md](CONTEXT.md), the shared Soma vocabulary used by docs, CLI, and VSA
 - [docs/soma-home-layout.md](docs/soma-home-layout.md), what `soma init` creates and where Algorithm/VSA state lives
 - [docs/communication-and-behavior.md](docs/communication-and-behavior.md), the communication contract, the behavioral policy, and reference codes
