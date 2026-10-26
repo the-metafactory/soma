@@ -183,6 +183,23 @@ test("classifies feedback prompts into candidate kinds", () => {
   });
 });
 
+test("classifies the principal's failure reports and the errata marker as corrections", () => {
+  for (const text of [
+    "todays short didn't get uploaded (again)",
+    "202 parked again",
+    "I don't think the abacus timesheet job has run - I haven't received any mails",
+    "i don't see ranger#346, #347 or #348 on the ranger dashboard",
+    "the sync is still failing",
+    "das ist falsch, du hast den Test vergessen",
+    "errata: the close ran before the probe finished",
+  ]) {
+    expect(classifySomaFeedback(text).kind).toBe("correction");
+  }
+  for (const text of ["try again", "check again", "sage review again, merge when clean", "is the agent running again?"]) {
+    expect(classifySomaFeedback(text).kind).toBe("none");
+  }
+});
+
 test("captures actionable feedback as append-only candidate event", async () => {
   await withTempHome(async (homeDir) => {
     const { somaHome } = await bootstrapSomaHome({ homeDir });
@@ -301,7 +318,14 @@ test("feedback capture records the v1 envelope fields, session and actor (node #
 test("feedback capture drops machine-authored prompts (node #846)", async () => {
   await withTempHome(async (homeDir) => {
     await bootstrapSomaHome({ homeDir });
-    for (const text of ["<task-notification>you missed the arc-manifest</task-notification>", "  <pasted_content id=\"x\">you missed it</pasted_content>"]) {
+    for (const text of [
+      "<task-notification>you missed the arc-manifest</task-notification>",
+      "  <pasted_content id=\"x\">you missed it</pasted_content>",
+      "<agent-message from=\"a1\">[Subagent hand-back] you missed the arc-manifest</agent-message>",
+      "Another Claude session sent a message: <teammate-message teammate_id=\"t\">you missed it</teammate-message>",
+      "Here is a note offered by a side agent: > Heads up · the probe didn't run",
+      "This session is being continued from a previous conversation. The issue was the lock.",
+    ]) {
       const result = await captureSomaFeedback({ homeDir, substrate: "claude-code", text });
       expect(result.captured).toBe(false);
       expect(result.classification.kind).toBe("none");

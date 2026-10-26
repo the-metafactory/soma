@@ -63,7 +63,7 @@ export function classifySomaFeedback(text: string): SomaFeedbackClassification {
     return {
       kind: "none",
       confidence: "high",
-      reason: "Prompt is machine-authored (task notification or pasted content).",
+      reason: "Prompt is machine-authored (harness notification, agent message or pasted content).",
     };
   }
 
