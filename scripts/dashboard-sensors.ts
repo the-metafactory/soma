@@ -7,6 +7,7 @@ const TIMEOUT_MS = 3000;
 const CLOCK_SKEW_MS = 60_000;
 const measurementSchema = z.enum(["on-track", "at-risk", "off-track"]);
 type MeasurementState = z.infer<typeof measurementSchema>;
+// Pinned local copy of Vigil's subjects contract; import it from Vigil's package before this leaves prototype.
 const subjectSchema = z.object({
   subjectKey: z.string().min(1),
   kind: z.enum(["run", "state"]),

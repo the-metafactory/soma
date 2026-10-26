@@ -8,8 +8,10 @@ import { DEFAULT_VIGIL_URL, readSensorSource, sensorReading, validateVigilUrl, t
 /** Local, read-only prototype. Private profile data is never bundled into assets. */
 export async function dashboardSnapshot(somaHome: string, options: SensorSourceOptions = {}) {
   const warnings: GoalRecordWarning[] = [];
-  const profile = await loadSomaProfile(somaHome, { onGoalWarning: (warning) => warnings.push(warning) });
-  const source = await readSensorSource(options);
+  const [profile, source] = await Promise.all([
+    loadSomaProfile(somaHome, { onGoalWarning: (warning) => warnings.push(warning) }),
+    readSensorSource(options),
+  ]);
   return {
     loadedAt: new Date().toISOString(),
     principal: profile.principal.preferredName ?? profile.principal.name,
@@ -41,7 +43,8 @@ export function startDashboard(somaHome: string, port: number, options: SensorSo
       };
       const respond = (body: unknown, status = 200) => Response.json(body, { status, headers });
       // Reject rebinding and cross-site navigation to this private local surface.
-      if (url.host !== `127.0.0.1:${server.port}`) return respond({ error: "Invalid local host." }, 403);
+      // URL.port is empty for the scheme default, so port 80 compares as 80.
+      if (url.hostname !== "127.0.0.1" || Number(url.port || 80) !== server.port) return respond({ error: "Invalid local host." }, 403);
       if (request.headers.get("sec-fetch-site") === "cross-site") return respond({ error: "Local access only." }, 403);
       const origin = request.headers.get("origin");
       if (origin && origin !== url.origin) return respond({ error: "Local access only." }, 403);
@@ -51,10 +54,12 @@ export function startDashboard(somaHome: string, port: number, options: SensorSo
         if (url.pathname === "/api/dashboard") return respond(await dashboardSnapshot(somaHome, options));
         const match = /^\/api\/goals\/(G\d+)$/.exec(url.pathname);
         if (match) {
-          const profile = await loadSomaProfile(somaHome, { onGoalWarning: () => undefined });
+          const [profile, source] = await Promise.all([
+            loadSomaProfile(somaHome, { onGoalWarning: () => undefined }),
+            readSensorSource(options),
+          ]);
           const goal: GoalRecord | undefined = profile.purpose.goals?.find((item) => item.id === match[1]);
           if (!goal) return respond({ error: "Goal not found." }, 404);
-          const source = await readSensorSource(options);
           return respond({ ...goal, sensorReading: sensorReading(goal, source) });
         }
         return respond({ error: "Not found." }, 404);
