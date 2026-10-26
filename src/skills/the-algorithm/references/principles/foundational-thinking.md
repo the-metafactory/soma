@@ -5,7 +5,7 @@
 **Rule:** get the data shape right first, so the code that uses it becomes obvious. Structural decisions protect option value. Code-level decisions protect simplicity.
 
 - Define core types early. Trace every access pattern and pick structures that fit the common paths.
-- DRY the structure, not every line. Three similar statements beat a premature abstraction. Explicit beats clever.
+- DRY the structure, not every line. Types and data models should converge. Three similar statements beat a premature abstraction. Explicit beats clever.
 - Scaffold first. If every later phase benefits from something existing (CI, lint, test setup, shared types), build it first: setup before features, tests before fixes.
 - Each increment lands a coherent abstraction or deepens an existing one. Do not spread a new capability across callers as special-case coordination.
 - Subtraction comes before scaffolding: `references/principles/subtract-before-you-add.md`.

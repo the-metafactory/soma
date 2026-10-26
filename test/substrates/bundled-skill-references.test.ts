@@ -174,8 +174,9 @@ describe("bundled skill references", () => {
     {
       dir: "principles",
       // soma#924 moved the preflight gates and the verification rules into the vocabulary (22);
-      // the pstack port added 17 more (39), and the index now projects always-on.
-      count: [15, 40],
+      // the pstack port added 17 more (39), node #1082 added own-delegated-work and
+      // weigh-review-findings-on-merit (41), and the index now projects always-on.
+      count: [15, 41],
       indexMaxLines: 55,
       maxLines: 24,
       shape: (body) => [

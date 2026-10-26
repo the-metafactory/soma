@@ -2,7 +2,7 @@
 
 **When it applies:** any non-trivial work: edits, migrations, analyses, checks. The bar is triviality, not repetition.
 
-**Rule:** build the tool that does or proves the work (a codemod, a script, a generator, a rerunnable check) instead of doing it by hand. A reviewer can rerun the tool; hand work can only be re-verified by redoing it.
+**Rule:** build the tool that does or proves the work (a codemod, a script, a generator, a rerunnable check, a dump-to-sqlite query for analysis) instead of doing it by hand. A reviewer can rerun the tool; hand work can only be re-verified by redoing it. Trivial means a couple of obvious edits you can see at a glance.
 
 - Do the first unit by hand to learn the recipe, then build the tool. Prove it by rerunning it on that unit and diffing against your hand result. Keep it safe to rerun.
 - A deterministic tool beats fan-out. If one pass covers every unit, run it yourself instead of spreading hand edits across helpers.

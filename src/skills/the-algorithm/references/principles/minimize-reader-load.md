@@ -2,7 +2,7 @@
 
 **When it applies:** you review or shape code that is hard to trace.
 
-**Rule:** measure the work a reader must do on two axes: layers to trace between the question and the answer, and hidden or mutable state to hold in mind. Cut whichever is high. Line counts and complexity scores are proxies.
+**Rule:** measure the work a reader must do on two axes: layers to trace between the question and the answer, and hidden or mutable state to hold in mind. The two axes are independent: a flat file with 50 globals can be as hard to reason about as a six-layer adapter stack, so guard both. Cut whichever is high. Line counts and complexity scores are proxies.
 
 - Inline wrappers with one caller, adapters with no second implementation, and indirection nobody needed.
 - A layer that repeats the methods and arguments of the next one adds load without compression. Collapse it.
