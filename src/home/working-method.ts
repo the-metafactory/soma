@@ -41,7 +41,8 @@ const REPLY_RULES = [
 const CARD_RULE =
   "- When a task matches a playbook card, copy its steps, verbatim and numbered, as the first items of the todo list. A step you choose not to do stays as `skip: <reason>`. A greeting or a one-line answer needs no card.";
 
-export interface PlaybooksIndex {
+/** An index's text and the directory its relative `references/` pointers resolve against. */
+export interface SkillIndex {
   readonly source: string;
   readonly referencesDir: string;
 }
@@ -85,18 +86,17 @@ function triggersSection(routes: readonly SkillRoute[]): string[] {
 }
 
 export function renderWorkingMethod(
-  referencesDir: string,
-  sources: { principles?: string; playbooks?: PlaybooksIndex; triggers?: readonly SkillRoute[] },
+  sources: { principles?: SkillIndex; playbooks?: SkillIndex; triggers?: readonly SkillRoute[] },
 ): string {
-  const { playbooks } = sources;
+  const { principles, playbooks, triggers } = sources;
   return [
     WORKING_METHOD_HEADING,
     "",
     ...REPLY_RULES,
     ...(playbooks === undefined ? [] : [CARD_RULE]),
-    ...(sources.principles === undefined ? [] : ["", ...section("Principles", sources.principles, referencesDir)]),
+    ...(principles === undefined ? [] : ["", ...section("Principles", principles.source, principles.referencesDir)]),
     ...(playbooks === undefined ? [] : ["", ...section("Playbooks", playbooks.source, playbooks.referencesDir)]),
-    ...(sources.triggers === undefined || sources.triggers.length === 0 ? [] : ["", ...triggersSection(sources.triggers)]),
+    ...(triggers === undefined || triggers.length === 0 ? [] : ["", ...triggersSection(triggers)]),
   ].join("\n");
 }
 
@@ -109,6 +109,11 @@ async function readOptional(path: string): Promise<string | undefined> {
     if (code === "ENOENT" || code === "ENOTDIR") return undefined;
     throw error;
   }
+}
+
+async function readIndex(path: string, referencesDir: string): Promise<SkillIndex | undefined> {
+  const source = await readOptional(path);
+  return source === undefined ? undefined : { source, referencesDir };
 }
 
 /** Every skill under `skillsDir` whose SKILL.md declares a `route:`, sorted by directory name. */
@@ -136,14 +141,11 @@ export async function readSkillRoutes(skillsDir: string): Promise<SkillRoute[]> 
  */
 export async function readWorkingMethod(referencesDir: string, skillsDir?: string): Promise<WorkingMethod | undefined> {
   const playbooksDir = skillsDir === undefined ? undefined : join(skillsDir, PLAYBOOKS_SKILL);
-  const [principles, playbooksSource, triggers] = await Promise.all([
-    readOptional(join(referencesDir, "principles.md")),
-    playbooksDir === undefined ? Promise.resolve(undefined) : readOptional(join(playbooksDir, "SKILL.md")),
-    skillsDir === undefined ? Promise.resolve([]) : readSkillRoutes(skillsDir),
+  const [principles, playbooks, triggers] = await Promise.all([
+    readIndex(join(referencesDir, "principles.md"), referencesDir),
+    playbooksDir === undefined ? undefined : readIndex(join(playbooksDir, "SKILL.md"), join(playbooksDir, "references")),
+    skillsDir === undefined ? [] : readSkillRoutes(skillsDir),
   ]);
-  if (principles === undefined && playbooksSource === undefined) return undefined;
-  const playbooks = playbooksSource === undefined || playbooksDir === undefined
-    ? undefined
-    : { source: playbooksSource, referencesDir: join(playbooksDir, "references") };
-  return { content: renderWorkingMethod(referencesDir, { principles, playbooks, triggers }) };
+  if (principles === undefined && playbooks === undefined) return undefined;
+  return { content: renderWorkingMethod({ principles, playbooks, triggers }) };
 }

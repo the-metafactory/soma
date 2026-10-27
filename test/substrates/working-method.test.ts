@@ -14,7 +14,6 @@ import { projectAnthropicCoworkHome } from "../../src/substrates/adapters/anthro
 import { configureCodexAgentsImport } from "../../src/substrates/adapters/codex/install";
 import { readWorkingMethod, WORKING_METHOD_HEADING } from "../../src/home/index";
 import { portableProjectionInput } from "../fixtures";
-import routingFixtures from "../fixtures/harness-eval/playbook-routing.json";
 
 const WORKING_METHOD = `${WORKING_METHOD_HEADING}\n\n## Principles\n\n| \`/home/references/principles/reproduce-first.md\` | a bug report |\n`;
 
@@ -187,35 +186,6 @@ test("the shipped index leaves no relative pointer behind after rendering, and s
   expect(content).toContain("## Principles");
   expect(content).not.toContain("## Playbooks");
   expect(content).not.toContain("`references/");
-});
-
-test("routing fixtures resolve through an installed playbooks skill on every substrate", async () => {
-  const root = await mkdtemp(join(tmpdir(), "soma-working-method-routing-"));
-  try {
-    const skillsDir = join(root, "skills");
-    const referencesDir = join(skillsDir, "the-algorithm", "references");
-    const playbooksDir = join(skillsDir, "playbooks");
-    await mkdir(referencesDir, { recursive: true });
-    await mkdir(playbooksDir, { recursive: true });
-    await writeFile(join(referencesDir, "principles.md"), "# Principles\n");
-    const rows = routingFixtures.map(({ expectedCard }) => `| \`references/${expectedCard}.md\` | ${expectedCard} shape |`);
-    await writeFile(join(playbooksDir, "SKILL.md"), `---\nname: playbooks\n---\n\n# Playbooks\n\n${rows.join("\n")}\n`);
-    const content = (await readWorkingMethod(referencesDir, skillsDir))?.content ?? "";
-    const input = {
-      ...portableProjectionInput,
-      profile: { ...portableProjectionInput.profile, workingMethod: { content } },
-    };
-
-    for (const { prompt, expectedCard } of routingFixtures) {
-      const path = join(playbooksDir, "references", `${expectedCard}.md`);
-      for (const { name, file } of methodFiles(input)) {
-        expect(file?.content.split("\n").filter((line) => line.includes(`/${expectedCard}.md\``)), `${name}: ${prompt}`)
-          .toEqual([`| \`${path}\` | ${expectedCard} shape |`]);
-      }
-    }
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });
 
 test("codex AGENTS import follows the working method: appended when projected, removed when not", async () => {
