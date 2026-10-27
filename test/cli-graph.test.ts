@@ -488,7 +488,7 @@ test("node --json reports the close deadline from closeDeadlineSec", async () =>
   const store = new FakeStore()
     .seed("601", { node: autoNode("601", { probes: [command(1800), gitRef] }) })
     .seed("602", { node: autoNode("602", { probes: [command(1900), gitRef] }) })
-    .seed("603", { node: { id: "603", title: "no probes", autonomy: "approve", checkpointId: "cp-603" } as WorkGraphNode })
+    .seed("603", { node: { id: "603", title: "no probes", autonomy: "approve", checkpointId: "cp-603" } })
     .seed("604", { node: autoNode("604", { probes: [command(300)] }) });
   const deadline = async (id: string): Promise<unknown> => JSON.parse(await run(["graph", "node", id, "--json"], store)).closeDeadlineSec;
 
