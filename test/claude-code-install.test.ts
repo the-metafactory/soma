@@ -7,7 +7,7 @@ import { lstat, mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { bootstrapSomaHome, planSomaForClaudeCodeInstall, uninstallSomaForClaudeCode } from "../src/flows/index";
 import { projectClaudeCodeHome } from "../src/substrates/index";
@@ -288,7 +288,7 @@ test("issue #236: claude-code install wires Soma-owned hooks without overwriting
     expect(JSON.stringify(settings)).toContain("echo user-start");
     expect(JSON.stringify(settings)).toContain(config.bunPath);
     expect(Object.keys(settings.hooks).sort()).toEqual(["PostToolUse", "SessionEnd", "SessionStart", "SubagentStart", "SubagentStop"]);
-    expect(countSomaHookCommands(settings)).toBe(5);
+    expect(countSomaHookCommands(settings)).toBe(6);
     expect(JSON.stringify(settings)).not.toContain("soma-mode-classifier");
   });
 });
@@ -924,5 +924,21 @@ test("mode classifier routes task notices and ranger escalations natively", asyn
       expect(output.hookSpecificOutput?.additionalContext).not.toContain("(explicit)");
     }
     expect(runClaudeModeClassifierHook(homeDir, { hook_event_name: "Notification", message: "E1 implement adapter" })).toEqual({ continue: true });
+  });
+});
+
+test("mode classifier adds a playbook hint only when prompt text names a card the home has", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir });
+    const card = join(homeDir, ".soma/skills/the-algorithm/references/playbooks/bug-fix.md");
+    await mkdir(dirname(card), { recursive: true });
+    await writeFile(card, "# Playbook: Bug fix\n", "utf8");
+
+    const hint = runClaudeModeClassifierHook(homeDir, { prompt: "the login page is broken since yesterday" }).hookSpecificOutput?.additionalContext;
+    expect(hint).toContain(`Playbook hint: bug-fix. If the task fits, read ${card}`);
+    expect(runClaudeModeClassifierHook(homeDir, { prompt: "good, implement these things" }).hookSpecificOutput?.additionalContext).not.toContain("Playbook hint");
+
+    await rm(card);
+    expect(runClaudeModeClassifierHook(homeDir, { prompt: "the login page is broken since yesterday" }).hookSpecificOutput?.additionalContext).not.toContain("Playbook hint");
   });
 });

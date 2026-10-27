@@ -443,6 +443,27 @@ async function writeback(config, input, kind, summary, source) {
   scheduleWritebackFlush(config);
 }
 
+function isInstalled(path) {
+  try {
+    return statSync(path).isFile();
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTDIR")) return false;
+    throw error;
+  }
+}
+
+function nudge(config, input, rules) {
+  const tool = typeof input.tool_name === "string" ? input.tool_name : "";
+  const command = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
+  const lines = rules
+    .filter((rule) => new RegExp(rule.tool).test(tool) && (rule.command === undefined || new RegExp(rule.command).test(command)))
+    .map((rule) => ({ rule, path: join(config.somaHome, rule.file) }))
+    .filter(({ path }) => isInstalled(path))
+    .map(({ rule, path }) => rule.text.replace("{path}", path));
+  if (lines.length === 0) return;
+  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: lines.join("\n") } }));
+}
+
 async function main() {
   const config = readConfig();
   const event = process.argv[2];
@@ -455,6 +476,7 @@ async function main() {
   if (!handler) return;
   if (handler.kind === "lifecycle") lifecycle(config, handler.lifecycleEvent, input);
   else if (handler.kind === "writeback") await writeback(config, input, handler.eventKind, handler.eventSummary, handler.source);
+  else if (handler.kind === "nudge") nudge(config, input, handler.rules);
 }
 
 main().catch(() => {

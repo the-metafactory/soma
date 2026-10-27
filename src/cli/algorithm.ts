@@ -21,7 +21,7 @@ import {
   verifyAlgorithmCriterion,
 } from "../algorithm/algorithm";
 import { listAlgorithmRuns, listAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "../algorithm/algorithm-store";
-import { classifyAlgorithmPrompt } from "../algorithm/algorithm-classifier";
+import { classifyAlgorithmPrompt, classifyPlaybookCard, type PlaybookCardHint } from "../algorithm/algorithm-classifier";
 import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../algorithm/algorithm-reflection-digest";
 import { parsePaiReflections } from "../algorithm/algorithm-reflection-import";
 import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm/algorithm-capabilities";
@@ -769,8 +769,9 @@ function formatAlgorithmClassification(classification: AlgorithmPromptClassifica
   ].join("\n");
 }
 
-function formatAlgorithmClassificationJson(classification: AlgorithmPromptClassification): string {
-  return `${JSON.stringify(classification)}\n`;
+/** `card` is a hint for the substrate hook, outside the classification the pi-dev copy mirrors. */
+function formatAlgorithmClassificationJson(classification: AlgorithmPromptClassification, card: PlaybookCardHint | undefined): string {
+  return `${JSON.stringify(card === undefined ? classification : { ...classification, card })}\n`;
 }
 
 /**
@@ -780,11 +781,13 @@ function formatAlgorithmClassificationJson(classification: AlgorithmPromptClassi
 async function runAlgorithmClassify(options: AlgorithmCliOptions, prompt: string): Promise<string> {
   const started = performance.now();
   const classification = classifyAlgorithmPrompt(prompt);
+  const card = classifyPlaybookCard(prompt);
   const latencyMs = Math.round((performance.now() - started) * 1000) / 1000;
 
   if (options.record) {
     const decision: Record<string, string> = { mode: classification.mode };
     if (classification.effort) decision.effort = classification.effort;
+    if (card) decision.card = card;
     await recordJudgment(defaultSomaHome(options), {
       v: 1,
       ts: new Date().toISOString(),
@@ -800,7 +803,7 @@ async function runAlgorithmClassify(options: AlgorithmCliOptions, prompt: string
     });
   }
 
-  return options.json ? formatAlgorithmClassificationJson(classification) : formatAlgorithmClassification(classification);
+  return options.json ? formatAlgorithmClassificationJson(classification, card) : formatAlgorithmClassification(classification);
 }
 
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
