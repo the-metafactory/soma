@@ -21,7 +21,7 @@ import {
 // Receipt-rendering tests reach the defining module directly (sage on
 // #584); collapseHome stays internal to graph.
 import { collapseHome, describeProbeTree } from "../src/graph/work-graph";
-import { WorkGraphError, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
+import { WorkGraphError, closeDeadlineSec, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const SERVES_CHART = ["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map"];
@@ -480,6 +480,32 @@ test("node renders a hand-authored ticket as the fail-safe class it reports", as
   expect(output).toContain("probes: none declared");
   expect(output).toContain("blocked by: 497 (closed)");
   expect(output).toContain("parent: 495");
+});
+
+test("node --json reports the close deadline from closeDeadlineSec", async () => {
+  const command = (timeoutSec: number): Probe => ({ type: "command", run: "bun run test", timeoutSec, expectExit: 0 });
+  const gitRef: Probe = { type: "git-ref-exists", ref: "HEAD" };
+  const store = new FakeStore()
+    .seed("601", { node: autoNode("601", { probes: [command(1800), gitRef] }) })
+    .seed("602", { node: autoNode("602", { probes: [command(1900), gitRef] }) })
+    .seed("603", { node: { id: "603", title: "no probes", autonomy: "approve", checkpointId: "cp-603" } })
+    .seed("604", { node: autoNode("604", { probes: [command(300)] }) });
+  const deadline = async (id: string): Promise<unknown> => JSON.parse(await run(["graph", "node", id, "--json"], store)).closeDeadlineSec;
+
+  expect(await deadline("601")).toBe(closeDeadlineSec([command(1800), gitRef]));
+  expect(await deadline("601")).toBe(1860);
+  expect(await deadline("602")).toBe(1960);
+  expect(await deadline("603")).toBe(900);
+  expect(await deadline("604")).toBe(900);
+});
+
+test("node --json omits the close deadline for an untyped node, and text is unchanged", async () => {
+  const store = new FakeStore().seed("605", {
+    node: { id: "605", title: "hand-authored", autonomy: "approve" },
+    typed: false,
+  });
+  expect(JSON.parse(await run(["graph", "node", "605", "--json"], store))).not.toHaveProperty("closeDeadlineSec");
+  expect(await run(["graph", "node", "605"], store)).not.toContain("closeDeadlineSec");
 });
 
 // --- the ref selects the store (#535 D1, #536 D1) -----------------------------
