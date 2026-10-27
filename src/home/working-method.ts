@@ -12,10 +12,13 @@ import type { WorkingMethod } from "./types";
  * Before this projection the indexes sat in `references/` of the-algorithm
  * skill, so a NATIVE turn never saw them.
  *
- * Source is the installed the-algorithm skill in the Soma home, not the
- * bundled copy: the index points at leaf files, and the pointers must resolve
- * to the files a substrate can actually read. The relative `references/...`
- * pointers are rewritten to absolute paths under that directory.
+ * Source is the installed skills in the Soma home, not the bundled copy: the
+ * index points at leaf files, and the pointers must resolve to the files a
+ * substrate can actually read. The principles index comes from the-algorithm
+ * skill; the playbooks index is the SKILL.md of the `playbooks` skill, which
+ * the soma-pstack pack installs, so a home without the pack has no Playbooks
+ * section. Each index's relative `references/...` pointers are rewritten to
+ * absolute paths under its own skill's `references/` directory.
  *
  * Triggers is poteto-mode's "Remaining triggers" list. A skill declares a
  * `route:` line in its frontmatter, and the index carries that condition with
@@ -26,13 +29,23 @@ import type { WorkingMethod } from "./types";
 
 export const WORKING_METHOD_HEADING = "# Working Method";
 
+export const PLAYBOOKS_SKILL = "playbooks";
+
 const REPLY_RULES = [
   "The principles and playbooks below apply in every mode, not only in Algorithm runs. This index is always loaded; read a principle or card file when its trigger fires.",
   "",
   "- Read a principle's file before applying it. Cite only principles whose file you read this session.",
   "- Name a principle only next to the decision it changed. A principle named with no decision behind it is name-dropping; leave it out.",
-  "- When a task matches a playbook card, copy its steps, verbatim and numbered, as the first items of the todo list. A step you choose not to do stays as `skip: <reason>`. A greeting or a one-line answer needs no card.",
 ];
+
+const CARD_RULE =
+  "- When a task matches a playbook card, copy its steps, verbatim and numbered, as the first items of the todo list. A step you choose not to do stays as `skip: <reason>`. A greeting or a one-line answer needs no card.";
+
+/** An index's text and the directory its relative `references/` pointers resolve against. */
+export interface SkillIndex {
+  readonly source: string;
+  readonly referencesDir: string;
+}
 
 export interface SkillRoute {
   readonly path: string;
@@ -40,6 +53,7 @@ export interface SkillRoute {
 }
 
 const FRONTMATTER = /^---\n([\s\S]*?)\n---/;
+const FRONTMATTER_BLOCK = /^---\n[\s\S]*?\n---\n+/;
 const ROUTE_KEY = /^route:\s*(.+?)\s*$/m;
 
 /** The `route:` value of a SKILL.md frontmatter block, unquoted; `undefined` when absent. */
@@ -49,9 +63,10 @@ export function skillRoute(content: string): string | undefined {
   return value?.replace(/^"(.*)"$/, "$1");
 }
 
-/** Drop the source's own H1 and rewrite `references/` pointers to absolute paths. */
+/** Drop the source's frontmatter and own H1, and rewrite `references/` pointers to absolute paths. */
 function section(heading: string, source: string, referencesDir: string): string[] {
   const body = source
+    .replace(FRONTMATTER_BLOCK, "")
     .replace(/^# .*\n+/, "")
     .replaceAll("`references/", `\`${referencesDir}/`)
     .trimEnd();
@@ -71,16 +86,17 @@ function triggersSection(routes: readonly SkillRoute[]): string[] {
 }
 
 export function renderWorkingMethod(
-  referencesDir: string,
-  sources: { principles?: string; playbooks?: string; triggers?: readonly SkillRoute[] },
+  sources: { principles?: SkillIndex; playbooks?: SkillIndex; triggers?: readonly SkillRoute[] },
 ): string {
+  const { principles, playbooks, triggers } = sources;
   return [
     WORKING_METHOD_HEADING,
     "",
     ...REPLY_RULES,
-    ...(sources.principles === undefined ? [] : ["", ...section("Principles", sources.principles, referencesDir)]),
-    ...(sources.playbooks === undefined ? [] : ["", ...section("Playbooks", sources.playbooks, referencesDir)]),
-    ...(sources.triggers === undefined || sources.triggers.length === 0 ? [] : ["", ...triggersSection(sources.triggers)]),
+    ...(playbooks === undefined ? [] : [CARD_RULE]),
+    ...(principles === undefined ? [] : ["", ...section("Principles", principles.source, principles.referencesDir)]),
+    ...(playbooks === undefined ? [] : ["", ...section("Playbooks", playbooks.source, playbooks.referencesDir)]),
+    ...(triggers === undefined || triggers.length === 0 ? [] : ["", ...triggersSection(triggers)]),
   ].join("\n");
 }
 
@@ -93,6 +109,11 @@ async function readOptional(path: string): Promise<string | undefined> {
     if (code === "ENOENT" || code === "ENOTDIR") return undefined;
     throw error;
   }
+}
+
+async function readIndex(path: string, referencesDir: string): Promise<SkillIndex | undefined> {
+  const source = await readOptional(path);
+  return source === undefined ? undefined : { source, referencesDir };
 }
 
 /** Every skill under `skillsDir` whose SKILL.md declares a `route:`, sorted by directory name. */
@@ -114,16 +135,17 @@ export async function readSkillRoutes(skillsDir: string): Promise<SkillRoute[]> 
 }
 
 /**
- * Absent indexes → `undefined`: a home without the-algorithm installed projects
- * no working method rather than one with dead pointers. Any other read error
- * propagates.
+ * Absent indexes → `undefined`: a home with neither the-algorithm nor the
+ * playbooks skill installed projects no working method rather than one with
+ * dead pointers. Any other read error propagates.
  */
 export async function readWorkingMethod(referencesDir: string, skillsDir?: string): Promise<WorkingMethod | undefined> {
+  const playbooksDir = skillsDir === undefined ? undefined : join(skillsDir, PLAYBOOKS_SKILL);
   const [principles, playbooks, triggers] = await Promise.all([
-    readOptional(join(referencesDir, "principles.md")),
-    readOptional(join(referencesDir, "playbooks.md")),
-    skillsDir === undefined ? Promise.resolve([]) : readSkillRoutes(skillsDir),
+    readIndex(join(referencesDir, "principles.md"), referencesDir),
+    playbooksDir === undefined ? undefined : readIndex(join(playbooksDir, "SKILL.md"), join(playbooksDir, "references")),
+    skillsDir === undefined ? [] : readSkillRoutes(skillsDir),
   ]);
   if (principles === undefined && playbooks === undefined) return undefined;
-  return { content: renderWorkingMethod(referencesDir, { principles, playbooks, triggers }) };
+  return { content: renderWorkingMethod({ principles, playbooks, triggers }) };
 }

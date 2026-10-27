@@ -237,12 +237,9 @@ test("AC-4: installSomaForClaudeCode is idempotent (second install bytes-identic
     const settingsBefore = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
     const principlesPath = join(homeDir, ".claude/rules/soma/PRINCIPLES.md");
     const principlesBefore = await readFile(principlesPath, "utf8");
-    for (const card of ["prototype", "planning"]) {
-      const path = join(homeDir, ".soma/skills/the-algorithm/references/playbooks", `${card}.md`);
-      expect(principlesBefore.split("\n").filter((line) => line.includes(`\`${path}\``))).toHaveLength(1);
-      expect(await readFile(join(homeDir, ".claude/skills/the-algorithm/references/playbooks", `${card}.md`), "utf8"))
-        .toBe(await readFile(path, "utf8"));
-    }
+    // Vanilla Soma ships no cards; the soma-pstack pack's `playbooks` skill does.
+    expect(principlesBefore).not.toContain("## Playbooks");
+    expect(principlesBefore).not.toContain("playbook card, copy its steps");
     await installSomaForClaudeCode({ runtimeSourceRoot: STUB_RUNTIME_SOURCE, homeDir });
     const after = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
     const settingsAfter = await readFile(join(homeDir, ".claude/settings.json"), "utf8");
@@ -930,7 +927,7 @@ test("mode classifier routes task notices and ranger escalations natively", asyn
 test("mode classifier adds a playbook hint only when prompt text names a card the home has", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir });
-    const card = join(homeDir, ".soma/skills/the-algorithm/references/playbooks/bug-fix.md");
+    const card = join(homeDir, ".soma/skills/playbooks/references/bug-fix.md");
     await mkdir(dirname(card), { recursive: true });
     await writeFile(card, "# Playbook: Bug fix\n", "utf8");
 

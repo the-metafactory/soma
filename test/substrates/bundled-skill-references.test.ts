@@ -11,7 +11,7 @@ const SKILLS_ROOT = resolve(import.meta.dir, "../..", "src", "skills");
 /**
  * Matches an in-repo skill-relative pointer the way a bundled skill writes one:
  * a backticked path under `references/`, `Workflows/`, or `Examples/` ending in
- * `.md`, nested directories included (`references/playbooks/bug-fix.md`).
+ * `.md`, nested directories included (`references/principles/reproduce-first.md`).
  * Deliberately narrow — prose that merely mentions a directory ("the
  * references above") must not read as a pointer, or the guard becomes noise
  * nobody trusts.
@@ -134,17 +134,12 @@ describe("bundled skill references", () => {
         expect(registry.unsupported).not.toContain(name);
         expect(table.split("\n").find((line) => line.startsWith(`| ${name} |`))).toEndWith("| E1+ |");
       }
-
-      const investigation = await readFile(join(references, "playbooks", "investigation.md"), "utf8");
-      const steps = investigation.split("\n").filter((line) => /^\d+\. /.test(line));
-      expect(steps.map((line) => Number(line.split(".")[0]))).toEqual([1, 2, 3, 4, 5, 6, 7]);
-      expect(steps[2]).toContain("For a how question, trace it through the registry's `TraceMechanics`; for a why question, through `TraceIntent`.");
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
   });
 
-  // soma#922: the playbook cards and the principles are short by contract — the
+  // soma#922: the principles are short by contract — the
   // whole point of the layer is text cheap enough to load per run. A leaf the
   // index does not name is unreachable (the agent routes through the index), so
   // coverage is checked from the leaf side, not just pointer resolution.
@@ -153,24 +148,6 @@ describe("bundled skill references", () => {
   const hasLine = (body: string[], prefix: string): boolean => body.some((line) => line.startsWith(prefix));
 
   const LAYERS: { dir: string; count: [number, number]; indexMaxLines: number; maxLines: number; shape: (body: string[]) => string[] }[] = [
-    {
-      dir: "playbooks",
-      count: [8, 11], // Nine original cards plus prototype and planning (node #1053).
-      indexMaxLines: 40,
-      maxLines: 39,
-      shape: (body) => {
-        const steps = body.filter((line) => /^\d+\. /.test(line)).length;
-        return [
-          ...(steps < 6 || steps > 10 ? [`${steps} numbered steps`] : []),
-          ...(hasLine(body, "**Task shape:**") ? [] : ["no Task shape"]),
-          ...(hasLine(body, "**You own:**") ? [] : ["no You own"]),
-          ...(hasLine(body, "## Steps") ? [] : ["no Steps section"]),
-          ...(hasLine(body, "## Criteria") ? [] : ["no Criteria section"]),
-          ...(hasLine(body, "## Principles") ? [] : ["no Principles section"]),
-          ...(body.at(-1)?.startsWith("**Reply:**") === true ? [] : ["does not end with a Reply line"]),
-        ];
-      },
-    },
     {
       dir: "principles",
       // soma#924 moved the preflight gates and the verification rules into the vocabulary (22);

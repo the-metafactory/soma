@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `soma graph close --dry-run` no longer runs `command` probes. It still runs every other gate and the non-command probes, lists each command probe as `would run: <run> in <cwd>, bound <timeoutSec>s`, shows it as not run in the previewed receipt, and reports `would be ACCEPTED pending N command probe(s)` or `would be REFUSED`. `--dry-run --run-probes` runs them for the full parity check; `--run-probes` without `--dry-run` is refused. (node #1103)
+- The playbook cards move out of the-algorithm into the soma-pstack pack's `playbooks` skill. The working method reads the Playbooks section from `<soma-home>/skills/playbooks/SKILL.md` and points each row at that skill's `references/`, and the mode hook's card hint points there too. A home without the pack projects no Playbooks section and no card rule. Principles stay in the-algorithm.
 
 ## [0.28.0] - 2026-10-26
 
