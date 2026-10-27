@@ -158,7 +158,8 @@ Close directly. The verb runs the probes and derives the evidence from them;
 `--evidence` may add entries but never substitutes for a passed probe.
 
 ```bash
-soma graph close <id> --resolution-file <path> --dry-run   # preview, write nothing
+soma graph close <id> --resolution-file <path> --dry-run   # preview, write nothing; lists command probes, runs none
+soma graph close <id> --resolution-file <path> --dry-run --run-probes   # preview that runs them too
 soma graph close <id> --resolution-file <path>
 ```
 

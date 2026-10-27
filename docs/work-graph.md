@@ -728,6 +728,8 @@ soma graph chart ... [--serves G<n>] # create a typed graph root; GitLab require
                                    # --home-project <group/project>
 soma graph close <node>            # runs declared probes; refuses a hollow close;
                                    # refuses an already-closed node, --dry-run too;
+                                   # --dry-run lists command probes without running
+                                   # them, --dry-run --run-probes runs them (#1103);
                                    # --gist records the map index's one-line entry
 soma graph audit <root>            # what the gates cannot see: closed nodes with
                                    # no receipt (a tracker-side close — the gate
@@ -1030,6 +1032,21 @@ closer, so a collaborator who *can* push and trigger CI can still mint a passing
 run on a trivial commit and cite it. The binding refuses the fabricated-run
 forgery (the common, issue-only-editor case); it does not replace
 checkpoint-owned verification of what the probes actually ran against.
+
+**A dry run lists command probes; it does not run them** (#1103). `--dry-run`
+runs every gate that needs no command: the resolution, the closed-node refusal,
+the registry and probe-tree gates on each probe, the CI citation, the proposal
+veto, the attestation, and the non-command probes (`artifact-exists`,
+`git-ref-exists`, `git-merged-into`, `url`), each bounded by a fixed timeout.
+A command probe that passes its gates is reported as `would run: <run> in <cwd>,
+bound <timeoutSec>s` and stays `specified, not run` in the previewed receipt; the
+verdict reads `would be ACCEPTED pending N command probe(s)`, or `would be
+REFUSED` for any refusal reachable without running them. A dry run never reports
+an unrun probe as passed. `--dry-run --run-probes` runs the command probes too,
+for the full parity check with the write; `--run-probes` without `--dry-run` is
+refused, since a close always runs them. The cost that made this the default: a
+dry run of a node declaring its full suite ran that suite for ten minutes on a
+loaded host, after its PR had merged green.
 
 ### 3.2 HITL (`propose` / `approve`)
 

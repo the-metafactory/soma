@@ -199,6 +199,16 @@ export interface ProbeRunnerOptions {
   remainingSec?: number;
   /** Override the close deadline. Tests and callers that measure their own clock; defaults to {@link closeDeadlineSec} of the probes. */
   deadlineSec?: number;
+  /**
+   * List `command` probes instead of running them (#1103). A command probe that
+   * passes both gates comes back `specified`, never `probed`, so the close gate
+   * still reads it as not run; a refused or escaping one still fails, because
+   * the gates decide before anything executes. `soma graph close --dry-run` sets
+   * it: a full suite is the most useful close evidence a node can declare, and a
+   * preview should not cost one. The other probe types still run — each is
+   * bounded by a fixed spawn or fetch timeout.
+   */
+  listCommands?: boolean;
   deps?: Partial<ProbeRunnerDeps>;
 }
 
@@ -636,7 +646,9 @@ export function authorizeProbeTree(probe: Probe, baseCwd: string): ProbeAuthoriz
 /**
  * Run one probe. Always resolves to a `probed` result — pass or fail — because a
  * probe that throws is a probe that did not pass, and the close gate needs that
- * as data, not as an exception to interpret.
+ * as data, not as an exception to interpret. The one exception is a gated-in
+ * `command` probe under {@link ProbeRunnerOptions.listCommands}, which resolves
+ * `specified`: it did not run, and the result says so.
  */
 export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promise<ProbeResult> {
   const deps = resolveDeps(options);
@@ -680,6 +692,10 @@ export async function runProbe(probe: Probe, options: ProbeRunnerOptions): Promi
     const authorization = authorizeProbe(probe, resolvedCwd, options.registry);
     if (!authorization.allowed) {
       return finish("fail", authorization.reason);
+    }
+
+    if (probe.type === "command" && options.listCommands === true) {
+      return { probe, state: "specified" };
     }
 
     switch (probe.type) {
