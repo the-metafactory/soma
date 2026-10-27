@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `soma graph close --dry-run` no longer runs `command` probes. It still runs every other gate and the non-command probes, lists each command probe as `would run: <run> in <cwd>, bound <timeoutSec>s`, shows it as not run in the previewed receipt, and reports `would be ACCEPTED pending N command probe(s)` or `would be REFUSED`. `--dry-run --run-probes` runs them for the full parity check; `--run-probes` without `--dry-run` is refused. (node #1103)
+
 ## [0.28.0] - 2026-10-26
 
 ### Added

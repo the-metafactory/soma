@@ -124,7 +124,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
-      "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run] [--repo <forge>:<host>/<path>]",
+      "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run [--run-probes]] [--repo <forge>:<host>/<path>] — a dry run lists command probes without running them; --run-probes runs them",
     audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--json] — scoped audits omit unchecked findings",
     decisions: "Usage: soma graph decisions <root> [--write] [--repo <forge>:<host>/<path>] [--json]",
     "file-proposal":
@@ -213,6 +213,8 @@ export interface ParsedGraphCloseArgs {
     ci?: { checkRunId: string; headSha: string };
     identity?: string;
     dryRun?: boolean;
+    /** Only with `dryRun`: run the command probes too, for the full parity check (#1103). */
+    runProbes?: boolean;
     evidence: CloseEvidence[];
   };
 }
@@ -524,6 +526,9 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
       case "--dry-run":
         options.dryRun = true;
         break;
+      case "--run-probes":
+        options.runProbes = true;
+        break;
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -538,6 +543,14 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
   if (options.propose === true && options.dryRun === true) {
     throw new Error(
       "soma graph close --propose cannot be combined with --dry-run: proposing posts a comment, which is a write.",
+    );
+  }
+  // Refused rather than ignored, the way `--propose --dry-run` is: a close always
+  // runs every probe, so the flag would do nothing there, and a caller who typed
+  // it believed otherwise.
+  if (options.runProbes === true && options.dryRun !== true) {
+    throw new Error(
+      "soma graph close --run-probes needs --dry-run: a close always runs its probes; the flag makes a dry run run them too.",
     );
   }
   // Refused rather than silently preferring one: `--propose`'s body already *is*
@@ -643,7 +656,13 @@ export interface GraphCliDeps extends Pick<ServesOptions, "goalStatus" | "warn" 
    * never per invocation.
    */
   loadProbeRegistry: (repo: RepoRef) => Promise<ProbeRegistry>;
-  runProbes: (probes: readonly Probe[], registry: ProbeRegistry, cwd: string) => Promise<ProbeResult[]>;
+  /** `listCommands` is set on a dry run without `--run-probes` (#1103); see `ProbeRunnerOptions.listCommands`. */
+  runProbes: (
+    probes: readonly Probe[],
+    registry: ProbeRegistry,
+    cwd: string,
+    options?: { listCommands?: boolean },
+  ) => Promise<ProbeResult[]>;
   /**
    * The directory the probes run in, resolved **once** per close and passed
    * everywhere it is needed — the runner, the registry match, and the receipt.
@@ -783,6 +802,12 @@ async function mapBounded<T, R>(items: readonly T[], limit: number, run: (item: 
  * Usually one directory, so usually one git spawn; none at all for a `url`-only
  * close, which tests a host and no checkout.
  */
+/** One line for a probe a dry run listed instead of running (#1103): what would run, where, and for how long at most. */
+function describeListedProbe(probe: Probe, probeDir: string): string {
+  if (probe.type !== "command") return `would run: ${probe.type}`;
+  return `would run: \`${probe.run}\` in ${probeDirectory(probe, probeDir) ?? probeDir}, bound ${probe.timeoutSec}s`;
+}
+
 async function prepareProbeTrees(
   probes: readonly Probe[],
   deps: GraphCliDeps,
@@ -858,7 +883,7 @@ function defaultDeps(): GraphCliDeps {
     createStore: createGraphStore,
     resolveRepo: async (explicit) => await resolveGraphRepo(explicit),
     loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo: probeRegistryKey(repo) }),
-    runProbes: async (probes, registry, cwd) => await defaultRunProbes(probes, { registry, cwd }),
+    runProbes: async (probes, registry, cwd, options) => await defaultRunProbes(probes, { registry, cwd, ...options }),
     probeCwd: () => invocationCwd(),
     describeProbeTree: defaultDescribeProbeTree,
     readTextFile: async (path) => await Bun.file(path).text(),
@@ -1417,7 +1442,12 @@ async function runClose(
   const registry = await deps.loadProbeRegistry(repoRef);
   const { probeDir, probeTrees } = await prepareProbeTrees(probes, deps);
 
-  const probeResults = await deps.runProbes(probes, registry, probeDir);
+  // A dry run lists command probes rather than running them unless asked to
+  // (#1103): a declared full suite took ten minutes of a loaded host to preview
+  // a close nobody was making. The gates still run, so a refused or escaping
+  // command probe is still reported; only the execution is deferred.
+  const listCommands = parsed.options.dryRun === true && parsed.options.runProbes !== true;
+  const probeResults = await deps.runProbes(probes, registry, probeDir, { listCommands });
   const refusals = probeResults.filter((result) => isProbeRefusal(result));
   const escapes = probeResults.filter((result) => isProbeEscape(result));
 
@@ -1456,14 +1486,18 @@ async function runClose(
 
   const evidence: CloseEvidence[] = [...parsed.options.evidence];
   const anchor = probeEvidencePointer(probes, probeTrees);
-  if (anchor !== undefined && allProbesPassed(probeResults)) {
-    evidence.push({
-      kind: "probed",
-      summary:
-        `${probeResults.length}/${probeResults.length} declared probes ran and passed` +
-        (probeTrees.length > 1 ? ` across ${probeTrees.length} trees` : ""),
-      pointer: anchor,
-    });
+  const probedEvidence: CloseEvidence | undefined =
+    anchor === undefined
+      ? undefined
+      : {
+          kind: "probed",
+          summary:
+            `${probeResults.length}/${probeResults.length} declared probes ran and passed` +
+            (probeTrees.length > 1 ? ` across ${probeTrees.length} trees` : ""),
+          pointer: anchor,
+        };
+  if (probedEvidence !== undefined && allProbesPassed(probeResults)) {
+    evidence.push(probedEvidence);
   }
 
   // Deliberately NOT seeded with the `state` read at the top of this function
@@ -1552,9 +1586,29 @@ async function runClose(
   };
 
   if (parsed.options.dryRun === true) {
-    let verdict = "would be ACCEPTED";
+    // The listed probes are judged on the one assumption a dry run can make about
+    // them, that they will pass, so the gate still refuses everything it can
+    // refuse without running them. That assumption lives only in this verdict
+    // receipt, which is never rendered: the receipt shown lists them as not run,
+    // and the verdict says "pending", so nothing here reads as a probe that
+    // passed (#1103).
+    const listed = probeResults.filter((result) => result.state === "specified");
+    const assumed = probeResults.map<ProbeResult>((result) =>
+      result.state === "specified"
+        ? { probe: result.probe, state: "probed", outcome: "pass", observed: "not run (dry run): assumed to pass for the verdict", at: receipt.at }
+        : result,
+    );
+    const judged: CloseReceipt =
+      listed.length === 0
+        ? receipt
+        : {
+            ...receipt,
+            probeResults: assumed,
+            evidence: probedEvidence !== undefined && allProbesPassed(assumed) ? [...evidence, probedEvidence] : evidence,
+          };
+    let verdict = listed.length === 0 ? "would be ACCEPTED" : `would be ACCEPTED pending ${listed.length} command probe(s)`;
     try {
-      assertCloseTarget(state, receipt);
+      assertCloseTarget(state, judged);
     } catch (error) {
       verdict = `would be REFUSED — ${error instanceof WorkGraphError ? error.message : String(error)}`;
     }
@@ -1563,6 +1617,13 @@ async function runClose(
       `close ${verdict}`,
       ...(refusals.length > 0
         ? ["", `Probe registry: ${refusals.length} of ${probeResults.length} probe(s) refused (${registry.path}).`]
+        : []),
+      ...(listed.length > 0
+        ? [
+            "",
+            `Not run (${listed.length} command probe(s); --run-probes runs them):`,
+            ...listed.map((result) => `- ${describeListedProbe(result.probe, probeDir)}`),
+          ]
         : []),
       "",
       renderCloseReceipt(receipt),

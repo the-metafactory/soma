@@ -1295,10 +1295,11 @@ function realRunner(
     loadProbeRegistry: async () => registry,
     // Takes the cwd the CLI resolved rather than naming one of its own: the
     // thing under test in #580 is that one stated value reaches the runner.
-    runProbes: async (probes, supplied, cwd) =>
+    runProbes: async (probes, supplied, cwd, options) =>
       await runProbes(probes, {
         cwd,
         registry: supplied,
+        ...options,
         deps: {
           runCommand: async (request) => {
             spawned?.push(request.cwd ?? "<inherited>");
@@ -1358,6 +1359,73 @@ test("--dry-run still renders the receipt when the registry refused a probe", as
   expect(output).toContain("would be REFUSED");
   expect(output).toContain("1 of 1 probe(s) refused");
   expect(output).toContain("## Close receipt");
+});
+
+// --- a dry run lists command probes rather than running them (#1103) --------
+
+test("--dry-run lists a declared command probe without running it, and never reports it passed", async () => {
+  const store = autoGraph();
+  const spawned: string[] = [];
+  const output = await run(
+    ["graph", "close", "520", "--dry-run", "--repo", REPO, ...RESOLUTION],
+    store,
+    realRunner(DECLARED, {}, spawned),
+  );
+
+  expect(spawned).toEqual([]);
+  expect(store.closed).toHaveLength(0);
+  expect(output).toContain("close would be ACCEPTED pending 1 command probe(s)");
+  expect(output).toContain("would run: `bun test` in /repo, bound 600s");
+  expect(output).toContain("`command:bun test||600|0` — specified, not run");
+  expect(output).not.toContain("**pass**");
+  expect(output).not.toContain("ran and passed");
+});
+
+test("--dry-run --run-probes runs the command probes, as a close would", async () => {
+  const store = autoGraph();
+  const spawned: string[] = [];
+  const output = await run(
+    ["graph", "close", "520", "--dry-run", "--run-probes", "--repo", REPO, ...RESOLUTION],
+    store,
+    realRunner(DECLARED, {}, spawned),
+  );
+
+  expect(spawned).toEqual(["/repo"]);
+  expect(store.closed).toHaveLength(0);
+  expect(output).toContain("close would be ACCEPTED");
+  expect(output).not.toContain("pending");
+  expect(output).not.toContain("would run:");
+  expect(output).toContain("**pass**");
+});
+
+test("--dry-run still refuses an undeclared command probe without running it", async () => {
+  const store = autoGraph();
+  const spawned: string[] = [];
+  const output = await run(
+    ["graph", "close", "520", "--dry-run", "--repo", REPO, ...RESOLUTION],
+    store,
+    realRunner({ status: "loaded", repo: REPO, path: REGISTRY_PATH, commands: [], urlHosts: [] }, {}, spawned),
+  );
+
+  expect(spawned).toEqual([]);
+  expect(output).toContain("close would be REFUSED");
+  expect(output).toContain("1 of 1 probe(s) refused");
+  expect(output).not.toContain("would run:");
+});
+
+test("--dry-run still reports a refusal it can reach without running the command probes", async () => {
+  const store = autoGraph();
+  const spawned: string[] = [];
+  const output = await run(["graph", "close", "520", "--dry-run", "--repo", REPO], store, realRunner(DECLARED, {}, spawned));
+
+  expect(spawned).toEqual([]);
+  expect(output).toContain("close would be REFUSED");
+  expect(output).toContain("without a resolution");
+  expect(output).toContain("would run: `bun test`");
+});
+
+test("--run-probes without --dry-run is refused rather than ignored", () => {
+  expect(() => parseGraphArgs(["graph", "close", "520", "--run-probes", ...RESOLUTION])).toThrow(/--run-probes needs --dry-run/u);
 });
 
 // --- the probe tree is stated, not inherited (#579, #580) -------------------
