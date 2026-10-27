@@ -4,7 +4,7 @@
 
 **Rule:** ask something that did not produce the work a specific question ("this decision point", "any gaps before done?"), not "review this". At E4 and E5, the completion audit comes from a model outside the family that did the work.
 
-The "before committing to an approach" boundary judges a concrete artifact (prototype, type sketch, measurement or failing test), produced through the Prototype card (`references/playbooks/prototype.md`), never an abstract plan.
+The "before committing to an approach" boundary judges a concrete artifact (prototype, type sketch, measurement or failing test), produced through the Prototype card (`playbooks/references/prototype.md` in the soma-pstack pack, when installed), never an abstract plan.
 
 Carve-out: the decision's output is prose (doctrine, policy, a grilling), or the approach cannot be exercised without making the commitment itself (a migration, a deploy, an external publish). The runner records the call in the run's `## Decisions`.
 

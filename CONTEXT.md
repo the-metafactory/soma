@@ -570,7 +570,7 @@ A Soma capability [[compartment]] entry. Portable folder containing `SKILL.md`, 
 
 ### playbook card (always qualified)
 
-A step list for one task shape under the Algorithm's effort tier, shipped in the-algorithm's `references/playbooks/` (soma#922). Its steps are copied verbatim into the run's todo list. **Not** a procedural memory note (`memory/procedural/<id>.md`, "playbooks / how-to" in docs/architecture.md): that is principal-learned memory, recalled by trigger; a playbook card is shipped doctrine, picked by task shape.
+A step list for one task shape under the Algorithm's effort tier, shipped by the soma-pstack pack's `playbooks` skill (`skills/playbooks/references/`); it moved there from the-algorithm's `references/playbooks/` (soma#922). A Soma home without the pack has no cards. Its steps are copied verbatim into the run's todo list. **Not** a procedural memory note (`memory/procedural/<id>.md`, "playbooks / how-to" in docs/architecture.md): that is principal-learned memory, recalled by trigger; a playbook card is shipped doctrine, picked by task shape.
 
 ### Algorithm principle (always qualified)
 

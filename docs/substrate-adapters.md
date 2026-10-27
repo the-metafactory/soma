@@ -444,15 +444,17 @@ appended system-prompt file — how the assistant talks has to be present on eve
 turn, not fetched on demand.
 
 The working method rides the same rail. `src/home/working-method.ts` reads the
-installed the-algorithm skill's `references/principles.md` and
-`references/playbooks.md`, rewrites their `references/...` pointers to absolute
-paths into `<soma-home>/skills/the-algorithm/references/`, and projects the
+installed the-algorithm skill's `references/principles.md` and, when the
+soma-pstack pack is installed, its `playbooks` skill's `SKILL.md`. It rewrites
+each index's `references/...` pointers to absolute paths into that skill's
+`references/` directory under `<soma-home>/skills/`, and projects the
 result as `PRINCIPLES.md` (claude-code home, cursor) or `principles.md`
 (everywhere else, beside `communication.md`). So the one-line indexes are in
 context in every mode, and a principle or card file is read when its trigger
 fires. This is pstack's poteto-mode shape, except that it is always on. Codex
 imports it from `AGENTS.md`, and pi-dev puts it in the extension system prompt.
-A home without the-algorithm installed projects nothing.
+A home without the pack has no Playbooks section and no card rule; a home
+with neither the-algorithm nor the pack projects nothing.
 
 The index also carries poteto-mode's trigger list. A skill kept out of the
 skill catalog (`disable-model-invocation: true`) declares a `route:` line in its
@@ -473,7 +475,8 @@ no other substrate has them yet.
   installed prints nothing.
 - `soma algorithm classify --json` adds a `card` hint (`bug-fix` or
   `investigation`) from `PLAYBOOK_CARD_RULES`, and the mode hook prints the
-  installed card's path. The hint is kept out of the mode classification, so
+  card's path under `<soma-home>/skills/playbooks/references/`, when the pack
+  installed it. The hint is kept out of the mode classification, so
   pi-dev's projected classifier is unchanged. `--record` writes it to the judge
   ledger as `decision.card`, so `soma judge` counts it.
 

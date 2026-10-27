@@ -131,13 +131,14 @@ function renderModeContext(classification) {
 }
 
 // The classifier's playbook hint names a card only when prompt text names its
-// shape. The line points at the installed card; a card the home lacks, or a
-// name that is not a plain slug, prints nothing.
+// shape. The line points at the card the soma-pstack `playbooks` skill
+// installs; a card the home lacks, or a name that is not a plain slug, prints
+// nothing.
 function renderCardHint(config, classification) {
   const card = classification.card;
   if (typeof card !== "string" || !/^[a-z][a-z-]*$/.test(card)) return "";
   if (typeof config.somaHome !== "string" || config.somaHome.length === 0) return "";
-  const path = join(config.somaHome, "skills", "the-algorithm", "references", "playbooks", `${card}.md`);
+  const path = join(config.somaHome, "skills", "playbooks", "references", `${card}.md`);
   try {
     if (!statSync(path).isFile()) return "";
   } catch (error) {

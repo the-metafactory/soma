@@ -1,8 +1,8 @@
 # pstack notice
 
-Several playbook cards (`references/playbooks.md`) and principles (`references/principles.md`) are adapted from pstack, a Cursor plugin by Lauren Tan: repository `cursor/plugins` on GitHub, directory `pstack/`.
+Several principles (`references/principles.md`) are adapted from pstack, a Cursor plugin by Lauren Tan: repository `cursor/plugins` on GitHub, directory `pstack/`.
 
-From commit `99743e9`: the principles explain-the-number, attack-the-premise, separate-before-serializing-shared-state and encode-lessons-in-structure, and the task shapes and step order of the nine cards.
+From commit `99743e9`: the principles explain-the-number, attack-the-premise, separate-before-serializing-shared-state and encode-lessons-in-structure, and, before the playbook cards moved to the soma-pstack pack, the task shapes and step order of the nine cards.
 
 From commit `b6375f1` (node #1082), restored claims and two new principles: own-delegated-work and weigh-review-findings-on-merit, adapted from the poteto-mode rules on subagent ownership and on automated review findings; one rule on a broken skill mid-task merged into build-over-ask-when-reversible.
 

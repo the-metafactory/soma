@@ -15,7 +15,6 @@ import { configureCodexAgentsImport } from "../../src/substrates/adapters/codex/
 import { readWorkingMethod, WORKING_METHOD_HEADING } from "../../src/home/index";
 import { portableProjectionInput } from "../fixtures";
 import routingFixtures from "../fixtures/harness-eval/playbook-routing.json";
-import { readBundledSkillFile } from "../../src/substrates/bundled-skill-source";
 
 const WORKING_METHOD = `${WORKING_METHOD_HEADING}\n\n## Principles\n\n| \`/home/references/principles/reproduce-first.md\` | a bug report |\n`;
 
@@ -114,28 +113,41 @@ test("pi-dev appends the working method to the system prompt, and the extension 
   new Bun.Transpiler({ loader: "ts" }).transformSync(extension);
 });
 
-test("the loader renders both indexes with absolute pointers into the installed skill", async () => {
+test("the loader renders both indexes with absolute pointers into each installed skill", async () => {
   const root = await mkdtemp(join(tmpdir(), "soma-working-method-"));
   try {
-    const referencesDir = join(root, "skills", "the-algorithm", "references");
-    expect(await readWorkingMethod(referencesDir)).toBeUndefined();
+    const skillsDir = join(root, "skills");
+    const referencesDir = join(skillsDir, "the-algorithm", "references");
+    const playbooksDir = join(skillsDir, "playbooks");
+    expect(await readWorkingMethod(referencesDir, skillsDir)).toBeUndefined();
 
     await mkdir(referencesDir, { recursive: true });
     await writeFile(
       join(referencesDir, "principles.md"),
       "# Principles\n\nRead `references/principles.local.md` first.\n\n| `references/principles/reproduce-first.md` | a bug report |\n",
     );
-    await writeFile(join(referencesDir, "playbooks.md"), "# Playbooks\n\n| `references/playbooks/bug-fix.md` | broken |\n");
+    const vanilla = (await readWorkingMethod(referencesDir, skillsDir))?.content ?? "";
+    expect(vanilla).toContain("## Principles");
+    expect(vanilla).not.toContain("## Playbooks");
+    expect(vanilla).not.toContain("playbook card, copy its steps");
 
-    const content = (await readWorkingMethod(referencesDir))?.content ?? "";
+    await mkdir(playbooksDir, { recursive: true });
+    await writeFile(
+      join(playbooksDir, "SKILL.md"),
+      "---\nname: playbooks\ndisable-model-invocation: true\n---\n\n# Playbooks\n\n| `references/bug-fix.md` | broken |\n",
+    );
+
+    const content = (await readWorkingMethod(referencesDir, skillsDir))?.content ?? "";
     expect(content.startsWith(`${WORKING_METHOD_HEADING}\n`)).toBe(true);
     expect(content).toContain("## Principles");
     expect(content).toContain("## Playbooks");
+    expect(content).toContain("playbook card, copy its steps");
     expect(content).toContain(`\`${referencesDir}/principles/reproduce-first.md\``);
     expect(content).toContain(`\`${referencesDir}/principles.local.md\``);
-    expect(content).toContain(`\`${referencesDir}/playbooks/bug-fix.md\``);
+    expect(content).toContain(`\`${join(playbooksDir, "references", "bug-fix.md")}\``);
     expect(content).not.toContain("`references/");
-    expect(content).not.toMatch(/^# Principles$/m);
+    expect(content).not.toContain("disable-model-invocation");
+    expect(content).not.toMatch(/^# (Principles|Playbooks)$/m);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -169,42 +181,40 @@ test("the loader lists only installed skills that declare a route, with absolute
   }
 });
 
-test("the shipped indexes leave no relative pointer behind after rendering", async () => {
+test("the shipped index leaves no relative pointer behind after rendering, and ships no cards", async () => {
   const referencesDir = join(import.meta.dir, "../..", "src", "skills", "the-algorithm", "references");
-  const content = (await readWorkingMethod(referencesDir))?.content ?? "";
+  const content = (await readWorkingMethod(referencesDir, join(import.meta.dir, "../..", "src", "skills")))?.content ?? "";
   expect(content).toContain("## Principles");
-  expect(content).toContain("## Playbooks");
+  expect(content).not.toContain("## Playbooks");
   expect(content).not.toContain("`references/");
 });
 
-test("routing fixtures resolve through the bundled index on every substrate", async () => {
-  const referencesDir = join(import.meta.dir, "../../src/skills/the-algorithm/references");
-  const playbooks = await readBundledSkillFile("the-algorithm", "references/playbooks.md");
-  expect(playbooks).toBe(await readFile(join(referencesDir, "playbooks.md"), "utf8"));
-  const content = (await readWorkingMethod(referencesDir))?.content ?? "";
-  const input = {
-    ...portableProjectionInput,
-    profile: { ...portableProjectionInput.profile, workingMethod: { content } },
-  };
+test("routing fixtures resolve through an installed playbooks skill on every substrate", async () => {
+  const root = await mkdtemp(join(tmpdir(), "soma-working-method-routing-"));
+  try {
+    const skillsDir = join(root, "skills");
+    const referencesDir = join(skillsDir, "the-algorithm", "references");
+    const playbooksDir = join(skillsDir, "playbooks");
+    await mkdir(referencesDir, { recursive: true });
+    await mkdir(playbooksDir, { recursive: true });
+    await writeFile(join(referencesDir, "principles.md"), "# Principles\n");
+    const rows = routingFixtures.map(({ expectedCard }) => `| \`references/${expectedCard}.md\` | ${expectedCard} shape |`);
+    await writeFile(join(playbooksDir, "SKILL.md"), `---\nname: playbooks\n---\n\n# Playbooks\n\n${rows.join("\n")}\n`);
+    const content = (await readWorkingMethod(referencesDir, skillsDir))?.content ?? "";
+    const input = {
+      ...portableProjectionInput,
+      profile: { ...portableProjectionInput.profile, workingMethod: { content } },
+    };
 
-  for (const { prompt, expectedCard, exactIndexRow } of routingFixtures) {
-    const path = `references/playbooks/${expectedCard}.md`;
-    const card = await readBundledSkillFile("the-algorithm", path);
-    const source = await readFile(join(import.meta.dir, "../../src/skills/the-algorithm", path), "utf8");
-    expect(card, prompt).toBe(source);
-    const shape = /^\*\*Task shape:\*\* (.+)\.$/m.exec(card)?.[1];
-    expect(shape, prompt).toBeDefined();
-    const rows = playbooks.split("\n").filter((line) => line.includes(`\`${path}\``));
-    expect(rows, prompt).toHaveLength(1);
-    const [row] = rows;
-    // Fixtures opt into exact index/card shape equality; other rows may abbreviate.
-    if (exactIndexRow) expect(row, prompt).toBe(`| \`${path}\` | ${shape} |`);
-
-    for (const { name, file } of methodFiles(input)) {
-      const projectedRow = row.replace(path, `${referencesDir}/playbooks/${expectedCard}.md`);
-      expect(file?.content.split("\n").filter((line) => line.includes(`/playbooks/${expectedCard}.md\``)), `${name}: ${prompt}`)
-        .toEqual([projectedRow]);
+    for (const { prompt, expectedCard } of routingFixtures) {
+      const path = join(playbooksDir, "references", `${expectedCard}.md`);
+      for (const { name, file } of methodFiles(input)) {
+        expect(file?.content.split("\n").filter((line) => line.includes(`/${expectedCard}.md\``)), `${name}: ${prompt}`)
+          .toEqual([`| \`${path}\` | ${expectedCard} shape |`]);
+      }
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
