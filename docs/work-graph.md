@@ -1263,6 +1263,15 @@ nested headings are preserved, and fenced examples do not split sections.
 Missing sections fail explicitly. With `--json`, the response contains `repo`,
 `ref`, and selected `sections`, without the full node body.
 
+### Reading the close deadline
+
+`soma graph node <id> --json` reports a top-level `closeDeadlineSec`: the
+deadline `soma graph close` would run that node's probes under, from
+`closeDeadlineSec(probes)` (max of 900 and the sum of each probe's own bound).
+A caller sizes its own timeout from this field rather than a copy of the rule.
+It is absent on an untyped node, which cannot close through the gate. The text
+rendering and the `--section` form do not carry it.
+
 ### Editing node prose
 
 `soma graph edit <id> --title "New title" --body-file brief.md` updates either

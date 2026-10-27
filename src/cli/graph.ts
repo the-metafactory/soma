@@ -45,6 +45,7 @@ import {
   agentExternalEvidenceKinds,
   assertCloseTarget,
   assertNodeOpen,
+  closeDeadlineSec,
   describeProbeTree,
   estimateReceiptChars,
   renderCloseReceipt,
@@ -990,7 +991,9 @@ async function runNode(parsed: ParsedGraphNodeArgs, graph: WorkGraph, repo: stri
     return selected.sections.map((section) => section.markdown).join("\n\n");
   }
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo, ...state }, null, 2);
+    // An untyped node cannot close through the gate, so no deadline applies to it.
+    const deadline = state.typed ? { closeDeadlineSec: closeDeadlineSec(state.node.probes ?? []) } : {};
+    return JSON.stringify({ repo, ...state, ...deadline }, null, 2);
   }
   return [`Work graph node ${parsed.target} (${repo})`, "", renderNodeState(state)].join("\n");
 }
