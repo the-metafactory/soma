@@ -554,7 +554,7 @@ test("createNode validates before the store is ever touched", async () => {
   expect(await asyncCodeOf(() => graph.createNode({ title: "t", autonomy: "auto" }))).toBe("invalid-node");
   expect(store.created).toHaveLength(0);
 
-  await graph.createNode({ title: "t", autonomy: "auto", probes: [PASSING_PROBE] });
+  await graph.createNode({ title: "t", autonomy: "auto", probes: [{ ...PASSING_PROBE, run: "bun run test" }] });
   expect(store.created).toHaveLength(1);
 });
 

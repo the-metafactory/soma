@@ -665,6 +665,21 @@ test("release refuses a closed node", async () => {
 
 // --- add --------------------------------------------------------------------
 
+test.each(["bun test", "bun test test/graph --timeout=60000", " \tbun\ttest\t--parallel=4 "])(
+  "add refuses bare test command %j before writing anything",
+  async (runCommand) => {
+    const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("498", { node: autoNode("498") });
+    const message = await failure([
+      ...addArgs("498"), "--probe", JSON.stringify({ ...PROBE, run: runCommand }),
+    ], store);
+
+    expect(message).toContain("bun run test");
+    expect(store.created).toEqual([]);
+    expect(store.edges).toEqual([]);
+    expect(store.calls).toEqual([]);
+  },
+);
+
 test("add attaches the node under the root it was given and wires blocking edges", async () => {
   const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("498", { node: autoNode("498") });
 
@@ -682,7 +697,7 @@ test("add attaches the node under the root it was given and wires blocking edges
       "--checkpoint",
       "cp-1",
       "--probe",
-      JSON.stringify(PROBE),
+      JSON.stringify({ ...PROBE, run: "bun run test" }),
       "--blocked-by",
       "498",
       "--repo",
@@ -701,6 +716,16 @@ test("add attaches the node under the root it was given and wires blocking edges
 function addArgs(...blockers: string[]): string[] {
   return ["graph", "add", "495", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-1", ...blockers.flatMap((id) => ["--blocked-by", id]), "--repo", REPO];
 }
+
+test.each(["bun run test", "bun run test test/graph --parallel=4", "bun run typecheck", "echo bun test", "bun testing"])(
+  "add accepts command %j unchanged",
+  async (runCommand) => {
+    const store = new FakeStore().seed("495", { node: autoNode("495") });
+    const probe = { ...PROBE, run: runCommand };
+    await run([...addArgs(), "--probe", JSON.stringify(probe)], store);
+    expect(store.created[0]?.probes).toEqual([probe]);
+  },
+);
 
 test("add refuses before creating anything when any blocker cannot be read (#750)", async () => {
   const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("97", { node: autoNode("97") });
@@ -2166,9 +2191,31 @@ test("audit flags a closed node with no receipt — the tracker closed it, the g
   expect(output).toContain("Open and claimed");
 });
 
+test("audit reports open bare bun test probes in text and JSON, including the root", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["520", "521", "522", "523"] })
+    .seed("520", { node: autoNode("520", { probes: [{ ...PROBE, run: "bun test test/graph" }] }), parent: "495" })
+    .seed("521", { node: autoNode("521"), status: "closed", parent: "495" })
+    .seed("522", { node: autoNode("522", { probes: [{ ...PROBE, run: "bun run test test/graph" }] }), parent: "495" })
+    .seed("523", { node: autoNode("523", { probes: [{ type: "artifact-exists", path: "bun test" }] }), parent: "495" });
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
+  const args = ["graph", "audit", "495", "--repo", REPO];
+
+  const output = await run(args, store);
+  expect(output).toContain("Open with bare bun test command probes");
+  expect(output).toContain("use bun run test");
+  expect(output).toContain("- 495 node 495");
+  expect(output).toContain("- 520 node 520");
+  expect(output).not.toMatch(/^- 52[123] /mu);
+  expect(output).not.toContain("Clean:");
+  expect(JSON.parse(await run([...args, "--json"], store)).openWithBareBunTestProbe).toEqual(["495", "520"]);
+  expect(JSON.parse(await run([...args, "--scope", "build-brief-not-ready", "--json"], store))).not.toHaveProperty("openWithBareBunTestProbe");
+  expect(store.calls).toEqual([]);
+});
+
 test("a clean subtree audits clean", async () => {
   const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), children: ["520"] })
+    .seed("495", { node: autoNode("495", { probes: [{ ...PROBE, run: "bun run test" }] }), children: ["520"] })
     .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
   await store.postComment({ id: "520" }, validReceipt("cp-520"));
 
@@ -2227,7 +2274,7 @@ test("full audits batch a 400-node map with bounded fan-out and read fresh recei
   };
   const args = ["graph", "audit", "1", "--repo", REPO, "--json"];
   const first = JSON.parse(await run(args, store));
-  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openClaimed: [], buildBriefNotReady: [] });
+  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openWithBareBunTestProbe: ["1", ...ids.slice(340)], openClaimed: [], buildBriefNotReady: [] });
   expect(batches).toEqual(Array(17).fill(20));
   expect(peak).toBeGreaterThan(1);
   expect(peak).toBeLessThanOrEqual(4);
@@ -2282,7 +2329,7 @@ test("a charted map root is counted by audit and still audits clean (#600)", asy
   // `chart` refuses a root without --checkpoint, so counting the root adds one
   // node and no finding to an ordinary map.
   const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), children: ["520"] })
+    .seed("495", { node: autoNode("495", { probes: [{ ...PROBE, run: "bun run test" }] }), children: ["520"] })
     .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
   await store.postComment({ id: "520" }, validReceipt("cp-520"));
 
