@@ -251,7 +251,7 @@ export async function loadSomaProfile(
     readFile(paths.resolve("profile", "principal.md"), "utf8"),
     readCommunicationContract(paths),
     readPurposeProfile(paths),
-    readWorkingMethod(paths.resolve("skills", "the-algorithm", "references")),
+    readWorkingMethod(paths.resolve("skills", "the-algorithm", "references"), paths.resolve("skills")),
     readGoalRecordFiles(paths.resolve("profile", "goals")),
   ]);
   const missions = purposeMissions(purpose);

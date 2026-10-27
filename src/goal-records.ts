@@ -97,7 +97,7 @@ function wordingOf(body: string): string {
 
 async function readGoalFiles(dir: string): Promise<string[]> {
   try {
-    return (await readdir(dir)).filter((name) => GOAL_FILE.test(name));
+    return (await readdir(dir)).filter((name) => GOAL_FILE.test(name)).sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT" || code === "ENOTDIR") return [];

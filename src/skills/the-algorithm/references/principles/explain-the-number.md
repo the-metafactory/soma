@@ -8,6 +8,6 @@
 2. List what else the number could be measuring and rule out each with evidence: errors, skipped or cached work, code that never ran, an untuned baseline, noise, a piece too small to matter end to end.
 3. Keep the evidence with the number: run count, spread, limiter.
 
-For a performance number, run the full procedure with the `benchmark-checklist` skill. For an eval result, ask the same of the trials: did every run do the task, does the gap hold across trials and models, and does the scenario matter?
+For a performance number, read the `benchmark-checklist` SKILL.md, whose path is in the working method's Triggers section, and run its full procedure. The skill is hidden from the skill catalog, so it is reached by its path. For an eval result, ask the same of the trials: did every run do the task, does the gap hold across trials and models, and does the scenario matter?
 
 You skipped this when a reported number has no run count, no spread or no named limiter, or when the time saved is larger than the time the changed piece took.

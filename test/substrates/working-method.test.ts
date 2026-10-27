@@ -141,6 +141,34 @@ test("the loader renders both indexes with absolute pointers into the installed 
   }
 });
 
+test("the loader lists only installed skills that declare a route, with absolute SKILL.md paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "soma-working-method-triggers-"));
+  try {
+    const skillsDir = join(root, "skills");
+    const referencesDir = join(skillsDir, "the-algorithm", "references");
+    await mkdir(referencesDir, { recursive: true });
+    await writeFile(join(referencesDir, "principles.md"), "# Principles\n\n| `references/principles/reproduce-first.md` | a bug report |\n");
+    await writeFile(join(skillsDir, "the-algorithm", "SKILL.md"), "---\nname: the-algorithm\n---\n\nroute: in the body, not frontmatter\n");
+    for (const [name, frontmatter] of [
+      ["benchmark-checklist", 'name: benchmark-checklist\ndisable-model-invocation: true\nroute: "running a benchmark | claiming a speedup"'],
+      ["hidden-no-route", "name: hidden-no-route\ndisable-model-invocation: true"],
+    ]) {
+      await mkdir(join(skillsDir, name), { recursive: true });
+      await writeFile(join(skillsDir, name, "SKILL.md"), `---\n${frontmatter}\n---\n\n# ${name}\n`);
+    }
+    await writeFile(join(skillsDir, ".DS_Store"), "");
+
+    const content = (await readWorkingMethod(referencesDir, skillsDir))?.content ?? "";
+    const rows = content.slice(content.indexOf("## Triggers")).split("\n").filter((line) => line.startsWith("| `"));
+    expect(rows).toEqual([`| \`${join(skillsDir, "benchmark-checklist", "SKILL.md")}\` | running a benchmark \\| claiming a speedup |`]);
+
+    await rm(join(skillsDir, "benchmark-checklist"), { recursive: true });
+    expect((await readWorkingMethod(referencesDir, skillsDir))?.content).not.toContain("## Triggers");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("the shipped indexes leave no relative pointer behind after rendering", async () => {
   const referencesDir = join(import.meta.dir, "../..", "src", "skills", "the-algorithm", "references");
   const content = (await readWorkingMethod(referencesDir))?.content ?? "";

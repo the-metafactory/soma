@@ -109,6 +109,44 @@ const SOMA_CLAUDE_HOOK_EVENTS = [
       source: "SubagentStop",
     },
   },
+  // Poteto-mode triggers that fire on an action, not on prompt text: after
+  // the tool call, point at the principle or skill file the action calls for.
+  // `file` is relative to the Soma home; a rule whose file is not installed
+  // stays silent.
+  {
+    event: "PostToolUse",
+    commandEvent: "principle-nudge",
+    matcher: "Bash|Agent|Task",
+    summary: "Point at the principle an action calls for",
+    runner: {
+      kind: "nudge",
+      rules: [
+        {
+          tool: "^(Agent|Task)$",
+          file: "skills/the-algorithm/references/principles/own-delegated-work.md",
+          text: "A subagent just reported. Read {path} before you relay or act on its result.",
+        },
+        {
+          tool: "^Bash$",
+          command: "\\bgh (pr (view|checks)|api\\b.*/(comments|reviews))",
+          file: "skills/the-algorithm/references/principles/weigh-review-findings-on-merit.md",
+          text: "This output may carry automated review findings. Read {path} and weigh each one on its merits.",
+        },
+        {
+          tool: "^Bash$",
+          command: "\\b(git commit|gh pr create)\\b",
+          file: "skills/the-algorithm/references/principles/verify-before-claiming.md",
+          text: "You committed or opened a PR. Read {path} before you call the work done.",
+        },
+        {
+          tool: "^Bash$",
+          command: "\\b(hyperfine|bench|benchmarks?)\\b",
+          file: "skills/benchmark-checklist/SKILL.md",
+          text: "You ran a benchmark. Read {path} and run its checklist before you report or act on the number.",
+        },
+      ],
+    },
+  },
 ] as const;
 
 type JsonObject = Record<string, unknown>;
@@ -398,8 +436,16 @@ function appendCommandHookGroup(
      * which doubled every lifecycle process a burst of sessions started.
      */
     scriptPath: string;
+    /**
+     * Commands that mean this group is already installed; defaults to
+     * `knownCommands`. The Soma runner serves several groups in one event
+     * (two PostToolUse groups), so any of its commands is not proof that
+     * this one is present.
+     */
+    presentCommands?: Set<string>;
   },
 ): boolean {
+  const presentCommands = input.presentCommands ?? input.knownCommands;
   const hooks = isObject(settings.hooks) ? settings.hooks : {};
   let eventGroups = Array.isArray(hooks[input.event]) ? hooks[input.event] as unknown[] : [];
 
@@ -422,7 +468,7 @@ function appendCommandHookGroup(
 
   for (const group of eventGroups) {
     if (!isObject(group) || !Array.isArray(group.hooks)) continue;
-    if (group.hooks.some((hook) => isObject(hook) && typeof hook.command === "string" && input.knownCommands.has(hook.command))) {
+    if (group.hooks.some((hook) => isObject(hook) && typeof hook.command === "string" && presentCommands.has(hook.command))) {
       settings.hooks = hooks;
       return removedStale;
     }
@@ -446,6 +492,10 @@ function appendSomaHookGroup(settings: JsonObject, input: (typeof SOMA_CLAUDE_HO
     entry: somaHookEntry(substrateHome, bunPath, input.commandEvent),
     knownCommands: somaHookCommands(substrateHome, bunPath),
     scriptPath: resolve(substrateHome, SOMA_CLAUDE_HOOK_RELATIVE_PATH),
+    presentCommands: new Set([
+      somaClaudeHookCommand(substrateHome, bunPath, input.commandEvent),
+      legacySomaClaudeHookCommand(substrateHome, input.commandEvent),
+    ]),
   });
 }
 

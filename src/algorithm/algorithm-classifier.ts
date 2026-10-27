@@ -182,3 +182,34 @@ export function classifyAlgorithmPrompt(prompt: string): AlgorithmPromptClassifi
     reason: `Prompt shape maps to Algorithm ${effort}.`,
   };
 }
+
+/**
+ * Playbook card hint, ordered: first match wins. Applied to the trimmed
+ * prompt, case-insensitive. Only the two shapes prompt text names reliably;
+ * every other card is still the model's match against the index. Kept out of
+ * ALGORITHM_CLASSIFIER_CONTRACT so the mode classifier's projected copy and
+ * its ledger version stay as they are.
+ */
+export const PLAYBOOK_CARD_RULES = [
+  {
+    card: "bug-fix",
+    pattern: "\\b(bug|broken|breaks|regress(?:ed|ion)?|crash(?:es|ed)?|throws|fail|failing|fails|stopped working|(?:does|is)n'?t working|no longer works)\\b",
+  },
+  {
+    card: "investigation",
+    pattern: "^(?:how|why)\\b|\\b(?:how (?:is|are|does|do)|why (?:is|are|does|do|did)|should (?:we|i)|what do you think|which (?:one )?(?:is|would be) better)\\b",
+  },
+] as const;
+
+export type PlaybookCardHint = (typeof PLAYBOOK_CARD_RULES)[number]["card"];
+
+const CARD_RULES = PLAYBOOK_CARD_RULES.map((rule) => ({ card: rule.card, pattern: new RegExp(rule.pattern, "i") }));
+
+/** The card a prompt's text names, or `undefined`; harness events and minimal prompts name none. */
+export function classifyPlaybookCard(prompt: string): PlaybookCardHint | undefined {
+  if (classifyAlgorithmPrompt(prompt).mode === "minimal") return undefined;
+  const text = prompt.replace(new RegExp(ALGORITHM_CLASSIFIER_CONTRACT.notificationPattern, "gi"), "").trim();
+  if (text.length === 0 || new RegExp(ALGORITHM_CLASSIFIER_CONTRACT.notificationStartPattern, "i").test(text)) return undefined;
+  if (new RegExp(ALGORITHM_CLASSIFIER_CONTRACT.rangerEscalationPattern, "i").test(text)) return undefined;
+  return CARD_RULES.find((rule) => rule.pattern.test(text))?.card;
+}

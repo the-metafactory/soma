@@ -138,6 +138,14 @@ test("an active goal without sensor or review_by loads, with a warning naming it
   expect(warnings[0]?.message).toContain("G8");
 });
 
+test("warnings follow goal-number order, not directory order", async () => {
+  const { warnings } = await load({
+    "G10.md": goal("id: G10\nstatus: active\nsupports: [M0]"),
+    "G9.md": goal("id: G9\nstatus: active\nsupports: [M0]"),
+  });
+  expect(warnings.map((w) => w.file)).toEqual(["G9.md", "G10.md"]);
+});
+
 test("a supports code no mission starts with loads, with one warning naming the code", async () => {
   const { goals, warnings } = await load({
     "G5.md": goal("id: G5\nstatus: draft\nsupports: [M1, M9]"),

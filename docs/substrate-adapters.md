@@ -454,6 +454,29 @@ fires. This is pstack's poteto-mode shape, except that it is always on. Codex
 imports it from `AGENTS.md`, and pi-dev puts it in the extension system prompt.
 A home without the-algorithm installed projects nothing.
 
+The index also carries poteto-mode's trigger list. A skill kept out of the
+skill catalog (`disable-model-invocation: true`) declares a `route:` line in its
+SKILL.md frontmatter. The loader scans `<soma-home>/skills/*/SKILL.md` and
+renders each declared route as a row of a `## Triggers` section, with the
+skill's absolute SKILL.md path. The agent reads the file by its path, so the
+skill stays out of the catalog. Only installed skills that declare a route are
+listed; a pack such as soma-pstack ships its own rows.
+
+Two Claude Code hooks route on top of the index. Both are adapter limitations:
+no other substrate has them yet.
+
+- The `principle-nudge` PostToolUse group (matcher `Bash|Agent|Task`) of the
+  Soma hook runner fires on an action, not on prompt text. After a subagent
+  reports, a review-comment read, a commit or `gh pr create`, or a benchmark
+  run, it adds one line naming the principle or skill file. The rules live in
+  `SOMA_CLAUDE_HOOK_EVENTS` in `claude-code/hooks.ts`; a rule whose file is not
+  installed prints nothing.
+- `soma algorithm classify --json` adds a `card` hint (`bug-fix` or
+  `investigation`) from `PLAYBOOK_CARD_RULES`, and the mode hook prints the
+  installed card's path. The hint is kept out of the mode classification, so
+  pi-dev's projected classifier is unchanged. `--record` writes it to the judge
+  ledger as `decision.card`, so `soma judge` counts it.
+
 `~/.soma/policy/behavior.md` (Policy) is parsed by
 `src/policy/behavior-policy.ts` and merged into each adapter's
 `renderPolicyProjection` advisory list as `<Heading>: <rule>` lines, ahead of
