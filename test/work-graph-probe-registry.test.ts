@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePolicyArgs, runPolicyCli } from "../src/cli/policy";
-import { authorizeProbe, loadProbeRegistry, parseProbeRegistry, probeRegistryPath, PROBE_REGISTRY_RELATIVE_PATH, type ProbeRegistry } from "../src/graph/index";
+import { authorizeProbe, loadProbeRegistry, parseProbeRegistry, probeRegistryPath, PROBE_REGISTRY_RELATIVE_PATH, type DeclaredCommand, type ProbeRegistry } from "../src/graph/index";
 
 const REPO = "github.com/the-metafactory/soma";
 const GITLAB_REPO = "gitlab-int.switch.ch/the-metafactory/soma";
@@ -184,6 +184,64 @@ test("the command match is exact on run — an edited probe breaks it (DD-7 exac
   expect(authorizeProbe({ type: "command", run: "bun test; whoami", timeoutSec: 60, expectExit: 0 }, "/repo", registry).allowed).toBe(false);
 });
 
+test("a declared test-file prefix accepts one repository test path", () => {
+  const registry = loaded(parse(JSON.stringify({
+    version: 2,
+    repos: { [REPO]: { commands: [{ prefix: "bun run test", cwd: "/repo", arg: "test-file" }] } },
+  })));
+  expect(authorizeProbe({ type: "command", run: "bun run test test/busy-retry-park.test.ts", timeoutSec: 60, expectExit: 0 }, "/repo", registry).allowed).toBe(true);
+});
+
+test("test-file prefixes deny unsafe paths, extra arguments and shell syntax", () => {
+  const registry = loaded(parse(JSON.stringify({
+    version: 2,
+    repos: { [REPO]: { commands: [{ prefix: "bun run test", cwd: "/repo", arg: "test-file" }] } },
+  })));
+  const permits = (run: string, cwd = "/repo", declarations: ProbeRegistry | undefined = registry): boolean =>
+    authorizeProbe({ type: "command", run, timeoutSec: 60, expectExit: 0 }, cwd, declarations).allowed;
+
+  for (const path of ["a.test.ts", "test/nested/Test_1-v2.unit.test.ts", "test/--literal.test.ts"]) {
+    expect(permits(`bun run test ${path}`)).toBe(true);
+  }
+  for (const argument of [
+    "../outside.test.ts", "test/../outside.test.ts", "./a.test.ts", "test/.hidden/a.test.ts", ".a.test.ts",
+    "/test/a.test.ts", "C:\\test\\a.test.ts", "test//a.test.ts", "test/a.ts", "test/a.test.ts/",
+    "test/a.test.ts test/b.test.ts", "test/a.test.ts;whoami", "test/a.test.ts && whoami",
+    "test/a.test.ts|whoami", "test/$(whoami).test.ts", "$( cat test/a.test.ts )", "test/`whoami`.test.ts",
+    "test/$HOME.test.ts", "'test/a.test.ts'", '"test/a.test.ts"', "test/a b.test.ts", "test/*.test.ts",
+    "test/a\tb.test.ts", "test/a.test.ts\n", "test\n/a.test.ts", "test/a.test.ts\u0000",
+  ]) {
+    expect(permits(`bun run test ${argument}`)).toBe(false);
+  }
+  for (const run of ["bun run test", "bun run test ", "bun run test  test/a.test.ts", "bun  run test test/a.test.ts", "bun run tests test/a.test.ts"]) {
+    expect(permits(run)).toBe(false);
+  }
+  expect(permits("bun run test test/a.test.ts", "/other")).toBe(false);
+  expect(permits("bun run test test/a.test.ts", "/repo", parse(GOOD))).toBe(false);
+  expect(permits("bun run test test/a.test.ts", "/repo", parse(GOOD, "github.com/other/repo"))).toBe(false);
+  expect(authorizeProbe({ type: "command", run: "bun run test test/a.test.ts", timeoutSec: 60, expectExit: 0 }, "/repo", undefined).allowed).toBe(false);
+});
+
+test("prefix declarations require test-file, an absolute cwd and no exact-run fields", () => {
+  const declaration = (command: unknown): ProbeRegistry => parse(JSON.stringify({
+    version: 2, repos: { [REPO]: { commands: [command] } },
+  }));
+  const prefix = { prefix: "bun run test", cwd: "/repo", arg: "test-file" } satisfies DeclaredCommand;
+  for (const command of [
+    { ...prefix, arg: "anything" }, { prefix: prefix.prefix, cwd: prefix.cwd },
+    { ...prefix, prefix: "" }, { ...prefix, prefix: 5 }, { ...prefix, cwd: "./repo" },
+    { ...prefix, run: "bun run test" }, { ...prefix, args: "test-file" },
+    { run: "bun run test", cwd: "/repo", arg: "test-file" },
+  ]) {
+    expect(declaration(command).status).toBe("invalid");
+  }
+  const registry = loaded(parse(JSON.stringify({
+    version: 2, repos: { [REPO]: { commands: [{ ...prefix, cwd: "~/repo/" }, { run: "bun run typecheck", cwd: "/repo" }] } },
+  }), REPO, "/home/jc"));
+  expect(registry.commands[0]).toEqual({ ...prefix, cwd: "/home/jc/repo" });
+  expect(authorizeProbe({ type: "command", run: "bun run typecheck", timeoutSec: 60, expectExit: 0 }, "/repo", registry).allowed).toBe(true);
+});
+
 test("an unparsable url target is refused before anything is fetched", () => {
   const registry = loaded(parse(GOOD));
   const result = authorizeProbe({ type: "url", target: "not a url", expectStatus: 200 }, "/repo", registry);
@@ -247,6 +305,11 @@ test("`soma policy probes` shows the adopter what is declared and where to edit 
   expect(listed).toContain("status.example.test");
   // No verb widens the list: adding an entry is a loosening mutation (§4).
   expect(listed).toContain("edit the document yourself");
+
+  await writeFile(document, JSON.stringify({
+    version: 2, repos: { [REPO]: { commands: [{ prefix: "bun run test", cwd: "/repo", arg: "test-file" }] } },
+  }), "utf8");
+  expect(await show()).toContain("`bun run test <test-file>` in /repo");
 
   await writeFile(document, "{ broken", "utf8");
   expect(await show()).toContain("status: invalid");

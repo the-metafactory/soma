@@ -400,7 +400,7 @@ function formatProbeRegistry(registry: ProbeRegistry): string {
     "",
     "Declared commands:",
     ...(registry.commands.length > 0
-      ? registry.commands.map((entry) => `- \`${entry.run}\` in ${entry.cwd}`)
+      ? registry.commands.map((entry) => `- \`${"run" in entry ? entry.run : `${entry.prefix} <${entry.arg}>`}\` in ${entry.cwd}`)
       : ["- none — every `command` probe refuses"]),
     "",
     "Declared url hosts:",

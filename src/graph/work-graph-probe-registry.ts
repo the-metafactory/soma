@@ -11,9 +11,14 @@
  * content-structural rule — tracker content may **parameterise** a probe but may
  * never introduce executable code or a network destination:
  *
- * - **`command`** — refused unless the exact `run` string **and** the resolved
- *   `cwd` are declared for this repo. `cwd` is part of the match, not
- *   incidental: a declared `bun test` executed in an attacker-chosen directory
+ * - **`command`** — refused unless both a command declaration (an exact `run`
+ *   string or a test-file prefix) and the resolved `cwd` match for this repo.
+ *   A prefix accepts only
+ *   one plain relative `.test.ts` path, with no hidden or traversal segments or
+ *   shell syntax. That test-file argument is a parameter, not new executable
+ *   code: the file is code in the repository at the closed commit. The declared
+ *   runner selects that existing code; tracker content cannot supply code.
+ *   `cwd` is part of the match: a declared `bun test` executed in an attacker-chosen directory
  *   is a different command.
  * - **`url`** — refused unless the target host is declared. Ungated, a `url`
  *   probe is a blind SSRF oracle: the request issues from the closing machine
@@ -71,13 +76,10 @@ export const PROBE_REGISTRY_VERSION = 2;
 /** Tracker-supplied strings are echoed into refusal messages; bound what an author can inject there. */
 const ECHO_LIMIT = 200;
 
-/** One authorised command. Both halves must match a probe exactly for it to run. */
-export interface DeclaredCommand {
-  /** The `run` string a probe must carry, byte for byte. */
-  run: string;
-  /** Absolute directory the command is authorised to run in. */
-  cwd: string;
-}
+/** One authorised command in an absolute directory; exact bytes or one test-file parameter. */
+export type DeclaredCommand =
+  | { run: string; cwd: string }
+  | { prefix: string; cwd: string; arg: "test-file" };
 
 /**
  * The registry as this machine has it for one repo. Deliberately a union rather
@@ -186,9 +188,7 @@ export function parseProbeRegistry(input: ParseProbeRegistryInput): ProbeRegistr
 }
 
 /** One declared command, tagged with the registry key of the repo that declares it. */
-export interface RegistryCommandEntry extends DeclaredCommand {
-  repo: string;
-}
+export type RegistryCommandEntry = DeclaredCommand & { repo: string };
 
 /**
  * The whole document as a flat list, for `soma graph audit`: stale-entry
@@ -320,13 +320,20 @@ function parseDeclaredCommand(
   const where = `repos["${repo}"].commands[${index}]`;
   if (!isRecord(raw)) return { error: `${where} must be an object with "run" and "cwd"` };
 
-  const unknownKeys = Object.keys(raw).filter((key) => key !== "run" && key !== "cwd");
+  const isPrefix = "prefix" in raw;
+  const unknownKeys = Object.keys(raw).filter((key) =>
+    isPrefix ? key !== "prefix" && key !== "cwd" && key !== "arg" : key !== "run" && key !== "cwd",
+  );
   if (unknownKeys.length > 0) {
-    return { error: `${where} has unknown key(s): ${unknownKeys.join(", ")} — expected only "run" and "cwd"` };
+    return { error: `${where} has unknown key(s): ${unknownKeys.join(", ")} — expected only ${isPrefix ? '"prefix", "cwd" and "arg"' : '"run" and "cwd"'}` };
   }
 
-  const { run, cwd } = raw;
-  if (typeof run !== "string" || run.length === 0) return { error: `${where}.run must be a non-empty string` };
+  const { cwd } = raw;
+  const command = isPrefix ? raw.prefix : raw.run;
+  if (typeof command !== "string" || command.length === 0) {
+    return { error: `${where}.${isPrefix ? "prefix" : "run"} must be a non-empty string` };
+  }
+  if (isPrefix && raw.arg !== "test-file") return { error: `${where}.arg must be "test-file"` };
   if (typeof cwd !== "string" || cwd.length === 0) return { error: `${where}.cwd must be a non-empty string` };
 
   const expanded = expandTilde(cwd, homeDir);
@@ -337,7 +344,9 @@ function parseDeclaredCommand(
     return { error: `${where}.cwd must be an absolute path (got ${JSON.stringify(cwd)})` };
   }
 
-  return { command: { run, cwd: resolve(expanded) } };
+  return { command: isPrefix
+    ? { prefix: command, cwd: resolve(expanded), arg: "test-file" }
+    : { run: command, cwd: resolve(expanded) } };
 }
 
 function parseDeclaredHost(raw: unknown, repo: string, index: number): { host: string } | { error: string } {
@@ -401,17 +410,28 @@ function authorizeCommand(run: string, resolvedCwd: string, registry: ProbeRegis
     return gateUnavailable(registry, "command", snippet);
   }
 
-  const declared = registry.commands.some((entry) => entry.run === run && entry.cwd === resolvedCwd);
+  const declared = registry.commands.some((entry) => matchesDeclaredCommand(entry, { run, cwd: resolvedCwd }));
   if (declared) return { allowed: true };
 
   return refuse(
     [
       `\`${abbreviate(run)}\` in ${resolvedCwd} is not declared for ${registry.repo}`,
       `(${registry.commands.length} command(s) declared in ${registry.path}).`,
-      `The match is exact on both \`run\` and \`cwd\`. To allow it, add under repos["${registry.repo}"].commands:`,
+      `The match requires the declared \`cwd\` and either exact \`run\` bytes or a declared prefix with one plain relative test-file argument. To allow it, add under repos["${registry.repo}"].commands:`,
       snippet,
     ].join("\n"),
   );
+}
+
+/** Shared by authorization and stale-entry audit so both apply the same command rule. */
+export function matchesDeclaredCommand(entry: DeclaredCommand, probe: { run: string; cwd: string }): boolean {
+  if (entry.cwd !== probe.cwd) return false;
+  if ("run" in entry) return entry.run === probe.run;
+  const start = `${entry.prefix} `;
+  if (!probe.run.startsWith(start)) return false;
+  const argument = probe.run.slice(start.length);
+  return argument.endsWith(".test.ts")
+    && /^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\.test\.ts$/.test(argument);
 }
 
 function authorizeUrl(target: string, registry: ProbeRegistry | undefined): ProbeAuthorization {
