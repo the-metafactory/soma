@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.29.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.29.1-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,17 @@
 
 ---
 
-## Current release: 0.29.0
+## Current release: 0.29.1
+
+[0.29.1](https://github.com/the-metafactory/soma/releases/tag/v0.29.1) makes the
+hooks that run on every tool call and prompt start faster. The CLI loads only
+the command it runs, and the Claude Code policy guard and mode classifier run
+in a worker of the hook process instead of a second `bun`. A guarded tool call
+takes about 156 ms instead of 316 ms. See the
+[changelog](CHANGELOG.md#0291---2026-10-28) for the complete changes. GitHub
+releases and Arc registry publication are verified separately.
+
+### 0.29.0
 
 [0.29.0](https://github.com/the-metafactory/soma/releases/tag/v0.29.0) moves
 the playbook cards out of the-algorithm into the soma-pstack pack's
