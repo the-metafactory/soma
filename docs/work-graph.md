@@ -420,8 +420,12 @@ Declaration rules, all deny-by-default:
   segments, traversal, absolute paths, whitespace, quotes, shell syntax and
   extra arguments refuse. `cwd` must still match. No other argument kind is
   supported, and an entry cannot declare both `run` and `prefix`.
-  The test-file argument selects code in the repository at the closed commit;
-  it parameterises the declared runner rather than introducing executable code.
+  The argument parameterises the declared runner by selecting a file from the
+  declared checkout. Declaring a prefix trusts that checkout's code. For the
+  selected test to be repository code at the closed commit, the closer must
+  ensure the checkout and test file correspond to that commit. The registry
+  checks syntax and `cwd`; it does not verify the commit, tracked-file membership
+  or symlink targets, and does not exclude untracked test files.
 - `urlHosts` are bare hostnames — no scheme, port, path, or wildcard. A declared
   host authorises any port on it; a non-http(s) target is refused outright,
   since a `file:` or `data:` URL has no host for a host set to authorise.

@@ -16,8 +16,11 @@
  *   A prefix accepts only
  *   one plain relative `.test.ts` path, with no hidden or traversal segments or
  *   shell syntax. That test-file argument is a parameter, not new executable
- *   code: the file is code in the repository at the closed commit. The declared
- *   runner selects that existing code; tracker content cannot supply code.
+ *   code when the declared checkout contains the repository code at the closed
+ *   commit. The declared runner selects that code; tracker content supplies only
+ *   its path. Declaring a prefix trusts the contents of `cwd`: this registry
+ *   checks syntax and directory identity, not commit identity, tracked-file
+ *   membership or symlink targets. The closer must ensure that checkout state.
  *   `cwd` is part of the match: a declared `bun test` executed in an attacker-chosen directory
  *   is a different command.
  * - **`url`** — refused unless the target host is declared. Ungated, a `url`
@@ -80,6 +83,29 @@ const ECHO_LIMIT = 200;
 export type DeclaredCommand =
   | { run: string; cwd: string }
   | { prefix: string; cwd: string; arg: "test-file" };
+
+export function describeDeclaredCommand(entry: DeclaredCommand): string {
+  return "run" in entry ? entry.run : `${entry.prefix} <${entry.arg}>`;
+}
+
+const TEST_FILE_ARG = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\.test\.ts$/;
+
+const COMMAND_SPECS = {
+  exact: {
+    field: "run",
+    allowedKeys: ["run", "cwd"],
+    build: (command: string, cwd: string): DeclaredCommand => ({ run: command, cwd }),
+  },
+  testFile: {
+    field: "prefix",
+    allowedKeys: ["prefix", "cwd", "arg"],
+    build: (command: string, cwd: string): DeclaredCommand => ({ prefix: command, cwd, arg: "test-file" }),
+  },
+} satisfies Record<string, {
+  field: "run" | "prefix";
+  allowedKeys: string[];
+  build: (command: string, cwd: string) => DeclaredCommand;
+}>;
 
 /**
  * The registry as this machine has it for one repo. Deliberately a union rather
@@ -318,22 +344,20 @@ function parseDeclaredCommand(
   homeDir: string | undefined,
 ): { command: DeclaredCommand } | { error: string } {
   const where = `repos["${repo}"].commands[${index}]`;
-  if (!isRecord(raw)) return { error: `${where} must be an object with "run" and "cwd"` };
+  if (!isRecord(raw)) return { error: `${where} must be an object with "run" and "cwd", or "prefix", "cwd" and "arg"` };
 
-  const isPrefix = "prefix" in raw;
-  const unknownKeys = Object.keys(raw).filter((key) =>
-    isPrefix ? key !== "prefix" && key !== "cwd" && key !== "arg" : key !== "run" && key !== "cwd",
-  );
+  const spec = COMMAND_SPECS["prefix" in raw ? "testFile" : "exact"];
+  const unknownKeys = Object.keys(raw).filter((key) => !spec.allowedKeys.includes(key));
   if (unknownKeys.length > 0) {
-    return { error: `${where} has unknown key(s): ${unknownKeys.join(", ")} — expected only ${isPrefix ? '"prefix", "cwd" and "arg"' : '"run" and "cwd"'}` };
+    return { error: `${where} has unknown key(s): ${unknownKeys.join(", ")} — expected only ${spec.allowedKeys.map((key) => JSON.stringify(key)).join(", ")}` };
   }
 
   const { cwd } = raw;
-  const command = isPrefix ? raw.prefix : raw.run;
+  const command = raw[spec.field];
   if (typeof command !== "string" || command.length === 0) {
-    return { error: `${where}.${isPrefix ? "prefix" : "run"} must be a non-empty string` };
+    return { error: `${where}.${spec.field} must be a non-empty string` };
   }
-  if (isPrefix && raw.arg !== "test-file") return { error: `${where}.arg must be "test-file"` };
+  if (spec.field === "prefix" && raw.arg !== "test-file") return { error: `${where}.arg must be "test-file"` };
   if (typeof cwd !== "string" || cwd.length === 0) return { error: `${where}.cwd must be a non-empty string` };
 
   const expanded = expandTilde(cwd, homeDir);
@@ -344,9 +368,7 @@ function parseDeclaredCommand(
     return { error: `${where}.cwd must be an absolute path (got ${JSON.stringify(cwd)})` };
   }
 
-  return { command: isPrefix
-    ? { prefix: command, cwd: resolve(expanded), arg: "test-file" }
-    : { run: command, cwd: resolve(expanded) } };
+  return { command: spec.build(command, resolve(expanded)) };
 }
 
 function parseDeclaredHost(raw: unknown, repo: string, index: number): { host: string } | { error: string } {
@@ -430,8 +452,7 @@ export function matchesDeclaredCommand(entry: DeclaredCommand, probe: { run: str
   const start = `${entry.prefix} `;
   if (!probe.run.startsWith(start)) return false;
   const argument = probe.run.slice(start.length);
-  return argument.endsWith(".test.ts")
-    && /^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\.test\.ts$/.test(argument);
+  return TEST_FILE_ARG.test(argument);
 }
 
 function authorizeUrl(target: string, registry: ProbeRegistry | undefined): ProbeAuthorization {
