@@ -1144,14 +1144,23 @@ Then project Soma into at least one substrate:
 ```bash
 bun run soma install codex --apply
 bun run soma install claude-code --apply
-bun run soma install claude-code --mode-classifier --apply
 bun run soma install pi-dev --apply
 bun run soma install cursor --apply
 ```
 
-`--mode-classifier` is an opt-in Claude Code hook. It installs Soma's
-`UserPromptSubmit` classifier, emits a compact MODE context block, and disables
-the PAI mode classifier entry while Soma owns that hook.
+The Claude Code install includes two more hooks by default:
+
+- The mode classifier adds a short MODE context block to each prompt. It
+  disables the PAI mode classifier entry while Soma owns that hook. Skip it
+  with `--no-mode-classifier`.
+- The fail-closed policy guard checks each prompt and each `Bash`, `Read`,
+  `Grep`, `Edit`, `Write`, `MultiEdit`, and `NotebookEdit` call. Skip it with
+  `--no-policy-guard`.
+
+Both hooks run Soma in a Worker of their own process instead of a second
+`bun`. See
+[docs/substrate-adapters.md](docs/substrate-adapters.md#claude-code) for how
+each hook fails.
 
 ---
 
