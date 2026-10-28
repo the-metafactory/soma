@@ -153,12 +153,13 @@ function runInspect(config, surface, payload) {
   }
   process.chdir(config.trustedSomaRepo);
   return new Promise((resolve) => {
+    const worker = new Worker(join(config.trustedSomaRepo, "src", "cli", "policy-worker.ts"));
     const settle = (result) => {
       clearTimeout(timer);
+      worker.terminate();
       resolve(result);
     };
     const timer = setTimeout(() => settle({ error: `timed out after ${INSPECT_TIMEOUT_MS} ms` }), INSPECT_TIMEOUT_MS);
-    const worker = new Worker(join(config.trustedSomaRepo, "src", "cli", "policy-worker.ts"));
     worker.onmessage = (event) => settle(event.data);
     worker.onerror = (event) => settle({ error: event.message || "worker failed to load" });
     worker.addEventListener("close", () => settle({ error: "worker exited without a decision" }));
