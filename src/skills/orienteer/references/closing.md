@@ -85,12 +85,15 @@ A soma build node's close gate checks the **merged base**. Declare a **cheap**
 
 The full-suite regression check already runs twice before the node can close:
 the walker's supervisor runs it on the branch before the push, and CI runs it on
-the PR. An `auto` close must cite that CI run with
-`--ci <checkRunId>@<headSha>`, and the store checks that the run succeeded. A
-close probe that repeats the suite on the walker host spends about 15 minutes
-(and has parked closes at the deadline) to prove again what the cited check run
-already proves. The suite stays close evidence; it comes from the `--ci`
-citation, not from a probe.
+the PR. An `auto` close must cite a CI check run with
+`--ci <checkRunId>@<headSha>`. The store checks only that the cited run exists,
+concluded `success` and ran on that head SHA; it does not check which job the
+run belongs to. So the closing agent cites the check run of the CI job that runs
+the full suite, not another green job such as a lint or a confidentiality check;
+nothing enforces that choice. A close probe that repeats the suite on the walker
+host spends about 15 minutes (and has parked closes at the deadline) to prove
+again what that job already proves. The suite stays close evidence; it comes
+from the `--ci` citation of the suite job, not from a probe.
 
 - `run` is `bunx tsc --noEmit`. The principal registers that exact `run` with
   the canonical clone's `cwd` once (`soma policy probes`); a node cannot widen

@@ -40,11 +40,14 @@ test("closing.md declares no full-suite command probe and does not prescribe the
 });
 
 test("closing.md says the full-suite evidence comes from the --ci citation, not from a probe", async () => {
-  const text = await readFile(CLOSING, "utf8");
+  const text = (await readFile(CLOSING, "utf8")).replace(/\s+/gu, " ");
   expect(text).toContain("supervisor runs it on the branch");
   expect(text).toContain("CI runs it on");
   expect(text).toContain("--ci <checkRunId>@<headSha>");
-  expect(text).toContain("it comes from the `--ci`");
+  expect(text).toContain("it comes from the `--ci` citation of the suite job");
+  expect(text).toContain("does not check which job the");
+  expect(text).toContain("nothing enforces that choice");
+  expect(text).not.toContain("what the cited check run already proves");
   expect(text).toContain("open with a full-suite command probe");
 });
 
@@ -57,10 +60,10 @@ test("closing.md says a working checkout cwd is the charting agent's to avoid an
 });
 
 test("isFullSuiteCommand names whole-suite runs and spares targeted ones", () => {
-  for (const run of ["bun run test", "bun test", "bun test --timeout=60000", "npm test", "pnpm run test", "yarn test --bail"]) {
+  for (const run of ["bun run test", "bun test", "bun test --timeout=60000", "bun test --bail", "npm test", "pnpm run test", "yarn test --bail"]) {
     expect(isFullSuiteCommand(run)).toBe(true);
   }
-  for (const run of ["bunx tsc --noEmit", "bun test test/graph/work-graph-probes.test.ts", "bun run test test/a.test.ts", "bun run typecheck", "bun run build", ""]) {
+  for (const run of ["bunx tsc --noEmit", "bun test test/graph/work-graph-probes.test.ts", "bun run test test/a.test.ts", "bun test --test-name-pattern=smoke", "bun test -t smoke", "bun run test --changed", "bun test --only", "bun run typecheck", "bun run build", ""]) {
     expect(isFullSuiteCommand(run)).toBe(false);
   }
 });
