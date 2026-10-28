@@ -733,6 +733,49 @@ that change holds no `node_modules`; its emits fail at stage `load`, and
 `soma doctor` reports the missing dependency until `soma install <substrate>
 --apply` restages it. See [soma-home-layout.md](docs/soma-home-layout.md).
 
+#### Scheduled job inventory
+
+```bash
+soma jobs
+soma jobs --json
+soma jobs --emit
+```
+
+Lists launchd plists in `~/Library/LaunchAgents` whose labels start with
+`ch.`, `ai.meta-factory.`, `com.kai.`, or `com.pai.`. It also reads scheduled
+Reflex activations from `~/.config/reflex/*activations*` and skill jobs from
+`~/.config/ranger/ranger.yaml`. Backups and manual-only Reflex activations
+are excluded. The command never starts, edits, or unloads a job.
+
+A nonzero `launchctl list` last exit makes a job `failing`, including negative
+signal exits. A periodic job is `late` when its last activity exceeds two
+periods plus 15 minutes. `StartInterval` and regular minute, hourly, daily,
+or weekly `StartCalendarInterval` schedules supply the period. Monthly,
+irregular, and combined schedules remain `unknown`.
+
+Launchd does not expose a last-run timestamp in `launchctl list`. The inventory
+uses the newest modification time of a nonempty `StandardOutPath` or
+`StandardErrorPath` log as an activity proxy. This is not an execution receipt:
+quiet jobs can appear late, and shared logs can conceal missed runs. JSON rows
+include `lastRunEvidence` to identify the log. A missing period, activity, or
+last exit never produces `ok`. Unparseable plists appear as `unknown` with
+their errors, and inventory gaps go to stderr. Observation still exits 0.
+
+Reflex blueprints and Ranger skill declarations contain no execution history.
+Their rows report that gap as `unknown`; Ranger declarations also leave the
+period unknown because an external trigger supplies it. This inventory does
+not infer runs from configuration modification times or daemon health.
+
+`--json` prints the same rows as a JSON array. With `--emit` and
+`SOMA_PRINCIPAL` set, each assessed job publishes one `execution.run.finished`
+envelope through the run ledger: `ran.kind: job`, `ran.ref: job:<label>`, and
+outcome `failed` for `failing` or `late`, or `succeeded` for `ok`. Unknown rows
+publish nothing. Envelope timestamps describe the inventory observation,
+not the historical execution. Jobs do not inherit the calling session's
+`MF_SERVES_GOAL` or `MF_SERVES_NODE`. Publication results go to stderr, so JSON
+stdout stays parseable. With `SOMA_PRINCIPAL` unset, nothing is published and
+stderr says so. Scheduling this command is an operator task.
+
 ### Weekly goal outline
 
 ```bash

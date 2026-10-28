@@ -62,6 +62,10 @@ const COMMANDS = {
     const { parseJudgeArgs, runJudgeCli } = await import("./cli/judge");
     return (args) => runJudgeCli(parseJudgeArgs(args));
   },
+  jobs: async () => {
+    const { runJobsCli } = await import("./cli/jobs");
+    return (args) => runJobsCli(args.slice(1));
+  },
   vsa: () => loadVsaCommand(false),
   isa: () => loadVsaCommand(true),
   learning: loadToolCommand,
@@ -185,13 +189,13 @@ async function loadVsaCommand(viaIsaAlias: boolean): Promise<CommandRunner> {
 async function loadCommandHelp(): Promise<Record<string, CommandHelp>> {
   const [
     algorithm, graph, goal, memory, telemetry, feedback, errata, judge, router, redact, tools, result, policy,
-    writeback, lifecycle, precompact, substrateLifecycle, skillProjection, onboarding, migrate, snapshots, run, runtime, vsa,
+    writeback, lifecycle, precompact, substrateLifecycle, skillProjection, onboarding, migrate, snapshots, run, runtime, vsa, jobs,
   ] = await Promise.all([
     import("./cli/algorithm"), import("./cli/graph"), import("./cli/goal"), import("./cli/memory"), import("./cli/telemetry"),
     import("./cli/feedback"), import("./cli/errata"), import("./cli/judge"), import("./cli/router"), import("./cli/redact"),
     import("./cli/tools"), import("./cli/result"), import("./cli/policy"), import("./cli/writeback"), import("./cli/lifecycle"),
     import("./cli/precompact"), import("./cli/substrate-lifecycle"), import("./cli/skill-projection-cli"), import("./cli/onboarding"),
-    import("./cli/migrate"), import("./cli/snapshots"), import("./cli/run"), import("./cli/runtime"), import("./cli/vsa"),
+    import("./cli/migrate"), import("./cli/snapshots"), import("./cli/run"), import("./cli/runtime"), import("./cli/vsa"), import("./cli/jobs"),
   ]);
   return {
     algorithm: algorithm.ALGORITHM_COMMAND_HELP,
@@ -203,6 +207,7 @@ async function loadCommandHelp(): Promise<Record<string, CommandHelp>> {
     feedback: feedback.FEEDBACK_COMMAND_HELP,
     errata: errata.ERRATA_COMMAND_HELP,
     judge: judge.JUDGE_COMMAND_HELP,
+    jobs: jobs.JOBS_COMMAND_HELP,
     router: router.ROUTER_COMMAND_HELP,
     redact: redact.REDACT_COMMAND_HELP,
     ...tools.TOOL_COMMAND_HELP,

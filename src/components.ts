@@ -44,6 +44,7 @@ export const componentNames = [
   "substrates",
   "migrate",
   "flows",
+  "jobs",
   "cli",
 ] as const;
 
@@ -200,6 +201,11 @@ export const components: ComponentManifest<ComponentName> = {
       "substrates",
       "migrate",
     ],
+  },
+  jobs: {
+    files: ["src/jobs/**"],
+    publicEntries: ["src/jobs/index.ts"],
+    mayImport: [],
   },
   cli: {
     files: ["src/cli", "src/cli-launcher", "src/cli/**"],
