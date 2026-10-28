@@ -1,6 +1,8 @@
 // Hot path (node #794): every import here names its defining module, never the
 // ../index barrel — `soma algorithm classify` runs on each prompt, and the
-// barrel drags in ~200 modules Bun cannot tree-shake.
+// barrel drags in ~200 modules Bun cannot tree-shake. The flows and graph
+// modules only some actions use are imported inside those actions: statically
+// they made classify load 3 MB of code it never runs.
 import {
   applyAlgorithmBatch,
   advanceAlgorithmRunUntil,
@@ -21,16 +23,12 @@ import {
   verifyAlgorithmCriterion,
 } from "../algorithm/algorithm";
 import { listAlgorithmRuns, listAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "../algorithm/algorithm-store";
-import { classifyAlgorithmPrompt, classifyPlaybookCard, type PlaybookCardHint } from "../algorithm/algorithm-classifier";
+import { runAlgorithmClassify } from "./algorithm-classify";
 import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../algorithm/algorithm-reflection-digest";
 import { parsePaiReflections } from "../algorithm/algorithm-reflection-import";
 import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm/algorithm-capabilities";
-import { runSomaLifecycleAlgorithmUpdated } from "../flows/index";
 import { appendSomaMemoryEvent } from "../events/index";
-import {
-  type BridgedNodeReport,
-  readNodeForBridge,
-} from "../graph/index";
+import type { BridgedNodeReport } from "../graph/index";
 // VerificationGateError is a CLI-only classification detail — imported straight
 // from its defining module, deliberately NOT re-exported through the public
 // barrel (Sage review, PR #455): keeping it off ../index leaves the internal
@@ -40,20 +38,17 @@ import { readFile } from "node:fs/promises";
 import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm/algorithm-capabilities";
 import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm/algorithm-capabilities";
 import { defaultSomaHome } from "../core/index";
-import { syncAlgorithmRunFromVsa, formatSyncResult } from "../flows/index";
 import { algorithmTouchedBy } from "../algorithm/algorithm-provenance";
 import { datePrefixSlug } from "../core/index";
 import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa/index";
 import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
-import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../flows/index";
+import type { RunLedgerDeps, RunOutcome } from "../flows/index";
 import { resolveSubstrateSessionEnv } from "../substrates/adapters/session-env";
-import { hashJudgmentInput, recordJudgment } from "../core/index";
-import { regexClassifierVersion } from "../router/index";
 import { ALGORITHM_REFERENCE_VERDICTS } from "../algorithm/types";
 import type { AlgorithmEffortTier, AlgorithmPhase, EvidenceKind, SubstrateId } from "../core/types";
-import type { AlgorithmBatchOperation, AlgorithmPlanStep, AlgorithmPromptClassification, AlgorithmRun, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRunInput } from "../algorithm/types";
+import type { AlgorithmBatchOperation, AlgorithmPlanStep, AlgorithmRun, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRunInput } from "../algorithm/types";
 
 export const ALGORITHM_ACTIONS = [
   "new",
@@ -759,53 +754,6 @@ function formatAlgorithmCapabilityRegistry(
   return lines.join("\n");
 }
 
-function formatAlgorithmClassification(classification: AlgorithmPromptClassification): string {
-  return [
-    "Soma Algorithm prompt classification",
-    `mode: ${classification.mode}`,
-    `effort: ${classification.effort ?? "none"}`,
-    `source: ${classification.source}`,
-    `reason: ${classification.reason}`,
-  ].join("\n");
-}
-
-/** `card` is a hint for the substrate hook, outside the classification the pi-dev copy mirrors. */
-function formatAlgorithmClassificationJson(classification: AlgorithmPromptClassification, card: PlaybookCardHint | undefined): string {
-  return `${JSON.stringify(card === undefined ? classification : { ...classification, card })}\n`;
-}
-
-/**
- * Classify, and with `--record` append one `soma judge` ledger line. Recording
- * is best-effort and never changes the classification or its output.
- */
-async function runAlgorithmClassify(options: AlgorithmCliOptions, prompt: string): Promise<string> {
-  const started = performance.now();
-  const classification = classifyAlgorithmPrompt(prompt);
-  const card = classifyPlaybookCard(prompt);
-  const latencyMs = Math.round((performance.now() - started) * 1000) / 1000;
-
-  if (options.record) {
-    const decision: Record<string, string> = { mode: classification.mode };
-    if (classification.effort) decision.effort = classification.effort;
-    if (card) decision.card = card;
-    await recordJudgment(defaultSomaHome(options), {
-      v: 1,
-      ts: new Date().toISOString(),
-      caller: "mode-router",
-      ...(options.substrate ? { substrate: options.substrate } : {}),
-      ...(options.session ? { session: options.session } : {}),
-      inputSha256: hashJudgmentInput(prompt),
-      backend: "regex",
-      backendVersion: regexClassifierVersion(),
-      decision,
-      source: classification.source,
-      latencyMs,
-    });
-  }
-
-  return options.json ? formatAlgorithmClassificationJson(classification, card) : formatAlgorithmClassification(classification);
-}
-
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
   const touchedBy = algorithmTouchedBy(run);
   return [
@@ -984,6 +932,7 @@ export async function updateAndReportAlgorithmRun(
   // The funnel never throws.
   const outcome = finishedOutcome(run, written.run);
   if (outcome !== undefined) {
+    const { publishRunFinished } = await import("../flows/index");
     await publishRunFinished(
       {
         kind: "algorithm",
@@ -1003,6 +952,7 @@ export async function updateAndReportAlgorithmRun(
     );
   }
 
+  const { runSomaLifecycleAlgorithmUpdated } = await import("../flows/index");
   await runSomaLifecycleAlgorithmUpdated({
     homeDir: options.homeDir,
     somaHome: options.somaHome,
@@ -1076,12 +1026,14 @@ export async function runAlgorithmCli(
   overrides: Partial<AlgorithmCliDeps> = {},
 ): Promise<string> {
   const options = parsed.options;
-  const deps: AlgorithmCliDeps = { readNode: async (nodeId, opts) => await readNodeForBridge(nodeId, opts), ...overrides };
+  const deps: AlgorithmCliDeps = { readNode: async (nodeId, opts) => {
+    const { readNodeForBridge } = await import("../graph/index");
+    return await readNodeForBridge(nodeId, opts);
+  }, ...overrides };
   const env = resolveSubstrateSessionEnv(deps.env ?? process.env, options.substrate);
 
   if (parsed.action === "classify") {
-    if (!options.prompt) throw new Error("--prompt is required.");
-    return await runAlgorithmClassify(options, options.prompt);
+    return await runAlgorithmClassify(options);
   }
 
   if (parsed.action === "new") {
@@ -1095,6 +1047,7 @@ export async function runAlgorithmCli(
       homeDir: options.homeDir,
       somaHome: options.somaHome,
     });
+    const { runSomaLifecycleAlgorithmUpdated } = await import("../flows/index");
     await runSomaLifecycleAlgorithmUpdated({
       homeDir: options.homeDir,
       somaHome: options.somaHome,
@@ -1342,6 +1295,7 @@ export async function runAlgorithmCli(
   if (parsed.action === "sync-from-isa") {
     if (!options.vsaPath) throw new Error("--isa is required.");
     if (!options.substrate) throw new Error("--substrate is required.");
+    const { syncAlgorithmRunFromVsa, formatSyncResult } = await import("../flows/index");
     const result = await syncAlgorithmRunFromVsa({
       vsaPath: options.vsaPath,
       substrate: options.substrate,

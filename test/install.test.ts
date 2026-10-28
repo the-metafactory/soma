@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { hostname, tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { bootstrapSomaHome, planSomaForAnthropicCoworkInstall, planSomaForCodexInstall, planSomaForPiDevInstall, uninstallSomaForAnthropicCowork } from "../src/flows/index";
 import { SomaInstallError } from "../src/substrates/index";
 import { somaWorkRegistryPaths } from "../src/home/index";
@@ -71,6 +71,31 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
     await rm(homeDir, { recursive: true, force: true });
   }
 }
+
+type CodexInstall = Awaited<ReturnType<typeof installSomaForCodex>>;
+let codexHookHome: Promise<{ homeDir: string; install: CodexInstall }> | undefined;
+let codexHookHomeDir: string | undefined;
+
+// One codex install shared by the rows that only run the pre-tool-use hook
+// and read its decision; that path writes nothing into the home. A row that
+// writes into the home, or runs a hook that does, keeps its own withTempHome.
+async function withCodexHookHome<T>(fn: (homeDir: string, install: CodexInstall) => Promise<T>): Promise<T> {
+  codexHookHome ??= (async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), "soma-install-hook-"));
+    codexHookHomeDir = homeDir;
+    return { homeDir, install: await installSomaForCodex({ homeDir }) };
+  })();
+  const { homeDir, install } = await codexHookHome;
+  return fn(homeDir, install);
+}
+
+// Reads the directory, not the install promise, so a failed shared install
+// still has its home removed; every sharing row then fails with the install error.
+afterAll(async () => {
+  if (codexHookHomeDir === undefined) return;
+  await unsealRuntimeArtifacts(codexHookHomeDir);
+  await rm(codexHookHomeDir, { recursive: true, force: true });
+});
 
 async function readProjectionSnapshot(root: string, files: readonly string[]): Promise<Record<string, string>> {
   return Object.fromEntries(
@@ -795,8 +820,7 @@ test("first install already converges: skills.md lists VSA and the file set matc
 });
 
 test("installed codex hook denies private Soma source writes to public destinations", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const target = join(homeDir, "work/public.md");
     const privateMarker = join(homeDir, ".soma/memory/RELATIONSHIP/private.md");
@@ -815,8 +839,7 @@ test("installed codex hook denies private Soma source writes to public destinati
 });
 
 test("installed codex hook forwards private source paths for writes", async () => {
-  await withTempHome(async (homeDir) => {
-    const { somaHome } = await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir, { somaHome }) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const target = join(homeDir, "work/public.md");
     const privateSource = join(somaHome.somaHome, "memory/WORK/private.md");
@@ -836,8 +859,7 @@ test("installed codex hook forwards private source paths for writes", async () =
 });
 
 test("installed codex hook forwards relative private source paths", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const target = join(homeDir, "work/public.md");
     const input = {
@@ -857,8 +879,7 @@ test("installed codex hook forwards relative private source paths", async () => 
 });
 
 test("installed codex hook denies portable tilde private markers", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const target = join(homeDir, "work/public.md");
     const input = {
@@ -876,8 +897,7 @@ test("installed codex hook denies portable tilde private markers", async () => {
 });
 
 test("installed codex hook fails closed on malformed pre-tool input", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runRawCodexPreToolUseHook(hook, homeDir, "{");
 
@@ -887,8 +907,7 @@ test("installed codex hook fails closed on malformed pre-tool input", async () =
 });
 
 test("installed codex hook fails closed on non-object pre-tool input", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runRawCodexPreToolUseHook(hook, homeDir, "null");
 
@@ -898,8 +917,7 @@ test("installed codex hook fails closed on non-object pre-tool input", async () 
 });
 
 test("installed codex hook handles null tool input", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       tool_name: "Write",
@@ -1235,8 +1253,7 @@ test("codex session-start summary only counts active Algorithm runs", () => {
 });
 
 test("installed codex pre-tool hook blocks runtime policy ask decisions", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       tool_name: "Bash",
@@ -1280,8 +1297,7 @@ test("installed codex hook uses the frozen runtime artifact", async () => {
 });
 
 test("installed codex hook checks apply_patch file destinations", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const target = join(homeDir, "work/public.md");
     const privateMarker = join(homeDir, ".soma/memory/RELATIONSHIP/private.md");
@@ -1299,8 +1315,7 @@ test("installed codex hook checks apply_patch file destinations", async () => {
 });
 
 test("installed codex hook denies apply_patch moves from private Soma sources", async () => {
-  await withTempHome(async (homeDir) => {
-    const { somaHome } = await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir, { somaHome }) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const privateSource = join(somaHome.somaHome, "memory/WORK/private-note.md");
     const publicTarget = join(homeDir, "work/public-note.md");
@@ -1318,8 +1333,7 @@ test("installed codex hook denies apply_patch moves from private Soma sources", 
 });
 
 test("installed codex hook reads structured apply_patch cmd input", async () => {
-  await withTempHome(async (homeDir) => {
-    const { somaHome } = await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir, { somaHome }) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const privateSource = join(somaHome.somaHome, "memory/WORK/private-note.md");
     const publicTarget = join(homeDir, "work/public-note.md");
@@ -1337,8 +1351,7 @@ test("installed codex hook reads structured apply_patch cmd input", async () => 
 });
 
 test("installed codex hook denies malformed apply_patch moves", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const publicTarget = join(homeDir, "work/public-note.md");
     const patch = ["*** Begin Patch", `*** Move to: ${publicTarget}`, "*** End Patch"].join("\n");
@@ -1355,8 +1368,7 @@ test("installed codex hook denies malformed apply_patch moves", async () => {
 });
 
 test("installed codex hook allows mixed apply_patch when only private destination has marker", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const publicTarget = join(homeDir, "work/public.md");
     const privateTarget = join(homeDir, ".soma/memory/WORK/private.md");
@@ -1382,8 +1394,7 @@ test("installed codex hook allows mixed apply_patch when only private destinatio
 });
 
 test("installed codex hook allows memory writes that reference private memory paths", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const target = join(homeDir, ".codex/memories/MEMORY.md");
     const projectedContext = join(homeDir, ".codex/memories/soma/startup-context.md");
@@ -1403,8 +1414,7 @@ test("installed codex hook allows memory writes that reference private memory pa
 });
 
 test("installed codex hook denies destructive shell deletes of memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1421,8 +1431,7 @@ test("installed codex hook denies destructive shell deletes of memory roots", as
 });
 
 test("installed codex hook denies relative deletes from memory root parents", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: join(homeDir, ".codex"),
@@ -1439,8 +1448,7 @@ test("installed codex hook denies relative deletes from memory root parents", as
 });
 
 test("installed codex hook denies HOME-variable deletes of memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1457,8 +1465,7 @@ test("installed codex hook denies HOME-variable deletes of memory roots", async 
 });
 
 test("installed codex hook denies destructive shell wrapper deletes of memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1475,8 +1482,7 @@ test("installed codex hook denies destructive shell wrapper deletes of memory ro
 });
 
 test("installed codex hook denies separated shell flag wrapper deletes of memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1493,8 +1499,7 @@ test("installed codex hook denies separated shell flag wrapper deletes of memory
 });
 
 test("installed codex hook denies clustered shell flag wrapper deletes of memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1511,8 +1516,7 @@ test("installed codex hook denies clustered shell flag wrapper deletes of memory
 });
 
 test("installed codex hook denies find-delete of memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1529,8 +1533,7 @@ test("installed codex hook denies find-delete of memory roots", async () => {
 });
 
 test("installed codex hook denies parent find-delete of memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1547,8 +1550,7 @@ test("installed codex hook denies parent find-delete of memory roots", async () 
 });
 
 test("installed codex hook ignores unrelated shell flags before command payload", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1565,8 +1567,7 @@ test("installed codex hook ignores unrelated shell flags before command payload"
 });
 
 test("installed codex hook denies sudo-option destructive deletes of memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1583,8 +1584,7 @@ test("installed codex hook denies sudo-option destructive deletes of memory root
 });
 
 test("installed codex hook allows shell moves into memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1601,8 +1601,7 @@ test("installed codex hook allows shell moves into memory roots", async () => {
 });
 
 test("installed codex hook denies apply_patch deletes inside memory roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const target = join(homeDir, ".codex/memories/MEMORY.md");
     const patch = ["*** Begin Patch", `*** Delete File: ${target}`, "*** End Patch"].join("\n");
@@ -1641,8 +1640,7 @@ test("installed codex hook checks explicit soma home markers", async () => {
 });
 
 test("installed codex hook denies shell commands referencing private Soma context", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1658,8 +1656,7 @@ test("installed codex hook denies shell commands referencing private Soma contex
 });
 
 test("installed codex hook allows read-only shell commands mentioning private Soma context", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1675,8 +1672,7 @@ test("installed codex hook allows read-only shell commands mentioning private So
 });
 
 test("installed codex hook denies shell copies from relative private Soma paths", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,
@@ -1692,8 +1688,7 @@ test("installed codex hook denies shell copies from relative private Soma paths"
 });
 
 test("installed codex hook denies private shell copies in later command segments", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForCodex({ homeDir });
+  await withCodexHookHome(async (homeDir) => {
     const hook = join(homeDir, ".codex/hooks/soma-lifecycle.mjs");
     const result = runCodexPreToolUseHook(hook, homeDir, {
       cwd: homeDir,

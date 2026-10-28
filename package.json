@@ -1,6 +1,6 @@
 {
   "name": "soma",
-  "version": "0.28.0",
+  "version": "0.29.3",
   "private": true,
   "type": "module",
   "description": "Substrate-portable Personal AI Assistant core.",
@@ -15,7 +15,7 @@
     "check:boundaries": "bun scripts/check-boundaries.ts",
     "check:literal-sets": "bun scripts/check-literal-sets.ts",
     "check:suppressions": "bun scripts/check-suppressions.ts",
-    "test": "bun test --timeout=60000",
+    "test": "bun test --timeout=60000 --parallel=6",
     "test:portability": "bun test test/portability-ci.test.ts",
     "check-skill-version": "bun scripts/check-skill-version.ts",
     "check-release-privacy": "bun scripts/check-release-privacy.ts",

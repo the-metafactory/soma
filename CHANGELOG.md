@@ -7,10 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.3] - 2026-10-28
+
+### Documentation
+
+- The per-release summaries move from the README to `docs/release-notes.md`. The README keeps only the current release. (#1129)
+- The README and `docs/arc-install-troubleshooting.md` install Soma with `arc install https://github.com/the-metafactory/soma`, pin a release with `--pin vX.Y.Z`, and upgrade with `arc upgrade soma --force` followed by `soma install` for each substrate. (#1129)
+- The README links the [soma-pstack](https://github.com/the-metafactory/soma-pstack) and [soma-lifeos](https://github.com/the-metafactory/soma-lifeos) skill packs and gives the install command for each. (#1129)
+
+## [0.29.2] - 2026-10-28
+
+### Documentation
+
+- The README and `docs/substrate-adapters.md` describe the Claude Code mode classifier and policy guard as installed by default, with `--no-mode-classifier` and `--no-policy-guard` to skip them. They no longer describe an opt-in `--mode-classifier` flag.
+- `docs/runtime-policy-inspection.md` gains a Claude Code projection section. It covers the policy worker, the 25 s timer on the hook's main thread, and the `UNAVAILABLE` denial that separates a broken guard from a policy decision.
+- `AGENTS.md` says how to add a top-level command to `COMMANDS` in `src/cli.ts`, and how to keep the hook hot-path modules light.
+
+## [0.29.1] - 2026-10-28
+
+### Changed
+
+- The CLI imports a command's module only when that command runs; help and unknown-command output still load all of them. `soma policy guard` starts in about 163 ms instead of 238 ms, and `soma algorithm classify` in about 309 ms instead of 409 ms. (#1124)
+- The Claude Code policy guard runs `soma policy` in a Worker of the hook process instead of spawning a second `bun`. It stays fail-closed: the 25 s timer runs on the hook's main thread, and a worker that fails to load, throws, exits without a decision or hangs denies as UNAVAILABLE. A guarded tool call takes about 156 ms instead of 316 ms. (#1124)
+- The Claude Code mode-classifier hook runs `algorithm classify` in a Worker the same way, importing only the classify module. It stays fail-open on every failure path. A prompt takes about 134 ms instead of 340 ms. (#1126)
+
+## [0.29.0] - 2026-10-28
+
 ### Changed
 
 - `soma graph close --dry-run` no longer runs `command` probes. It still runs every other gate and the non-command probes, lists each command probe as `would run: <run> in <cwd>, bound <timeoutSec>s`, shows it as not run in the previewed receipt, and reports `would be ACCEPTED pending N command probe(s)` or `would be REFUSED`. `--dry-run --run-probes` runs them for the full parity check; `--run-probes` without `--dry-run` is refused. (node #1103)
-- The playbook cards move out of the-algorithm into the soma-pstack pack's `playbooks` skill. The working method reads the Playbooks section from `<soma-home>/skills/playbooks/SKILL.md` and points each row at that skill's `references/`, and the mode hook's card hint points there too. A home without the pack projects no Playbooks section and no card rule. Principles stay in the-algorithm.
+- **Breaking:** the playbook cards move out of the-algorithm into the soma-pstack pack's `playbooks` skill. The working method reads the Playbooks section from `<soma-home>/skills/playbooks/SKILL.md` and points each row at that skill's `references/`, and the mode hook's card hint points there too. A home without the pack projects no Playbooks section and no card rule. Principles stay in the-algorithm.
 
 ## [0.28.0] - 2026-10-26
 
@@ -1663,7 +1689,13 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.29.2...HEAD
+[0.29.2]: https://github.com/the-metafactory/soma/compare/v0.29.1...v0.29.2
+[0.29.1]: https://github.com/the-metafactory/soma/compare/v0.29.0...v0.29.1
+[0.29.0]: https://github.com/the-metafactory/soma/compare/v0.28.0...v0.29.0
+[0.28.0]: https://github.com/the-metafactory/soma/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/the-metafactory/soma/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/the-metafactory/soma/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/the-metafactory/soma/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/the-metafactory/soma/compare/v0.23.1...v0.24.0
 [0.23.1]: https://github.com/the-metafactory/soma/compare/v0.23.0...v0.23.1

@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,21 +38,54 @@ function promptFromInput(input) {
 // `--record` appends one `soma judge` ledger line (a prompt hash, never the
 // prompt) so the classifier's decisions can be measured before a learned router
 // replaces it. The CLI swallows a failed write, so it never changes the
-// classification. A write that stalls delays it; past the subprocess timeout
-// below this hook fails open, as it does for any classifier failure.
+// classification. A write that stalls delays it; past the timeout below this
+// hook fails open, as it does for any classifier failure.
 function classifyArgs(config, prompt, sessionId) {
-  const args = ["src/cli.ts", "algorithm", "classify", "--prompt", prompt || "", "--json", "--record", "--substrate", "claude-code"];
+  const args = ["algorithm", "classify", "--prompt", prompt || "", "--json", "--record", "--substrate", "claude-code"];
   if (typeof config.somaHome === "string" && config.somaHome.length > 0) args.push("--soma-home", config.somaHome);
   if (typeof sessionId === "string" && sessionId.length > 0) args.push("--session", sessionId);
   return args;
 }
 
+// The classifier runs in a worker of this process, not a second `bun`: that
+// cold start cost about 100 ms on every prompt. The timer stays on this
+// thread, so a worker that hangs, even in a synchronous loop, still fails open.
+const CLASSIFY_TIMEOUT_MS = 3000;
+
+// Resolves to `{ output }` or `{ error }`, never rejects. The CLI ran with the
+// trusted repo as its cwd, so the worker does too; the hook's own cwd comes
+// back once it settles, for the relative paths the hook resolves afterwards.
 function runSomaClassification(config, prompt, sessionId) {
-  return spawnSync(config.bunPath, classifyArgs(config, prompt, sessionId), {
-    cwd: config.trustedSomaRepo,
-    encoding: "utf8",
-    timeout: 3000,
-    env: process.env,
+  return new Promise((resolve) => {
+    let hookCwd;
+    let worker;
+    let timer;
+    let settled = false;
+    const settle = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      worker?.terminate();
+      try {
+        if (hookCwd !== undefined) process.chdir(hookCwd);
+      } catch (error) {
+        // The hook's cwd went away mid-run; an installed config's paths are absolute.
+        if (error?.code !== "ENOENT") throw error;
+      }
+      resolve(result);
+    };
+    try {
+      hookCwd = process.cwd();
+      process.chdir(config.trustedSomaRepo);
+      timer = setTimeout(() => settle({ error: `timed out after ${CLASSIFY_TIMEOUT_MS} ms` }), CLASSIFY_TIMEOUT_MS);
+      worker = new Worker(join(config.trustedSomaRepo, "src", "cli", "mode-classifier-worker.ts"));
+      worker.onmessage = (event) => settle(event.data);
+      worker.onerror = (event) => settle({ error: event.message || "worker failed to load" });
+      worker.addEventListener("close", () => settle({ error: "worker exited without a classification" }));
+      worker.postMessage({ args: classifyArgs(config, prompt, sessionId) });
+    } catch (error) {
+      settle({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 }
 
@@ -163,7 +195,7 @@ function emitFailOpen(reason) {
   });
 }
 
-function main() {
+async function main() {
   const input = readHookInput();
   // Other lifecycle events contain tool output, not a principal prompt.
   if (typeof input.hook_event_name === "string" && input.hook_event_name !== "UserPromptSubmit") {
@@ -179,9 +211,10 @@ function main() {
   if (!prompt.trim()) {
     classification = { mode: "native", source: "auto", reason: "No user prompt; continue natively." };
   } else {
-    const result = runSomaClassification(config, prompt, sessionId);
-    if (result.status !== 0) emitFailOpen(result.stderr || result.stdout || "");
-    classification = parseClassification(result.stdout);
+    const result = await runSomaClassification(config, prompt, sessionId);
+    // The newline keeps the reason as the CLI's stderr line read before.
+    if (result.error !== undefined) emitFailOpen(`${result.error}\n`);
+    classification = parseClassification(result.output);
   }
   // Feed the per-session statusline state (best-effort; never blocks output).
   writeStatuslineModeState(config, sessionId, classification);
@@ -194,4 +227,4 @@ function main() {
   });
 }
 
-main();
+await main();

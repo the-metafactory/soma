@@ -204,11 +204,27 @@ Current home install behavior:
   rather than adding a second set: on a host with two Bun installs, matching
   only the exact command for the current Bun left every Soma hook registered
   twice.
-- `soma install claude-code --mode-classifier --apply` additionally installs
-  an opt-in `UserPromptSubmit` mode-classifier hook. The hook calls
-  `soma algorithm classify --json`, injects a concise MODE context block, and
-  temporarily disables any detected PAI `ModeClassifier.hook.*` entry. Uninstall
-  removes Soma's classifier hook and restores the disabled PAI entry.
+- It installs a `UserPromptSubmit` mode-classifier hook,
+  `<claude-home>/hooks/soma/soma-mode-classifier.mjs`. The hook runs
+  `algorithm classify` and injects a short MODE context block. It also disables
+  any PAI `ModeClassifier.hook.*` entry it finds. Uninstall removes Soma's
+  classifier hook and restores the PAI entry. Pass `--no-mode-classifier` to
+  skip it.
+- It installs a fail-closed policy guard,
+  `<claude-home>/hooks/soma/soma-policy-guard.mjs`. The guard runs on
+  `UserPromptSubmit` and on `PreToolUse` for `Bash`, `Read`, `Grep`, `Edit`,
+  `Write`, `MultiEdit`, and `NotebookEdit`. See
+  [runtime-policy-inspection.md](./runtime-policy-inspection.md#claude-code-projection).
+  Pass `--no-policy-guard` to skip it.
+- Both hooks run Soma inside their own process. Each hook loads a Worker from
+  the runtime artifact in its config's `trustedSomaRepo`:
+  `src/cli/mode-classifier-worker.ts` or `src/cli/policy-worker.ts`. Neither
+  hook starts a second `bun`, which saves about 100 ms per prompt or tool call.
+  The timeout stays on the hook's main thread, so a worker stuck in a loop
+  cannot hold the hook. The classifier waits 3 s, and the guard waits 25 s.
+  When the worker fails to load, throws, exits without an answer, or times
+  out, the two hooks react in opposite ways. The classifier fails open: the
+  prompt continues with no MODE block. The guard fails closed: it denies.
 - Lifecycle hooks call Soma lifecycle APIs with `--substrate claude-code` and a
   1 s work-registry lock timeout, as the Codex adapter's session-end does. They
   start nothing for an SDK-driven session (`CLAUDE_CODE_ENTRYPOINT` of `sdk-cli`,
