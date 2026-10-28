@@ -307,6 +307,11 @@ function autoNode(id: string, overrides: Partial<WorkGraphNode> = {}): WorkGraph
   return { id, title: `node ${id}`, autonomy: "auto", probes: [PROBE], checkpointId: `cp-${id}`, ...overrides } as WorkGraphNode;
 }
 
+/** An auto node whose probe is the cheap type check, so an audit of it is not flagged for a full-suite probe (node #1106). */
+function cleanNode(id: string): WorkGraphNode {
+  return autoNode(id, { probes: [{ type: "command", run: "bunx tsc --noEmit", timeoutSec: 300, expectExit: 0 }] });
+}
+
 // --- parsing ---------------------------------------------------------------
 
 test("the parser accepts exactly the verbs of §2.6, including chart", () => {
@@ -2201,6 +2206,40 @@ test("audit flags a closed node with no receipt — the tracker closed it, the g
   expect(output).toContain("Open and claimed");
 });
 
+test("audit lists open nodes that declare a full-suite command probe, and spares closed and targeted ones (node #1106)", async () => {
+  const command = (run: string) => ({ type: "command", run, cwd: "/canonical", timeoutSec: 1800, expectExit: 0 }) as const;
+  const store = new FakeStore()
+    .seed("495", { node: cleanNode("495"), children: ["520", "521", "522", "523"] })
+    .seed("520", { node: autoNode("520", { probes: [command("bun run test")] }), parent: "495" })
+    .seed("521", { node: autoNode("521", { probes: [command("bunx tsc --noEmit")] }), parent: "495" })
+    .seed("522", { node: autoNode("522", { probes: [command("bun test")] }), status: "closed", parent: "495" })
+    .seed("523", { node: autoNode("523", { probes: [command("bun run test test/graph/work-graph-probes.test.ts")] }), parent: "495" });
+  await store.postComment({ id: "522" }, validReceipt("cp-522"));
+
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store);
+  expect(output).toContain("Open with a full-suite command probe");
+  expect(output).toMatch(/^- 520 /mu);
+  expect(output).not.toMatch(/^- 521 /mu);
+  expect(output).not.toMatch(/^- 522 /mu);
+  expect(output).not.toMatch(/^- 523 /mu);
+  expect(output).not.toContain("Clean");
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store)) as { openWithFullSuiteProbe: string[] };
+  expect(json.openWithFullSuiteProbe).toEqual(["520"]);
+});
+
+test("audit lists a plain bun test probe under the bare bun test section only (node #1106)", async () => {
+  const command = (run: string) => ({ type: "command", run, cwd: "/canonical", timeoutSec: 1800, expectExit: 0 }) as const;
+  const store = new FakeStore()
+    .seed("495", { node: cleanNode("495"), children: ["520", "521"] })
+    .seed("520", { node: autoNode("520", { probes: [command("bun test")] }), parent: "495" })
+    .seed("521", { node: autoNode("521", { probes: [command("bun test --bail"), command("bun run test")] }), parent: "495" });
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store)) as { openWithFullSuiteProbe: string[]; openWithBareBunTestProbe: string[] };
+  expect(json.openWithBareBunTestProbe).toEqual(["520", "521"]);
+  expect(json.openWithFullSuiteProbe).toEqual(["521"]);
+});
+
 test("audit reports open bare bun test probes in text and JSON, including the root", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), children: ["520", "521", "522", "523"] })
@@ -2213,7 +2252,7 @@ test("audit reports open bare bun test probes in text and JSON, including the ro
 
   const output = await run(args, store);
   expect(output).toContain("Open with bare bun test command probes");
-  expect(output).toContain("use bun run test");
+  expect(output).toContain("bun run test <file>, never the full suite");
   expect(output).toContain("- 495 node 495");
   expect(output).toContain("- 520 node 520");
   expect(output).not.toMatch(/^- 52[123] /mu);
@@ -2227,7 +2266,7 @@ test.each(["CI=1 bun test", "cd pkg && bun test", "cd pkg;CI=1 bun test --bail",
   "audit reports open wrapped bare test command %j",
   async (runCommand) => {
     const store = new FakeStore()
-      .seed("495", { node: autoNode("495", { probes: [{ ...PROBE, run: "bun run test" }] }), children: ["520", "521", "522"] })
+      .seed("495", { node: cleanNode("495"), children: ["520", "521", "522"] })
       .seed("520", { node: autoNode("520", { probes: [{ ...PROBE, run: runCommand }] }), parent: "495" })
       .seed("521", { node: autoNode("521", { probes: [{ ...PROBE, run: runCommand }] }), status: "closed", parent: "495" })
       .seed("522", { node: autoNode("522", { probes: [{ ...PROBE, run: 'echo "x; bun test"' }] }), parent: "495" });
@@ -2235,7 +2274,7 @@ test.each(["CI=1 bun test", "cd pkg && bun test", "cd pkg;CI=1 bun test --bail",
     const args = ["graph", "audit", "495", "--repo", REPO];
 
     const output = await run(args, store);
-    expect(output).toContain("use bun run test");
+    expect(output).toContain("bun run test <file>, never the full suite");
     expect(output).toContain("- 520 node 520");
     expect(output).not.toMatch(/^- (?:495|521|522) /mu);
     expect(JSON.parse(await run([...args, "--json"], store)).openWithBareBunTestProbe).toEqual(["520"]);
@@ -2245,8 +2284,8 @@ test.each(["CI=1 bun test", "cd pkg && bun test", "cd pkg;CI=1 bun test --bail",
 
 test("a clean subtree audits clean", async () => {
   const store = new FakeStore()
-    .seed("495", { node: autoNode("495", { probes: [{ ...PROBE, run: "bun run test" }] }), children: ["520"] })
-    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+    .seed("495", { node: cleanNode("495"), children: ["520"] })
+    .seed("520", { node: cleanNode("520"), status: "closed", parent: "495" });
   await store.postComment({ id: "520" }, validReceipt("cp-520"));
 
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
@@ -2285,9 +2324,9 @@ test("audit build-brief scope reads no comments and omits findings it did not ch
 test("full audits batch a 400-node map with bounded fan-out and read fresh receipts on repeat", async () => {
   const store = new FakeStore();
   const ids = Array.from({ length: 399 }, (_, index) => String(index + 2));
-  store.seed("1", { node: autoNode("1"), children: ids });
+  store.seed("1", { node: cleanNode("1"), children: ids });
   for (const [index, id] of ids.entries()) {
-    store.seed(id, { node: autoNode(id), parent: "1", status: index < 340 ? "closed" : "open" });
+    store.seed(id, { node: cleanNode(id), parent: "1", status: index < 340 ? "closed" : "open" });
     if (index < 340 && id !== "2") await store.postComment({ id }, validReceipt(`cp-${id}`));
   }
   const readComments = store.listComments.bind(store);
@@ -2304,7 +2343,7 @@ test("full audits batch a 400-node map with bounded fan-out and read fresh recei
   };
   const args = ["graph", "audit", "1", "--repo", REPO, "--json"];
   const first = JSON.parse(await run(args, store));
-  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openWithBareBunTestProbe: ["1", ...ids.slice(340)], openClaimed: [], buildBriefNotReady: [] });
+  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openWithFullSuiteProbe: [], openWithBareBunTestProbe: [], openClaimed: [], buildBriefNotReady: [] });
   expect(batches).toEqual(Array(17).fill(20));
   expect(peak).toBeGreaterThan(1);
   expect(peak).toBeLessThanOrEqual(4);
@@ -2359,8 +2398,8 @@ test("a charted map root is counted by audit and still audits clean (#600)", asy
   // `chart` refuses a root without --checkpoint, so counting the root adds one
   // node and no finding to an ordinary map.
   const store = new FakeStore()
-    .seed("495", { node: autoNode("495", { probes: [{ ...PROBE, run: "bun run test" }] }), children: ["520"] })
-    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+    .seed("495", { node: cleanNode("495"), children: ["520"] })
+    .seed("520", { node: cleanNode("520"), status: "closed", parent: "495" });
   await store.postComment({ id: "520" }, validReceipt("cp-520"));
 
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);

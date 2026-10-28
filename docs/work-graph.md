@@ -734,7 +734,8 @@ soma graph close <node>            # runs declared probes; refuses a hollow clos
 soma graph audit <root>            # what the gates cannot see: closed nodes with
                                    # no receipt (a tracker-side close — the gate
                                    # never ran), open nodes that can never close,
-                                   # build briefs not ready, claimed nodes in flight
+                                   # open nodes declaring a full-suite command probe
+                                   # (#1106), build briefs not ready, claimed nodes in flight
                                    # — the root included, so
                                    # a standalone node is audited too. Read-only: it
                                    # names, the human acts.

@@ -39,6 +39,7 @@ import { assertActiveCliRuntime } from "../substrates/index";
 // other importers use graph's public entry, so there is one path to each symbol.
 import {
   buildBriefMissing,
+  declaresFullSuiteProbe,
   WorkGraph,
   WorkGraphError,
   UnreadableBlockersError,
@@ -1691,6 +1692,9 @@ async function scanClosedNodes(
  *   a receipt is. This is the fail-open path §2.4 names, made visible.
  * - **Open with no checkpoint** — a node that can never close. `add` now refuses
  *   to create one, but hand-authored tickets and pre-rule nodes still exist.
+ * - **Open with a full-suite command probe** — a close that repeats the suite
+ *   CI and the supervisor gate already ran (node #1106); probes cannot be edited
+ *   after `add`, so the principal decides per node.
  * - **Open and claimed** — informational: in flight somewhere, or stale.
  * - **Open build brief not ready** — required sections or live probe absent,
  *   or clarification outstanding. Reporting on kind does not enforce it at creation.
@@ -1707,6 +1711,7 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
     (state) => state.status === "open" && (state.node.checkpointId === undefined || state.node.checkpointId.length === 0),
   ) : [];
   const claimed = full ? subtree.filter((state) => state.status === "open" && state.assignees.length > 0) : [];
+  const fullSuiteProbe = full ? subtree.filter((state) => state.status === "open" && declaresFullSuiteProbe(state.node.probes)) : [];
   const bareBunTest = full ? subtree.filter(
     (state) => state.status === "open" && state.node.probes?.some(isBareBunTestProbe),
   ) : [];
@@ -1725,6 +1730,7 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
         ...(full ? {
           closedWithoutReceipt: unreceipted.map((state) => state.ref.id),
           openWithoutCheckpoint: uncloseable.map((state) => state.ref.id),
+          openWithFullSuiteProbe: fullSuiteProbe.map((state) => state.ref.id),
           openWithBareBunTestProbe: bareBunTest.map((state) => state.ref.id),
           openClaimed: claimed.map((state) => ({ id: state.ref.id, assignees: state.assignees })),
         } : {}),
@@ -1735,7 +1741,7 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
     );
   }
 
-  const clean = unreceipted.length === 0 && uncloseable.length === 0 && bareBunTest.length === 0 && buildBriefNotReady.length === 0;
+  const clean = unreceipted.length === 0 && uncloseable.length === 0 && fullSuiteProbe.length === 0 && bareBunTest.length === 0 && buildBriefNotReady.length === 0;
   return [
     `Work graph audit — root ${parsed.target} (${repo}), ${subtree.length} node(s)`,
     ...(full ? [] : [`Scope: build-brief-not-ready; other findings were not checked.`]),
@@ -1754,9 +1760,16 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
           "",
         ]
       : []),
+    ...(fullSuiteProbe.length > 0
+      ? [
+          `Open with a full-suite command probe — its close repeats the suite that CI and the supervisor gate already ran; probes cannot be edited, so decide per node:`,
+          ...fullSuiteProbe.map((state) => nodeSummary(state)),
+          "",
+        ]
+      : []),
     ...(bareBunTest.length > 0
       ? [
-          `Open with bare bun test command probes — use bun run test to preserve the package test script's configured limits:`,
+          `Open with bare bun test command probes — they skip the package test script's configured limits; probes cannot be edited, so decide per node (a replacement is a type check or bun run test <file>, never the full suite):`,
           ...bareBunTest.map((state) => nodeSummary(state)),
           "",
         ]
