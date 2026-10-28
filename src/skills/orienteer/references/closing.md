@@ -66,7 +66,7 @@ Evidence is typed by whether it was *specified* before the work and then
 point. A probe is a machine-checkable expectation, never prose:
 
 ```json
-{"type": "command", "run": "bun run test", "cwd": "/Users/fischer/work/ranger-repos/the-metafactory/soma", "timeoutSec": 1800, "expectExit": 0}
+{"type": "command", "run": "bunx tsc --noEmit", "cwd": "/Users/fischer/work/ranger-repos/the-metafactory/soma", "timeoutSec": 300, "expectExit": 0}
 {"type": "url", "target": "https://status.example.com/health", "expectStatus": 200}
 {"type": "git-ref-exists", "ref": "main"}
 {"type": "git-merged-into", "ref": "feat/x", "into": "main"}
@@ -76,24 +76,40 @@ point. A probe is a machine-checkable expectation, never prose:
 Timeout expiry is **failure**, never a pass and never a hang. A probe that could
 not run at all is a **failed** probe, never a skipped one.
 
-### Write a soma test probe against the canonical clone
+### Declare a cheap probe for a soma build node, against the canonical clone
 
-A soma build node's close gate tests the **merged base**, so write the `command`
-probe as above:
+A soma build node's close gate checks the **merged base**. Declare a **cheap**
+`command` probe, as in the example above: the type check, `bunx tsc --noEmit`
+(about 10 s). Never declare the full suite (`bun run test`, a bare `bun test`,
+`npm test`) as a close probe.
 
-- `run` is `bun run test`, never a bare `bun test`. A bare `bun test` gives each
-  test the 5 s default; `bun run test` carries the per-test timeout in soma's
-  `package.json`, which the suite needs.
+The full-suite regression check already runs twice before the node can close:
+the walker's supervisor runs it on the branch before the push, and CI runs it on
+the PR. An `auto` close must cite that CI run with
+`--ci <checkRunId>@<headSha>`, and the store checks that the run succeeded. A
+close probe that repeats the suite on the walker host spends about 15 minutes
+(and has parked closes at the deadline) to prove again what the cited check run
+already proves. The suite stays close evidence; it comes from the `--ci`
+citation, not from a probe.
+
+- `run` is `bunx tsc --noEmit`. The principal registers that exact `run` with
+  the canonical clone's `cwd` once (`soma policy probes`); a node cannot widen
+  the registry. Do not declare a test file per node (`bun test test/foo.test.ts`)
+  unless that exact pair is registered: the registry matches `run` and `cwd`
+  exactly, so a per-node test path is refused as unregistered.
 - `cwd` is the walker's canonical clone as configured on this installation (the
   path in the example above is one installation's; use your own), which a merge
   fast-forwards. Never name a working checkout (for the example
   installation, `/Users/fischer/work/mf/soma`): it sits on whatever branch its owner is
-  working, with uncommitted edits, so the probe tests the wrong tree. Nothing
+  working, with uncommitted edits, so the probe checks the wrong tree. Nothing
   flags such a `cwd` — the registry does not mark which entries are working
   checkouts, and `soma graph audit` does not check — so avoiding it is the
   charting agent's job.
-- `timeoutSec` is `1800`. The full suite took 603 s alone under walker load; 900
-  refused the closes after PRs #1018, #1020 and #1022, each at about 914 s.
+- `timeoutSec` is `300`, which is generous for a type check.
+
+`soma graph audit <root>` lists open nodes that still declare a full-suite
+command probe under *open with a full-suite command probe*. Probes cannot be
+edited after `graph add`, so the principal decides what to do with each.
 
 Dependencies in the canonical clone are **ranger's job**, not the probe's: after a
 close fast-forwards the clone past a lockfile change, ranger runs

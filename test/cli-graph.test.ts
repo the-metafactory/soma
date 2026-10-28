@@ -307,6 +307,11 @@ function autoNode(id: string, overrides: Partial<WorkGraphNode> = {}): WorkGraph
   return { id, title: `node ${id}`, autonomy: "auto", probes: [PROBE], checkpointId: `cp-${id}`, ...overrides } as WorkGraphNode;
 }
 
+/** An auto node whose probe is the cheap type check, so an audit of it is not flagged for a full-suite probe (node #1106). */
+function cleanNode(id: string): WorkGraphNode {
+  return autoNode(id, { probes: [{ type: "command", run: "bunx tsc --noEmit", timeoutSec: 300, expectExit: 0 }] });
+}
+
 // --- parsing ---------------------------------------------------------------
 
 test("the parser accepts exactly the verbs of §2.6, including chart", () => {
@@ -2166,10 +2171,32 @@ test("audit flags a closed node with no receipt — the tracker closed it, the g
   expect(output).toContain("Open and claimed");
 });
 
+test("audit lists open nodes that declare a full-suite command probe, and spares closed and targeted ones (node #1106)", async () => {
+  const command = (run: string) => ({ type: "command", run, cwd: "/canonical", timeoutSec: 1800, expectExit: 0 }) as const;
+  const store = new FakeStore()
+    .seed("495", { node: cleanNode("495"), children: ["520", "521", "522", "523"] })
+    .seed("520", { node: autoNode("520", { probes: [command("bun run test")] }), parent: "495" })
+    .seed("521", { node: autoNode("521", { probes: [command("bunx tsc --noEmit")] }), parent: "495" })
+    .seed("522", { node: autoNode("522", { probes: [command("bun test")] }), status: "closed", parent: "495" })
+    .seed("523", { node: autoNode("523", { probes: [command("bun test test/graph/work-graph-probes.test.ts")] }), parent: "495" });
+  await store.postComment({ id: "522" }, validReceipt("cp-522"));
+
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store);
+  expect(output).toContain("Open with a full-suite command probe");
+  expect(output).toMatch(/^- 520 /mu);
+  expect(output).not.toMatch(/^- 521 /mu);
+  expect(output).not.toMatch(/^- 522 /mu);
+  expect(output).not.toMatch(/^- 523 /mu);
+  expect(output).not.toContain("Clean");
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store)) as { openWithFullSuiteProbe: string[] };
+  expect(json.openWithFullSuiteProbe).toEqual(["520"]);
+});
+
 test("a clean subtree audits clean", async () => {
   const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), children: ["520"] })
-    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+    .seed("495", { node: cleanNode("495"), children: ["520"] })
+    .seed("520", { node: cleanNode("520"), status: "closed", parent: "495" });
   await store.postComment({ id: "520" }, validReceipt("cp-520"));
 
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
@@ -2208,9 +2235,9 @@ test("audit build-brief scope reads no comments and omits findings it did not ch
 test("full audits batch a 400-node map with bounded fan-out and read fresh receipts on repeat", async () => {
   const store = new FakeStore();
   const ids = Array.from({ length: 399 }, (_, index) => String(index + 2));
-  store.seed("1", { node: autoNode("1"), children: ids });
+  store.seed("1", { node: cleanNode("1"), children: ids });
   for (const [index, id] of ids.entries()) {
-    store.seed(id, { node: autoNode(id), parent: "1", status: index < 340 ? "closed" : "open" });
+    store.seed(id, { node: cleanNode(id), parent: "1", status: index < 340 ? "closed" : "open" });
     if (index < 340 && id !== "2") await store.postComment({ id }, validReceipt(`cp-${id}`));
   }
   const readComments = store.listComments.bind(store);
@@ -2227,7 +2254,7 @@ test("full audits batch a 400-node map with bounded fan-out and read fresh recei
   };
   const args = ["graph", "audit", "1", "--repo", REPO, "--json"];
   const first = JSON.parse(await run(args, store));
-  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openClaimed: [], buildBriefNotReady: [] });
+  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openWithFullSuiteProbe: [], openClaimed: [], buildBriefNotReady: [] });
   expect(batches).toEqual(Array(17).fill(20));
   expect(peak).toBeGreaterThan(1);
   expect(peak).toBeLessThanOrEqual(4);
@@ -2282,8 +2309,8 @@ test("a charted map root is counted by audit and still audits clean (#600)", asy
   // `chart` refuses a root without --checkpoint, so counting the root adds one
   // node and no finding to an ordinary map.
   const store = new FakeStore()
-    .seed("495", { node: autoNode("495"), children: ["520"] })
-    .seed("520", { node: autoNode("520"), status: "closed", parent: "495" });
+    .seed("495", { node: cleanNode("495"), children: ["520"] })
+    .seed("520", { node: cleanNode("520"), status: "closed", parent: "495" });
   await store.postComment({ id: "520" }, validReceipt("cp-520"));
 
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
