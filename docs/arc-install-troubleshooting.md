@@ -44,7 +44,7 @@ again. To pin a specific release, pass its tag:
 
 ```bash
 arc remove soma
-arc install https://github.com/the-metafactory/soma --pin v0.29.2
+arc install https://github.com/the-metafactory/soma --pin v0.29.3
 ```
 
 This removes Arc's package registration and symlinks before installing the

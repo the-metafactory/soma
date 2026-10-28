@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.3] - 2026-10-28
+
+### Documentation
+
+- The per-release summaries move from the README to `docs/release-notes.md`. The README keeps only the current release. (#1129)
+- The README and `docs/arc-install-troubleshooting.md` install Soma with `arc install https://github.com/the-metafactory/soma`, pin a release with `--pin vX.Y.Z`, and upgrade with `arc upgrade soma --force` followed by `soma install` for each substrate. (#1129)
+- The README links the [soma-pstack](https://github.com/the-metafactory/soma-pstack) and [soma-lifeos](https://github.com/the-metafactory/soma-lifeos) skill packs and gives the install command for each. (#1129)
+
 ## [0.29.2] - 2026-10-28
 
 ### Documentation

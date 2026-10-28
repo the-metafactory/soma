@@ -5,6 +5,14 @@ lists every change. The
 [GitHub releases](https://github.com/the-metafactory/soma/releases) carry the
 tags.
 
+## 0.29.3
+
+[0.29.3](https://github.com/the-metafactory/soma/releases/tag/v0.29.3) is a
+documentation release. The release notes move from the README to this page,
+the install steps use `arc install https://github.com/the-metafactory/soma`,
+and the README links the soma-pstack and soma-lifeos skill packs. See the
+[changelog](../CHANGELOG.md#0293---2026-10-28).
+
 ## 0.29.2
 
 [0.29.2](https://github.com/the-metafactory/soma/releases/tag/v0.29.2) is a
