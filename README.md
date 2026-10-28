@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.29.1-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.29.2-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,14 @@
 
 ---
 
-## Current release: 0.29.1
+## Current release: 0.29.2
+
+[0.29.2](https://github.com/the-metafactory/soma/releases/tag/v0.29.2) is a
+documentation release. It describes the Claude Code mode classifier and
+policy guard, which are installed by default, and how each one fails. See the
+[changelog](CHANGELOG.md#0292---2026-10-28).
+
+### 0.29.1
 
 [0.29.1](https://github.com/the-metafactory/soma/releases/tag/v0.29.1) makes the
 hooks that run on every tool call and prompt start faster. The CLI loads only

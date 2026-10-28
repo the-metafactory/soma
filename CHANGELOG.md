@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-10-28
+
+### Documentation
+
+- The README and `docs/substrate-adapters.md` describe the Claude Code mode classifier and policy guard as installed by default, with `--no-mode-classifier` and `--no-policy-guard` to skip them. They no longer describe an opt-in `--mode-classifier` flag.
+- `docs/runtime-policy-inspection.md` gains a Claude Code projection section. It covers the policy worker, the 25 s timer on the hook's main thread, and the `UNAVAILABLE` denial that separates a broken guard from a policy decision.
+- `AGENTS.md` says how to add a top-level command to `COMMANDS` in `src/cli.ts`, and how to keep the hook hot-path modules light.
+
 ## [0.29.1] - 2026-10-28
 
 ### Changed
@@ -1673,7 +1681,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.29.1...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.29.2...HEAD
+[0.29.2]: https://github.com/the-metafactory/soma/compare/v0.29.1...v0.29.2
 [0.29.1]: https://github.com/the-metafactory/soma/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/the-metafactory/soma/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/the-metafactory/soma/compare/v0.27.0...v0.28.0
