@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.29.2-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.29.3-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,12 +30,14 @@
 
 ---
 
-## Current release: 0.29.2
+## Current release: 0.29.3
 
-[0.29.2](https://github.com/the-metafactory/soma/releases/tag/v0.29.2) is a
-documentation release. It describes the Claude Code mode classifier and
-policy guard, which are installed by default, and how each one fails. See the
-[changelog](CHANGELOG.md#0292---2026-10-28).
+[0.29.3](https://github.com/the-metafactory/soma/releases/tag/v0.29.3) is a
+documentation release. The release notes move to
+[docs/release-notes.md](docs/release-notes.md), the install steps use
+`arc install https://github.com/the-metafactory/soma`, and the README links the
+soma-pstack and soma-lifeos skill packs. See the
+[changelog](CHANGELOG.md#0293---2026-10-28).
 
 Earlier releases are summarized in [docs/release-notes.md](docs/release-notes.md).
 
@@ -995,7 +997,7 @@ arc install https://github.com/the-metafactory/soma
 To install a specific release, pin its tag:
 
 ```bash
-arc install https://github.com/the-metafactory/soma --pin v0.29.2
+arc install https://github.com/the-metafactory/soma --pin v0.29.3
 ```
 
 Arc installs the `soma` CLI on PATH. Verify the shim before continuing:
