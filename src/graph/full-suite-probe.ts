@@ -19,7 +19,7 @@ function narrowsSelection(word: string): boolean {
 export function isFullSuiteCommand(run: string): boolean {
   const words = run.trim().split(/\s+/u);
   const [runner, ...rest] = words;
-  if (runner === undefined || !SUITE_RUNNERS.has(runner)) return false;
+  if (!SUITE_RUNNERS.has(runner)) return false;
   const verbs = rest[0] === "run" ? rest.slice(1) : rest;
   if (verbs[0] !== "test") return false;
   return verbs.slice(1).every((word) => word.startsWith("-") && !narrowsSelection(word));
