@@ -185,6 +185,12 @@ export interface BlockingRef extends NodeRef {
 
 export type NodeStatus = "open" | "closed";
 
+/** An open node's id and the probes it declares, for the repo-wide registry audit. */
+export interface OpenNodeProbes {
+  id: string;
+  probes: readonly Probe[];
+}
+
 /** A node as the store currently reports it. */
 export interface NodeState {
   ref: NodeRef;
@@ -735,6 +741,12 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
    */
   listOpenRoots?(serves: string): Promise<NodeState[]>;
   /**
+   * Every open typed node in this store's repo, whatever map it sits under, with
+   * the probes it declares (node #1107). Complete all pages or reject. Absence
+   * means unsupported, never "no nodes declare probes".
+   */
+  listOpenNodeProbes?(): Promise<OpenNodeProbes[]>;
+  /**
    * Find bodies containing an exact marker anywhere in this repo, including
    * closed and unattached nodes. Read live, paginate completely, and reject on
    * any failed read: a false negative could make a retry create a duplicate.
@@ -981,16 +993,18 @@ export function isBareBunTestProbe(probe: Probe): boolean {
   if (probe.type !== "command") return false;
   let commandStart = true;
   let previousWasBun = false;
-  const shellTokens = /[;&|\n]+|(?:\\[\s\S]|'[^']*'|"(?:\\[\s\S]|[^"\\])*"|[^\s;&|\\'"])+/gu;
+  const shellTokens = /[();&|\n]+|(?:\\[\s\S]|'[^']*'|"(?:\\[\s\S]|[^"\\])*"|[^\s();&|\\'"])+/gu;
   for (const [token] of probe.run.matchAll(shellTokens)) {
-    if (/^[;&|\n]+$/u.test(token)) {
+    if (/^[();&|\n]+$/u.test(token)) {
       commandStart = true;
       previousWasBun = false;
       continue;
     }
     if (commandStart && /^[A-Za-z_]\w*=/u.test(token)) continue;
-    if (previousWasBun && token === "test") return true;
-    previousWasBun = commandStart && token === "bun";
+    const word = token.replace(/^(['"])(.*)\1$/u, "$2");
+    if (commandStart && (word === "env" || word === "time" || word === "exec")) continue;
+    if (previousWasBun && word === "test") return true;
+    previousWasBun = commandStart && word.split("/").at(-1) === "bun";
     commandStart = false;
   }
   return false;

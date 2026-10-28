@@ -37,6 +37,7 @@ import {
   type NodeRef,
   type NodeState,
   type NodeStatus,
+  type OpenNodeProbes,
   type Reaction,
   type RehomeSelection,
   type ReleaseResult,
@@ -858,51 +859,10 @@ class GitHubGraphStore implements GraphStore {
     }
     const context = `listOpenRoots in ${this.repo}`;
     try {
-      const [owner, name] = this.repo.split("/");
       const candidates: NodeRef[] = [];
-      const seen = new Set<number>();
-      const cursors = new Set<string>();
-      let after: string | null = null;
-      let totalCount: number | undefined;
-      for (;;) {
-        const response = asRecord(await this.transport({
-          method: "POST", path: "graphql",
-          body: { query: OPEN_ROOTS_QUERY, variables: { owner, name, after } },
-        }), context);
-        if (response.errors !== undefined && asArray(response.errors, context).length > 0) {
-          throw new WorkGraphError("backend", `${context}: GraphQL returned errors`);
-        }
-        const repository = asRecord(asRecord(response.data, context).repository, context);
-        const connection = asRecord(repository.issues, context);
-        const count = readNumber(connection, "totalCount", context);
-        if (!Number.isInteger(count) || count < 0 || (totalCount !== undefined && totalCount !== count)) {
-          throw new WorkGraphError("backend", `${context}: inconsistent issue count while paging`);
-        }
-        totalCount = count;
-        for (const entry of asArray(connection.nodes, context)) {
-          const issue = asRecord(entry, context);
-          const number = readNumber(issue, "number", context);
-          if (!Number.isSafeInteger(number) || number < 1 || seen.has(number)) {
-            throw new WorkGraphError("backend", `${context}: invalid or duplicate issue number`);
-          }
-          seen.add(number);
-          if (typeof issue.title !== "string" || typeof issue.body !== "string") {
-            throw new WorkGraphError("backend", `${context}: missing issue title or body`);
-          }
-          const decoded = nodeFromIssue({ number, title: issue.title, body: issue.body });
-          if (decoded.typed && decoded.node.serves === serves) candidates.push({ id: String(number) });
-        }
-        const pageInfo = asRecord(connection.pageInfo, context);
-        if (pageInfo.hasNextPage === false) break;
-        if (pageInfo.hasNextPage !== true || typeof pageInfo.endCursor !== "string"
-          || pageInfo.endCursor.length === 0 || cursors.has(pageInfo.endCursor)) {
-          throw new WorkGraphError("backend", `${context}: unusable pagination cursor or hasNextPage`);
-        }
-        cursors.add(pageInfo.endCursor);
-        after = pageInfo.endCursor;
-      }
-      if (seen.size !== totalCount) {
-        throw new WorkGraphError("backend", `${context}: reported ${totalCount} issues but paging returned ${seen.size}`);
+      for (const issue of await this.pageOpenIssues(context)) {
+        const decoded = nodeFromIssue(issue);
+        if (decoded.typed && decoded.node.serves === serves) candidates.push({ id: String(issue.number) });
       }
       const roots: NodeState[] = [];
       for (const candidate of candidates) {
@@ -915,6 +875,71 @@ class GitHubGraphStore implements GraphStore {
     } catch (error) {
       throw new WorkGraphError("backend", `${context}: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /** Every open typed node in the repo with the probes it declares, from one paged read of the open issues. */
+  async listOpenNodeProbes(): Promise<OpenNodeProbes[]> {
+    const context = `listOpenNodeProbes in ${this.repo}`;
+    try {
+      const nodes: OpenNodeProbes[] = [];
+      for (const issue of await this.pageOpenIssues(context)) {
+        const decoded = nodeFromIssue(issue);
+        if (decoded.typed) nodes.push({ id: String(issue.number), probes: decoded.node.probes ?? [] });
+      }
+      return nodes;
+    } catch (error) {
+      throw new WorkGraphError("backend", `${context}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** Complete all pages of the repo's open issues or reject; never a partial list. */
+  private async pageOpenIssues(context: string): Promise<{ number: number; title: string; body: string }[]> {
+    const [owner, name] = this.repo.split("/");
+    const issues: { number: number; title: string; body: string }[] = [];
+    const seen = new Set<number>();
+    const cursors = new Set<string>();
+    let after: string | null = null;
+    let totalCount: number | undefined;
+    for (;;) {
+      const response = asRecord(await this.transport({
+        method: "POST", path: "graphql",
+        body: { query: OPEN_ROOTS_QUERY, variables: { owner, name, after } },
+      }), context);
+      if (response.errors !== undefined && asArray(response.errors, context).length > 0) {
+        throw new WorkGraphError("backend", `${context}: GraphQL returned errors`);
+      }
+      const repository = asRecord(asRecord(response.data, context).repository, context);
+      const connection = asRecord(repository.issues, context);
+      const count = readNumber(connection, "totalCount", context);
+      if (!Number.isInteger(count) || count < 0 || (totalCount !== undefined && totalCount !== count)) {
+        throw new WorkGraphError("backend", `${context}: inconsistent issue count while paging`);
+      }
+      totalCount = count;
+      for (const entry of asArray(connection.nodes, context)) {
+        const issue = asRecord(entry, context);
+        const number = readNumber(issue, "number", context);
+        if (!Number.isSafeInteger(number) || number < 1 || seen.has(number)) {
+          throw new WorkGraphError("backend", `${context}: invalid or duplicate issue number`);
+        }
+        seen.add(number);
+        if (typeof issue.title !== "string" || typeof issue.body !== "string") {
+          throw new WorkGraphError("backend", `${context}: missing issue title or body`);
+        }
+        issues.push({ number, title: issue.title, body: issue.body });
+      }
+      const pageInfo = asRecord(connection.pageInfo, context);
+      if (pageInfo.hasNextPage === false) break;
+      if (pageInfo.hasNextPage !== true || typeof pageInfo.endCursor !== "string"
+        || pageInfo.endCursor.length === 0 || cursors.has(pageInfo.endCursor)) {
+        throw new WorkGraphError("backend", `${context}: unusable pagination cursor or hasNextPage`);
+      }
+      cursors.add(pageInfo.endCursor);
+      after = pageInfo.endCursor;
+    }
+    if (seen.size !== totalCount) {
+      throw new WorkGraphError("backend", `${context}: reported ${totalCount} issues but paging returned ${seen.size}`);
+    }
+    return issues;
   }
 
   /**

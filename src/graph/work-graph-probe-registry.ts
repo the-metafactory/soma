@@ -168,60 +168,14 @@ export async function loadProbeRegistry(options: LoadProbeRegistryOptions): Prom
  * validation makes every mistake loud, and loud here still means closed.
  */
 export function parseProbeRegistry(input: ParseProbeRegistryInput): ProbeRegistry {
-  const invalid = (reason: string): ProbeRegistry => ({
-    status: "invalid",
-    repo: input.repo,
-    path: input.path,
-    reason,
-  });
-
-  let document: unknown;
-  try {
-    document = JSON.parse(input.raw) as unknown;
-  } catch (error) {
-    return invalid(`is not valid JSON: ${describe(error)}`);
-  }
-
-  if (!isRecord(document)) return invalid("must be a JSON object");
-
-  const unknownKeys = Object.keys(document).filter((key) => key !== "version" && key !== "repos");
-  if (unknownKeys.length > 0) {
-    return invalid(`has unknown top-level key(s): ${unknownKeys.join(", ")} — expected only "version" and "repos"`);
-  }
-  if (document.version === 1) {
-    return invalid(
-      `uses registry version 1, whose host-less keys are no longer safe. Rewrite every repos key: prefix every key with "github.com/", then set "version" to ${PROBE_REGISTRY_VERSION}.`,
-    );
-  }
-  if (document.version !== PROBE_REGISTRY_VERSION) {
-    return invalid(`must declare "version": ${PROBE_REGISTRY_VERSION} (found ${JSON.stringify(document.version)})`);
-  }
-  if (!isRecord(document.repos)) {
-    return invalid(`"repos" must be an object keyed by "host/path" (for example "github.com/owner/name")`);
-  }
-
   const wanted = normalizeRegistryRepoKey(input.repo);
-  if (wanted === undefined) return invalid(`requested repository ${JSON.stringify(input.repo)} is not a host-qualified key`);
-  const seen = new Set<string>();
-  let match: RepoEntry | undefined;
-
-  for (const [key, value] of Object.entries(document.repos)) {
-    const normalized = normalizeRegistryRepoKey(key);
-    if (normalized === undefined) {
-      return invalid(
-        `"repos" key ${JSON.stringify(key)} must be host-qualified as "host/path" (for example "github.com/owner/name"); bare owner/name keys are invalid`,
-      );
-    }
-    if (seen.has(normalized)) {
-      return invalid(`"repos" declares ${normalized} more than once — repository keys are compared case-insensitively`);
-    }
-    seen.add(normalized);
-
-    const entry = parseRepoEntry(value, normalized, input.homeDir);
-    if ("error" in entry) return invalid(entry.error);
-    if (normalized === wanted) match = entry;
+  const parsed = parseRegistryDocument(input);
+  if ("invalid" in parsed) return { status: "invalid", repo: input.repo, path: input.path, reason: parsed.invalid };
+  if (wanted === undefined) {
+    return { status: "invalid", repo: input.repo, path: input.path, reason: `requested repository ${JSON.stringify(input.repo)} is not a host-qualified key` };
   }
 
+  const match = parsed.repos.get(wanted);
   return {
     status: "loaded",
     repo: input.repo,
@@ -229,6 +183,94 @@ export function parseProbeRegistry(input: ParseProbeRegistryInput): ProbeRegistr
     commands: match?.commands ?? [],
     urlHosts: match?.urlHosts ?? [],
   };
+}
+
+/** One declared command, tagged with the registry key of the repo that declares it. */
+export interface RegistryCommandEntry extends DeclaredCommand {
+  repo: string;
+}
+
+/**
+ * The whole document as a flat list, for `soma graph audit`: stale-entry
+ * reporting has to see every repo's commands, which {@link ProbeRegistry}
+ * deliberately narrows away. Never authorises anything; the close path does
+ * not call it.
+ */
+export type ProbeRegistryEntries =
+  | { status: "loaded"; path: string; commands: readonly RegistryCommandEntry[] }
+  | { status: "absent"; path: string }
+  | { status: "invalid"; path: string; reason: string };
+
+export async function listProbeRegistryEntries(
+  options: ProbeRegistryHomeOptions & Pick<LoadProbeRegistryOptions, "readFile"> = {},
+): Promise<ProbeRegistryEntries> {
+  const path = probeRegistryPath(options);
+  const read = options.readFile ?? defaultReadFile;
+
+  let raw: string | undefined;
+  try {
+    raw = await read(path);
+  } catch (error) {
+    return { status: "invalid", path, reason: `could not be read: ${describe(error)}` };
+  }
+  if (raw === undefined) return { status: "absent", path };
+
+  const parsed = parseRegistryDocument({ path, raw, ...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }) });
+  if ("invalid" in parsed) return { status: "invalid", path, reason: parsed.invalid };
+  return {
+    status: "loaded",
+    path,
+    commands: [...parsed.repos].flatMap(([repo, entry]) => entry.commands.map((command) => ({ repo, ...command }))),
+  };
+}
+
+function parseRegistryDocument(
+  input: Pick<ParseProbeRegistryInput, "path" | "raw" | "homeDir">,
+): { repos: Map<string, RepoEntry> } | { invalid: string } {
+  let document: unknown;
+  try {
+    document = JSON.parse(input.raw) as unknown;
+  } catch (error) {
+    return { invalid: `is not valid JSON: ${describe(error)}` };
+  }
+
+  if (!isRecord(document)) return { invalid: "must be a JSON object" };
+
+  const unknownKeys = Object.keys(document).filter((key) => key !== "version" && key !== "repos");
+  if (unknownKeys.length > 0) {
+    return { invalid: `has unknown top-level key(s): ${unknownKeys.join(", ")} — expected only "version" and "repos"` };
+  }
+  if (document.version === 1) {
+    return {
+      invalid: `uses registry version 1, whose host-less keys are no longer safe. Rewrite every repos key: prefix every key with "github.com/", then set "version" to ${PROBE_REGISTRY_VERSION}.`,
+    };
+  }
+  if (document.version !== PROBE_REGISTRY_VERSION) {
+    return { invalid: `must declare "version": ${PROBE_REGISTRY_VERSION} (found ${JSON.stringify(document.version)})` };
+  }
+  if (!isRecord(document.repos)) {
+    return { invalid: `"repos" must be an object keyed by "host/path" (for example "github.com/owner/name")` };
+  }
+
+  const repos = new Map<string, RepoEntry>();
+
+  for (const [key, value] of Object.entries(document.repos)) {
+    const normalized = normalizeRegistryRepoKey(key);
+    if (normalized === undefined) {
+      return {
+        invalid: `"repos" key ${JSON.stringify(key)} must be host-qualified as "host/path" (for example "github.com/owner/name"); bare owner/name keys are invalid`,
+      };
+    }
+    if (repos.has(normalized)) {
+      return { invalid: `"repos" declares ${normalized} more than once — repository keys are compared case-insensitively` };
+    }
+
+    const entry = parseRepoEntry(value, normalized, input.homeDir);
+    if ("error" in entry) return { invalid: entry.error };
+    repos.set(normalized, entry);
+  }
+
+  return { repos };
 }
 
 interface RepoEntry {

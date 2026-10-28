@@ -224,3 +224,20 @@ test("GraphQL subtree rejects missing API times instead of reading body times", 
   }) });
   await expect(store.readSubtree({ id: "1" })).rejects.toThrow("API update time");
 });
+
+test("listOpenNodeProbes returns every open typed node's probes across pages, whatever its parent or goal", async () => {
+  const probe = { type: "command" as const, run: "bun test", cwd: "/repo", timeoutSec: 60, expectExit: 0 };
+  const withProbe = `<!-- soma:work-graph-node\n${JSON.stringify({ autonomy: "approve", serves: "G6", probes: [probe], updatedAt: BODY_TIME })}\n-->`;
+  const { store, calls } = discoveryFixture({
+    first: page([candidate(1), candidate(2, withProbe), candidate(3, "serves: G5")], 4, true, "c1"),
+    c1: page([candidate(4, withProbe)], 4),
+  });
+  if (store.listOpenNodeProbes === undefined) throw new Error("open node listing unsupported");
+
+  const nodes = await store.listOpenNodeProbes();
+
+  expect(nodes.map((node) => node.id)).toEqual(["1", "2", "4"]);
+  expect(nodes[0]?.probes).toEqual([]);
+  expect(nodes[1]?.probes).toEqual([probe]);
+  expect(calls.every((request) => request.path === "graphql")).toBe(true);
+});

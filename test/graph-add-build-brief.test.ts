@@ -70,6 +70,7 @@ function fixture(...children: NodeState[]) {
     createStore: () => store,
     resolveRepo: async () => REPO,
     assertInstalledRuntime: async () => undefined,
+    listProbeRegistryEntries: async () => ({ status: "absent", path: "/home/.soma/policy/probe-registry.json" }),
   });
 }
 
