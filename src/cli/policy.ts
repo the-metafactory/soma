@@ -7,6 +7,7 @@ import { inspectRuntimePolicy, RUNTIME_POLICY_SURFACES } from "../policy/runtime
 import { evaluateToolCallPolicyGuard, type ToolCallPolicyGuardOptions } from "../policy/tool-policy-guard";
 import type { InboundContentScanOptions, RuntimePolicyConfigChange, RuntimePolicyInspectOptions, RuntimePolicyPermissionRequest, RuntimePolicySurface, SomaPolicyBatchTarget, SomaPolicyCheckOptions, SomaPolicyCheckResult } from "../policy/types";
 import {
+  describeDeclaredCommand,
   loadProbeRegistry,
   type ProbeRegistry,
   probeRegistryKey,
@@ -400,7 +401,7 @@ function formatProbeRegistry(registry: ProbeRegistry): string {
     "",
     "Declared commands:",
     ...(registry.commands.length > 0
-      ? registry.commands.map((entry) => `- \`${entry.run}\` in ${entry.cwd}`)
+      ? registry.commands.map((entry) => `- \`${describeDeclaredCommand(entry)}\` in ${entry.cwd}`)
       : ["- none — every `command` probe refuses"]),
     "",
     "Declared url hosts:",

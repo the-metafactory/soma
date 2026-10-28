@@ -84,6 +84,7 @@ import {
   proposalNodeSpec,
   readProposalFile,
   type ProposalFile,
+  describeDeclaredCommand,
   isProbeRefusal,
   isBareBunTestProbe,
   loadProbeRegistry as defaultLoadProbeRegistry,
@@ -1856,8 +1857,8 @@ async function auditProbeRegistry(
 }
 
 function renderStaleRegistry(findings: StaleRegistryFindings, verbose: boolean): string[] {
-  const entry = (item: { repo: string; run: string; cwd: string }): string =>
-    `- ${item.repo}: ${JSON.stringify(item.run)} in ${item.cwd}`;
+  const entry = (item: StaleRegistryFindings["cwdMissing"][number]): string =>
+    `- ${item.repo}: ${JSON.stringify(describeDeclaredCommand(item))} in ${item.cwd}`;
   return [
     ...(findings.cwdMissing.length > 0
       ? [`Probe registry entry, cwd missing — the directory no longer exists on this machine:`, ...findings.cwdMissing.map(entry), ""]

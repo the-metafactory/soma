@@ -22,7 +22,7 @@ import {
 // Receipt-rendering tests reach the defining module directly (sage on
 // #584); collapseHome stays internal to graph.
 import { collapseHome, describeProbeTree } from "../src/graph/work-graph";
-import { WorkGraphError, closeDeadlineSec, listProbeRegistryEntries, probeRegistryPath, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeRegistryEntries, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
+import { WorkGraphError, closeDeadlineSec, listProbeRegistryEntries, probeRegistryPath, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type DeclaredCommand, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeRegistryEntries, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const SERVES_CHART = ["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map"];
@@ -2338,6 +2338,26 @@ function staleAuditDeps(entries: ProbeRegistryEntries): Partial<GraphCliDeps> {
     directoryExists: (path) => path !== GONE,
   };
 }
+
+test("audit applies the test-file prefix rule and displays prefix declarations", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495", { probes: [] }), children: ["520", "521", "522"] })
+    .seed("520", { node: autoNode("520", { probes: [{ ...PROBE, run: "bun run test test/a.test.ts" }] }), parent: "495" })
+    .seed("521", { node: autoNode("521", { probes: [{ ...PROBE, run: "bun run test test/a.test.ts;whoami" }] }), parent: "495" })
+    .seed("522", { node: autoNode("522", { probes: [{ ...PROBE, run: "bun run test test/b.test.ts", cwd: GONE }] }), parent: "495" });
+  const command = { repo: "github.com/the-metafactory/soma", prefix: "bun run test", cwd: "/repo", arg: "test-file" } satisfies DeclaredCommand & { repo: string };
+  const entries: ProbeRegistryEntries = {
+    status: "loaded", path: REGISTRY_PATH,
+    commands: [command, { ...command, cwd: "/unused" }],
+  };
+  const args = ["graph", "audit", "495", "--repo", REPO, "--verbose"];
+  const json = JSON.parse(await run([...args, "--json"], store, staleAuditDeps(entries)));
+  expect(json.probeRegistry.inUse).toEqual([{ ...command, nodes: ["520"] }]);
+  expect(json.probeRegistry.unusedByOpenNodes).toEqual([{ ...command, cwd: "/unused" }]);
+  const text = await run(args, store, staleAuditDeps(entries));
+  expect(text).toContain('"bun run test <test-file>" in /repo');
+  expect(text).toContain('"bun run test <test-file>" in /unused');
+});
 
 test("audit lists a registry entry whose cwd is gone, across every repo, with repo, run and cwd", async () => {
   const store = staleAuditStore();

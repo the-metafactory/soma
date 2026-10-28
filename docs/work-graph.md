@@ -313,7 +313,7 @@ depend on knowing who is trusted there.
 
 | Probe type | Gate |
 | --- | --- |
-| `command` | Refused unless the exact `run` **and** `cwd` pair is declared in the local probe registry for this repo. `cwd` is part of the match: a declared command run in an attacker-chosen directory is a different command. |
+| `command` | Refused unless an exact `run` or test-file `prefix` matches, **and** `cwd` matches the declaration in the local probe registry for this repo. A declared command run in an attacker-chosen directory is a different command. |
 | `url` | Refused unless the target host is in the declared host set. Ungated, this is a blind SSRF oracle — the request issues from the closing machine and the receipt publishes the observed status to a possibly world-readable tracker. |
 | `git-ref-exists`, `git-merged-into`, `artifact-exists` | Ungated by the registry — argv, no shell, no egress — and **contained to the stated probe tree** (below). |
 
@@ -413,6 +413,19 @@ Declaration rules, all deny-by-default:
   different directory per invocation, which is the substitution the `cwd` match
   exists to prevent.
 - `run` matches **byte for byte**. No trimming, no normalisation.
+- A command entry can instead declare `{ "prefix": "bun run test", "cwd": "/Users/you/work/soma", "arg": "test-file" }`.
+  It matches the exact prefix, one space, and one relative path ending in
+  `.test.ts`, such as `test/busy-retry-park.test.ts`. Each slash-separated
+  segment contains only `[A-Za-z0-9._-]` and cannot start with `.`. Empty
+  segments, traversal, absolute paths, whitespace, quotes, shell syntax and
+  extra arguments refuse. `cwd` must still match. No other argument kind is
+  supported, and an entry cannot declare both `run` and `prefix`.
+  The argument parameterises the declared runner by selecting a file from the
+  declared checkout. Declaring a prefix trusts that checkout's code. For the
+  selected test to be repository code at the closed commit, the closer must
+  ensure the checkout and test file correspond to that commit. The registry
+  checks syntax and `cwd`; it does not verify the commit, tracked-file membership
+  or symlink targets, and does not exclude untracked test files.
 - `urlHosts` are bare hostnames — no scheme, port, path, or wildcard. A declared
   host authorises any port on it; a non-http(s) target is refused outright,
   since a `file:` or `data:` URL has no host for a host set to authorise.
@@ -446,7 +459,7 @@ declare. **Reading is not executing:** `soma graph node` and
 `soma graph frontier` read any node regardless, because a node is data. Only the
 close path gates.
 
-Exact match yields DD-7's *exact-bytes* property for the two fields it covers:
+For exact `run` entries, matching yields DD-7's *exact-bytes* property for the two fields it covers:
 editing a probe's `run` or `cwd` on the tracker breaks its match and the close
 refuses, with no scanner involved. It does **not** extend to the rest of the
 probe. `expectExit` and `timeoutSec` remain tracker content the gate never reads
