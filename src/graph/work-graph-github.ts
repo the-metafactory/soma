@@ -893,9 +893,9 @@ class GitHubGraphStore implements GraphStore {
   }
 
   /** Complete all pages of the repo's open issues or reject; never a partial list. */
-  private async pageOpenIssues(context: string): Promise<Array<{ number: number; title: string; body: string }>> {
+  private async pageOpenIssues(context: string): Promise<{ number: number; title: string; body: string }[]> {
     const [owner, name] = this.repo.split("/");
-    const issues: Array<{ number: number; title: string; body: string }> = [];
+    const issues: { number: number; title: string; body: string }[] = [];
     const seen = new Set<number>();
     const cursors = new Set<string>();
     let after: string | null = null;

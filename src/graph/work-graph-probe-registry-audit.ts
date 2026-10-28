@@ -25,7 +25,7 @@ export interface StaleRegistryFindings {
    */
   unusedByOpenNodes: RegistryCommandEntry[] | undefined;
   /** The audited repo's entries open nodes do use, with the node ids. */
-  inUse: Array<RegistryCommandEntry & { nodes: string[] }>;
+  inUse: (RegistryCommandEntry & { nodes: string[] })[];
 }
 
 export interface StaleRegistryInput {
