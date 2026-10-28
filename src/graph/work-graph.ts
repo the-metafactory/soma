@@ -978,7 +978,22 @@ export function parseProbe(input: unknown): Probe {
 }
 
 export function isBareBunTestProbe(probe: Probe): boolean {
-  return probe.type === "command" && /^\s*bun\s+test(?:\s|$)/u.test(probe.run);
+  if (probe.type !== "command") return false;
+  let commandStart = true;
+  let previousWasBun = false;
+  const shellTokens = /[;&|\n]+|(?:\\[\s\S]|'[^']*'|"(?:\\[\s\S]|[^"\\])*"|[^\s;&|\\'"])+/gu;
+  for (const [token] of probe.run.matchAll(shellTokens)) {
+    if (/^[;&|\n]+$/u.test(token)) {
+      commandStart = true;
+      previousWasBun = false;
+      continue;
+    }
+    if (commandStart && /^[A-Za-z_]\w*=/u.test(token)) continue;
+    if (previousWasBun && token === "test") return true;
+    previousWasBun = commandStart && token === "bun";
+    commandStart = false;
+  }
+  return false;
 }
 
 function parseBudget(input: unknown): NodeBudget {

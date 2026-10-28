@@ -665,7 +665,12 @@ test("release refuses a closed node", async () => {
 
 // --- add --------------------------------------------------------------------
 
-test.each(["bun test", "bun test test/graph --timeout=60000", " \tbun\ttest\t--parallel=4 "])(
+test.each([
+  "bun test", "bun test test/graph --timeout=60000", " \tbun\ttest\t--parallel=4 ",
+  "CI=1 bun test", "CI=1 FOO=bar bun test test/graph", 'FOO="two words" bun test',
+  "cd pkg && bun test", "cd pkg;bun test", "false || bun test --bail",
+  "printf x | bun test", "printf x\nbun test", "cd pkg && CI=1 bun test; echo done",
+])(
   "add refuses bare test command %j before writing anything",
   async (runCommand) => {
     const store = new FakeStore().seed("495", { node: autoNode("495") }).seed("498", { node: autoNode("498") });
@@ -717,7 +722,12 @@ function addArgs(...blockers: string[]): string[] {
   return ["graph", "add", "495", "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-1", ...blockers.flatMap((id) => ["--blocked-by", id]), "--repo", REPO];
 }
 
-test.each(["bun run test", "bun run test test/graph --parallel=4", "bun run typecheck", "echo bun test", "bun testing"])(
+test.each([
+  "bun run test", "bun run test test/graph --parallel=4", "bun run typecheck", "echo bun test", "bun testing",
+  "CI=1 bun run test", "cd pkg && bun run test --parallel=4", "cd pkg; echo bun test",
+  'echo "x; bun test"', "echo 'x && bun test'", 'FOO="x; bun test" bun run test',
+  "echo x\\; bun test",
+])(
   "add accepts command %j unchanged",
   async (runCommand) => {
     const store = new FakeStore().seed("495", { node: autoNode("495") });
@@ -2212,6 +2222,26 @@ test("audit reports open bare bun test probes in text and JSON, including the ro
   expect(JSON.parse(await run([...args, "--scope", "build-brief-not-ready", "--json"], store))).not.toHaveProperty("openWithBareBunTestProbe");
   expect(store.calls).toEqual([]);
 });
+
+test.each(["CI=1 bun test", "cd pkg && bun test", "cd pkg;CI=1 bun test --bail", "printf x | bun test"])(
+  "audit reports open wrapped bare test command %j",
+  async (runCommand) => {
+    const store = new FakeStore()
+      .seed("495", { node: autoNode("495", { probes: [{ ...PROBE, run: "bun run test" }] }), children: ["520", "521", "522"] })
+      .seed("520", { node: autoNode("520", { probes: [{ ...PROBE, run: runCommand }] }), parent: "495" })
+      .seed("521", { node: autoNode("521", { probes: [{ ...PROBE, run: runCommand }] }), status: "closed", parent: "495" })
+      .seed("522", { node: autoNode("522", { probes: [{ ...PROBE, run: 'echo "x; bun test"' }] }), parent: "495" });
+    await store.postComment({ id: "521" }, validReceipt("cp-521"));
+    const args = ["graph", "audit", "495", "--repo", REPO];
+
+    const output = await run(args, store);
+    expect(output).toContain("use bun run test");
+    expect(output).toContain("- 520 node 520");
+    expect(output).not.toMatch(/^- (?:495|521|522) /mu);
+    expect(JSON.parse(await run([...args, "--json"], store)).openWithBareBunTestProbe).toEqual(["520"]);
+    expect(store.calls).toEqual([]);
+  },
+);
 
 test("a clean subtree audits clean", async () => {
   const store = new FakeStore()
