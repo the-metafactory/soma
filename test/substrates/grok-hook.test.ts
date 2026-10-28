@@ -4,7 +4,7 @@ import { execSync, spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 
 // Every behavior test here spawns the shipped hook via a synchronous
 // `spawnSync("node", …)` (see runGrokHook). Observed under load (the shared
@@ -38,6 +38,26 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
     await rm(homeDir, { recursive: true, force: true });
   }
 }
+
+type GrokInstall = Awaited<ReturnType<typeof installSomaForGrok>>;
+let grokHookHome: Promise<{ homeDir: string; install: GrokInstall }> | undefined;
+
+// One grok install shared by the rows that only run the pre-tool-use hook and
+// read its decision; that path writes nothing into the home. A row that writes
+// into the home, or runs a hook that does, keeps its own withTempHome.
+async function withGrokHookHome<T>(fn: (homeDir: string, install: GrokInstall) => Promise<T>): Promise<T> {
+  grokHookHome ??= (async () => {
+    const homeDir = realpathSync.native(await mkdtemp(join(tmpdir(), "soma-grok-hook-")));
+    return { homeDir, install: await installSomaForGrok({ homeDir }) };
+  })();
+  const { homeDir, install } = await grokHookHome;
+  return fn(homeDir, install);
+}
+
+afterAll(async () => {
+  if (grokHookHome === undefined) return;
+  await rm((await grokHookHome).homeDir, { recursive: true, force: true });
+});
 
 async function waitForFileContaining(path: string, text: string): Promise<string> {
   let last = "";
@@ -391,8 +411,7 @@ test("grok post-compact degrades gracefully when the projected startup context i
 // documented explicit-deny code and is asserted as the contract).
 
 test("installed grok pre-tool-use hook denies writes carrying private Soma markers", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     // Grok Write input keys are path/contents (NOT claude's
@@ -408,8 +427,7 @@ test("installed grok pre-tool-use hook denies writes carrying private Soma marke
 });
 
 test("installed grok pre-tool-use hook denies StrReplace edits carrying private Soma markers", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     // StrReplace is in the PreToolUse matcher alongside Write but carries the
@@ -429,8 +447,7 @@ test("installed grok pre-tool-use hook denies StrReplace edits carrying private 
 });
 
 test("installed grok pre-tool-use hook denies destructive shell deletes of private roots", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     const result = runGrokPreToolUse(hook, homeDir, "Shell", {
@@ -450,8 +467,7 @@ test("installed grok pre-tool-use hook denies destructive shell deletes of priva
 // that egressed ~/.soma/memory/WORK.
 
 test("installed grok pre-tool-use hook denies the Copy-Item private-memory egress (incident 019eb29b)", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     const result = runGrokPreToolUse(hook, homeDir, "Shell", {
@@ -465,8 +481,7 @@ test("installed grok pre-tool-use hook denies the Copy-Item private-memory egres
 });
 
 test("installed grok pre-tool-use hook denies PowerShell transfer cmdlets and aliases (AC-2)", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const src = join(homeDir, ".soma/memory/WORK");
     const dst = join(homeDir, "public/WORK");
@@ -489,8 +504,7 @@ test("installed grok pre-tool-use hook denies PowerShell transfer cmdlets and al
 });
 
 test("installed grok pre-tool-use hook denies Remove-Item of private roots (AC-3)", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     const result = runGrokPreToolUse(hook, homeDir, "Shell", {
@@ -505,8 +519,7 @@ test("installed grok pre-tool-use hook denies Remove-Item of private roots (AC-3
 });
 
 test("installed grok pre-tool-use hook fails closed on UNKNOWN verbs touching private paths (AC-4)", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     // A verb in no table at all — proves fail-closed-on-unknown, not
@@ -522,8 +535,7 @@ test("installed grok pre-tool-use hook fails closed on UNKNOWN verbs touching pr
 });
 
 test("installed grok pre-tool-use hook ALLOWS read-only inspection of private paths (AC-5)", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const memory = join(homeDir, ".soma/memory");
 
@@ -544,8 +556,7 @@ test("installed grok pre-tool-use hook ALLOWS read-only inspection of private pa
 });
 
 test("installed grok pre-tool-use hook denies private reads piped into a writing cmdlet (AC-6)", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const privateFile = join(homeDir, ".soma/memory/WORK/x.md");
 
@@ -571,8 +582,7 @@ test("installed grok pre-tool-use hook denies private reads piped into a writing
 // They land failing-test-first; the grok-policy-targets.mjs hardening makes them deny.
 
 test("installed grok pre-tool-use hook denies colon-glued pwsh params", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const src = join(homeDir, ".soma/memory/WORK");
     const dst = join(homeDir, "public/WORK");
@@ -590,8 +600,7 @@ test("installed grok pre-tool-use hook denies colon-glued pwsh params", async ()
 });
 
 test("installed grok pre-tool-use hook denies backslash/tilde & Windows home paths", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const dst = join(homeDir, "public/WORK");
 
@@ -622,8 +631,7 @@ test("installed grok pre-tool-use hook denies backslash/tilde & Windows home pat
 });
 
 test("installed grok pre-tool-use hook denies glued redirects", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const privateFile = join(homeDir, ".soma/memory/WORK/secret.md");
     const pub = join(homeDir, "public.txt");
@@ -640,8 +648,7 @@ test("installed grok pre-tool-use hook denies glued redirects", async () => {
 });
 
 test("installed grok pre-tool-use hook fails closed on a marker no pass parses", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     // A fabricated syntax: an unknown verb whose argument carries the
     // private marker glued behind a non-path prefix and forward slashes, so
@@ -660,8 +667,7 @@ test("installed grok pre-tool-use hook fails closed on a marker no pass parses",
 });
 
 test("installed grok pre-tool-use hook fails closed on a RELATIVE private marker glued behind a non-path prefix", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     // The relative sibling of the absolute fabricated-marker case above. An
     // unknown verb gluing a RELATIVE private prefix behind a non-path prefix
@@ -681,8 +687,7 @@ test("installed grok pre-tool-use hook fails closed on a RELATIVE private marker
 });
 
 test("soma#327: installed grok pre-tool-use hook fails closed on every home-anchor glued form", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     // End-to-end through `policy check`: every home-anchor spelling glued
     // behind a non-path prefix slipped the backstop before the structural
@@ -710,8 +715,7 @@ test("soma#327: installed grok pre-tool-use hook fails closed on every home-anch
 // closed earlier. They land failing-test-first; the grok-policy-targets.mjs fixes make them deny.
 
 test("installed grok pre-tool-use hook denies the full set of pwsh home spellings", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const dst = join(homeDir, "public/WORK");
 
@@ -735,8 +739,7 @@ test("installed grok pre-tool-use hook denies the full set of pwsh home spelling
 });
 
 test("installed grok pre-tool-use hook ALLOWS read-only inspection via env home spellings (no over-block)", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     // Broadening the fold must not turn a benign read into a deny.
@@ -754,8 +757,7 @@ test("installed grok pre-tool-use hook ALLOWS read-only inspection via env home 
 });
 
 test("installed grok pre-tool-use hook denies egress glued behind a read-only lead verb via a statement separator", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const src = join(homeDir, ".soma/memory/WORK");
     const dst = join(homeDir, "public/WORK");
@@ -819,8 +821,7 @@ test("installed grok pre-tool-use hook denies egress via a Windows 8.3 short-nam
 });
 
 test("installed grok pre-tool-use hook denies a marker embedded in an opaque token via the enforceable backstop", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
     const src = join(homeDir, ".soma/memory/WORK/x.md");
 
@@ -841,8 +842,7 @@ test("installed grok pre-tool-use hook denies a marker embedded in an opaque tok
 });
 
 test("installed grok pre-tool-use hook escalates piped installs to principal approval", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     const result = runGrokPreToolUse(hook, homeDir, "Shell", {
@@ -874,8 +874,7 @@ test("installed grok pre-tool-use hook denies blocked reads from the inbound unt
 });
 
 test("grok pre-tool-use fails closed on malformed hook input", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     const result = runGrokHook(hook, "pre-tool-use", homeDir, "{", {}, { rawInput: true });
@@ -946,8 +945,7 @@ test("grok tool layer retains no shell-parsing logic (single producer)", async (
 });
 
 test("installed grok pre-tool-use hook denies relative-prefix forms only the descriptor recognizes", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     // Every other deny fixture in this battery uses an absolute or
@@ -1299,8 +1297,7 @@ test("grok pre-tool-use denies when trustedSomaRepo is a non-soma dir (no global
 });
 
 test("installed grok pre-tool-use hook allows benign writes with the documented allow shape", async () => {
-  await withTempHome(async (homeDir) => {
-    await installSomaForGrok({ homeDir });
+  await withGrokHookHome(async (homeDir) => {
     const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
 
     const result = runGrokPreToolUse(hook, homeDir, "Write", {
