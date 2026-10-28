@@ -1717,6 +1717,7 @@ async function scanClosedNodes(
 async function runAudit(
   parsed: ParsedGraphAuditArgs,
   graph: WorkGraph,
+  store: GraphStore,
   repo: string,
   repoRef: RepoRef,
   deps: GraphCliDeps,
@@ -1734,9 +1735,9 @@ async function runAudit(
     const missing = buildBriefMissing(state.body);
     return missing.length === 0 ? [] : [{ state, missing }];
   });
-  const registry = full ? await auditProbeRegistry(subtree, repoRef, deps) : undefined;
+  const registry = full ? await auditProbeRegistry(store, repoRef, deps) : undefined;
   const staleRegistry = registry?.findings;
-  const registryStale = staleRegistry !== undefined && (staleRegistry.cwdMissing.length > 0 || staleRegistry.unusedByOpenNodes.length > 0);
+  const registryStale = staleRegistry !== undefined && (staleRegistry.cwdMissing.length > 0 || (staleRegistry.unusedByOpenNodes?.length ?? 0) > 0);
   const registryInvalid = registry?.invalid;
   const verbose = parsed.options.verbose === true;
 
@@ -1811,7 +1812,7 @@ async function runAudit(
 }
 
 async function auditProbeRegistry(
-  subtree: readonly NodeState[],
+  store: GraphStore,
   repoRef: RepoRef,
   deps: GraphCliDeps,
 ): Promise<{ findings?: StaleRegistryFindings; invalid?: string }> {
@@ -1822,7 +1823,7 @@ async function auditProbeRegistry(
     findings: findStaleRegistryEntries({
       entries: entries.commands,
       repoKey: probeRegistryKey(repoRef),
-      subtree,
+      openNodes: store.listOpenNodeProbes === undefined ? undefined : await store.listOpenNodeProbes(),
       baseCwd: deps.probeCwd(),
       directoryExists: deps.directoryExists,
     }),
@@ -1836,8 +1837,10 @@ function renderStaleRegistry(findings: StaleRegistryFindings, verbose: boolean):
     ...(findings.cwdMissing.length > 0
       ? [`Probe registry entry, cwd missing — the directory no longer exists on this machine:`, ...findings.cwdMissing.map(entry), ""]
       : []),
-    ...(findings.unusedByOpenNodes.length > 0
-      ? [`Probe registry entry, unused by open nodes — no open node's command probe matches run and cwd:`, ...findings.unusedByOpenNodes.map(entry), ""]
+    ...(findings.unusedByOpenNodes === undefined
+      ? (verbose ? [`Probe registry entries unused by open nodes were not checked — this store cannot list the repo's open nodes.`, ""] : [])
+      : findings.unusedByOpenNodes.length > 0
+      ? [`Probe registry entry, unused by open nodes — no open node in the repo declares a command probe matching run and cwd:`, ...findings.unusedByOpenNodes.map(entry), ""]
       : []),
     ...(verbose && findings.inUse.length > 0
       ? [`Probe registry entry, in use by open nodes:`, ...findings.inUse.map((item) => `${entry(item)} — nodes ${item.nodes.join(", ")}`), ""]
@@ -2070,7 +2073,7 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "close":
       return await runClose(parsed, graph, store, repoRef, deps);
     case "audit":
-      return await runAudit(parsed, graph, repo, repoRef, deps);
+      return await runAudit(parsed, graph, store, repo, repoRef, deps);
     case "decisions":
       return await runDecisions(parsed, graph, repo);
   }

@@ -11,15 +11,19 @@
  * the close cannot disagree about whether a node matches an entry.
  */
 
-import type { NodeState } from "./work-graph";
+import type { OpenNodeProbes } from "./work-graph";
 import { probeDirectory } from "./work-graph-probes";
 import type { RegistryCommandEntry } from "./work-graph-probe-registry";
 
 export interface StaleRegistryFindings {
   /** Every registry repo, not just the audited one: a vanished directory is stale whoever declared it. */
   cwdMissing: RegistryCommandEntry[];
-  /** The audited repo's entries that no open node's command probe matches. */
-  unusedByOpenNodes: RegistryCommandEntry[];
+  /**
+   * The audited repo's entries that no open node in the whole repo declares, or
+   * `undefined` when the store could not list the repo's open nodes: absence of
+   * evidence is never reported as non-use.
+   */
+  unusedByOpenNodes: RegistryCommandEntry[] | undefined;
   /** The audited repo's entries open nodes do use, with the node ids. */
   inUse: Array<RegistryCommandEntry & { nodes: string[] }>;
 }
@@ -28,7 +32,8 @@ export interface StaleRegistryInput {
   entries: readonly RegistryCommandEntry[];
   /** Registry key of the audited repo, `host/path`. */
   repoKey: string;
-  subtree: readonly NodeState[];
+  /** Every open node in the audited repo, whatever map it sits under; `undefined` when the store cannot list them. */
+  openNodes: readonly OpenNodeProbes[] | undefined;
   /** The directory a probe without its own `cwd` resolves against — the close's `probeCwd`. */
   baseCwd: string;
   directoryExists: (path: string) => boolean;
@@ -38,16 +43,17 @@ export function findStaleRegistryEntries(input: StaleRegistryInput): StaleRegist
   const repoKey = input.repoKey.toLowerCase();
   const cwdMissing = input.entries.filter((entry) => !input.directoryExists(entry.cwd));
 
+  if (input.openNodes === undefined) return { cwdMissing, unusedByOpenNodes: undefined, inUse: [] };
+
   const users = new Map<string, string[]>();
-  for (const state of input.subtree) {
-    if (state.status !== "open") continue;
-    for (const probe of state.node.probes ?? []) {
+  for (const node of input.openNodes) {
+    for (const probe of node.probes) {
       if (probe.type !== "command") continue;
       const cwd = probeDirectory(probe, input.baseCwd);
       if (cwd === undefined) continue;
       const key = usageKey(probe.run, cwd);
       const ids = users.get(key) ?? [];
-      if (!ids.includes(state.ref.id)) ids.push(state.ref.id);
+      if (!ids.includes(node.id)) ids.push(node.id);
       users.set(key, ids);
     }
   }

@@ -142,6 +142,13 @@ class FakeStore implements GraphStore {
     return this;
   }
 
+  /** Every open seeded node, whatever map it sits under — the repo-wide read the registry audit needs (node #1107). */
+  async listOpenNodeProbes(): Promise<{ id: string; probes: readonly Probe[] }[]> {
+    return [...this.nodes.entries()]
+      .filter(([, seed]) => (seed.status ?? "open") === "open")
+      .map(([id, seed]) => ({ id, probes: seed.node.probes ?? [] }));
+  }
+
   /** Every topology write, in order, so a test can assert what landed before what (#740). */
   readonly calls: string[] = [];
 
@@ -2262,6 +2269,36 @@ test("a probe cwd of its own is matched against the entry after resolution, like
 
   expect(json.probeRegistry.unusedByOpenNodes).toEqual([]);
   expect(json.probeRegistry.inUse[0].nodes).toEqual(["520"]);
+});
+
+test("an entry used only by an open node under another map is not reported unused", async () => {
+  const store = staleAuditStore();
+  store.seed("700", { node: autoNode("700", { probes: [{ ...PROBE, run: "bunx tsc --noEmit" }] }) });
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store, staleAuditDeps(STALE_ENTRIES)));
+
+  expect(json.probeRegistry.unusedByOpenNodes).toEqual([
+    { repo: "github.com/the-metafactory/soma", run: "bun test", cwd: GONE },
+  ]);
+  expect(json.probeRegistry.inUse).toContainEqual(
+    { repo: "github.com/the-metafactory/soma", run: "bunx tsc --noEmit", cwd: "/repo", nodes: ["700"] },
+  );
+});
+
+test("a store that cannot list open nodes still reports cwd missing but never claims non-use", async () => {
+  const store = staleAuditStore();
+  store.listOpenNodeProbes = undefined as never;
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store, staleAuditDeps(STALE_ENTRIES)));
+  const text = await run(["graph", "audit", "495", "--repo", REPO, "--verbose"], store, staleAuditDeps(STALE_ENTRIES));
+
+  expect(json.probeRegistry.cwdMissing).toHaveLength(2);
+  expect(json.probeRegistry.unusedByOpenNodes).toBeUndefined();
+  expect(text).toContain("cwd missing");
+  expect(text).toContain("were not checked");
+  expect(text).not.toContain("unused by open nodes —");
 });
 
 test("audit --verbose names the open nodes using each entry in the text output", async () => {

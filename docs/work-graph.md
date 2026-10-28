@@ -736,7 +736,7 @@ soma graph audit <root>            # what the gates cannot see: closed nodes wit
                                    # never ran), open nodes that can never close,
                                    # build briefs not ready, claimed nodes in flight,
                                    # probe-registry entries whose cwd is gone or that
-                                   # no open node uses (node #1107; --verbose names
+                                   # no open node in the repo uses (node #1107; --verbose names
                                    # the nodes that do use one; a probe without its
                                    # own cwd resolves against where audit runs)
                                    # — the root included, so
