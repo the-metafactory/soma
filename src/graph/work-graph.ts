@@ -1622,7 +1622,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     await this.readBlockers(blockedBy);
     const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
     if (parsed.probes?.some(isBareBunTestProbe)) {
-      throw new WorkGraphError("invalid-probe", "command probe: use bun run test, never bare bun test (which skips the package test script's configured limits)");
+      throw new WorkGraphError("invalid-probe", "command probe: never bare bun test (it skips the package test script's configured limits); declare a type check or bun run test <file>, not the full suite");
     }
     const requested = parsed.parent === undefined || this.store.selectRehomeParent === undefined ? undefined : await this.store.readNode(parsed.parent);
     const rehome = requested === undefined ? undefined : await this.store.selectRehomeParent?.(requested);

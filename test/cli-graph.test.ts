@@ -2240,7 +2240,7 @@ test("audit reports open bare bun test probes in text and JSON, including the ro
 
   const output = await run(args, store);
   expect(output).toContain("Open with bare bun test command probes");
-  expect(output).toContain("use bun run test");
+  expect(output).toContain("bun run test <file>, never the full suite");
   expect(output).toContain("- 495 node 495");
   expect(output).toContain("- 520 node 520");
   expect(output).not.toMatch(/^- 52[123] /mu);
@@ -2262,7 +2262,7 @@ test.each(["CI=1 bun test", "cd pkg && bun test", "cd pkg;CI=1 bun test --bail",
     const args = ["graph", "audit", "495", "--repo", REPO];
 
     const output = await run(args, store);
-    expect(output).toContain("use bun run test");
+    expect(output).toContain("bun run test <file>, never the full suite");
     expect(output).toContain("- 520 node 520");
     expect(output).not.toMatch(/^- (?:495|521|522) /mu);
     expect(JSON.parse(await run([...args, "--json"], store)).openWithBareBunTestProbe).toEqual(["520"]);

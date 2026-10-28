@@ -1769,7 +1769,7 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
       : []),
     ...(bareBunTest.length > 0
       ? [
-          `Open with bare bun test command probes — use bun run test to preserve the package test script's configured limits:`,
+          `Open with bare bun test command probes — they skip the package test script's configured limits; probes cannot be edited, so decide per node (a replacement is a type check or bun run test <file>, never the full suite):`,
           ...bareBunTest.map((state) => nodeSummary(state)),
           "",
         ]
