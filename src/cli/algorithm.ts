@@ -1,6 +1,8 @@
 // Hot path (node #794): every import here names its defining module, never the
 // ../index barrel — `soma algorithm classify` runs on each prompt, and the
-// barrel drags in ~200 modules Bun cannot tree-shake.
+// barrel drags in ~200 modules Bun cannot tree-shake. The flows and graph
+// modules only some actions use are imported inside those actions: statically
+// they made classify load 3 MB of code it never runs.
 import {
   applyAlgorithmBatch,
   advanceAlgorithmRunUntil,
@@ -25,12 +27,8 @@ import { classifyAlgorithmPrompt, classifyPlaybookCard, type PlaybookCardHint } 
 import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../algorithm/algorithm-reflection-digest";
 import { parsePaiReflections } from "../algorithm/algorithm-reflection-import";
 import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm/algorithm-capabilities";
-import { runSomaLifecycleAlgorithmUpdated } from "../flows/index";
 import { appendSomaMemoryEvent } from "../events/index";
-import {
-  type BridgedNodeReport,
-  readNodeForBridge,
-} from "../graph/index";
+import type { BridgedNodeReport } from "../graph/index";
 // VerificationGateError is a CLI-only classification detail — imported straight
 // from its defining module, deliberately NOT re-exported through the public
 // barrel (Sage review, PR #455): keeping it off ../index leaves the internal
@@ -40,14 +38,13 @@ import { readFile } from "node:fs/promises";
 import { loadSomaHomeAlgorithmCapabilityRegistry, mergedAlgorithmCapabilityRegistry, registerSomaHomeAlgorithmCapabilities } from "../algorithm/algorithm-capabilities";
 import type { SomaHomeAlgorithmCapabilityRegistry } from "../algorithm/algorithm-capabilities";
 import { defaultSomaHome } from "../core/index";
-import { syncAlgorithmRunFromVsa, formatSyncResult } from "../flows/index";
 import { algorithmTouchedBy } from "../algorithm/algorithm-provenance";
 import { datePrefixSlug } from "../core/index";
 import { defaultEvidenceKind, getCriteria, getGoal } from "../vsa/index";
 import { getRunPhase } from "../algorithm/algorithm-lifecycle";
 import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
-import { publishRunFinished, type RunLedgerDeps, type RunOutcome } from "../flows/index";
+import type { RunLedgerDeps, RunOutcome } from "../flows/index";
 import { resolveSubstrateSessionEnv } from "../substrates/adapters/session-env";
 import { hashJudgmentInput, recordJudgment } from "../core/index";
 import { regexClassifierVersion } from "../router/index";
@@ -984,6 +981,7 @@ export async function updateAndReportAlgorithmRun(
   // The funnel never throws.
   const outcome = finishedOutcome(run, written.run);
   if (outcome !== undefined) {
+    const { publishRunFinished } = await import("../flows/index");
     await publishRunFinished(
       {
         kind: "algorithm",
@@ -1003,6 +1001,7 @@ export async function updateAndReportAlgorithmRun(
     );
   }
 
+  const { runSomaLifecycleAlgorithmUpdated } = await import("../flows/index");
   await runSomaLifecycleAlgorithmUpdated({
     homeDir: options.homeDir,
     somaHome: options.somaHome,
@@ -1076,7 +1075,10 @@ export async function runAlgorithmCli(
   overrides: Partial<AlgorithmCliDeps> = {},
 ): Promise<string> {
   const options = parsed.options;
-  const deps: AlgorithmCliDeps = { readNode: async (nodeId, opts) => await readNodeForBridge(nodeId, opts), ...overrides };
+  const deps: AlgorithmCliDeps = { readNode: async (nodeId, opts) => {
+    const { readNodeForBridge } = await import("../graph/index");
+    return await readNodeForBridge(nodeId, opts);
+  }, ...overrides };
   const env = resolveSubstrateSessionEnv(deps.env ?? process.env, options.substrate);
 
   if (parsed.action === "classify") {
@@ -1095,6 +1097,7 @@ export async function runAlgorithmCli(
       homeDir: options.homeDir,
       somaHome: options.somaHome,
     });
+    const { runSomaLifecycleAlgorithmUpdated } = await import("../flows/index");
     await runSomaLifecycleAlgorithmUpdated({
       homeDir: options.homeDir,
       somaHome: options.somaHome,
@@ -1342,6 +1345,7 @@ export async function runAlgorithmCli(
   if (parsed.action === "sync-from-isa") {
     if (!options.vsaPath) throw new Error("--isa is required.");
     if (!options.substrate) throw new Error("--substrate is required.");
+    const { syncAlgorithmRunFromVsa, formatSyncResult } = await import("../flows/index");
     const result = await syncAlgorithmRunFromVsa({
       vsaPath: options.vsaPath,
       substrate: options.substrate,
