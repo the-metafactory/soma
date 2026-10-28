@@ -14,5 +14,6 @@
   "substrates": 39500,
   "migrate": 9500,
   "flows": 63000,
+  "jobs": 500,
   "cli": 78000
 }
