@@ -10,7 +10,6 @@
 // It delegates the actual decision to the portable engine via the
 // `soma policy inspect` CLI (substrate-parameterized), so the rules stay in
 // one place and never drift per substrate.
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,17 +116,22 @@ function grepListsOnly(input) {
   return withClaudeToolDefaults(toolName, toolInput).output_mode !== "content";
 }
 
+// The policy runs in a worker of this process, not a second `bun`: that cold
+// start cost about 100 ms on every tool call. The timer stays on this thread,
+// so a worker that hangs, even in a synchronous loop, still denies.
+const INSPECT_TIMEOUT_MS = 25000;
+
 // Prompt surface → runtime-policy inspection (prompt injection, etc.).
 // Tool-call surface → the composite `policy guard` (runtime inspect +
 // write-target private-context check + inbound content scan) so Claude Code
-// reaches full codex three-check parity from one CLI call.
+// reaches full codex three-check parity from one call.
 function runInspect(config, surface, payload) {
-  const env = { ...process.env };
+  const env = {};
   let args;
   if (surface === "prompt") {
     env.SOMA_RUNTIME_POLICY_PROMPT = payload.prompt || "";
     args = [
-      "src/cli.ts", "policy", "inspect",
+      "policy", "inspect",
       "--soma-home", config.somaHome,
       "--substrate", "claude-code",
       "--surface", "prompt",
@@ -138,7 +142,7 @@ function runInspect(config, surface, payload) {
     const input = payload.input && typeof payload.input === "object" && !Array.isArray(payload.input) ? payload.input : { raw: String(payload.input ?? "") };
     env.SOMA_RUNTIME_POLICY_TOOL_INPUT = JSON.stringify(withClaudeToolDefaults(payload.toolName, input));
     args = [
-      "src/cli.ts", "policy", "guard",
+      "policy", "guard",
       "--soma-home", config.somaHome,
       "--substrate", "claude-code",
       "--tool-name", payload.toolName || "",
@@ -147,11 +151,18 @@ function runInspect(config, surface, payload) {
     ];
     if (payload.cwd) args.push("--cwd", payload.cwd);
   }
-  return spawnSync(config.bunPath, args, {
-    cwd: config.trustedSomaRepo,
-    encoding: "utf8",
-    timeout: 25000,
-    env,
+  process.chdir(config.trustedSomaRepo);
+  return new Promise((resolve) => {
+    const settle = (result) => {
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => settle({ error: `timed out after ${INSPECT_TIMEOUT_MS} ms` }), INSPECT_TIMEOUT_MS);
+    const worker = new Worker(join(config.trustedSomaRepo, "src", "cli", "policy-worker.ts"));
+    worker.onmessage = (event) => settle(event.data);
+    worker.onerror = (event) => settle({ error: event.message || "worker failed to load" });
+    worker.addEventListener("close", () => settle({ error: "worker exited without a decision" }));
+    worker.postMessage({ args, env });
   });
 }
 
@@ -179,7 +190,7 @@ function isUsablePath(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function guard(input, surfaceEvent, deny) {
+async function guard(input, surfaceEvent, deny) {
   const config = readConfig();
   if (config.error || !isUsablePath(config.bunPath) || !isUsablePath(config.trustedSomaRepo) || !isUsablePath(config.somaHome)) {
     deny(unavailable(`invalid config (${config.error || "missing or empty fields"}).`));
@@ -194,19 +205,19 @@ function guard(input, surfaceEvent, deny) {
     return;
   }
 
-  const result = surfaceEvent === "UserPromptSubmit"
+  const result = await (surfaceEvent === "UserPromptSubmit"
     ? runInspect(config, "prompt", { prompt: promptFromInput(input) })
     : runInspect(config, "tool_call", {
         toolName: input.tool_name || input.toolName,
         input: input.tool_input || input.toolInput || {},
         cwd: typeof input.cwd === "string" && input.cwd.trim().length > 0 ? input.cwd : undefined,
-      });
+      }));
 
-  const output = result.stdout || result.stderr || "";
-  if (result.status !== 0) {
-    deny(unavailable(`runtime policy inspection failed: ${output || "unknown error"}.`));
+  if (result.error !== undefined) {
+    deny(unavailable(`runtime policy inspection failed: ${result.error || "unknown error"}.`));
     return;
   }
+  const output = result.output || "";
   let inspection;
   try {
     inspection = parseInspection(output);
@@ -231,15 +242,15 @@ function guard(input, surfaceEvent, deny) {
  * throw sites is a losing game, so the surface is chosen first and every
  * remaining path lands on it.
  */
-function main() {
+async function main() {
   const input = readHookInput();
   const surfaceEvent = eventName(input);
   const deny = surfaceEvent === "UserPromptSubmit" ? blockPromptSubmit : denyPreToolUse;
   try {
-    guard(input, surfaceEvent, deny);
+    await guard(input, surfaceEvent, deny);
   } catch (error) {
     deny(unavailable(`guard failed unexpectedly: ${error instanceof Error ? error.message : String(error)}.`));
   }
 }
 
-main();
+await main();

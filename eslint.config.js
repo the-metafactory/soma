@@ -92,8 +92,11 @@ export default tseslint.config(
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
       globals: {
+        clearTimeout: "readonly",
         console: "readonly",
         process: "readonly",
+        setTimeout: "readonly",
+        Worker: "readonly",
       },
     },
     rules: {

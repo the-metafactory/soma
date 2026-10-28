@@ -179,6 +179,45 @@ test("soma#640: an unrunnable guard denies with unavailable wording and names it
   });
 });
 
+/** A soma root whose policy worker runs `body` instead of the policy engine. */
+async function workerSomaRepo(homeDir: string, name: string, body: string): Promise<string> {
+  const repo = join(homeDir, name);
+  await mkdir(join(repo, "src", "cli"), { recursive: true });
+  await writeFile(join(repo, "src", "cli", "policy-worker.ts"), body, "utf8");
+  return repo;
+}
+
+// The guard runs the policy in a worker of its own process. Claude Code treats
+// a hook it has to kill as a non-blocking error and runs the tool, so the
+// guard's own timer must deny a worker that never answers.
+test("a policy worker that exits without a decision denies", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir, policyGuard: true });
+    const config = await readGuardConfig(homeDir);
+    const repo = await workerSomaRepo(homeDir, "silent-worker", "self.onmessage = () => { process.exit(0); };\n");
+    await writeGuardConfig(homeDir, { ...config, trustedSomaRepo: repo });
+
+    const out = runGuard(homeDir, BENIGN);
+    expect(decisionOf(out.stdout)).toBe("deny");
+    expect(reasonOf(out.stdout)).toContain("UNAVAILABLE");
+    expect(reasonOf(out.stdout)).toContain("exited without a decision");
+  });
+});
+
+test("a policy worker stuck in a synchronous loop denies on the guard's timeout", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForClaudeCode({ homeDir, policyGuard: true });
+    const config = await readGuardConfig(homeDir);
+    const repo = await workerSomaRepo(homeDir, "stuck-worker", "self.onmessage = () => { for (;;) {} };\n");
+    await writeGuardConfig(homeDir, { ...config, trustedSomaRepo: repo });
+
+    const out = runGuard(homeDir, BENIGN);
+    expect(out.status).toBe(0);
+    expect(decisionOf(out.stdout)).toBe("deny");
+    expect(reasonOf(out.stdout)).toContain("timed out");
+  });
+}, 60_000);
+
 test("soma#640: the original failure reproduces on the unpinned config shape", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForClaudeCode({ homeDir, policyGuard: true });
@@ -223,11 +262,17 @@ test("soma#640: a config field that is present but unusable fails closed", async
     await installSomaForClaudeCode({ homeDir, policyGuard: true });
     const base = await readGuardConfig(homeDir);
 
-    // `""` passes a `typeof x === "string"` check and then throws inside spawn,
-    // so the guard died before emitting a decision. A bogus-but-real path is
-    // the control: it always reached the fail-closed denial.
-    for (const bunPath of ["", "   ", "/definitely/not/here/bun"]) {
-      await writeGuardConfig(homeDir, { ...base, bunPath });
+    // `""` passes a `typeof x === "string"` check and then threw inside spawn,
+    // so the guard died before emitting a decision. The guard now loads its
+    // worker from `trustedSomaRepo`, so a bogus path there is the control.
+    const unusable: Partial<GuardConfig>[] = [
+      { bunPath: "" },
+      { bunPath: "   " },
+      { trustedSomaRepo: "" },
+      { trustedSomaRepo: "/definitely/not/here/soma" },
+    ];
+    for (const field of unusable) {
+      await writeGuardConfig(homeDir, { ...base, ...field });
 
       const out = runGuard(homeDir, BENIGN);
       expect(out.status).toBe(0);
