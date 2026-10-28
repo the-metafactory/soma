@@ -9,7 +9,9 @@ starting. A GitHub-only release does not update Arc or local projections.
 1. Start from current `origin/main` in a clean worktree. Compare it with the
    latest GitHub release to identify the changes actually being shipped.
 2. Update `package.json`, `arc-manifest.yaml`, the README version badge and
-   current-release section, and `CHANGELOG.md` together. Update the relevant
+   current-release section, `docs/release-notes.md`, and `CHANGELOG.md`
+   together. The README carries only the current release. Add its summary at
+   the top of `docs/release-notes.md` too. Update the relevant
    operator guides. Do not describe an older runtime fix as new code in a
    documentation release.
 3. Run `bun install --frozen-lockfile`, `bun run typecheck`,
