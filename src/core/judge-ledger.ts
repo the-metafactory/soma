@@ -31,8 +31,8 @@ export function hashJudgmentInput(input: string): string {
 /**
  * Best-effort append. A failed write is swallowed and reported as `false`, so it
  * never changes the judgment it records. A write that stalls does delay the
- * caller until it completes; callers on a deadline (the mode hook's subprocess
- * timeout) fail open past it, exactly as for any other classifier failure.
+ * caller until it completes; callers on a deadline (the mode hooks' timeouts)
+ * fail open past it, exactly as for any other classifier failure.
  */
 export async function recordJudgment(somaHome: string, record: JudgmentRecord): Promise<boolean> {
   try {

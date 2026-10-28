@@ -23,7 +23,7 @@ import {
   verifyAlgorithmCriterion,
 } from "../algorithm/algorithm";
 import { listAlgorithmRuns, listAlgorithmRunSummaries, readAlgorithmRunById, writeAlgorithmRun } from "../algorithm/algorithm-store";
-import { classifyAlgorithmPrompt, classifyPlaybookCard, type PlaybookCardHint } from "../algorithm/algorithm-classifier";
+import { runAlgorithmClassify } from "./algorithm-classify";
 import { buildReflectionDigest, renderReflectionDigest, type ReflectionForDigest } from "../algorithm/algorithm-reflection-digest";
 import { parsePaiReflections } from "../algorithm/algorithm-reflection-import";
 import { recordAlgorithmCapabilityInvocation, removeAlgorithmCapabilitySelection, selectAlgorithmCapability } from "../algorithm/algorithm-capabilities";
@@ -46,11 +46,9 @@ import { readOption } from "./parse-utils";
 import { parseSubstrate } from "./substrate";
 import type { RunLedgerDeps, RunOutcome } from "../flows/index";
 import { resolveSubstrateSessionEnv } from "../substrates/adapters/session-env";
-import { hashJudgmentInput, recordJudgment } from "../core/index";
-import { regexClassifierVersion } from "../router/index";
 import { ALGORITHM_REFERENCE_VERDICTS } from "../algorithm/types";
 import type { AlgorithmEffortTier, AlgorithmPhase, EvidenceKind, SubstrateId } from "../core/types";
-import type { AlgorithmBatchOperation, AlgorithmPlanStep, AlgorithmPromptClassification, AlgorithmRun, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRunInput } from "../algorithm/types";
+import type { AlgorithmBatchOperation, AlgorithmPlanStep, AlgorithmRun, AlgorithmReference, AlgorithmReferenceVerdict, AlgorithmRunInput } from "../algorithm/types";
 
 export const ALGORITHM_ACTIONS = [
   "new",
@@ -756,53 +754,6 @@ function formatAlgorithmCapabilityRegistry(
   return lines.join("\n");
 }
 
-function formatAlgorithmClassification(classification: AlgorithmPromptClassification): string {
-  return [
-    "Soma Algorithm prompt classification",
-    `mode: ${classification.mode}`,
-    `effort: ${classification.effort ?? "none"}`,
-    `source: ${classification.source}`,
-    `reason: ${classification.reason}`,
-  ].join("\n");
-}
-
-/** `card` is a hint for the substrate hook, outside the classification the pi-dev copy mirrors. */
-function formatAlgorithmClassificationJson(classification: AlgorithmPromptClassification, card: PlaybookCardHint | undefined): string {
-  return `${JSON.stringify(card === undefined ? classification : { ...classification, card })}\n`;
-}
-
-/**
- * Classify, and with `--record` append one `soma judge` ledger line. Recording
- * is best-effort and never changes the classification or its output.
- */
-async function runAlgorithmClassify(options: AlgorithmCliOptions, prompt: string): Promise<string> {
-  const started = performance.now();
-  const classification = classifyAlgorithmPrompt(prompt);
-  const card = classifyPlaybookCard(prompt);
-  const latencyMs = Math.round((performance.now() - started) * 1000) / 1000;
-
-  if (options.record) {
-    const decision: Record<string, string> = { mode: classification.mode };
-    if (classification.effort) decision.effort = classification.effort;
-    if (card) decision.card = card;
-    await recordJudgment(defaultSomaHome(options), {
-      v: 1,
-      ts: new Date().toISOString(),
-      caller: "mode-router",
-      ...(options.substrate ? { substrate: options.substrate } : {}),
-      ...(options.session ? { session: options.session } : {}),
-      inputSha256: hashJudgmentInput(prompt),
-      backend: "regex",
-      backendVersion: regexClassifierVersion(),
-      decision,
-      source: classification.source,
-      latencyMs,
-    });
-  }
-
-  return options.json ? formatAlgorithmClassificationJson(classification, card) : formatAlgorithmClassification(classification);
-}
-
 function formatAlgorithmRun(run: AlgorithmRun, path: string): string {
   const touchedBy = algorithmTouchedBy(run);
   return [
@@ -1082,8 +1033,7 @@ export async function runAlgorithmCli(
   const env = resolveSubstrateSessionEnv(deps.env ?? process.env, options.substrate);
 
   if (parsed.action === "classify") {
-    if (!options.prompt) throw new Error("--prompt is required.");
-    return await runAlgorithmClassify(options, options.prompt);
+    return await runAlgorithmClassify(options);
   }
 
   if (parsed.action === "new") {

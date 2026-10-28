@@ -272,14 +272,18 @@ describe("component boundaries on the repository", () => {
       const report = checkBoundaries({ root, updateBaseline: true });
       if (!report.ok) throw new Error(formatReport(report));
       expect(report.violations.filter((v) => v.fromComponent === "algorithm")).toEqual([]);
+      // `algorithm classify` runs from cli/algorithm.ts and, for the Claude Code
+      // mode-classifier worker, from cli/algorithm-classify.ts.
+      const classifyPaths = ["src/cli/algorithm.ts", "src/cli/algorithm-classify.ts"];
       const directEntries = report.edges
-        .filter((edge) => edge.from === "src/cli/algorithm.ts" && edge.to.startsWith("src/algorithm/"))
+        .filter((edge) => classifyPaths.includes(edge.from) && edge.to.startsWith("src/algorithm/"))
         .map((edge) => edge.to);
       expect([...components.algorithm.publicEntries!].sort()).toEqual(
         [...new Set(["src/algorithm/index.ts", ...directEntries])].sort(),
       );
-      const reachable = reachableFrom(report, "src/cli/algorithm.ts");
-      expect(reachable.has("src/algorithm/index.ts")).toBe(false);
+      for (const path of classifyPaths) {
+        expect(reachableFrom(report, path).has("src/algorithm/index.ts")).toBe(false);
+      }
     });
   }, { timeout: 30_000 });
 
