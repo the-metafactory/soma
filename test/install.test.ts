@@ -74,6 +74,7 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
 
 type CodexInstall = Awaited<ReturnType<typeof installSomaForCodex>>;
 let codexHookHome: Promise<{ homeDir: string; install: CodexInstall }> | undefined;
+let codexHookHomeDir: string | undefined;
 
 // One codex install shared by the rows that only run the pre-tool-use hook
 // and read its decision; that path writes nothing into the home. A row that
@@ -81,17 +82,19 @@ let codexHookHome: Promise<{ homeDir: string; install: CodexInstall }> | undefin
 async function withCodexHookHome<T>(fn: (homeDir: string, install: CodexInstall) => Promise<T>): Promise<T> {
   codexHookHome ??= (async () => {
     const homeDir = await mkdtemp(join(tmpdir(), "soma-install-hook-"));
+    codexHookHomeDir = homeDir;
     return { homeDir, install: await installSomaForCodex({ homeDir }) };
   })();
   const { homeDir, install } = await codexHookHome;
   return fn(homeDir, install);
 }
 
+// Reads the directory, not the install promise, so a failed shared install
+// still has its home removed and the failure reports once, in its row.
 afterAll(async () => {
-  if (codexHookHome === undefined) return;
-  const { homeDir } = await codexHookHome;
-  await unsealRuntimeArtifacts(homeDir);
-  await rm(homeDir, { recursive: true, force: true });
+  if (codexHookHomeDir === undefined) return;
+  await unsealRuntimeArtifacts(codexHookHomeDir);
+  await rm(codexHookHomeDir, { recursive: true, force: true });
 });
 
 async function readProjectionSnapshot(root: string, files: readonly string[]): Promise<Record<string, string>> {

@@ -41,6 +41,7 @@ async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> 
 
 type GrokInstall = Awaited<ReturnType<typeof installSomaForGrok>>;
 let grokHookHome: Promise<{ homeDir: string; install: GrokInstall }> | undefined;
+let grokHookHomeDir: string | undefined;
 
 // One grok install shared by the rows that only run the pre-tool-use hook and
 // read its decision; that path writes nothing into the home. A row that writes
@@ -48,15 +49,18 @@ let grokHookHome: Promise<{ homeDir: string; install: GrokInstall }> | undefined
 async function withGrokHookHome<T>(fn: (homeDir: string, install: GrokInstall) => Promise<T>): Promise<T> {
   grokHookHome ??= (async () => {
     const homeDir = realpathSync.native(await mkdtemp(join(tmpdir(), "soma-grok-hook-")));
+    grokHookHomeDir = homeDir;
     return { homeDir, install: await installSomaForGrok({ homeDir }) };
   })();
   const { homeDir, install } = await grokHookHome;
   return fn(homeDir, install);
 }
 
+// Reads the directory, not the install promise, so a failed shared install
+// still has its home removed and the failure reports once, in its row.
 afterAll(async () => {
-  if (grokHookHome === undefined) return;
-  await rm((await grokHookHome).homeDir, { recursive: true, force: true });
+  if (grokHookHomeDir === undefined) return;
+  await rm(grokHookHomeDir, { recursive: true, force: true });
 });
 
 async function waitForFileContaining(path: string, text: string): Promise<string> {
