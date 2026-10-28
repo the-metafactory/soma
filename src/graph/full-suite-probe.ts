@@ -1,4 +1,4 @@
-import type { Probe } from "./work-graph";
+import { isBareBunTestProbe, type Probe } from "./work-graph";
 
 const SUITE_RUNNERS: ReadonlySet<string> = new Set(["bun", "npm", "pnpm", "yarn"]);
 
@@ -25,6 +25,11 @@ export function isFullSuiteCommand(run: string): boolean {
   return verbs.slice(1).every((word) => word.startsWith("-") && !narrowsSelection(word));
 }
 
+/**
+ * True when a node declares a whole-suite command probe that `isBareBunTestProbe`
+ * does not already report, so an audit lists each node in one section only: a
+ * bare `bun test` belongs to the bare-bun-test section.
+ */
 export function declaresFullSuiteProbe(probes: readonly Probe[] | undefined): boolean {
-  return (probes ?? []).some((probe) => probe.type === "command" && isFullSuiteCommand(probe.run));
+  return (probes ?? []).some((probe) => probe.type === "command" && isFullSuiteCommand(probe.run) && !isBareBunTestProbe(probe));
 }

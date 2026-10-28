@@ -2228,6 +2228,18 @@ test("audit lists open nodes that declare a full-suite command probe, and spares
   expect(json.openWithFullSuiteProbe).toEqual(["520"]);
 });
 
+test("audit lists a plain bun test probe under the bare bun test section only (node #1106)", async () => {
+  const command = (run: string) => ({ type: "command", run, cwd: "/canonical", timeoutSec: 1800, expectExit: 0 }) as const;
+  const store = new FakeStore()
+    .seed("495", { node: cleanNode("495"), children: ["520", "521"] })
+    .seed("520", { node: autoNode("520", { probes: [command("bun test")] }), parent: "495" })
+    .seed("521", { node: autoNode("521", { probes: [command("bun test --bail"), command("bun run test")] }), parent: "495" });
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store)) as { openWithFullSuiteProbe: string[]; openWithBareBunTestProbe: string[] };
+  expect(json.openWithBareBunTestProbe).toEqual(["520", "521"]);
+  expect(json.openWithFullSuiteProbe).toEqual(["521"]);
+});
+
 test("audit reports open bare bun test probes in text and JSON, including the root", async () => {
   const store = new FakeStore()
     .seed("495", { node: autoNode("495"), children: ["520", "521", "522", "523"] })
