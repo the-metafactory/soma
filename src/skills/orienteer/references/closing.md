@@ -97,7 +97,7 @@ from the `--ci` citation of the suite job, not from a probe.
 
 - `run` is `bunx tsc --noEmit`. The principal registers that exact `run` with
   the canonical clone's `cwd` once (`soma policy probes`); a node cannot widen
-  the registry. Do not declare a test file per node (`bun test test/foo.test.ts`)
+  the registry. Do not declare a test file per node (`bun run test test/foo.test.ts`)
   unless that exact pair is registered: the registry matches `run` and `cwd`
   exactly, so a per-node test path is refused as unregistered.
 - `cwd` is the walker's canonical clone as configured on this installation (the

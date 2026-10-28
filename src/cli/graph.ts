@@ -84,6 +84,7 @@ import {
   readProposalFile,
   type ProposalFile,
   isProbeRefusal,
+  isBareBunTestProbe,
   loadProbeRegistry as defaultLoadProbeRegistry,
   type ProbeRegistry,
   allProbesPassed,
@@ -1711,6 +1712,9 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
   ) : [];
   const claimed = full ? subtree.filter((state) => state.status === "open" && state.assignees.length > 0) : [];
   const fullSuiteProbe = full ? subtree.filter((state) => state.status === "open" && declaresFullSuiteProbe(state.node.probes)) : [];
+  const bareBunTest = full ? subtree.filter(
+    (state) => state.status === "open" && state.node.probes?.some(isBareBunTestProbe),
+  ) : [];
   const buildBriefNotReady = subtree.flatMap((state) => {
     if (state.status !== "open" || state.node.kind !== "build") return [];
     const missing = buildBriefMissing(state.body);
@@ -1727,6 +1731,7 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
           closedWithoutReceipt: unreceipted.map((state) => state.ref.id),
           openWithoutCheckpoint: uncloseable.map((state) => state.ref.id),
           openWithFullSuiteProbe: fullSuiteProbe.map((state) => state.ref.id),
+          openWithBareBunTestProbe: bareBunTest.map((state) => state.ref.id),
           openClaimed: claimed.map((state) => ({ id: state.ref.id, assignees: state.assignees })),
         } : {}),
         buildBriefNotReady: buildBriefNotReady.map(({ state, missing }) => ({ id: state.ref.id, missing })),
@@ -1736,7 +1741,7 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
     );
   }
 
-  const clean = unreceipted.length === 0 && uncloseable.length === 0 && fullSuiteProbe.length === 0 && buildBriefNotReady.length === 0;
+  const clean = unreceipted.length === 0 && uncloseable.length === 0 && fullSuiteProbe.length === 0 && bareBunTest.length === 0 && buildBriefNotReady.length === 0;
   return [
     `Work graph audit — root ${parsed.target} (${repo}), ${subtree.length} node(s)`,
     ...(full ? [] : [`Scope: build-brief-not-ready; other findings were not checked.`]),
@@ -1759,6 +1764,13 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
       ? [
           `Open with a full-suite command probe — its close repeats the suite that CI and the supervisor gate already ran; probes cannot be edited, so decide per node:`,
           ...fullSuiteProbe.map((state) => nodeSummary(state)),
+          "",
+        ]
+      : []),
+    ...(bareBunTest.length > 0
+      ? [
+          `Open with bare bun test command probes — use bun run test to preserve the package test script's configured limits:`,
+          ...bareBunTest.map((state) => nodeSummary(state)),
           "",
         ]
       : []),

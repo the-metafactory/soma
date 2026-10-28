@@ -977,6 +977,25 @@ export function parseProbe(input: unknown): Probe {
   }
 }
 
+export function isBareBunTestProbe(probe: Probe): boolean {
+  if (probe.type !== "command") return false;
+  let commandStart = true;
+  let previousWasBun = false;
+  const shellTokens = /[;&|\n]+|(?:\\[\s\S]|'[^']*'|"(?:\\[\s\S]|[^"\\])*"|[^\s;&|\\'"])+/gu;
+  for (const [token] of probe.run.matchAll(shellTokens)) {
+    if (/^[;&|\n]+$/u.test(token)) {
+      commandStart = true;
+      previousWasBun = false;
+      continue;
+    }
+    if (commandStart && /^[A-Za-z_]\w*=/u.test(token)) continue;
+    if (previousWasBun && token === "test") return true;
+    previousWasBun = commandStart && token === "bun";
+    commandStart = false;
+  }
+  return false;
+}
+
 function parseBudget(input: unknown): NodeBudget {
   const record = asRecord(input, "invalid-node", "budget");
   const budget: NodeBudget = {};
@@ -1602,6 +1621,9 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
   async createNode(spec: unknown, blockedBy: readonly NodeRef[] = []): Promise<CreatedNode> {
     await this.readBlockers(blockedBy);
     const parsed = parseNodeSpec(spec, this.store.parseCreateData?.bind(this.store));
+    if (parsed.probes?.some(isBareBunTestProbe)) {
+      throw new WorkGraphError("invalid-probe", "command probe: use bun run test, never bare bun test (which skips the package test script's configured limits)");
+    }
     const requested = parsed.parent === undefined || this.store.selectRehomeParent === undefined ? undefined : await this.store.readNode(parsed.parent);
     const rehome = requested === undefined ? undefined : await this.store.selectRehomeParent?.(requested);
     const parent = rehome?.parent ?? parsed.parent;

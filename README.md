@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.28.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.29.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,19 @@
 
 ---
 
-## Current release: 0.28.0
+## Current release: 0.29.0
+
+[0.29.0](https://github.com/the-metafactory/soma/releases/tag/v0.29.0) moves
+the playbook cards out of the-algorithm into the soma-pstack pack's
+`playbooks` skill. The working method projects the Playbooks section from that
+skill when it is installed. Breaking: a home without the pack projects no
+cards; install soma-pstack to keep them.
+`soma graph close --dry-run` no longer runs command probes unless
+`--run-probes` is given. See the
+[changelog](CHANGELOG.md#0290---2026-10-28) for the complete changes. GitHub
+releases and Arc registry publication are verified separately.
+
+### 0.28.0
 
 [0.28.0](https://github.com/the-metafactory/soma/releases/tag/v0.28.0) lets a
 skill manifest fill a capability with `algorithmCapability.satisfies`, so an
