@@ -1,6 +1,7 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, test } from "bun:test";
 import { SomaCliError } from "../src/cli/errors";
 import {
@@ -21,7 +22,7 @@ import {
 // Receipt-rendering tests reach the defining module directly (sage on
 // #584); collapseHome stays internal to graph.
 import { collapseHome, describeProbeTree } from "../src/graph/work-graph";
-import { WorkGraphError, closeDeadlineSec, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
+import { WorkGraphError, closeDeadlineSec, listProbeRegistryEntries, probeRegistryPath, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeRegistryEntries, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const SERVES_CHART = ["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map"];
@@ -252,6 +253,8 @@ function deps(store: FakeStore, overrides: Partial<GraphCliDeps> = {}): Partial<
     resolveRepo: async () => REPO_REF,
     // Hermetic: the default would read the developer's own ~/.soma.
     loadProbeRegistry: async () => DECLARED,
+    listProbeRegistryEntries: async () => ({ status: "absent", path: REGISTRY_PATH }),
+    directoryExists: () => true,
     runProbes: async (probes) =>
       probes.map<ProbeResult>((probe) => ({
         probe,
@@ -2175,6 +2178,165 @@ test("a clean subtree audits clean", async () => {
   const output = await run(["graph", "audit", "495", "--repo", REPO], store);
 
   expect(output).toContain("Clean");
+});
+
+// --- audit reports stale probe-registry entries (node #1107) -----------------
+
+const GONE = "/gone/worktree";
+const STALE_ENTRIES: ProbeRegistryEntries = {
+  status: "loaded",
+  path: REGISTRY_PATH,
+  commands: [
+    { repo: "github.com/the-metafactory/soma", run: "bun test", cwd: "/repo" },
+    { repo: "github.com/the-metafactory/soma", run: "bun test", cwd: GONE },
+    { repo: "github.com/the-metafactory/soma", run: "bunx tsc --noEmit", cwd: "/repo" },
+    { repo: "github.com/the-metafactory/ranger", run: "bun test", cwd: GONE },
+  ],
+};
+
+function staleAuditStore(): FakeStore {
+  return new FakeStore()
+    .seed("495", { node: autoNode("495", { probes: [] }), children: ["520", "521"] })
+    .seed("520", { node: autoNode("520"), parent: "495" })
+    .seed("521", { node: autoNode("521"), status: "closed", parent: "495" });
+}
+
+function staleAuditDeps(entries: ProbeRegistryEntries): Partial<GraphCliDeps> {
+  return {
+    listProbeRegistryEntries: async () => entries,
+    directoryExists: (path) => path !== GONE,
+  };
+}
+
+test("audit lists a registry entry whose cwd is gone, across every repo, with repo, run and cwd", async () => {
+  const store = staleAuditStore();
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
+
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store, staleAuditDeps(STALE_ENTRIES));
+
+  expect(output).toContain("cwd missing");
+  expect(output).toContain(`- github.com/the-metafactory/soma: "bun test" in ${GONE}`);
+  expect(output).toContain(`- github.com/the-metafactory/ranger: "bun test" in ${GONE}`);
+  expect(output).not.toContain("Clean");
+});
+
+test("audit lists an audited-repo entry no open node matches by run and cwd, and not one an open node uses", async () => {
+  const store = staleAuditStore();
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store, staleAuditDeps(STALE_ENTRIES)));
+
+  expect(json.probeRegistry.unusedByOpenNodes).toEqual([
+    { repo: "github.com/the-metafactory/soma", run: "bun test", cwd: GONE },
+    { repo: "github.com/the-metafactory/soma", run: "bunx tsc --noEmit", cwd: "/repo" },
+  ]);
+  expect(json.probeRegistry.cwdMissing).toHaveLength(2);
+  expect(json.probeRegistry.inUse).toEqual([
+    { repo: "github.com/the-metafactory/soma", run: "bun test", cwd: "/repo", nodes: ["520"] },
+  ]);
+});
+
+test("a closed node's probe does not keep a registry entry in use", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495", { probes: [] }), children: ["521"] })
+    .seed("521", { node: autoNode("521"), status: "closed", parent: "495" });
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store, staleAuditDeps(STALE_ENTRIES)));
+
+  expect(json.probeRegistry.unusedByOpenNodes).toContainEqual({ repo: "github.com/the-metafactory/soma", run: "bun test", cwd: "/repo" });
+  expect(json.probeRegistry.inUse).toEqual([]);
+});
+
+test("a probe cwd of its own is matched against the entry after resolution, like the close does", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495", { probes: [] }), children: ["520"] })
+    .seed("520", { node: autoNode("520", { probes: [{ ...PROBE, cwd: "sub" }] }), parent: "495" });
+  const entries: ProbeRegistryEntries = {
+    status: "loaded",
+    path: REGISTRY_PATH,
+    commands: [{ repo: "github.com/the-metafactory/soma", run: "bun test", cwd: "/repo/sub" }],
+  };
+
+  const json = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json", "--verbose"], store, staleAuditDeps(entries)));
+
+  expect(json.probeRegistry.unusedByOpenNodes).toEqual([]);
+  expect(json.probeRegistry.inUse[0].nodes).toEqual(["520"]);
+});
+
+test("audit --verbose names the open nodes using each entry in the text output", async () => {
+  const store = staleAuditStore();
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
+
+  const plain = await run(["graph", "audit", "495", "--repo", REPO], store, staleAuditDeps(STALE_ENTRIES));
+  const verbose = await run(["graph", "audit", "495", "--repo", REPO, "--verbose"], store, staleAuditDeps(STALE_ENTRIES));
+
+  expect(plain).not.toContain("in use by open nodes");
+  expect(verbose).toContain(`in use by open nodes:\n- github.com/the-metafactory/soma: "bun test" in /repo — nodes 520`);
+});
+
+test("audit output is unchanged when the registry has no stale entries", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["521"] })
+    .seed("521", { node: autoNode("521"), status: "closed", parent: "495" });
+  await store.postComment({ id: "521" }, validReceipt("cp-521"));
+  const live: ProbeRegistryEntries = {
+    status: "loaded",
+    path: REGISTRY_PATH,
+    commands: [{ repo: "github.com/the-metafactory/soma", run: "bun test", cwd: "/repo" }],
+  };
+
+  const withRegistry = await run(["graph", "audit", "495", "--repo", REPO], store, staleAuditDeps(live));
+  const withoutRegistry = await run(["graph", "audit", "495", "--repo", REPO], store);
+  const jsonWith = JSON.parse(await run(["graph", "audit", "495", "--repo", REPO, "--json"], store, staleAuditDeps(live)));
+
+  expect(withRegistry).toBe(withoutRegistry);
+  expect(withRegistry).toContain("Clean");
+  expect(jsonWith.probeRegistry).toBeUndefined();
+});
+
+test("the scoped audit does not read the registry", async () => {
+  const store = staleAuditStore();
+  const output = await run(["graph", "audit", "495", "--repo", REPO, "--scope", "build-brief-not-ready"], store, {
+    listProbeRegistryEntries: async () => { throw new Error("scope must not read the registry"); },
+  });
+  expect(output).toContain("No build-brief-not-ready findings.");
+});
+
+test("audit names an unusable registry document", async () => {
+  const store = new FakeStore().seed("495", { node: autoNode("495") });
+  const output = await run(["graph", "audit", "495", "--repo", REPO], store, {
+    listProbeRegistryEntries: async () => ({ status: "invalid", path: REGISTRY_PATH, reason: "is not valid JSON" }),
+  });
+  expect(output).toContain(`Probe registry unusable`);
+  expect(output).toContain(`${REGISTRY_PATH} is not valid JSON`);
+});
+
+test("audit never writes the registry file", async () => {
+  const home = mkdtempSync(join(tmpdir(), "soma-audit-registry-"));
+  try {
+    const registryPath = probeRegistryPath({ homeDir: home });
+    mkdirSync(dirname(registryPath), { recursive: true });
+    const raw = JSON.stringify({
+      version: 2,
+      repos: { "github.com/the-metafactory/soma": { commands: [{ run: "bun test", cwd: join(home, "gone") }] } },
+    }, null, 2);
+    writeFileSync(registryPath, raw);
+    const before = statSync(registryPath).mtimeMs;
+    const store = staleAuditStore();
+    await store.postComment({ id: "521" }, validReceipt("cp-521"));
+
+    const output = await run(["graph", "audit", "495", "--repo", REPO], store, {
+      listProbeRegistryEntries: async () => await listProbeRegistryEntries({ homeDir: home }),
+      directoryExists: (path) => existsSync(path),
+    });
+
+    expect(output).toContain("cwd missing");
+    expect(readFileSync(registryPath, "utf8")).toBe(raw);
+    expect(statSync(registryPath).mtimeMs).toBe(before);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("audit build-brief scope reads no comments and omits findings it did not check", async () => {

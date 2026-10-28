@@ -28,6 +28,7 @@
  */
 
 import { selectMarkdownSections } from "../core/index";
+import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -84,7 +85,11 @@ import {
   type ProposalFile,
   isProbeRefusal,
   loadProbeRegistry as defaultLoadProbeRegistry,
+  listProbeRegistryEntries as defaultListProbeRegistryEntries,
+  findStaleRegistryEntries,
   type ProbeRegistry,
+  type ProbeRegistryEntries,
+  type StaleRegistryFindings,
   allProbesPassed,
   authorizeProbeTree,
   isProbeEscape,
@@ -125,7 +130,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run [--run-probes]] [--repo <forge>:<host>/<path>] — a dry run lists command probes without running them; --run-probes runs them",
-    audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--json] — scoped audits omit unchecked findings",
+    audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--json] [--verbose] — scoped audits omit unchecked findings; --verbose also lists the probe-registry entries open nodes use",
     decisions: "Usage: soma graph decisions <root> [--write] [--repo <forge>:<host>/<path>] [--json]",
     "file-proposal":
       "Usage: soma graph file-proposal <proposal_ref> [--json] — file the node a <soma-home>/proposals/<ref>.md proposal describes under its landing map; a second run returns the node already filed",
@@ -223,7 +228,7 @@ export interface ParsedGraphAuditArgs {
   command: "graph";
   action: "audit";
   target: string;
-  options: GraphSharedOptions & { scope?: "build-brief-not-ready" };
+  options: GraphSharedOptions & { scope?: "build-brief-not-ready"; verbose?: boolean };
 }
 
 export interface ParsedGraphDecisionsArgs {
@@ -585,7 +590,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     return { command, action, target: resolvedTarget, options: rest.length > 0 ? { json: true } : {} };
   }
 
-  const options: GraphSharedOptions & { identity?: string; title?: string; bodyFile?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready" } = {};
+  const options: GraphSharedOptions & { identity?: string; title?: string; bodyFile?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready"; verbose?: boolean } = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     const shared = readShared(options, rest, index, arg);
@@ -615,6 +620,10 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     }
     if (arg === "--write" && action === "decisions") {
       options.write = true;
+      continue;
+    }
+    if (arg === "--verbose" && action === "audit") {
+      options.verbose = true;
       continue;
     }
     if (arg === "--scope" && action === "audit") {
@@ -656,6 +665,9 @@ export interface GraphCliDeps extends Pick<ServesOptions, "goalStatus" | "warn" 
    * never per invocation.
    */
   loadProbeRegistry: (repo: RepoRef) => Promise<ProbeRegistry>;
+  /** Every repo's commands, for `audit`'s stale-entry report (node #1107). Read-only: nothing authorises through it. */
+  listProbeRegistryEntries: () => Promise<ProbeRegistryEntries>;
+  directoryExists: (path: string) => boolean;
   /** `listCommands` is set on a dry run without `--run-probes` (#1103); see `ProbeRunnerOptions.listCommands`. */
   runProbes: (
     probes: readonly Probe[],
@@ -884,6 +896,8 @@ function defaultDeps(): GraphCliDeps {
     resolveRepo: async (explicit) => await resolveGraphRepo(explicit),
     loadProbeRegistry: async (repo) => await defaultLoadProbeRegistry({ repo: probeRegistryKey(repo) }),
     runProbes: async (probes, registry, cwd, options) => await defaultRunProbes(probes, { registry, cwd, ...options }),
+    listProbeRegistryEntries: async () => await defaultListProbeRegistryEntries(),
+    directoryExists: (path) => statSync(path, { throwIfNoEntry: false })?.isDirectory() === true,
     probeCwd: () => invocationCwd(),
     describeProbeTree: defaultDescribeProbeTree,
     readTextFile: async (path) => await Bun.file(path).text(),
@@ -1693,11 +1707,20 @@ async function scanClosedNodes(
  * - **Open and claimed** — informational: in flight somewhere, or stale.
  * - **Open build brief not ready** — required sections or live probe absent,
  *   or clarification outstanding. Reporting on kind does not enforce it at creation.
+ * - **Stale probe-registry entries** — a `cwd` that no longer exists, or an entry
+ *   of this repo that no open node declares (node #1107). The registry stays
+ *   principal-edited; the audit only says which entries to look at.
  *
  * Read-only, deliberately: an auditor that reopened nodes would be a second
  * writer with its own race. It names; the human acts.
  */
-async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: string): Promise<string> {
+async function runAudit(
+  parsed: ParsedGraphAuditArgs,
+  graph: WorkGraph,
+  repo: string,
+  repoRef: RepoRef,
+  deps: GraphCliDeps,
+): Promise<string> {
   const full = parsed.options.scope === undefined;
   const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target }, { includeRoot: true, readReceipts: full });
 
@@ -1711,6 +1734,11 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
     const missing = buildBriefMissing(state.body);
     return missing.length === 0 ? [] : [{ state, missing }];
   });
+  const registry = full ? await auditProbeRegistry(subtree, repoRef, deps) : undefined;
+  const staleRegistry = registry?.findings;
+  const registryStale = staleRegistry !== undefined && (staleRegistry.cwdMissing.length > 0 || staleRegistry.unusedByOpenNodes.length > 0);
+  const registryInvalid = registry?.invalid;
+  const verbose = parsed.options.verbose === true;
 
   if (parsed.options.json === true) {
     return JSON.stringify(
@@ -1724,13 +1752,22 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
           openClaimed: claimed.map((state) => ({ id: state.ref.id, assignees: state.assignees })),
         } : {}),
         buildBriefNotReady: buildBriefNotReady.map(({ state, missing }) => ({ id: state.ref.id, missing })),
+        ...(staleRegistry !== undefined && (registryStale || verbose) ? {
+          probeRegistry: {
+            cwdMissing: staleRegistry.cwdMissing,
+            unusedByOpenNodes: staleRegistry.unusedByOpenNodes,
+            inUse: staleRegistry.inUse,
+          },
+        } : {}),
+        ...(registryInvalid === undefined ? {} : { probeRegistryInvalid: registryInvalid }),
       },
       null,
       2,
     );
   }
 
-  const clean = unreceipted.length === 0 && uncloseable.length === 0 && buildBriefNotReady.length === 0;
+  const clean = unreceipted.length === 0 && uncloseable.length === 0 && buildBriefNotReady.length === 0
+    && !registryStale && registryInvalid === undefined;
   return [
     `Work graph audit — root ${parsed.target} (${repo}), ${subtree.length} node(s)`,
     ...(full ? [] : [`Scope: build-brief-not-ready; other findings were not checked.`]),
@@ -1756,6 +1793,8 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
           "",
         ]
       : []),
+    ...(registryInvalid === undefined ? [] : [`Probe registry unusable — every command probe close refuses until it parses: ${registryInvalid}`, ""]),
+    ...(staleRegistry === undefined ? [] : renderStaleRegistry(staleRegistry, verbose)),
     ...(claimed.length > 0
       ? [
           `Open and claimed — in flight, or stale:`,
@@ -1769,6 +1808,41 @@ async function runAudit(parsed: ParsedGraphAuditArgs, graph: WorkGraph, repo: st
       ? `Clean: every closed node carries a receipt and every open node can close.`
       : `The audit names; it does not repair. A receipt-less close is re-opened and re-closed through the verb, or ratified by hand with a comment saying why.`,
   ].join("\n");
+}
+
+async function auditProbeRegistry(
+  subtree: readonly NodeState[],
+  repoRef: RepoRef,
+  deps: GraphCliDeps,
+): Promise<{ findings?: StaleRegistryFindings; invalid?: string }> {
+  const entries = await deps.listProbeRegistryEntries();
+  if (entries.status === "absent") return {};
+  if (entries.status === "invalid") return { invalid: `${entries.path} ${entries.reason}` };
+  return {
+    findings: findStaleRegistryEntries({
+      entries: entries.commands,
+      repoKey: probeRegistryKey(repoRef),
+      subtree,
+      baseCwd: deps.probeCwd(),
+      directoryExists: deps.directoryExists,
+    }),
+  };
+}
+
+function renderStaleRegistry(findings: StaleRegistryFindings, verbose: boolean): string[] {
+  const entry = (item: { repo: string; run: string; cwd: string }): string =>
+    `- ${item.repo}: ${JSON.stringify(item.run)} in ${item.cwd}`;
+  return [
+    ...(findings.cwdMissing.length > 0
+      ? [`Probe registry entry, cwd missing — the directory no longer exists on this machine:`, ...findings.cwdMissing.map(entry), ""]
+      : []),
+    ...(findings.unusedByOpenNodes.length > 0
+      ? [`Probe registry entry, unused by open nodes — no open node's command probe matches run and cwd:`, ...findings.unusedByOpenNodes.map(entry), ""]
+      : []),
+    ...(verbose && findings.inUse.length > 0
+      ? [`Probe registry entry, in use by open nodes:`, ...findings.inUse.map((item) => `${entry(item)} — nodes ${item.nodes.join(", ")}`), ""]
+      : []),
+  ];
 }
 
 /** One derived index line: title, link, gist — the map entry a receipt earns. */
@@ -1996,7 +2070,7 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "close":
       return await runClose(parsed, graph, store, repoRef, deps);
     case "audit":
-      return await runAudit(parsed, graph, repo);
+      return await runAudit(parsed, graph, repo, repoRef, deps);
     case "decisions":
       return await runDecisions(parsed, graph, repo);
   }

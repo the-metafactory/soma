@@ -734,7 +734,11 @@ soma graph close <node>            # runs declared probes; refuses a hollow clos
 soma graph audit <root>            # what the gates cannot see: closed nodes with
                                    # no receipt (a tracker-side close — the gate
                                    # never ran), open nodes that can never close,
-                                   # build briefs not ready, claimed nodes in flight
+                                   # build briefs not ready, claimed nodes in flight,
+                                   # probe-registry entries whose cwd is gone or that
+                                   # no open node uses (node #1107; --verbose names
+                                   # the nodes that do use one; a probe without its
+                                   # own cwd resolves against where audit runs)
                                    # — the root included, so
                                    # a standalone node is audited too. Read-only: it
                                    # names, the human acts.
