@@ -90,7 +90,7 @@ async function withCodexHookHome<T>(fn: (homeDir: string, install: CodexInstall)
 }
 
 // Reads the directory, not the install promise, so a failed shared install
-// still has its home removed and the failure reports once, in its row.
+// still has its home removed; every sharing row then fails with the install error.
 afterAll(async () => {
   if (codexHookHomeDir === undefined) return;
   await unsealRuntimeArtifacts(codexHookHomeDir);

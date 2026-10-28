@@ -57,7 +57,7 @@ async function withGrokHookHome<T>(fn: (homeDir: string, install: GrokInstall) =
 }
 
 // Reads the directory, not the install promise, so a failed shared install
-// still has its home removed and the failure reports once, in its row.
+// still has its home removed; every sharing row then fails with the install error.
 afterAll(async () => {
   if (grokHookHomeDir === undefined) return;
   await rm(grokHookHomeDir, { recursive: true, force: true });
