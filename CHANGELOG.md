@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-10-28
+
+### Changed
+
+- The CLI imports a command's module only when that command runs; help and unknown-command output still load all of them. `soma policy guard` starts in about 163 ms instead of 238 ms, and `soma algorithm classify` in about 309 ms instead of 409 ms. (#1124)
+- The Claude Code policy guard runs `soma policy` in a Worker of the hook process instead of spawning a second `bun`. It stays fail-closed: the 25 s timer runs on the hook's main thread, and a worker that fails to load, throws, exits without a decision or hangs denies as UNAVAILABLE. A guarded tool call takes about 156 ms instead of 316 ms. (#1124)
+- The Claude Code mode-classifier hook runs `algorithm classify` in a Worker the same way, importing only the classify module. It stays fail-open on every failure path. A prompt takes about 134 ms instead of 340 ms. (#1126)
+
 ## [0.29.0] - 2026-10-28
 
 ### Changed
@@ -1665,7 +1673,8 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.29.1...HEAD
+[0.29.1]: https://github.com/the-metafactory/soma/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/the-metafactory/soma/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/the-metafactory/soma/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/the-metafactory/soma/compare/v0.26.0...v0.27.0
