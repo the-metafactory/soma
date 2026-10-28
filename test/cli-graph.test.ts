@@ -685,6 +685,8 @@ test.each([
   "CI=1 bun test", "CI=1 FOO=bar bun test test/graph", 'FOO="two words" bun test',
   "cd pkg && bun test", "cd pkg;bun test", "false || bun test --bail",
   "printf x | bun test", "printf x\nbun test", "cd pkg && CI=1 bun test; echo done",
+  "env CI=1 bun test", "time bun test", "exec bun test", "time env CI=1 bun test",
+  "/usr/local/bin/bun test", '"bun" test', "'bun' test", "(bun test)", "( bun test )",
 ])(
   "add refuses bare test command %j before writing anything",
   async (runCommand) => {
@@ -742,6 +744,8 @@ test.each([
   "CI=1 bun run test", "cd pkg && bun run test --parallel=4", "cd pkg; echo bun test",
   'echo "x; bun test"', "echo 'x && bun test'", 'FOO="x; bun test" bun run test',
   "echo x\\; bun test",
+  "env CI=1 bun run test", "time bun run test", "exec bun run typecheck",
+  "/usr/local/bin/bun run test", '"bun" run test', "(bun run test)", 'echo "(bun test)"',
 ])(
   "add accepts command %j unchanged",
   async (runCommand) => {
@@ -2272,7 +2276,11 @@ test("audit reports open bare bun test probes in text and JSON, including the ro
   expect(store.calls).toEqual([]);
 });
 
-test.each(["CI=1 bun test", "cd pkg && bun test", "cd pkg;CI=1 bun test --bail", "printf x | bun test"])(
+test.each([
+  "CI=1 bun test", "cd pkg && bun test", "cd pkg;CI=1 bun test --bail", "printf x | bun test",
+  "env CI=1 bun test", "time bun test", "exec bun test", "time env CI=1 bun test",
+  "/usr/local/bin/bun test", '"bun" test', "'bun' test", "(bun test)", "( bun test )",
+])(
   "audit reports open wrapped bare test command %j",
   async (runCommand) => {
     const store = new FakeStore()

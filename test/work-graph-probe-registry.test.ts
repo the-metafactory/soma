@@ -112,6 +112,12 @@ test("v1 and malformed v2 keys refuse with explicit migration guidance", () => {
   expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { "the-metafactory": {} } })))).toContain("host-qualified");
 });
 
+test("the requested repository must be host-qualified after the document parses", () => {
+  expect(invalidReason(parse(JSON.stringify({ version: 2, repos: {} }), "the-metafactory/soma")))
+    .toContain('requested repository "the-metafactory/soma" is not a host-qualified key');
+  expect(invalidReason(parse("{", "the-metafactory/soma"))).toContain("not valid JSON");
+});
+
 test("registry keys use the ref grammar and require a dotted host to disambiguate legacy keys", () => {
   for (const key of ["github.com:8443/owner/repo", "you@github.com/owner/repo"]) {
     expect(invalidReason(parse(JSON.stringify({ version: 2, repos: { [key]: {} } })))).toContain("host-qualified");

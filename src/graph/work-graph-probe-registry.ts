@@ -169,10 +169,13 @@ export async function loadProbeRegistry(options: LoadProbeRegistryOptions): Prom
  */
 export function parseProbeRegistry(input: ParseProbeRegistryInput): ProbeRegistry {
   const wanted = normalizeRegistryRepoKey(input.repo);
-  const parsed = parseRegistryDocument(input, { requireRepo: true });
+  const parsed = parseRegistryDocument(input);
   if ("invalid" in parsed) return { status: "invalid", repo: input.repo, path: input.path, reason: parsed.invalid };
+  if (wanted === undefined) {
+    return { status: "invalid", repo: input.repo, path: input.path, reason: `requested repository ${JSON.stringify(input.repo)} is not a host-qualified key` };
+  }
 
-  const match = wanted === undefined ? undefined : parsed.repos.get(wanted);
+  const match = parsed.repos.get(wanted);
   return {
     status: "loaded",
     repo: input.repo,
@@ -212,7 +215,7 @@ export async function listProbeRegistryEntries(
   }
   if (raw === undefined) return { status: "absent", path };
 
-  const parsed = parseRegistryDocument({ path, raw, ...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }) }, { requireRepo: false });
+  const parsed = parseRegistryDocument({ path, raw, ...(options.homeDir === undefined ? {} : { homeDir: options.homeDir }) });
   if ("invalid" in parsed) return { status: "invalid", path, reason: parsed.invalid };
   return {
     status: "loaded",
@@ -222,8 +225,7 @@ export async function listProbeRegistryEntries(
 }
 
 function parseRegistryDocument(
-  input: Pick<ParseProbeRegistryInput, "path" | "raw" | "homeDir"> & { repo?: string },
-  options: { requireRepo: boolean },
+  input: Pick<ParseProbeRegistryInput, "path" | "raw" | "homeDir">,
 ): { repos: Map<string, RepoEntry> } | { invalid: string } {
   let document: unknown;
   try {
@@ -250,9 +252,6 @@ function parseRegistryDocument(
     return { invalid: `"repos" must be an object keyed by "host/path" (for example "github.com/owner/name")` };
   }
 
-  if (options.requireRepo && normalizeRegistryRepoKey(input.repo ?? "") === undefined) {
-    return { invalid: `requested repository ${JSON.stringify(input.repo)} is not a host-qualified key` };
-  }
   const repos = new Map<string, RepoEntry>();
 
   for (const [key, value] of Object.entries(document.repos)) {

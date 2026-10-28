@@ -1723,10 +1723,10 @@ async function runAudit(
   parsed: ParsedGraphAuditArgs,
   graph: WorkGraph,
   store: GraphStore,
-  repo: string,
   repoRef: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
+  const repo = displayRepo(repoRef);
   const full = parsed.options.scope === undefined;
   const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target }, { includeRoot: true, readReceipts: full });
 
@@ -2098,7 +2098,7 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "close":
       return await runClose(parsed, graph, store, repoRef, deps);
     case "audit":
-      return await runAudit(parsed, graph, store, repo, repoRef, deps);
+      return await runAudit(parsed, graph, store, repoRef, deps);
     case "decisions":
       return await runDecisions(parsed, graph, repo);
   }
