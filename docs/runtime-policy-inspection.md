@@ -155,6 +155,30 @@ Existing Codex private-source policy and inbound-content scanning still run in
 the same hook. Runtime policy does not replace the path/private-root guard or
 the DD-7 inbound-content scanner.
 
+## Claude Code Projection
+
+`soma install claude-code --apply` installs the policy guard at
+`<claude-home>/hooks/soma/soma-policy-guard.mjs`, with its config in
+`soma-policy-guard.config.json` beside it:
+
+- `UserPromptSubmit` runs `soma policy inspect --surface prompt`.
+- `PreToolUse` for `Bash`, `Read`, `Grep`, `Edit`, `Write`, `MultiEdit`, and
+  `NotebookEdit` runs `soma policy guard`. That one call combines runtime
+  inspection, the write-target private-context check, and the inbound content
+  scan.
+- A `Grep` that only lists files or counts matches skips inspection, because
+  only `secret-read` inspects `Grep`, and it fires only on content output.
+- `deny` and `ask` decisions block the prompt or the tool call. Claude Code has
+  no portable "ask the principal" shape, so `ask` becomes a denial whose
+  reason asks for approval.
+
+The guard does not start the CLI as a second process. It loads
+`src/cli/policy-worker.ts` from `trustedSomaRepo` into a Worker and passes it
+the same `soma policy` arguments. `trustedSomaRepo` points at the immutable
+runtime artifact, `<soma-home>/runtime/claude-code/current`, not at a
+checkout. So a broken edit in the soma source tree cannot deny the tools that
+would repair it (soma#640).
+
 ## PAI Hook Inventory
 
 | PAI behavior | Soma classification | Notes |
@@ -174,6 +198,18 @@ the DD-7 inbound-content scanner.
 Enforceable pre-action gates fail closed. That includes Codex prompt and tool
 hooks when the runtime policy CLI exits non-zero, returns invalid JSON, or
 returns a JSON value without a string `decision`.
+
+The Claude Code guard denies in the same cases. It also denies when its config
+is unusable or its input is malformed. It denies when the policy worker fails
+to load, throws, exits without a decision, or runs past 25 s. The timer runs on
+the hook's main thread, so a worker stuck in a synchronous loop still gets a
+denial. Claude Code treats a hook it has to kill as a non-blocking error and
+runs the tool, so the guard must not rely on Claude Code's own hook timeout.
+These failure denials start with `Soma policy guard UNAVAILABLE (fail-closed —
+this is not a policy denial)` and name the recovery: `soma install claude-code
+--apply` or `soma runtime rollback --substrate claude-code`. A rule that fires
+gives its own reason, such as `credential-file-egress`. That is how the
+principal tells a broken guard from a policy decision.
 
 Advisory, audit, and recovery surfaces must fail soft when they are implemented.
 That rule is surface-specific; inspectors do not hide fail-open behavior.

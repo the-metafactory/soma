@@ -14,6 +14,19 @@ learning, and adapter contracts.
 - Keep the core filesystem-native and model-provider-neutral.
 - Prefer deterministic TypeScript contracts over prompt-only conventions.
 - Use Bun for scripts and tests.
+- To add a top-level command, add a loader to `COMMANDS` in `src/cli.ts` and
+  its usage to `loadCommandHelp`. The loader imports the command's module when
+  the command runs. Hooks call `soma policy guard` on every tool call and
+  `algorithm classify` on every prompt, and each module that `soma` loads up
+  front adds to that start time.
+- Keep the hook hot paths light: `src/cli/policy.ts`,
+  `src/cli/algorithm-classify.ts`, and the workers that load them
+  (`src/cli/policy-worker.ts`, `src/cli/mode-classifier-worker.ts`). Inside a
+  component, import from the defining module. Across components,
+  `bun run check:boundaries` requires the public entry, and some of those are
+  large: `src/flows/index.ts` pulls in about 3 MB. Move an import that only
+  some actions use inside those actions, as `src/cli/algorithm.ts` does for
+  `../flows/index`.
 - Verify changes with `bun run test` and `bun run typecheck` (`bun run test` passes `--timeout=60000`, since bun's default 5 s per test is too short for the install tests on a loaded host, and `--parallel=6`, which runs the files across six workers; one worker per core timed out install tests on a loaded laptop).
 
 ## Enforced rules

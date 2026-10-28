@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.29.1-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.29.2-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,7 +30,14 @@
 
 ---
 
-## Current release: 0.29.1
+## Current release: 0.29.2
+
+[0.29.2](https://github.com/the-metafactory/soma/releases/tag/v0.29.2) is a
+documentation release. It describes the Claude Code mode classifier and
+policy guard, which are installed by default, and how each one fails. See the
+[changelog](CHANGELOG.md#0292---2026-10-28).
+
+### 0.29.1
 
 [0.29.1](https://github.com/the-metafactory/soma/releases/tag/v0.29.1) makes the
 hooks that run on every tool call and prompt start faster. The CLI loads only
@@ -1144,14 +1151,23 @@ Then project Soma into at least one substrate:
 ```bash
 bun run soma install codex --apply
 bun run soma install claude-code --apply
-bun run soma install claude-code --mode-classifier --apply
 bun run soma install pi-dev --apply
 bun run soma install cursor --apply
 ```
 
-`--mode-classifier` is an opt-in Claude Code hook. It installs Soma's
-`UserPromptSubmit` classifier, emits a compact MODE context block, and disables
-the PAI mode classifier entry while Soma owns that hook.
+The Claude Code install includes two more hooks by default:
+
+- The mode classifier adds a short MODE context block to each prompt. It
+  disables the PAI mode classifier entry while Soma owns that hook. Skip it
+  with `--no-mode-classifier`.
+- The fail-closed policy guard checks each prompt and each `Bash`, `Read`,
+  `Grep`, `Edit`, `Write`, `MultiEdit`, and `NotebookEdit` call. Skip it with
+  `--no-policy-guard`.
+
+Both hooks run Soma in a Worker of their own process instead of a second
+`bun`. See
+[docs/substrate-adapters.md](docs/substrate-adapters.md#claude-code) for how
+each hook fails.
 
 ---
 
