@@ -1,5 +1,5 @@
 import { defaultSomaHome } from "../core/index";
-import { dropErrata, readErrata, readErrataLanded, runErrataTriage, type ErrataTriageDeps } from "../flows/index";
+import { dropErrata, readErrata, readErrataLanded, runErrataTriage, type ErrataLandedResult, type ErrataTriageDeps } from "../flows/index";
 import { readOption } from "./parse-utils";
 
 export interface ParsedErrataArgs {
@@ -43,18 +43,23 @@ export function parseErrataArgs(args: string[]): ParsedErrataArgs {
   return { command, action, id, options };
 }
 
+function formatLandedWindow(value: ErrataLandedResult["before"]): string {
+  return value === null ? "unavailable" :
+    `[${value.start}, ${value.end}) errata=${value.errata} candidates=${value.candidates} rate=${value.rate ?? "n/a"}`;
+}
+
+function formatLandedRow(row: ErrataLandedResult): string {
+  return `${row.ref}\t${row.verdict}\tclusterId=${row.clusterId} key=${JSON.stringify(row.key)}\tlandedAt=${row.landedAt ?? "unavailable"}\twindowDays=${row.windowDays}`
+    + `\tbefore=${formatLandedWindow(row.before)}\tafter=${formatLandedWindow(row.after)}\treason=${row.reason ?? "none"}`;
+}
+
 export async function runErrataCli(parsed: ParsedErrataArgs, deps: Omit<ErrataTriageDeps, "somaHome"> = {}): Promise<string> {
   const somaHome = defaultSomaHome(parsed.options);
   if (parsed.action === "landed") {
     const rows = await readErrataLanded(somaHome, { ref: parsed.id });
     if (parsed.options.json) return JSON.stringify(parsed.options.all ? rows : rows[0], null, 2);
     if (rows.length === 0) return "No Errata proposals.";
-    return rows.map((row) => {
-      const window = (value: typeof row.before) => value === null ? "unavailable" :
-        `[${value.start}, ${value.end}) errata=${value.errata} candidates=${value.candidates} rate=${value.rate ?? "n/a"}`;
-      return `${row.ref}\t${row.verdict}\tclusterId=${row.clusterId} key=${JSON.stringify(row.key)}\tlandedAt=${row.landedAt ?? "unavailable"}\twindowDays=${row.windowDays}`
-        + `\tbefore=${window(row.before)}\tafter=${window(row.after)}\treason=${row.reason ?? "none"}`;
-    }).join("\n");
+    return rows.map(formatLandedRow).join("\n");
   }
   if (parsed.action === "triage") {
     const result = await runErrataTriage({ ...deps, somaHome });

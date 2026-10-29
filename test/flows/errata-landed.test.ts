@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { measureErrataLanded } from "../../src/flows/errata";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { errataLedgerPath, measureErrataLanded, readErrataLanded } from "../../src/flows/errata";
+import { somaMemoryEventsPath } from "../../src/events/index";
 import type { ErrataClusterKey, ErrataEvent } from "../../src/flows/types";
 import type { SomaMemoryEvent } from "../../src/events/index";
 
@@ -152,5 +156,48 @@ test("pure measurement accepts a window length and rejects invalid windows", () 
   });
   for (const windowDays of [0, -1, 1.5, NaN, Infinity]) {
     expect(() => measureErrataLanded({ ...landedFixture(), windowDays })).toThrow("window days");
+  }
+});
+
+test("all proposals share the same measurement semantics across keys and landing dates", async () => {
+  const fixture = landedFixture();
+  for (const event of fixture.events) if (event.kind === "clustered" && event.id === "E9") {
+    event.clusterId = "EC2";
+    event.key = { kind: "theme", label: "Other theme" };
+  }
+  fixture.events.push(
+    { kind: "proposed", clusterId: "EC1", ref: "second-generation", generation: 2, landing: "example/repo", proposalKind: "deterministic-check", at: landedAt },
+    { kind: "node-closed", clusterId: "EC1", ref: "second-generation", at: "2026-10-17T12:00:00.000Z" },
+    { kind: "proposed", clusterId: "EC2", ref: "other-theme", generation: 1, landing: "example/repo", proposalKind: "deterministic-check", at: landedAt },
+    { kind: "node-closed", clusterId: "EC2", ref: "other-theme", at: landedAt },
+    { kind: "node-closed", clusterId: "EC1", ref, at: "2026-10-20T12:00:00.000Z" },
+  );
+  fixture.feedbackEvents.reverse();
+  fixture.feedbackEvents.push(fixture.feedbackEvents[0]);
+  const somaHome = await mkdtemp(join(tmpdir(), "soma-landed-index-"));
+  try {
+    await mkdir(dirname(errataLedgerPath(somaHome)), { recursive: true });
+    await writeFile(errataLedgerPath(somaHome), fixture.events.map((event) => JSON.stringify(event) + "\n").join(""));
+    await writeFile(somaMemoryEventsPath(somaHome), fixture.feedbackEvents.map((event) => JSON.stringify(event) + "\n").join(""));
+    const rows = await readErrataLanded(somaHome);
+    expect(rows).toEqual([ref, "second-generation", "other-theme"].map((ref) => measureErrataLanded({ ...fixture, ref })));
+    expect(rows[0]).toMatchObject({ landedAt, before: { errata: 6, candidates: 12 }, after: { errata: 2, candidates: 12 } });
+    expect(rows[1]).toMatchObject({ before: { errata: 8, candidates: 24 }, after: { errata: 0, candidates: 0 } });
+    expect(rows[2]).toMatchObject({ before: { errata: 0, candidates: 12 }, after: { errata: 1, candidates: 12 } });
+  } finally {
+    await rm(somaHome, { recursive: true, force: true });
+  }
+});
+
+test("malformed closure nodeRef names the event kind", async () => {
+  const fixture = landedFixture();
+  const somaHome = await mkdtemp(join(tmpdir(), "soma-landed-invalid-"));
+  try {
+    await mkdir(dirname(errataLedgerPath(somaHome)), { recursive: true });
+    const events = fixture.events.map((event) => event.kind === "node-closed" ? { ...event, nodeRef: 123 } : event);
+    await writeFile(errataLedgerPath(somaHome), events.map((event) => JSON.stringify(event) + "\n").join(""));
+    await expect(readErrataLanded(somaHome)).rejects.toThrow("Invalid Errata node-closed nodeRef.");
+  } finally {
+    await rm(somaHome, { recursive: true, force: true });
   }
 });

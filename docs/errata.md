@@ -262,6 +262,13 @@ Fewer than three errata in either window gives `insufficient-data` with reason
 read time; an after window can still be in progress. A verdict measures an
 observed difference and does not establish that the fix caused it.
 
+Untriaged feedback and active errata awaiting clustering do not enter the
+numerator, while their interactive feedback candidates already enter the
+denominator. Triage lag can therefore produce a `lower` verdict without any
+improvement, especially after a recent landing. Compare again after both
+windows have elapsed and triage has processed their feedback and clustered
+their errata. The command cannot certify that triage is complete.
+
 A closure event carries `kind: "node-closed"`, `clusterId`, proposal `ref`,
 `at`, and optional `nodeRef`. A `resolved` answer does not establish landing.
 Without a matching closure, a single-ref command exits nonzero naming the
@@ -269,3 +276,9 @@ missing `node-closed` event. `--all` retains that proposal with verdict
 `insufficient-data`, reason `missing-node-closed`, and null landing and windows.
 Unknown refs and malformed ledger input fail. This command never records a
 closure or changes a proposal's lifecycle.
+
+The intended `node-closed` writer is the graph checkpoint close path, after
+the node passes its close gate. It must append the proposal's `ref` and
+`clusterId`, the closure time as `at`, and optionally the graph `nodeRef`
+using the `ErrataClusterEvent` contract. That producer integration is not
+implemented here; a `resolved` Vigil answer cannot substitute for it.
