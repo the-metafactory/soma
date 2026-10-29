@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CodexExecutor, ExecutorRegistry, outputFromText, registerCodexExecutor, runExecutionConformance, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, type ExecutionConformanceScenario } from "../../src/execution/index";
 import { runSubstrateExecution } from "../../src/execution/index";
+import { abortOnListen, expectConformancePassed } from "./conformance-support";
 
 function result(exitCode: number, stdout: string, stderr = "") {
   return { exitCode, stdout: outputFromText(stdout), stderr };
@@ -163,18 +164,13 @@ test("Codex executor runs the shared scenario IDs through the injected runner", 
   const controller = new AbortController();
   let runnerAborted = false;
   const executor = new CodexExecutor({ runner: { run: async (args, options) => {
-    if (args.includes("--version")) {
-      await Bun.sleep(30);
-      return result(0, "codex-cli test");
-    }
+    if (args.includes("--version")) return result(0, "codex-cli test");
     if (args.includes("--help")) return result(0, "--ephemeral --json --sandbox --cd workspace-write\n -");
     if (options?.input === "cancellation") {
-      return await new Promise((_, reject) => {
-        options.signal?.addEventListener("abort", () => {
-          runnerAborted = true;
-          reject(new Error("cancelled by fixture"));
-        }, { once: true });
-        controller.abort();
+      return await abortOnListen({
+        controller,
+        signal: options.signal,
+        onAbort: () => { runnerAborted = true; },
       });
     }
     return options?.input?.includes("deny") ? result(7, '{"type":"policy.denied"}\n') : result(0, '{"type":"turn.completed"}\n');
@@ -188,8 +184,7 @@ test("Codex executor runs the shared scenario IDs through the injected runner", 
     signal: id === "cancellation" ? controller.signal : undefined,
   }));
   const report = await runExecutionConformance(executor, scenarios);
-  expect(report.results.filter((scenario) => !scenario.passed)).toEqual([]);
-  expect(report.passed).toBe(true);
+  expectConformancePassed(report);
   expect(runnerAborted).toBe(true);
   expect((await executor.probe()).artifactReporting).toBe(false);
 });

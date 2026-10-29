@@ -3,6 +3,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ClaudeCodeExecutor, ExecutorRegistry, outputFromText, registerClaudeCodeExecutor, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance, runSubstrateExecution, type ExecutionConformanceScenario } from "../../src/execution/index";
+import { abortOnListen, expectConformancePassed } from "./conformance-support";
 
 function result(exitCode: number, stdout: string, stderr = "") {
   return { exitCode, stdout: outputFromText(stdout), stderr };
@@ -63,12 +64,10 @@ test("Claude Code registers and passes shared runner-backed conformance fixtures
   const controller = new AbortController();
   let runnerAborted = false;
   const executor = new ClaudeCodeExecutor({ runner: runner(async (options) => {
-    if (options?.input === "cancel") return await new Promise((_, reject) => {
-      options.signal?.addEventListener("abort", () => {
-        runnerAborted = true;
-        reject(new Error("cancel"));
-      }, { once: true });
-      controller.abort();
+    if (options?.input === "cancel") return await abortOnListen({
+      controller,
+      signal: options.signal,
+      onAbort: () => { runnerAborted = true; },
     });
     return options?.input === "deny" ? result(7, '{"type":"policy_denied"}\n') : result(0, '{"type":"result"}\n');
   }) });
@@ -80,7 +79,6 @@ test("Claude Code registers and passes shared runner-backed conformance fixtures
     expectedEventKinds: id === "cancellation" ? ["execution.started", "execution.cancelled"] : undefined,
   }));
   const report = await runExecutionConformance(executor, scenarios);
-  expect(report.results.filter((scenario) => !scenario.passed)).toEqual([]);
-  expect(report.passed).toBe(true);
+  expectConformancePassed(report);
   expect(runnerAborted).toBe(true);
 });

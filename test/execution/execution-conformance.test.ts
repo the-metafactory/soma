@@ -8,6 +8,7 @@ import {
   runExecutionConformance,
   type ExecutionConformanceScenario,
 } from "../../src/execution/index";
+import { expectConformancePassed } from "./conformance-support";
 
 const cwd = "/tmp/soma-conformance";
 const timestamp = "2026-07-10T12:00:00.000Z";
@@ -87,8 +88,7 @@ test("deterministic mock executes every shared conformance scenario through the 
   };
 
   const report = await runExecutionConformance(mock, scenarios);
-  expect(report.results.filter((scenario) => !scenario.passed)).toEqual([]);
-  expect(report.passed).toBe(true);
+  expectConformancePassed(report);
   expect(report.results.map((result) => result.id)).toEqual([...REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS]);
   expect(mock.calls).not.toContain("process");
   expect(mock.calls).not.toContain("network");
