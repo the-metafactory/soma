@@ -1,13 +1,12 @@
-import { JUDGE_REGISTRY, summarizeJudgments } from "../router/index";
-import { judgeLedgerPath, readJudgments } from "../core/index";
+import { JUDGE_REGISTRY, labelJudgment, summarizeJudgments } from "../router/index";
+import { judgeLedgerPath, readJudgmentLabels, readJudgments, type PrincipalJudgmentLabel } from "../core/index";
 import { defaultSomaHome } from "../core/index";
 import { readOption } from "./parse-utils";
 
-type JudgeCliAction = "stats" | "registry";
+type JudgeCliAction = "stats" | "registry" | "label";
 
-export interface ParsedJudgeArgs {
+export type ParsedJudgeArgs = {
   command: "judge";
-  action: JudgeCliAction;
   options: {
     homeDir?: string;
     somaHome?: string;
@@ -15,28 +14,37 @@ export interface ParsedJudgeArgs {
     since?: string;
     json?: boolean;
   };
-}
+} & ({ action: "stats" | "registry" } | { action: "label"; judgmentId: string; verdict: PrincipalJudgmentLabel["verdict"] });
 
 export const JUDGE_COMMAND_HELP: { usage: string; subcommands: Record<JudgeCliAction, string> } = {
-  usage: "Usage: soma judge <stats|registry> ...",
+  usage: "Usage: soma judge <stats|registry|label> ...",
   subcommands: {
     stats: "Usage: soma judge stats [--caller <id>] [--since <YYYY-MM-DD>] [--json] [--home-dir <dir>] [--soma-home <dir>]",
     registry: "Usage: soma judge registry [--json]",
+    label: "Usage: soma judge label <judgment-id> <--right|--wrong> [--json] [--home-dir <dir>] [--soma-home <dir>] (requires SOMA_PRINCIPAL)",
   },
 };
 
 export function parseJudgeArgs(args: string[]): ParsedJudgeArgs {
   const [command, action, ...rest] = args;
 
-  if (command !== "judge" || (action !== "stats" && action !== "registry")) {
+  if (command !== "judge" || (action !== "stats" && action !== "registry" && action !== "label")) {
     throw new Error(JUDGE_COMMAND_HELP.usage);
   }
 
   const options: ParsedJudgeArgs["options"] = {};
+  const judgmentId = action === "label" ? rest.shift() : undefined;
+  let verdict: PrincipalJudgmentLabel["verdict"] | undefined;
+  if (action === "label" && (!judgmentId || judgmentId.startsWith("--"))) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
 
     switch (arg) {
+      case "--right":
+      case "--wrong":
+        if (action !== "label" || verdict !== undefined) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
+        verdict = arg === "--right" ? "right" : "wrong";
+        break;
       case "--home-dir":
         options.homeDir = readOption(rest, index, arg);
         index += 1;
@@ -46,10 +54,12 @@ export function parseJudgeArgs(args: string[]): ParsedJudgeArgs {
         index += 1;
         break;
       case "--caller":
+        if (action === "label") throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
         options.caller = readOption(rest, index, arg);
         index += 1;
         break;
       case "--since":
+        if (action === "label") throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
         options.since = readOption(rest, index, arg);
         index += 1;
         break;
@@ -61,11 +71,20 @@ export function parseJudgeArgs(args: string[]): ParsedJudgeArgs {
     }
   }
 
+  if (action === "label") {
+    if (!judgmentId || !verdict) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
+    return { command, action, options, judgmentId, verdict };
+  }
   return { command, action, options };
 }
 
 export async function runJudgeCli(parsed: ParsedJudgeArgs): Promise<string> {
   const { options } = parsed;
+
+  if (parsed.action === "label") {
+    const label = await labelJudgment({ somaHome: defaultSomaHome(options), judgmentId: parsed.judgmentId, verdict: parsed.verdict });
+    return options.json ? `${JSON.stringify(label, null, 2)}\n` : `Labeled ${label.judgmentId} ${label.verdict} by principal ${label.principal}`;
+  }
 
   if (parsed.action === "registry") {
     if (options.json) return `${JSON.stringify(JUDGE_REGISTRY, null, 2)}\n`;
@@ -83,12 +102,14 @@ export async function runJudgeCli(parsed: ParsedJudgeArgs): Promise<string> {
   const somaHome = defaultSomaHome(options);
   const filter = { caller: options.caller, since: options.since };
   const { records, malformed } = await readJudgments(somaHome, filter);
-  const stats = summarizeJudgments(records, filter);
+  const { labels, malformed: malformedLabels } = await readJudgmentLabels(somaHome);
+  const stats = summarizeJudgments(records, filter, labels);
 
-  if (options.json) return `${JSON.stringify({ ledger: judgeLedgerPath(somaHome), malformed, callers: stats }, null, 2)}\n`;
+  if (options.json) return `${JSON.stringify({ ledger: judgeLedgerPath(somaHome), malformed, malformedLabels, callers: stats, judgments: records }, null, 2)}\n`;
 
   const lines = ["Soma judge stats", `ledger: ${judgeLedgerPath(somaHome)}`];
   if (malformed > 0) lines.push(`malformed lines skipped: ${malformed}`);
+  if (malformedLabels > 0) lines.push(`malformed labels skipped: ${malformedLabels}`);
   if (stats.length === 0) {
     lines.push("No judgments recorded.");
     return lines.join("\n");
@@ -96,6 +117,7 @@ export async function runJudgeCli(parsed: ParsedJudgeArgs): Promise<string> {
 
   for (const caller of stats) {
     lines.push("", `${caller.caller} (${caller.state}): ${caller.total} judgment(s), median ${caller.medianLatencyMs ?? "n/a"} ms`);
+    lines.push(`  principal labels: ${caller.labeled} labeled, ${caller.right} right, ${caller.wrong} wrong; agreement: ${caller.agreement === null ? "n/a" : `${Math.round(caller.agreement * 100)}%`}`);
     for (const [key, values] of Object.entries(caller.decisions)) {
       const parts = Object.entries(values)
         .sort(([, left], [, right]) => right - left)

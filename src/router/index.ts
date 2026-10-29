@@ -1,4 +1,5 @@
-export { JUDGE_REGISTRY, regexClassifierVersion, summarizeJudgments } from "./judge";
+export { DEFAULT_JUDGE_THRESHOLDS, JUDGE_REGISTRY, assertJudgeRegistry, labelJudgment, regexClassifierVersion, summarizeJudgments } from "./judge";
+export type { JudgeCaller, JudgeCallerMeasurement, JudgeCallerStats } from "./judge";
 export { type CombinerExample, argmaxClass, crossValidateCombiner, predictCombiner, sessionFolds, trainCombiner } from "./router-combiner";
 export { ROUTER_CORPUS_DEFAULT_SAMPLE, ROUTER_CORPUS_DEFAULT_SEED, ROUTER_CORPUS_REPLY_TAIL_CHARS, ROUTER_CORPUS_SKIP_REASONS, type RouterCorpusRow, buildRouterCorpus, extractRouterCorpusTranscript, parsePrivateJsonl, readRouterCorpus, routerCorpusPath, sampleRouterCorpus, writePrivateJsonl, writeRouterCorpus } from "./router-corpus";
 export { type FetchLike, ROUTER_EMBED_DEFAULT_HOST, ROUTER_EMBED_DEFAULT_MODEL, assertLoopbackHost, connectOllamaEmbedder, fillEmbeddingCache, parseHttpResponse, readEmbeddingCache, routerArmCFeatures, routerEmbedTexts, routerEmbeddingCachePath, textKey, writeEmbeddingCache } from "./router-embed";

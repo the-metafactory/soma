@@ -16,4 +16,6 @@ export { SOMA_MEMORY_PROMOTION_STORE_DIRS, SOMA_MEMORY_PROMOTION_STORES } from "
 export { PROPOSAL_KINDS, type ProposalKind } from "./types";
 export { hashJudgmentInput, judgeLedgerPath, matchesFilter, readJudgments, recordJudgment } from "./judge-ledger";
 export type { JudgmentFilter, JudgmentRecord } from "./judge-ledger";
+export { appendJudgmentLabel, judgeLabelsPath, readJudgmentLabels } from "./judge-labels";
+export type { PrincipalJudgmentLabel } from "./judge-labels";
 // dir-lock.ts is a separate public entry (src/components.ts), not re-exported here: it imports bun:ffi.
