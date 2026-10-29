@@ -1219,6 +1219,7 @@ writeback boundaries as substrate sessions. See
 
 ## Documentation
 
+- [docs/judges.md](docs/judges.md), principal judgment labels, agreement statistics, and enforcement thresholds
 - [docs/release-notes.md](docs/release-notes.md), one summary per release; [CHANGELOG.md](CHANGELOG.md) lists every change
 - [docs/arc-install-troubleshooting.md](docs/arc-install-troubleshooting.md), upgrading and reinstalling with Arc
 - [docs/mission-dashboard.md](docs/mission-dashboard.md), local read-only missions and goals prototype (`bun run dashboard`)

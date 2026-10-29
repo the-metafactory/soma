@@ -161,7 +161,7 @@
   },
   "src/core/judge-ledger.ts": {
     "soma/no-discarded-error": {
-      "count": 2
+      "count": 1
     }
   },
   "src/core/path-utils.ts": {
