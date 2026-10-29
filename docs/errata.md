@@ -233,3 +233,39 @@ receipts under `memory/STATE/errata/unroutable-deliveries/<event-hash>.delivered
 each event separately, so a newer Errata can produce a fresh notice. The hash includes the
 ledger position, cluster, repo and timestamp. A crash after delivery and before its receipt
 may resend the notice; it cannot silently consume it.
+
+## Landed fix measurement
+
+`soma errata landed <proposal-ref>` compares a proposal's errata rate before
+and after its first matching `node-closed` event. `--all` prints one row per
+`proposed` ref, including earlier generations. `--json` returns the same fields
+as an object for one ref or an array for `--all`. No proposals prints
+`No Errata proposals.` or an empty JSON array. The command only reads state.
+
+Each row includes `ref`, `clusterId`, `key`, `landedAt`, `windowDays`, `before`,
+`after`, `verdict`, and `reason`. The windows are exactly 14 elapsed days:
+`[landing - 14 days, landing)` and `[landing, landing + 14 days)`, in UTC.
+Each window reports its start, end, errata count, candidate count, and rate.
+
+The numerator counts active errata by `complaintAt` whose recorded cluster key
+matches the proposal's key, including matching keys under other cluster IDs.
+Theme keys match without regard to case or surrounding spaces. Vetoed errata
+do not count. The denominator counts distinct `feedback.candidate` event IDs
+with `metadata.actor: "interactive"` in that window, including rotated event
+segments. It does not require a stored excerpt or a promotion. The rate is
+errata divided by candidates; it is not a rate per all assistant outputs.
+
+Fewer than three errata in either window gives `insufficient-data` with reason
+`too-few-errata`. A zero denominator gives `insufficient-data` with reason
+`zero-denominator` and a null rate. Otherwise the rate difference gives `lower`,
+`higher`, or `unchanged`, with a null reason. Counts describe the ledger at
+read time; an after window can still be in progress. A verdict measures an
+observed difference and does not establish that the fix caused it.
+
+A closure event carries `kind: "node-closed"`, `clusterId`, proposal `ref`,
+`at`, and optional `nodeRef`. A `resolved` answer does not establish landing.
+Without a matching closure, a single-ref command exits nonzero naming the
+missing `node-closed` event. `--all` retains that proposal with verdict
+`insufficient-data`, reason `missing-node-closed`, and null landing and windows.
+Unknown refs and malformed ledger input fail. This command never records a
+closure or changes a proposal's lifecycle.

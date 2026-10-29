@@ -9,7 +9,7 @@ export {
 export type { AlgorithmVsaOptions, HintConfig, PromptShape, SuggestVsaResult } from "./algorithm-vsa-bridge";
 export { formatSyncResult, syncAlgorithmRunFromVsa } from "./algorithm-vsa-sync";
 export type { SyncAlgorithmRunFromVsaOptions, SyncAlgorithmRunFromVsaResult } from "./algorithm-vsa-sync";
-export { dropErrata, readErrata, runErrataTriage } from "./errata";
+export { dropErrata, readErrata, readErrataLanded, runErrataTriage } from "./errata";
 export type { ErrataTriageDeps } from "./errata";
 export { captureSomaFeedback, classifySomaFeedback, maybeSomaFeedbackPrompt } from "./feedback";
 export { acceptGoalProposal, isProposalHash } from "./goal-accept";

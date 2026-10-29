@@ -95,7 +95,7 @@ function proposalRefField(data: Record<string, unknown>): string {
  */
 function parseClusterEvent(data: Record<string, unknown>): ErrataClusterEvent | undefined {
   const kind = data.kind;
-  if (kind !== "proposed" && kind !== "unroutable" && !isAnswerKind(kind)) return undefined;
+  if (kind !== "proposed" && kind !== "unroutable" && kind !== "node-closed" && !isAnswerKind(kind)) return undefined;
   const clusterId = clusterIdField(data);
   const at = timestampField(data, "at");
   if (kind === "unroutable") {
@@ -108,7 +108,7 @@ function parseClusterEvent(data: Record<string, unknown>): ErrataClusterEvent | 
     return { kind, clusterId, repo, at };
   }
   const ref = proposalRefField(data);
-  if (isAnswerKind(kind)) {
+  if (isAnswerKind(kind) || kind === "node-closed") {
     const nodeRef = data.nodeRef;
     if (nodeRef !== undefined && typeof nodeRef !== "string") throw new Error("Invalid Errata answer nodeRef.");
     return { kind, clusterId, ref, ...(typeof nodeRef === "string" ? { nodeRef } : {}), at };
@@ -185,7 +185,7 @@ function foldLedger(events: readonly ErrataEvent[]): FoldedLedger {
       continue;
     }
     // A mint or an answer speaks about its cluster and turns no Errata record.
-    if (event.kind === "proposed" || event.kind === "unroutable" || isAnswerEvent(event)) continue;
+    if (event.kind === "proposed" || event.kind === "unroutable" || event.kind === "node-closed" || isAnswerEvent(event)) continue;
     const record = records.get(event.id);
     if (!record) throw new Error(`Unknown Errata id in ledger: ${event.id}`);
     if (event.kind === "dropped") { records.set(event.id, { ...record, status: "dropped" }); continue; }
@@ -622,6 +622,91 @@ function clusterKeySpelling(key: ErrataClusterKey): string {
   return clusterKeyParts(key).join("-");
 }
 
+export interface ErrataRateWindow {
+  start: string;
+  end: string;
+  errata: number;
+  candidates: number;
+  rate: number | null;
+}
+
+type ErrataLandedVerdict =
+  | { verdict: "lower" | "higher" | "unchanged"; reason: null }
+  | { verdict: "insufficient-data"; reason: "too-few-errata" | "zero-denominator" };
+
+export type ErrataLandedResult = {
+  ref: string;
+  clusterId: string;
+  key: ErrataClusterKey;
+  windowDays: number;
+} & (
+  | { verdict: "insufficient-data"; reason: "missing-node-closed"; landedAt: null; before: null; after: null }
+  | (ErrataLandedVerdict & { landedAt: string; before: ErrataRateWindow; after: ErrataRateWindow })
+);
+
+function landedKey(key: ErrataClusterKey): string {
+  return JSON.stringify(clusterKeyParts(key.kind === "theme" ? { ...key, label: themeKey(key.label) } : key));
+}
+
+/** Compare active Errata per interactive feedback candidate in disjoint landing windows. */
+export function measureErrataLanded(input: {
+  events: readonly ErrataEvent[];
+  feedbackEvents: readonly SomaMemoryEvent[];
+  ref: string;
+  windowDays?: number;
+}): ErrataLandedResult {
+  const { events, feedbackEvents, ref, windowDays = 14 } = input;
+  if (!Number.isSafeInteger(windowDays) || windowDays <= 0) throw new Error("Invalid Errata landed window days.");
+  const proposal = events.find((event) => event.kind === "proposed" && event.ref === ref);
+  if (proposal?.kind !== "proposed") throw new Error(`Unknown Errata proposal: ${ref}`);
+  const ledger = foldLedger(events);
+  const cluster = ledger.clusters.find((cluster) => cluster.id === proposal.clusterId);
+  if (cluster === undefined) throw new Error(`Unknown Errata proposal cluster: ${proposal.clusterId}`);
+  const base = { ref, clusterId: cluster.id, key: cluster.key, windowDays };
+  const closed = events.find((event) => event.kind === "node-closed" && event.ref === ref && event.clusterId === cluster.id);
+  if (closed?.kind !== "node-closed") return {
+    ...base, verdict: "insufficient-data", reason: "missing-node-closed", landedAt: null, before: null, after: null,
+  };
+  const landing = Date.parse(closed.at);
+  const duration = windowDays * 86_400_000;
+  const matchingClusters = new Set(ledger.clusters.filter((other) => landedKey(other.key) === landedKey(cluster.key)).map((other) => other.id));
+  const complaints = ledger.records.filter((record) => record.status === "active" && record.clusterId !== undefined && matchingClusters.has(record.clusterId))
+    .map((record) => Date.parse(record.complaintAt));
+  const candidates = new Map<string, number>();
+  for (const event of feedbackEvents) {
+    if (event.kind !== "feedback.candidate" || event.metadata?.actor !== "interactive") continue;
+    const at = Date.parse(event.timestamp);
+    if (!Number.isFinite(at)) throw new Error(`Invalid feedback.candidate timestamp: ${event.id}`);
+    candidates.set(event.id, at);
+  }
+  const window = (start: number, end: number): ErrataRateWindow => {
+    const errata = complaints.filter((at) => at >= start && at < end).length;
+    const count = [...candidates.values()].filter((at) => at >= start && at < end).length;
+    return { start: new Date(start).toISOString(), end: new Date(end).toISOString(), errata, candidates: count, rate: count === 0 ? null : errata / count };
+  };
+  const before = window(landing - duration, landing);
+  const after = window(landing, landing + duration);
+  const measured = { ...base, landedAt: new Date(landing).toISOString(), before, after };
+  if (before.candidates === 0 || after.candidates === 0) return { ...measured, verdict: "insufficient-data", reason: "zero-denominator" };
+  if (before.errata < 3 || after.errata < 3) return { ...measured, verdict: "insufficient-data", reason: "too-few-errata" };
+  const difference = after.errata * before.candidates - before.errata * after.candidates;
+  return { ...measured, verdict: difference < 0 ? "lower" : difference > 0 ? "higher" : "unchanged", reason: null };
+}
+
+export async function readErrataLanded(somaHome: string, options: { ref?: string } = {}): Promise<ErrataLandedResult[]> {
+  const events = await readEvents(somaHome);
+  const refs = options.ref === undefined
+    ? [...new Set(events.flatMap((event) => event.kind === "proposed" ? [event.ref] : []))]
+    : [options.ref];
+  if (refs.length === 0) return [];
+  const feedbackEvents = await readFeedbackCandidates(somaHome, { strict: true });
+  return refs.map((ref) => {
+    const result = measureErrataLanded({ events, feedbackEvents, ref });
+    if (options.ref !== undefined && result.reason === "missing-node-closed") throw new Error(`Errata proposal ${ref} is missing a node-closed event.`);
+    return result;
+  });
+}
+
 function passedBySpelling(passedBy: ErrataPassedBy | null): string | null {
   if (passedBy === null) return null;
   return passedBy.kind === "algorithm-verify"
@@ -670,7 +755,7 @@ function foldClusterHistory(events: readonly ErrataEvent[], cluster: ErrataClust
   const members = new Set(cluster.errataIds);
   const history: ClusterProposalHistory = { generations: 0 };
   events.forEach((event, index) => {
-    if (event.kind === "created" || event.kind === "dropped") return;
+    if (event.kind === "created" || event.kind === "dropped" || event.kind === "node-closed") return;
     if (event.clusterId !== cluster.id) return;
     if (event.kind === "clustered") {
       if (members.has(event.id)) history.joinedAt = event.at;
@@ -1136,11 +1221,12 @@ export interface ErrataTriageResult {
   detailRef: string;
 }
 
-async function readFeedbackCandidates(somaHome: string): Promise<SomaMemoryEvent[]> {
+async function readFeedbackCandidates(somaHome: string, options: { strict?: boolean } = {}): Promise<SomaMemoryEvent[]> {
   const events: SomaMemoryEvent[] = [];
   // Include rotated segments; a narrow recent-events limit would silently lose candidates.
   for await (const line of streamEventLines(somaMemoryEventsPath(somaHome))) {
     const event = parseTelemetryEventLine(line);
+    if (options.strict && line.trim() !== "" && event === undefined) throw new Error("Invalid feedback event ledger line.");
     if (event?.kind === "feedback.candidate") events.push(event);
   }
   return events;
