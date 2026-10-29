@@ -154,7 +154,7 @@ test("landed CLI reports rates, counts and dates in text and JSON without changi
   const { somaHome, ref, feedbackPath } = await landedFixture();
   const before = await readFile(errataLedgerPath(somaHome), "utf8");
   const beforeFeedback = await readFile(feedbackPath, "utf8");
-  const files = await readdir(somaHome, { recursive: true });
+  const files = (await readdir(somaHome, { recursive: true })).sort();
   const result = await cli(["errata", "landed", ref, "--json", "--soma-home", somaHome]);
   expect(result.exit).toBe(0);
   expect(result.stderr).toBe("");
@@ -186,7 +186,7 @@ test("landed CLI reports rates, counts and dates in text and JSON without changi
   expect(allText.stdout).toContain("reason=missing-node-closed");
   expect(await readFile(errataLedgerPath(somaHome), "utf8")).toBe(before);
   expect(await readFile(feedbackPath, "utf8")).toBe(beforeFeedback);
-  expect(await readdir(somaHome, { recursive: true })).toEqual(files);
+  expect((await readdir(somaHome, { recursive: true })).sort()).toEqual(files);
   expect((await cli(["errata", "list", "--json", "--soma-home", somaHome])).exit).toBe(0);
 });
 
