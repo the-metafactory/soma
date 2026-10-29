@@ -64,7 +64,8 @@ export type ErrataClusterEvent =
   | { kind: "unroutable"; clusterId: string; repo: string | null; at: string }
   | { kind: "resolved"; clusterId: string; ref: string; nodeRef?: string; at: string }
   | { kind: "dismissed"; clusterId: string; ref: string; at: string }
-  | { kind: "expired"; clusterId: string; ref: string; at: string };
+  | { kind: "expired"; clusterId: string; ref: string; at: string }
+  | { kind: "node-closed"; clusterId: string; ref: string; nodeRef?: string; at: string };
 
 export type ErrataEvent =
   | { kind: "created"; record: ErrataRecord }

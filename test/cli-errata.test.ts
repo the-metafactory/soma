@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { appendErrata, errataLedgerPath } from "../src/flows/errata";
 import { parseErrataArgs } from "../src/cli/errata";
 import { stageRuntimeArtifact } from "../src/substrates/runtime-artifact";
-import type { ErrataInput } from "../src/flows/types";
+import type { ErrataEvent, ErrataInput } from "../src/flows/types";
+import { appendEventBatch, somaMemoryEventsPath } from "../src/events/index";
 
 const homes: string[] = [];
 afterEach(async () => { await Promise.all(homes.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
@@ -119,4 +120,121 @@ test("Errata help and argument validation", async () => {
   expect(() => parseErrataArgs(["errata", "drop", "../E2"])).toThrow();
   expect(() => parseErrataArgs(["errata", "drop", "E2", "--all"])).toThrow();
   expect(() => parseErrataArgs(["errata", "list", "--soma-home"])).toThrow();
+});
+
+async function landedFixture() {
+  const somaHome = await mkdtemp(join(tmpdir(), "soma-errata-landed-cli-")); homes.push(somaHome);
+  const ref = "errata-artifact-src-a-g1";
+  const events: ErrataEvent[] = [];
+  for (let index = 1; index <= 9; index++) {
+    const at = index <= 6 ? "2026-10-14T12:00:00.000Z" : "2026-10-16T12:00:00.000Z";
+    const record = await appendErrata(somaHome, {
+      sessionId: "S", rejectedTurnUuid: `U${index}`, rejectedAt: at, complaintAt: at,
+      complaint: "private complaint", artifacts: ["src/a.ts"], passedBy: null,
+    });
+    events.push({ kind: "clustered", id: record.id, clusterId: "EC1", key: { kind: "artifact", path: "src/a.ts" }, at });
+  }
+  events.push(
+    { kind: "proposed", clusterId: "EC1", ref, generation: 1, landing: "example/repo", proposalKind: "deterministic-check", at: "2026-10-14T12:00:00.000Z" },
+    { kind: "resolved", clusterId: "EC1", ref, nodeRef: "example/repo#1", at: "2026-10-14T13:00:00.000Z" },
+    { kind: "node-closed", clusterId: "EC1", ref, nodeRef: "example/repo#1", at: "2026-10-15T12:00:00.000Z" },
+    { kind: "proposed", clusterId: "EC1", ref: "errata-artifact-src-a-g2", generation: 2, landing: "example/repo", proposalKind: "deterministic-check", at: "2026-10-17T12:00:00.000Z" },
+  );
+  await appendFile(errataLedgerPath(somaHome), events.map((event) => JSON.stringify(event) + "\n").join(""));
+  const feedback = Array.from({ length: 24 }, (_, index) => ({
+    id: `F${index}`, timestamp: index < 12 ? "2026-10-14T12:00:00.000Z" : "2026-10-16T12:00:00.000Z",
+    substrate: "codex", kind: "feedback.candidate", summary: "feedback", metadata: { actor: "interactive" },
+  }));
+  const feedbackPath = somaMemoryEventsPath(somaHome);
+  await writeFile(feedbackPath, feedback.map((event) => JSON.stringify(event) + "\n").join(""));
+  return { somaHome, ref, feedbackPath };
+}
+
+test("landed CLI reports rates, counts and dates in text and JSON without changing private state", async () => {
+  const { somaHome, ref, feedbackPath } = await landedFixture();
+  const before = await readFile(errataLedgerPath(somaHome), "utf8");
+  const beforeFeedback = await readFile(feedbackPath, "utf8");
+  const files = (await readdir(somaHome, { recursive: true })).sort();
+  const result = await cli(["errata", "landed", ref, "--json", "--soma-home", somaHome]);
+  expect(result.exit).toBe(0);
+  expect(result.stderr).toBe("");
+  const row = JSON.parse(result.stdout);
+  expect(row).toEqual({
+    ref, clusterId: "EC1", key: { kind: "artifact", path: "src/a.ts" }, landedAt: "2026-10-15T12:00:00.000Z", windowDays: 14,
+    verdict: "lower", reason: null,
+    before: { start: "2026-10-01T12:00:00.000Z", end: "2026-10-15T12:00:00.000Z", errata: 6, candidates: 12, rate: 0.5 },
+    after: { start: "2026-10-15T12:00:00.000Z", end: "2026-10-29T12:00:00.000Z", errata: 3, candidates: 12, rate: 0.25 },
+  });
+  const text = await cli(["errata", "landed", ref, "--soma-home", somaHome]);
+  expect(text.exit).toBe(0);
+  expect(text.stdout.trim().split("\t")).toEqual([
+    ref, "lower", 'clusterId=EC1 key={"kind":"artifact","path":"src/a.ts"}',
+    "landedAt=2026-10-15T12:00:00.000Z", "windowDays=14",
+    "before=[2026-10-01T12:00:00.000Z, 2026-10-15T12:00:00.000Z) errata=6 candidates=12 rate=0.5",
+    "after=[2026-10-15T12:00:00.000Z, 2026-10-29T12:00:00.000Z) errata=3 candidates=12 rate=0.25", "reason=none",
+  ]);
+  const all = await cli(["errata", "landed", "--all", "--json", "--soma-home", somaHome]);
+  expect(all.exit).toBe(0);
+  expect(JSON.parse(all.stdout)).toEqual([
+    row,
+    { ref: "errata-artifact-src-a-g2", clusterId: "EC1", key: row.key, windowDays: 14,
+      verdict: "insufficient-data", reason: "missing-node-closed", landedAt: null, before: null, after: null },
+  ]);
+  const allText = await cli(["errata", "landed", "--all", "--soma-home", somaHome]);
+  expect(allText.exit).toBe(0);
+  expect(allText.stdout.trim().split("\n")).toHaveLength(2);
+  expect(allText.stdout).toContain("reason=missing-node-closed");
+  expect(await readFile(errataLedgerPath(somaHome), "utf8")).toBe(before);
+  expect(await readFile(feedbackPath, "utf8")).toBe(beforeFeedback);
+  expect((await readdir(somaHome, { recursive: true })).sort()).toEqual(files);
+  expect((await cli(["errata", "list", "--json", "--soma-home", somaHome])).exit).toBe(0);
+});
+
+test("landed fails nonzero naming missing node-closed, unknown proposals and malformed ledgers", async () => {
+  const { somaHome, ref, feedbackPath } = await landedFixture();
+  const missing = await cli(["errata", "landed", "errata-artifact-src-a-g2", "--soma-home", somaHome]);
+  expect(missing.exit).not.toBe(0);
+  expect(missing.stdout).toBe("");
+  expect(missing.stderr).toContain("node-closed");
+  const unknown = await cli(["errata", "landed", "unknown", "--soma-home", somaHome]);
+  expect(unknown.exit).not.toBe(0);
+  expect(unknown.stderr).toContain("Unknown Errata proposal");
+  await appendFile(feedbackPath, "{malformed}\n");
+  const badFeedback = await cli(["errata", "landed", ref, "--soma-home", somaHome]);
+  expect(badFeedback.exit).not.toBe(0);
+  expect(badFeedback.stderr).toContain("Invalid feedback event ledger");
+  await appendFile(errataLedgerPath(somaHome), '{"kind":"node-closed"}');
+  const torn = await cli(["errata", "landed", ref, "--soma-home", somaHome]);
+  expect(torn.exit).not.toBe(0);
+  expect(torn.stderr).toContain("Incomplete Errata ledger");
+});
+
+test("landed includes rotated feedback segments and returns insufficient-data for zero denominators", async () => {
+  const { somaHome, ref, feedbackPath } = await landedFixture();
+  const feedback = await readFile(feedbackPath);
+  const other = Buffer.from(JSON.stringify({ id: "other", kind: "lifecycle.session_end", substrate: "codex", timestamp: "2026-10-16T12:00:00.000Z", summary: "end" }) + "\n");
+  await writeFile(feedbackPath, "");
+  await appendEventBatch(feedbackPath, feedback, feedback.byteLength);
+  await appendEventBatch(feedbackPath, other, feedback.byteLength);
+  const rotated = await cli(["errata", "landed", ref, "--json", "--soma-home", somaHome]);
+  expect(rotated).toMatchObject({ exit: 0, stderr: "" });
+  expect(JSON.parse(rotated.stdout).verdict).toBe("lower");
+  const unobserved = await landedFixture();
+  await writeFile(unobserved.feedbackPath, "");
+  const empty = await cli(["errata", "landed", ref, "--json", "--soma-home", unobserved.somaHome]);
+  expect(empty.exit).toBe(0);
+  expect(JSON.parse(empty.stdout)).toMatchObject({ verdict: "insufficient-data", reason: "zero-denominator", before: { candidates: 0, rate: null }, after: { candidates: 0, rate: null } });
+});
+
+test("landed empty ledger and help work through the CLI; invalid selections are rejected", async () => {
+  const somaHome = await mkdtemp(join(tmpdir(), "soma-errata-landed-empty-")); homes.push(somaHome);
+  expect(await cli(["errata", "landed", "--all", "--soma-home", somaHome]))
+    .toEqual({ exit: 0, stdout: "No Errata proposals.\n", stderr: "" });
+  expect(await cli(["errata", "landed", "--all", "--json", "--soma-home", somaHome]))
+    .toEqual({ exit: 0, stdout: "[]\n", stderr: "" });
+  expect((await cli(["errata", "landed", "--help"])).stdout).toContain("<proposal-ref>|--all");
+  expect(parseErrataArgs(["errata", "landed", "errata-key-g1", "--json"]).id).toBe("errata-key-g1");
+  for (const args of [[], ["--json"], ["--all", "errata-key-g1"], ["../bad"], ["--all", "--session", "S"], ["a", "b"]]) {
+    expect(() => parseErrataArgs(["errata", "landed", ...args])).toThrow();
+  }
 });

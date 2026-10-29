@@ -220,6 +220,19 @@ describe("proposeFromCluster", () => {
     expect(await proposalFiles(somaHome)).toEqual([]);
   });
 
+  test("a node-closed measurement event does not become an answer that releases another generation", async () => {
+    const { deps, appended } = await harness([
+      created(member("E1")), created(member("E2")),
+      clustered("E1", "2026-10-15T05:00:00.000Z"), proposed(1, "2026-10-15T05:30:00.000Z"),
+      { kind: "node-closed", clusterId: "EC1", ref: `errata-${SLUG}-g1`, at: "2026-10-15T06:00:00.000Z" },
+      clustered("E2", "2026-10-16T05:00:00.000Z"),
+    ], buildBrief);
+    deps.cluster = cluster(["E1", "E2"]);
+    deps.members = [member("E1"), member("E2")];
+    expect(await proposeFromCluster(deps)).toEqual({ status: "waiting" });
+    expect(appended()).toEqual([]);
+  });
+
   test.each(["expired", "dismissed", "resolved"] as const)("a %s answer and a new Errata mint the next generation", async (kind) => {
     const { somaHome, deps, appended } = await harness([
       created(member("E1")), created(member("E2")),
