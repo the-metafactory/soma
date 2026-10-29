@@ -378,7 +378,7 @@ test("codex install spec owns lifecycle and private root facts", () => {
     startupContextPath: "memories/soma/startup-context.md",
     somaRepoPathPath: "memories/soma/soma-repo.txt",
   });
-  expect(codexInstallSpec.postProjection?.map((step) => step.name)).toEqual(["codex-agents-import", "codex-config"]);
+  expect(codexInstallSpec.postProjection?.map((step) => step.name)).toEqual(["tool-nudges", "codex-agents-import", "codex-config"]);
   expect(codexInstallSpec.uninstall.kind).toBe("reserved");
   expect(somaProjectionPrivateRoots({ homeDir, substrate: "codex" })).toEqual([join(homeDir, ".codex/skills/soma")]);
   expect(somaMemoryPrivateRoots({ homeDir, substrate: "codex" })).toEqual([join(homeDir, ".codex/memories")]);
@@ -1750,7 +1750,7 @@ test("installs soma source home and pi.dev home projection", async () => {
     // eight references, and the principles index with its forty-one principles
     // and the pstack notice (soma#922, #924; the playbook cards moved to the soma-pstack pack) — Memory ×5,
     // migrate-pai-purpose ×1, orienteer ×8).
-    expect(result.substrateHome.files).toHaveLength(82);
+    expect(result.substrateHome.files).toHaveLength(83);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");

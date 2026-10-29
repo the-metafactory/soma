@@ -179,6 +179,7 @@ test("builds pi.dev home projection bundle for default availability", () => {
     "agent/extensions/soma-path-guard.ts",
     // #43 — Algorithm phase renderer extension.
     "agent/extensions/soma-algorithm.ts",
+    "agent/extensions/soma-routing.ts",
     "agent/skills/soma/SKILL.md",
     "agent/soma/active-vsa.md",
   ]);
@@ -541,7 +542,7 @@ test("installs pi.dev home projection into a substrate home", async () => {
     expect(result.rootDir).toBe(join(homeDir, ".pi"));
     // #43 — +1 file (soma-algorithm.ts) projected alongside existing
     // pi-dev home bundle; +1 for the working method (agent/soma/principles.md).
-    expect(result.files).toHaveLength(14);
+    expect(result.files).toHaveLength(15);
 
     const extension = await readFile(join(homeDir, ".pi/agent/extensions/soma.ts"), "utf8");
     const algorithmExtension = await readFile(join(homeDir, ".pi/agent/extensions/soma-algorithm.ts"), "utf8");

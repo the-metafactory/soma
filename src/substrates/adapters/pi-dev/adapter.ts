@@ -1,4 +1,4 @@
-import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
+import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH, PI_DEV_ROUTING_EXTENSION_PATH } from "./projection-constants";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection } from "../../types";
@@ -6,6 +6,7 @@ import type { ProjectionInput } from "../../../home/types";
 import { renderAlgorithmClassifierSource } from "../shared/algorithm-classifier-source";
 import { renderFeedbackHookHelper } from "../shared/feedback-helper";
 import { renderPathGuardExtension } from "./path-guard";
+import { renderSomaRoutingExtension } from "./extensions/soma-routing";
 import { renderSomaAlgorithmExtension } from "./extensions/soma-algorithm";
 import { buildPiDevPortableSkillFiles } from "./skill-projection";
 import { communicationContractFile, workingMethodFile, projectableSkills, renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderProfilePointer, renderSkills } from "../shared/index";
@@ -726,6 +727,10 @@ export function projectPiDevHome(input: ProjectionInput, somaHome: string, homeD
       {
         path: PI_DEV_ALGORITHM_EXTENSION_PATH,
         content: renderSomaAlgorithmExtension({ somaHome, homeDir: substrateHomeDir }),
+      },
+      {
+        path: PI_DEV_ROUTING_EXTENSION_PATH,
+        content: renderSomaRoutingExtension(somaHome),
       },
       // YAML-frontmatter skill file — same exclusion reasoning as grok/codex's
       // skills/soma/SKILL.md.

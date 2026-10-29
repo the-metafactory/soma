@@ -1,4 +1,5 @@
-import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH } from "./projection-constants";
+import { installToolNudges } from "../shared/tool-nudges";
+import { PI_DEV_ALGORITHM_EXTENSION_PATH, PI_DEV_HOME_EXTENSION_PATH, PI_DEV_ROUTING_EXTENSION_PATH } from "./projection-constants";
 import { skillsLoaderUnder, type SubstrateInstallSpec } from "../../install-spec";
 import { PI_DEV_DEFAULT_HOME, piDevProjectionPrivateRoots } from "../../../policy/private-roots";
 import {
@@ -13,6 +14,7 @@ export const PI_DEV_HOME_FILES = [
   PI_DEV_HOME_EXTENSION_PATH,
   "agent/extensions/soma-path-guard.ts",
   PI_DEV_ALGORITHM_EXTENSION_PATH,
+  PI_DEV_ROUTING_EXTENSION_PATH,
   "agent/soma/context.md",
   "agent/soma/profile.md",
   "agent/soma/startup-context.md",
@@ -52,6 +54,7 @@ export const piDevInstallSpec: SubstrateInstallSpec<"pi-dev"> = {
     startupContextPath: "agent/soma/startup-context.md",
     somaRepoPathPath: "agent/soma/soma-repo.txt",
   },
+  postProjection: [{ name: "tool-nudges", run: installToolNudges }],
   privateRoots: {
     projection: piDevProjectionPrivateRoots,
   },

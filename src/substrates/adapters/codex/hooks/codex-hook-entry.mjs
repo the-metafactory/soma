@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -445,6 +446,14 @@ function handleLifecycleEvent(config, event, input) {
 }
 
 export function runCodexHook(config, event = process.argv[2], input = readHookInput()) {
+  if (event === "post_tool_use" || event === "post-tool-use") {
+    return import(pathToFileURL(join(config.somaHome, "runtime/tool-nudges.mjs")).href).then(({ toolNudgeLines }) => {
+      const lines = toolNudgeLines(config.somaHome, input.tool_name ?? input.toolName, input.tool_input ?? input.toolInput);
+      if (lines.length > 0) console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: lines.join("\n") } }));
+    }).catch((error) => {
+      process.stderr.write(`Soma tool nudge failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    });
+  }
   if (event === "pre-tool-use") {
     handlePreToolUse(config, input);
   } else if (event === "prompt-submit") {

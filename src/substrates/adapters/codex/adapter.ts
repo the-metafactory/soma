@@ -263,6 +263,15 @@ function renderCodexHooksJson(): string {
         ],
         PostToolUse: [
           {
+            matcher: ".*",
+            hooks: [{
+              type: "command",
+              command: "bun ~/.codex/hooks/soma-lifecycle.mjs post_tool_use",
+              timeout: 30,
+              statusMessage: "Checking Soma tool nudges",
+            }],
+          },
+          {
             matcher: "Edit|Write|apply_patch",
             hooks: [
               {

@@ -48,7 +48,7 @@ test("settings register the nudge once on PostToolUse for Bash, Agent and Task, 
     const settings = JSON.parse(await readFile(join(substrateHome, "settings.json"), "utf8"));
     const groups = settings.hooks.PostToolUse.filter((group: { hooks: { command: string }[] }) =>
       group.hooks.some((hook) => hook.command.endsWith(" principle-nudge")));
-    expect(groups.map((group: { matcher: string }) => group.matcher)).toEqual(["Bash|Agent|Task"]);
+    expect(groups.map((group: { matcher: string }) => group.matcher)).toEqual([".*"]);
     expect(settings.hooks.PostToolUse).toHaveLength(2);
   });
 });
@@ -61,7 +61,7 @@ test("each action names its installed principle file", async () => {
   });
 });
 
-test("no match and an uninstalled file both stay silent", async () => {
+test("no match and an undeclared skill both stay silent", async () => {
   await withInstalledHook(async (run, somaHome) => {
     expect(run({ tool_name: "Bash", tool_input: { command: "ls -la" } })).toBe("");
     expect(run({ tool_name: "Read", tool_input: { file_path: "/x" } })).toBe("");
@@ -69,6 +69,24 @@ test("no match and an uninstalled file both stay silent", async () => {
 
     await mkdir(join(somaHome, "skills/benchmark-checklist"), { recursive: true });
     await writeFile(join(somaHome, "skills/benchmark-checklist/SKILL.md"), "# b\n");
-    expect(context(run({ tool_name: "Bash", tool_input: { command: "hyperfine 'bun x'" } }))).toContain("benchmark-checklist/SKILL.md");
+    expect(run({ tool_name: "Bash", tool_input: { command: "hyperfine 'bun x'" } })).toBe("");
+  });
+});
+
+test("reinstall migrates the old nudge matcher and preserves a foreign hook in its group", async () => {
+  await withInstalledHook(async (_run, _somaHome, substrateHome) => {
+    const path = join(substrateHome, "settings.json");
+    const settings = JSON.parse(await readFile(path, "utf8"));
+    const group = settings.hooks.PostToolUse.find((entry: { hooks: { command: string }[] }) =>
+      entry.hooks.some((hook) => hook.command.endsWith(" principle-nudge")));
+    group.matcher = "Bash|Agent|Task";
+    group.hooks.push({ type: "command", command: "foreign-hook" });
+    await writeFile(path, JSON.stringify(settings));
+    await patchClaudeCodeSomaHookSettings(substrateHome);
+    const updated = JSON.parse(await readFile(path, "utf8"));
+    const groups = updated.hooks.PostToolUse;
+    expect(groups.find((entry: { hooks: { command: string }[] }) => entry.hooks.some((hook) => hook.command === "foreign-hook")).matcher).toBe("Bash|Agent|Task");
+    expect(groups.find((entry: { hooks: { command: string }[] }) => entry.hooks.some((hook) => hook.command.endsWith(" principle-nudge"))).matcher).toBe(".*");
+    expect(await patchClaudeCodeSomaHookSettings(substrateHome)).toEqual([]);
   });
 });
