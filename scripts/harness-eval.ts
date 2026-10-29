@@ -82,6 +82,7 @@ export interface MetricResult {
 interface MetricSpec {
   id: string;
   name: string;
+  needsRuns: boolean;
   unit: "%" | "ratio";
   direction: "higher" | "lower";
   /** Gate skips the metric below this denominator — tiny samples are noise, not signal. */
@@ -104,8 +105,8 @@ export function loadRuns(runsDir: string, inputs?: EvalInputs): RunDoc[] {
     files = readdirSync(runsDir);
   } catch {
     if (inputs) {
-      inputs.runsAvailable = false;
-      inputs.inputs.push({ source: runsDir, sha256: null });
+      inputs.markRunsUnavailable();
+      inputs.record(runsDir, null);
     }
     return runs;
   }
@@ -115,7 +116,7 @@ export function loadRuns(runsDir: string, inputs?: EvalInputs): RunDoc[] {
       const path = join(runsDir, file);
       runs.push(JSON.parse(inputs ? inputs.read(path) : readFileSync(path, "utf8")) as RunDoc);
     } catch {
-      if (inputs) inputs.runsAvailable = false;
+      inputs?.markRunsUnavailable();
       // unreadable run files are a doctor concern, not an eval concern
     }
   }
@@ -343,6 +344,7 @@ export const METRICS: MetricSpec[] = [
   {
     id: "true_finish_rate",
     name: "True-finish rate (all criteria checked)",
+    needsRuns: true,
     unit: "%",
     direction: "higher",
     minSample: 5,
@@ -364,6 +366,7 @@ export const METRICS: MetricSpec[] = [
   {
     id: "probe_evidence_rate",
     name: "Probe-backed evidence rate",
+    needsRuns: true,
     unit: "%",
     direction: "higher",
     minSample: 10,
@@ -384,6 +387,7 @@ export const METRICS: MetricSpec[] = [
   {
     id: "hollow_pass_attempt_rate",
     name: "Hollow-pass attempt rate (gate refusals)",
+    needsRuns: true,
     unit: "%",
     direction: "lower",
     minSample: 10,
@@ -408,6 +412,7 @@ export const METRICS: MetricSpec[] = [
   {
     id: "abandoned_run_share",
     name: "Abandoned-run share (zero criteria closed)",
+    needsRuns: true,
     unit: "%",
     direction: "lower",
     minSample: 5,
@@ -435,6 +440,7 @@ export const METRICS: MetricSpec[] = [
   {
     id: "learning_capture_rate",
     name: "Learning capture rate",
+    needsRuns: true,
     unit: "%",
     direction: "higher",
     minSample: 3,
@@ -455,6 +461,7 @@ export const METRICS: MetricSpec[] = [
   {
     id: "memory_loop_closure",
     name: "Memory loop closure (reads per write)",
+    needsRuns: false,
     unit: "ratio",
     direction: "higher",
     minSample: 5,
@@ -489,6 +496,7 @@ export const METRICS: MetricSpec[] = [
   {
     id: "promotion_rate",
     name: "Promotion rate (promotions per finished run)",
+    needsRuns: true,
     unit: "%",
     direction: "higher",
     minSample: 5,
@@ -599,7 +607,7 @@ export interface ErrataReport {
   errata_fix_closure: { value: number; fixed: number; proposed: number; detail: string } | "n/a";
 }
 
-export const ERRATA_METRICS: Pick<MetricSpec, "id" | "name" | "direction" | "goodhart" | "countermeasure">[] = [
+export const ERRATA_METRICS = [
   {
     id: "rejected_passes",
     name: "Rejected passes per check (plus unlinked Errata)",
@@ -618,7 +626,7 @@ export const ERRATA_METRICS: Pick<MetricSpec, "id" | "name" | "direction" | "goo
     countermeasure:
       "A check that still passes rejected output earns a new Errata on the same check key, so its rejected_passes row grows back; proposals follow the deterministic ripeness rule (soma#785 Q16), not a choice of which cluster to propose.",
   },
-];
+] as const satisfies readonly Pick<MetricSpec, "id" | "name" | "direction" | "goodhart" | "countermeasure">[];
 
 /**
  * Rejected passes: active (not dropped) Errata whose complaint falls in the window,
@@ -821,7 +829,7 @@ async function main(): Promise<void> {
   // rows at load time (see loadEvents) rather than holding all-time history.
   const sinceMs = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
   const loaded = await loadEventsWithCoverage(join(somaHome, "memory", "STATE", "events.jsonl"), sinceMs);
-  inputs.inputs.push({ source: "events:ordered-logical-lines", sha256: loaded.sha256 });
+  inputs.record("events:ordered-logical-lines", loaded.sha256);
   const firstEventMs = loaded.firstEventAt ? Date.parse(loaded.firstEventAt) : null;
   const gapMs = firstEventMs === null ? null : Math.max(0, firstEventMs - sinceMs);
   const coverageComplete = loaded.coversWindow;
@@ -858,10 +866,15 @@ async function main(): Promise<void> {
     }
   }
   const finishCheck = (result: EvalReceipt["result"], regressions: Regression[] = []) => {
-    writeEvalReceipt(stateDir, createEvalReceipt({
+    const receipt = createEvalReceipt({
       now, windowDays, results, specs: METRICS, errata, baseline, regressions,
       coverageComplete, runsAvailable: inputs.runsAvailable, result, inputs: inputs.inputs,
-    }));
+    });
+    try {
+      writeEvalReceipt(stateDir, receipt);
+    } catch (error) {
+      console.error(`Could not write harness-eval receipt: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const print = flag("--json") ? console.error : console.log;
     print(`RESULT ${result}`);
   };

@@ -61,6 +61,15 @@ test("missing baseline, missing runs, null value, small sample and incomplete co
   expect(createEvalReceipt({ ...input, baseline: { ...input.baseline, windowDays: 30 } }).metrics.every((metric) => metric.status === "unavailable")).toBe(true);
 });
 
+test("measured regressions remain failures when some run inputs are unavailable", () => {
+  const input = fixture();
+  input.results = input.results.map((metric) => metric.id === "hollow_pass_attempt_rate" ? { ...metric, value: 90 } : metric);
+  const regressions = checkAgainstBaseline(input.results, input.baseline, { feedbackCandidates: 1 });
+  const receipt = createEvalReceipt({ ...input, regressions, runsAvailable: false, result: "regressed" });
+  expect(receipt.metrics.find((metric) => metric.id === "hollow_pass_attempt_rate")?.status).toBe("fail");
+  expect(receipt.metrics.find((metric) => metric.id === "true_finish_rate")?.status).toBe("unavailable");
+});
+
 test("ungated Errata retains measured values without inventing a baseline or tolerance", () => {
   const receipt = createEvalReceipt({ ...fixture(), errata: {
     rejected_passes: [{ check: "R/C1", count: 2 }], errata_unlinked: 1,
@@ -145,9 +154,33 @@ function run(home: string, ...args: string[]) {
   return { exitCode: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
 }
 
-function readToday(home: string): EvalReceipt {
-  return JSON.parse(readFileSync(join(home, "memory/STATE/harness-eval", `${new Date().toISOString().slice(0, 10)}.json`), "utf8"));
+function readLatestReceipt(home: string): EvalReceipt {
+  const directory = join(home, "memory/STATE/harness-eval");
+  const file = readdirSync(directory).filter((file) => /^\d{4}-\d{2}-\d{2}\.json$/.test(file)).sort().at(-1);
+  if (file === undefined) throw new Error("No dated receipt found");
+  return JSON.parse(readFileSync(join(directory, file), "utf8"));
 }
+
+test.each([
+  { exitCode: 0, result: "ok", coverage: true, session: false, window: "60" },
+  { exitCode: 1, result: "regressed", coverage: true, session: true, window: "60" },
+  { exitCode: 2, result: "could-not-run", coverage: true, session: false, window: "30" },
+  { exitCode: 3, result: "could-not-run", coverage: false, session: false, window: "60" },
+])("receipt write failure preserves exit $exitCode and RESULT $result", ({ exitCode, result, coverage, session, window }) => {
+  const home = temporaryHome();
+  const state = join(home, "memory/STATE");
+  mkdirSync(state, { recursive: true });
+  const timestamp = new Date(Date.now() - (coverage ? 61 : 1) * 86400000).toISOString();
+  const events = [{ timestamp, kind: "memory.recall" }];
+  if (session) events.push({ timestamp: new Date().toISOString(), kind: "lifecycle.session_start" });
+  writeFileSync(join(state, "events.jsonl"), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+  writeFileSync(join(state, "harness-eval"), "blocks receipt directory creation");
+  const checked = run(home, "--check", "--json", "--window", window);
+  expect(checked.exitCode).toBe(exitCode);
+  expect(checked.stderr).toContain(`RESULT ${result}`);
+  expect(checked.stderr).toContain("Could not write harness-eval receipt:");
+  expect(checked.stdout).not.toContain("Could not write harness-eval receipt:");
+});
 
 test("CLI writes a receipt on exit 3 with unavailable metrics and hashes consumed inputs", () => {
   const home = temporaryHome();
@@ -158,7 +191,7 @@ test("CLI writes a receipt on exit 3 with unavailable metrics and hashes consume
   const checked = run(home, "--check", "--json");
   expect(checked.exitCode).toBe(3);
   expect(JSON.parse(checked.stdout).coverage.complete).toBe(false);
-  const receipt = readToday(home);
+  const receipt = readLatestReceipt(home);
   expect(receipt.result).toBe("could-not-run");
   expect(checked.stderr).toContain(`RESULT ${receipt.result}`);
   expect(receipt.metrics).toHaveLength(9);
@@ -179,7 +212,7 @@ test("CLI normal and regressed verdicts agree with daily receipts; trend needs n
   writeFileSync(join(state, "events.jsonl"), `${JSON.stringify({ timestamp: old, kind: "memory.recall" })}\n`);
   const checked = run(home, "--check");
   expect(checked.exitCode).toBe(0);
-  const receipt = readToday(home);
+  const receipt = readLatestReceipt(home);
   expect(receipt.result).toBe("ok");
   expect(checked.stdout).toContain(`RESULT ${receipt.result}`);
   const runText = JSON.stringify({ createdAt: recent, vsa: { criteria: [{ status: "open" }] } });
@@ -190,7 +223,7 @@ test("CLI normal and regressed verdicts agree with daily receipts; trend needs n
   ].map((event) => JSON.stringify(event)).join("\n") + "\n");
   const failed = run(home, "--check");
   expect(failed.exitCode).toBe(1);
-  const replaced = readToday(home);
+  const replaced = readLatestReceipt(home);
   expect(failed.stdout).toContain(`RESULT ${replaced.result}`);
   expect(replaced.result).toBe("regressed");
   expect(replaced.regressions.some((regression) => regression.id === "feedback_candidate_volume")).toBe(true);
@@ -200,6 +233,6 @@ test("CLI normal and regressed verdicts agree with daily receipts; trend needs n
   rmSync(runs, { recursive: true });
   const trend = run(home, "--trend");
   expect(trend.exitCode).toBe(0);
-  expect(trend.stdout.trim().split("\n")).toHaveLength(1);
+  expect(trend.stdout.trim().split("\n")).toHaveLength(readdirSync(join(state, "harness-eval")).length);
   expect(trend.stdout).toContain("RESULT regressed");
 });

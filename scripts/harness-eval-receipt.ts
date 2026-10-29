@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { z } from "zod";
 import type { Baseline, ErrataReport, MetricResult, Regression } from "./harness-eval";
+import { ERRATA_METRICS, type METRICS } from "./harness-eval";
 
 const receiptSchema = z.object({
   version: z.literal(1),
@@ -36,16 +37,32 @@ export function sha256(input: string): string {
 }
 
 export class EvalInputs {
-  readonly inputs: EvalReceipt["inputs"] = [];
-  runsAvailable = true;
+  private readonly records: EvalReceipt["inputs"] = [];
+  private hasRuns = true;
+
+  get inputs(): EvalReceipt["inputs"] {
+    return [...this.records];
+  }
+
+  get runsAvailable(): boolean {
+    return this.hasRuns;
+  }
+
+  record(source: string, sha256: string | null): void {
+    this.records.push({ source, sha256 });
+  }
+
+  markRunsUnavailable(): void {
+    this.hasRuns = false;
+  }
 
   read(source: string): string {
     try {
       const text = readFileSync(source, "utf8");
-      this.inputs.push({ source, sha256: sha256(text) });
+      this.record(source, sha256(text));
       return text;
     } catch (error) {
-      this.inputs.push({ source, sha256: null });
+      this.record(source, null);
       throw error;
     }
   }
@@ -55,7 +72,7 @@ export function createEvalReceipt(options: {
   now: Date;
   windowDays: number;
   results: MetricResult[];
-  specs: { id: string; tolerance: number; minSample: number }[];
+  specs: Pick<(typeof METRICS)[number], "id" | "tolerance" | "minSample" | "needsRuns">[];
   errata: ErrataReport;
   baseline: Baseline | null;
   regressions: Regression[];
@@ -68,29 +85,24 @@ export function createEvalReceipt(options: {
   const metrics: EvalReceipt["metrics"] = options.results.map((metric) => {
     const spec = options.specs.find((candidate) => candidate.id === metric.id);
     const base = baseline?.windowDays === options.windowDays ? baseline.metrics[metric.id]?.value ?? null : null;
-    const available = coverageComplete && (options.runsAvailable || metric.id === "memory_loop_closure") &&
+    const available = coverageComplete && (options.runsAvailable || spec?.needsRuns === false) &&
       metric.value !== null && base !== null && spec !== undefined && metric.denominator >= spec.minSample;
     return {
       id: metric.id,
       value: metric.value,
       baseline: base,
       tolerance: spec?.tolerance ?? null,
-      status: !available ? "unavailable" : regressions.some((regression) => regression.id === metric.id) ? "fail" : "pass",
+      status: regressions.some((regression) => regression.id === metric.id) ? "fail" : available ? "pass" : "unavailable",
     };
   });
-  metrics.push(
-    {
-      id: "rejected_passes",
-      value: errata.rejected_passes === "n/a" || errata.errata_unlinked === "n/a"
-        ? null : { checks: errata.rejected_passes, unlinked: errata.errata_unlinked },
-      baseline: null, tolerance: null, status: "unavailable",
-    },
-    {
-      id: "errata_fix_closure",
-      value: errata.errata_fix_closure === "n/a" ? null : errata.errata_fix_closure.value,
-      baseline: null, tolerance: null, status: "unavailable",
-    },
-  );
+  const errataValues = {
+    rejected_passes: errata.rejected_passes === "n/a" || errata.errata_unlinked === "n/a"
+      ? null : { checks: errata.rejected_passes, unlinked: errata.errata_unlinked },
+    errata_fix_closure: errata.errata_fix_closure === "n/a" ? null : errata.errata_fix_closure.value,
+  } satisfies Record<(typeof ERRATA_METRICS)[number]["id"], EvalReceipt["metrics"][number]["value"]>;
+  for (const { id } of ERRATA_METRICS) {
+    metrics.push({ id, value: errataValues[id], baseline: null, tolerance: null, status: "unavailable" });
+  }
   return {
     version: 1,
     evaluatedAt: options.now.toISOString(),
