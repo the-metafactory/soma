@@ -3,6 +3,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ClaudeCodeExecutor, ExecutorRegistry, outputFromText, registerClaudeCodeExecutor, REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS, runExecutionConformance, runSubstrateExecution, type ExecutionConformanceScenario } from "../../src/execution/index";
+import { abortOnListen, expectConformancePassed } from "./conformance-support";
 
 function result(exitCode: number, stdout: string, stderr = "") {
   return { exitCode, stdout: outputFromText(stdout), stderr };
@@ -60,15 +61,24 @@ test("Claude Code cancellation and timeout abort injected runners and clean temp
 });
 
 test("Claude Code registers and passes shared runner-backed conformance fixtures", async () => {
+  const controller = new AbortController();
+  let runnerAborted = false;
   const executor = new ClaudeCodeExecutor({ runner: runner(async (options) => {
-    if (options?.input === "cancel") return await new Promise((_, reject) => options.signal?.addEventListener("abort", () => reject(new Error("cancel")), { once: true }));
+    if (options?.input === "cancel") return await abortOnListen({
+      controller,
+      signal: options.signal,
+      onAbort: () => { runnerAborted = true; },
+    });
     return options?.input === "deny" ? result(7, '{"type":"policy_denied"}\n') : result(0, '{"type":"result"}\n');
   }) });
   const registry = new ExecutorRegistry();
   registerClaudeCodeExecutor(registry, executor);
   expect(registry.resolve("claude-code")).toMatchObject({ status: "ready", executor });
   const scenarios = REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS.map((id): ExecutionConformanceScenario => ({
-    id, request: { taskId: id, substrate: "claude-code", prompt: id === "policy-denial" ? "deny" : id === "cancellation" ? "cancel" : id, cwd: "/tmp", projectionFingerprint: "p", requiredCapabilities: [] }, expectedStatus: id === "policy-denial" ? "failed" : id === "cancellation" ? "cancelled" : "completed", expectedPromptTerms: [id === "policy-denial" ? "deny" : id === "cancellation" ? "cancel" : id], abortAfterMs: id === "cancellation" ? 20 : undefined,
+    id, request: { taskId: id, substrate: "claude-code", prompt: id === "policy-denial" ? "deny" : id === "cancellation" ? "cancel" : id, cwd: "/tmp", projectionFingerprint: "p", requiredCapabilities: [] }, expectedStatus: id === "policy-denial" ? "failed" : id === "cancellation" ? "cancelled" : "completed", expectedPromptTerms: [id === "policy-denial" ? "deny" : id === "cancellation" ? "cancel" : id], signal: id === "cancellation" ? controller.signal : undefined,
+    expectedEventKinds: id === "cancellation" ? ["execution.started", "execution.cancelled"] : undefined,
   }));
-  expect((await runExecutionConformance(executor, scenarios)).passed).toBe(true);
+  const report = await runExecutionConformance(executor, scenarios);
+  expectConformancePassed(report);
+  expect(runnerAborted).toBe(true);
 });
