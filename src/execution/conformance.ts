@@ -23,7 +23,7 @@ export interface ExecutionConformanceScenario {
   expectedArtifact?: string;
   expectedAlgorithmRunId?: string;
   expectedSessionId?: string;
-  abortAfterMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface ExecutionConformanceResult {
@@ -52,17 +52,12 @@ export async function runExecutionConformance(
     }
     if (scenario.expectedAlgorithmRunId !== undefined && scenario.request.algorithmRunId !== scenario.expectedAlgorithmRunId) failures.push("algorithm run id differs");
     if (scenario.expectedSessionId !== undefined && scenario.request.sessionId !== scenario.expectedSessionId) failures.push("session id differs");
-    const controller = new AbortController();
-    const timer = scenario.abortAfterMs === undefined ? undefined : setTimeout(() => {
-      controller.abort();
-    }, scenario.abortAfterMs);
     // Conformance fixtures exercise the kernel with their fixture directory as
     // the trusted root; production callers must supply their own authorization.
     const run = await runSubstrateExecution(executor, scenario.request, {
       authorizedWorkspaceRoot: scenario.request.cwd,
-      signal: controller.signal,
+      signal: scenario.signal,
     });
-    if (timer !== undefined) clearTimeout(timer);
     if (run.result.status !== scenario.expectedStatus) failures.push(`status ${run.result.status}`);
     if (scenario.expectedEventKinds !== undefined && JSON.stringify(run.events.map((event) => event.kind)) !== JSON.stringify(scenario.expectedEventKinds)) {
       failures.push("event kinds differ");

@@ -75,6 +75,37 @@ test("Codex executor cancellation aborts the active injected runner", async () =
   expect(runnerAborted).toBe(true);
 });
 
+test.each(["probe", "prepare"])("Codex executor cancellation during %s emits only cancellation and releases temporary state", async (phase) => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "soma-codex-executor-test-"));
+  const controller = new AbortController();
+  const inputs: (string | undefined)[] = [];
+  try {
+    const executor = new CodexExecutor({ temporaryRoot, runner: { run: async (args, options) => {
+      inputs.push(options?.input);
+      if (args.includes("--version")) {
+        if (phase === "probe") controller.abort();
+        return result(0, "codex-cli test");
+      }
+      return result(0, "--ephemeral --json --sandbox --cd workspace-write\n -");
+    } } });
+    const prepare = executor.prepare.bind(executor);
+    executor.prepare = async (request, options) => {
+      const prepared = await prepare(request, options);
+      if (phase === "prepare") controller.abort();
+      return prepared;
+    };
+    const run = await runSubstrateExecution(executor, {
+      taskId: "cancel-setup", substrate: "codex", prompt: "cancel-setup", cwd: "/tmp", projectionFingerprint: "p", requiredCapabilities: [],
+    }, { authorizedWorkspaceRoot: "/tmp", signal: controller.signal });
+    expect(run.result.status).toBe("cancelled");
+    expect(run.events.map((event) => event.kind)).toEqual(["execution.cancelled"]);
+    expect(inputs).not.toContain("cancel-setup");
+    expect(await readdir(temporaryRoot)).toEqual([]);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("Codex executor cleans request-scoped temporary state after success", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "soma-codex-executor-test-"));
   try {
@@ -129,11 +160,22 @@ test("Codex executor registers with the complete shared conformance declaration"
 });
 
 test("Codex executor runs the shared scenario IDs through the injected runner", async () => {
+  const controller = new AbortController();
+  let runnerAborted = false;
   const executor = new CodexExecutor({ runner: { run: async (args, options) => {
-    if (args.includes("--version")) return result(0, "codex-cli test");
+    if (args.includes("--version")) {
+      await Bun.sleep(30);
+      return result(0, "codex-cli test");
+    }
     if (args.includes("--help")) return result(0, "--ephemeral --json --sandbox --cd workspace-write\n -");
     if (options?.input === "cancellation") {
-      return await new Promise((_, reject) => options.signal?.addEventListener("abort", () => reject(new Error("cancelled by fixture")), { once: true }));
+      return await new Promise((_, reject) => {
+        options.signal?.addEventListener("abort", () => {
+          runnerAborted = true;
+          reject(new Error("cancelled by fixture"));
+        }, { once: true });
+        controller.abort();
+      });
     }
     return options?.input?.includes("deny") ? result(7, '{"type":"policy.denied"}\n') : result(0, '{"type":"turn.completed"}\n');
   } } });
@@ -143,9 +185,11 @@ test("Codex executor runs the shared scenario IDs through the injected runner", 
     expectedStatus: id === "policy-denial" ? "failed" : id === "cancellation" ? "cancelled" : "completed",
     expectedPromptTerms: [id === "policy-denial" ? "deny" : id],
     expectedEventKinds: id === "policy-denial" ? ["execution.started", "execution.progress", "execution.failed"] : id === "cancellation" ? ["execution.started", "execution.cancelled"] : ["execution.started", "execution.progress", "execution.completed"],
-    abortAfterMs: id === "cancellation" ? 20 : undefined,
+    signal: id === "cancellation" ? controller.signal : undefined,
   }));
   const report = await runExecutionConformance(executor, scenarios);
+  expect(report.results.filter((scenario) => !scenario.passed)).toEqual([]);
   expect(report.passed).toBe(true);
+  expect(runnerAborted).toBe(true);
   expect((await executor.probe()).artifactReporting).toBe(false);
 });

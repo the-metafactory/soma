@@ -56,13 +56,14 @@ test("registry distinguishes registered, projection-only, and unknown substrates
 });
 
 test("deterministic mock executes every shared conformance scenario through the pure kernel", async () => {
+  const controller = new AbortController();
   const scenarios = [
     completedScenario("identity-context", "Identity: Ivy; Principal: Jens-Christian"),
     completedScenario("memory-recall", "Recall durable note memory-001"),
     completedScenario("skill-selection", "Select ledger-update", { request: { ...completedScenario("skill-selection", "Select ledger-update").request, requiredCapabilities: ["ledger-update"] }, expectedCapabilities: ["ledger-update"] }),
     completedScenario("policy-denial", "Attempt protected write", { expectedStatus: "failed", expectedEventKinds: ["execution.started", "execution.policy", "execution.failed"] }),
     completedScenario("artifact-declaration", "Create ledger artifact", { expectedArtifact: `${cwd}/ledger.md` }),
-    completedScenario("cancellation", "Cancel slow fixture", { expectedStatus: "cancelled", abortAfterMs: 2 }),
+    completedScenario("cancellation", "Cancel active fixture", { expectedStatus: "cancelled", signal: controller.signal, expectedEventKinds: ["execution.started", "execution.cancelled"] }),
     completedScenario("continuation-token", "Resume work", { request: { ...completedScenario("continuation-token", "Resume work").request, algorithmRunId: "run-1", sessionId: "session-1" }, expectedAlgorithmRunId: "run-1", expectedSessionId: "session-1" }),
   ];
   const mock = new MockSubstrateExecutor("codex", {
@@ -71,11 +72,22 @@ test("deterministic mock executes every shared conformance scenario through the 
     "skill-selection": { events: terminalEvents(), capabilities: { supportedCapabilities: ["ledger-update"] } },
     "policy-denial": { events: [{ kind: "execution.started", executionId: "$executionId", timestamp }, { kind: "execution.policy", executionId: "$executionId", timestamp, decision: "deny" }, ...terminalEvents("execution.failed").slice(1)] },
     "artifact-declaration": { events: [{ kind: "execution.started", executionId: "$executionId", timestamp }, { kind: "execution.artifact", executionId: "$executionId", timestamp, path: `${cwd}/ledger.md`, change: "created" }, ...terminalEvents().slice(1)] },
-    cancellation: { events: terminalEvents(), delayMs: 20 },
+    cancellation: { events: terminalEvents() },
     "continuation-token": { events: terminalEvents() },
   });
+  const execute = mock.execute.bind(mock);
+  mock.execute = async function* (prepared, options) {
+    for await (const event of execute(prepared, options)) {
+      yield event;
+      if (prepared.request.taskId === "cancellation") {
+        controller.abort();
+        return;
+      }
+    }
+  };
 
   const report = await runExecutionConformance(mock, scenarios);
+  expect(report.results.filter((scenario) => !scenario.passed)).toEqual([]);
   expect(report.passed).toBe(true);
   expect(report.results.map((result) => result.id)).toEqual([...REQUIRED_EXECUTION_CONFORMANCE_SCENARIOS]);
   expect(mock.calls).not.toContain("process");
