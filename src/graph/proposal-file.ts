@@ -14,7 +14,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { PROPOSAL_KINDS, type ProposalKind } from "../core/index";
 
-import { buildBriefMissing } from "./build-brief";
+import { buildBriefMissing, LIVE_PROBE } from "./build-brief";
 
 /** The front-matter contract. Strict: a field this schema does not name is a producer bug, not an extension. */
 export const proposalFrontMatterSchema = z.object({
@@ -125,7 +125,7 @@ export function parseProposal(ref: string, content: string): Omit<ProposalFile, 
   if (body.includes(MARKER_PREFIX)) throw new ProposalFileError(`proposal ${ref}: the body carries a proposal-ref marker; the verb writes that marker itself`);
   // Live probe readiness is reported by audit, not enforced at filing. For a
   // grilling node only the clarification marker applies, since it is no brief.
-  const missing = buildBriefMissing(body).filter((entry) => entry !== "Live probe"
+  const missing = buildBriefMissing(body).filter((entry) => entry !== LIVE_PROBE
     && (proposalNodeKind(parsed.data.proposal_kind) === "build" || entry === "[NEEDS CLARIFICATION]"));
   if (missing.length > 0) throw new ProposalFileError(`proposal ${ref}: build-brief-not-ready — ${missing.join(", ")}`);
 
