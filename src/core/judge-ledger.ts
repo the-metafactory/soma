@@ -89,9 +89,11 @@ export function matchesFilter(record: JudgmentRecord, filter: JudgmentFilter): b
  * holds only its own records in memory. A ledger that does not exist yet reads
  * as empty; any other read failure is an error, never "no judgments".
  */
-export async function readJudgments(somaHome: string, filter: JudgmentFilter = {}): Promise<{ records: (JudgmentRecord & { id: string })[]; malformed: number }> {
-  const records: (JudgmentRecord & { id: string })[] = [];
-  let malformed = 0;
+async function* streamJudgments(
+  somaHome: string,
+  filter: JudgmentFilter & { id?: string },
+  onMalformed?: () => void,
+): AsyncGenerator<JudgmentRecord & { id: string }> {
   const stream = createReadStream(judgeLedgerPath(somaHome), { encoding: "utf8" });
   const opened = new Promise<boolean>((resolve, reject) => {
     stream.once("open", () => {
@@ -102,23 +104,59 @@ export async function readJudgments(somaHome: string, filter: JudgmentFilter = {
       else reject(error);
     });
   });
-  if (!(await opened)) return { records, malformed };
+  if (!(await opened)) return;
 
-  let lineNumber = 0;
-  for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
-    lineNumber += 1;
-    if (line.trim().length === 0) continue;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (!isJudgmentRecord(parsed)) malformed += 1;
-      else if (matchesFilter(parsed, filter)) records.push({
-        ...parsed,
-        id: parsed.id ?? `legacy-${hashJudgmentInput(`${lineNumber}:${line}`)}`,
-      });
-    } catch {
-      malformed += 1;
+  const occurrences = new Map<string, number>();
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      if (line.trim().length === 0) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        onMalformed?.();
+        continue;
+      }
+      if (!isJudgmentRecord(parsed)) {
+        onMalformed?.();
+        continue;
+      }
+      if (!matchesFilter(parsed, filter)) continue;
+      let id = parsed.id;
+      if (id === undefined) {
+        if (filter.id !== undefined && !filter.id.startsWith("legacy-")) continue;
+        const prefix = `legacy-${hashJudgmentInput(line)}-`;
+        if (filter.id !== undefined && !filter.id.startsWith(prefix)) continue;
+        const occurrence = (occurrences.get(prefix) ?? 0) + 1;
+        occurrences.set(prefix, occurrence);
+        id = `${prefix}${occurrence}`;
+      }
+      if (filter.id === undefined || id === filter.id) yield { ...parsed, id };
     }
+  } finally {
+    lines.close();
+    stream.destroy();
+  }
+}
+
+export async function readJudgments(somaHome: string, filter: JudgmentFilter = {}): Promise<{ records: (JudgmentRecord & { id: string })[]; malformed: number }> {
+  const records: (JudgmentRecord & { id: string })[] = [];
+  let malformed = 0;
+  for await (const record of streamJudgments(somaHome, filter, () => { malformed += 1; })) {
+    records.push(record);
   }
   return { records, malformed };
+}
+
+export async function findJudgment(somaHome: string, judgmentId: string): Promise<JudgmentRecord & { id: string }> {
+  let match: (JudgmentRecord & { id: string }) | undefined;
+  for await (const record of streamJudgments(somaHome, { id: judgmentId })) {
+    if (match) throw new Error(`Ambiguous judgment id: ${judgmentId}`);
+    match = record;
+  }
+  if (!match) throw new Error(`Unknown judgment id: ${judgmentId}`);
+  return match;
 }
 

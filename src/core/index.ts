@@ -14,7 +14,7 @@ export { selectMarkdownSections } from "./markdown-sections";
 export type { SomaPaths, SomaMemoryPromotionStore } from "./types";
 export { SOMA_MEMORY_PROMOTION_STORE_DIRS, SOMA_MEMORY_PROMOTION_STORES } from "./types";
 export { PROPOSAL_KINDS, type ProposalKind } from "./types";
-export { hashJudgmentInput, judgeLedgerPath, matchesFilter, readJudgments, recordJudgment } from "./judge-ledger";
+export { findJudgment, hashJudgmentInput, judgeLedgerPath, matchesFilter, readJudgments, recordJudgment } from "./judge-ledger";
 export type { JudgmentFilter, JudgmentRecord } from "./judge-ledger";
 export { appendJudgmentLabel, judgeLabelsPath, readJudgmentLabels } from "./judge-labels";
 export type { PrincipalJudgmentLabel } from "./judge-labels";

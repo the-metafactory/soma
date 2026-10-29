@@ -34,7 +34,7 @@ function cli(home: string, args: string[], principal = "test-principal") {
   });
 }
 
-test("every registered enforce caller has earned its thresholds from principal labels", () => {
+test("every registered enforce caller declares a principal measurement meeting its thresholds", () => {
   assertJudgeRegistry();
   expect(DEFAULT_JUDGE_THRESHOLDS).toEqual({ minLabels: 20, enforceBar: 0.9 });
   expect(JUDGE_REGISTRY.find((caller) => caller.id === "errata-triage")).toMatchObject({ state: "shadow", measuredOn: null });
@@ -100,6 +100,7 @@ test("unknown ids and absent principals refuse before creating any state", async
     await label(home, "known", "right");
     const before = await readFile(judgeLabelsPath(home), "utf8");
     await expect(label(home, "unknown", "wrong")).rejects.toThrow("Unknown judgment id");
+    await expect(label(home, "", "wrong")).rejects.toThrow("Unknown judgment id");
     expect(await readFile(judgeLabelsPath(home), "utf8")).toBe(before);
   });
 });
@@ -115,6 +116,23 @@ test("identical legacy records have distinct stable ids across filters and later
     await recordJudgment(home, judgment({ caller: "errata-triage" }));
     expect((await readJudgments(home, { caller: "mode-router" })).records).toEqual(records);
     expect(summarizeJudgments((await readJudgments(home)).records, {}, (await readJudgmentLabels(home)).labels)[1]).toMatchObject({ caller: "mode-router", labeled: 1 });
+  });
+});
+
+test("legacy labels survive reordering unrelated rows and removing malformed rows", async () => {
+  await fixture(async (home) => {
+    await mkdir(join(home, "memory", "STATE", "judgments"), { recursive: true });
+    const line = JSON.stringify(judgment());
+    const other = JSON.stringify(judgment({ caller: "errata-triage" }));
+    await writeFile(judgeLedgerPath(home), `not json\n${line}\n${other}\n${line}\n`);
+    const before = (await readJudgments(home, { caller: "mode-router" })).records;
+    await label(home, before[1].id, "right");
+    await writeFile(judgeLedgerPath(home), `${line}\n${line}\n${other}\n`);
+    const after = (await readJudgments(home, { caller: "mode-router" })).records;
+    expect(after).toEqual(before);
+    expect(summarizeJudgments(after, {}, (await readJudgmentLabels(home)).labels)[0]).toMatchObject({ labeled: 1, agreement: 1 });
+    await label(home, after[0].id, "wrong");
+    expect(summarizeJudgments(after, {}, (await readJudgmentLabels(home)).labels)[0]).toMatchObject({ labeled: 2, agreement: 0.5 });
   });
 });
 
@@ -179,11 +197,26 @@ test("label storage failures propagate; unreadable label history is not empty st
   });
 });
 
+test("label lookup propagates ledger read failures without writing labels", async () => {
+  await fixture(async (home) => {
+    await mkdir(judgeLedgerPath(home), { recursive: true });
+    await expect(label(home, "known", "right")).rejects.toThrow();
+    expect(await readdir(join(home, "memory", "STATE", "judgments"))).toEqual(["ledger.jsonl"]);
+  });
+});
+
 test("label CLI requires one verdict and an id and rejects conflicting arguments", () => {
-  for (const args of [[], ["known"], ["--right"], ["known", "--right", "--wrong"], ["known", "--right", "--right"], ["known", "--right", "--caller", "mode-router"]]) {
+  for (const args of [[], ["known"], ["--right"], ["known", "--right", "--wrong"], ["known", "--right", "--right"],
+    ["known", "--right", "--caller", "mode-router"], ["known", "--wrong", "--since", "2026-10-28"],
+    ["known", "--right", "another-id"], ["known", "--right", "--home-dir"], ["known", "--wrong", "--soma-home"]]) {
     expect(() => parseJudgeArgs(["judge", "label", ...args])).toThrow();
   }
   expect(() => parseJudgeArgs(["judge", "stats", "--right"])).toThrow();
+  expect(() => parseJudgeArgs(["judge", "registry", "--wrong"])).toThrow();
+  expect(parseJudgeArgs(["judge", "label", "known", "--wrong", "--json", "--home-dir", "/home", "--soma-home", "/soma"])).toEqual({
+    command: "judge", action: "label", judgmentId: "known", verdict: "wrong",
+    options: { json: true, homeDir: "/home", somaHome: "/soma" },
+  });
 });
 
 test("real CLI labels a classifier judgment and reports count and agreement", async () => {

@@ -10,10 +10,17 @@ the judgment. `--wrong` records disagreement. Exactly one verdict is required.
 ID, a missing principal, or a write failure exits nonzero. `--json` returns the
 stored label. Both commands accept `--soma-home <dir>` or `--home-dir <dir>`.
 
+`SOMA_PRINCIPAL` supplies attribution, not authentication. A process with that
+variable and write access to Soma home can record a principal label. The command
+does not prove that a person supplied the verdict. Operators must keep that
+capability out of model-labeling workflows.
+
 Judgments live in `memory/STATE/judgments/ledger.jsonl`. New records have IDs.
-For older records, the reader derives an ID from the original line and its
-line number. Appending judgments preserves those IDs. Rewriting or reordering
-legacy lines changes them. Labels append to `memory/STATE/judgments/labels.jsonl`
+For older records, the reader derives an ID from the original line's hash and
+its occurrence among identical lines. Appends, reordering unrelated rows, and
+removing malformed rows preserve those IDs. Rewriting a legacy line changes its
+ID. Removing an identical duplicate shifts later duplicates' occurrence numbers.
+Labels append to `memory/STATE/judgments/labels.jsonl`
 with the judgment ID, timestamp, principal, verdict, and `source: principal`.
 
 `soma judge stats` reports the labeled count and agreement per caller.
@@ -29,3 +36,6 @@ only when `measuredOn.labelSource` is `principal`, `principalLabels` meets
 `minLabels`, and `agreement` meets `enforceBar`. Measurements also identify
 their date, backend, and backend version. Model measurements cannot qualify.
 Recording labels does not change caller state or populate `measuredOn`.
+The registry test validates this declared measurement. It does not read a local
+Soma home's label history or authenticate the measurement. The principal's
+promotion review must check the measurement against the recorded labels.

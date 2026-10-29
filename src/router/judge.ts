@@ -1,5 +1,5 @@
 import { ALGORITHM_CLASSIFIER_CONTRACT } from "../algorithm/algorithm-classifier";
-import { appendJudgmentLabel, hashJudgmentInput, matchesFilter, readJudgments, type JudgmentRecord, type JudgmentFilter, type PrincipalJudgmentLabel } from "../core/index";
+import { appendJudgmentLabel, findJudgment, hashJudgmentInput, matchesFilter, type JudgmentRecord, type JudgmentFilter, type PrincipalJudgmentLabel } from "../core/index";
 
 /**
  * `soma judge` — the judgment ledger and caller registry.
@@ -39,14 +39,12 @@ export const DEFAULT_JUDGE_THRESHOLDS = { minLabels: 20, enforceBar: 0.9 } as co
 
 export const JUDGE_REGISTRY: readonly JudgeCaller[] = [
   {
-    ...DEFAULT_JUDGE_THRESHOLDS,
     id: "mode-router",
     description: "Picks mode (minimal/native/algorithm) and effort for each prompt.",
     state: "shadow",
     measuredOn: null,
   },
   {
-    ...DEFAULT_JUDGE_THRESHOLDS,
     id: "errata-triage",
     description: "Promotes or drops interactive feedback rejecting delivered outputs.",
     state: "shadow",
@@ -79,9 +77,7 @@ export async function labelJudgment(options: {
 }): Promise<PrincipalJudgmentLabel> {
   const principal = (options.env ?? process.env).SOMA_PRINCIPAL?.trim();
   if (!principal) throw new Error("SOMA_PRINCIPAL is required to label a judgment");
-  const { records } = await readJudgments(options.somaHome);
-  const matches = records.filter((record) => record.id === options.judgmentId);
-  if (matches.length !== 1) throw new Error(`${matches.length === 0 ? "Unknown" : "Ambiguous"} judgment id: ${options.judgmentId}`);
+  await findJudgment(options.somaHome, options.judgmentId);
   const label: PrincipalJudgmentLabel = {
     v: 1,
     judgmentId: options.judgmentId,

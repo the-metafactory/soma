@@ -25,6 +25,38 @@ export const JUDGE_COMMAND_HELP: { usage: string; subcommands: Record<JudgeCliAc
   },
 };
 
+function parseLabelArgs(rest: string[]): ParsedJudgeArgs & { action: "label" } {
+  const [judgmentId, ...args] = rest;
+  if (!judgmentId || judgmentId.startsWith("--")) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
+  const options: ParsedJudgeArgs["options"] = {};
+  let verdict: PrincipalJudgmentLabel["verdict"] | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    switch (arg) {
+      case "--right":
+      case "--wrong":
+        if (verdict !== undefined) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
+        verdict = arg === "--right" ? "right" : "wrong";
+        break;
+      case "--home-dir":
+        options.homeDir = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--soma-home":
+        options.somaHome = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--json":
+        options.json = true;
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}\n${JUDGE_COMMAND_HELP.subcommands.label}`);
+    }
+  }
+  if (!verdict) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
+  return { command: "judge", action: "label", options, judgmentId, verdict };
+}
+
 export function parseJudgeArgs(args: string[]): ParsedJudgeArgs {
   const [command, action, ...rest] = args;
 
@@ -32,19 +64,12 @@ export function parseJudgeArgs(args: string[]): ParsedJudgeArgs {
     throw new Error(JUDGE_COMMAND_HELP.usage);
   }
 
+  if (action === "label") return parseLabelArgs(rest);
   const options: ParsedJudgeArgs["options"] = {};
-  const judgmentId = action === "label" ? rest.shift() : undefined;
-  let verdict: PrincipalJudgmentLabel["verdict"] | undefined;
-  if (action === "label" && (!judgmentId || judgmentId.startsWith("--"))) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
 
     switch (arg) {
-      case "--right":
-      case "--wrong":
-        if (action !== "label" || verdict !== undefined) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
-        verdict = arg === "--right" ? "right" : "wrong";
-        break;
       case "--home-dir":
         options.homeDir = readOption(rest, index, arg);
         index += 1;
@@ -54,12 +79,10 @@ export function parseJudgeArgs(args: string[]): ParsedJudgeArgs {
         index += 1;
         break;
       case "--caller":
-        if (action === "label") throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
         options.caller = readOption(rest, index, arg);
         index += 1;
         break;
       case "--since":
-        if (action === "label") throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
         options.since = readOption(rest, index, arg);
         index += 1;
         break;
@@ -71,10 +94,6 @@ export function parseJudgeArgs(args: string[]): ParsedJudgeArgs {
     }
   }
 
-  if (action === "label") {
-    if (!judgmentId || !verdict) throw new Error(JUDGE_COMMAND_HELP.subcommands.label);
-    return { command, action, options, judgmentId, verdict };
-  }
   return { command, action, options };
 }
 
