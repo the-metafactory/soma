@@ -7,7 +7,8 @@
  *   bun run harness-eval                  # print metrics (trailing window + all-time)
  *   bun run harness-eval --json           # machine-readable output
  *   bun run harness-eval --explain        # include each metric's Goodhart mode + countermeasure
- *   bun run harness-eval --check          # exit 1 on regression, 3 on incomplete event coverage
+ *   bun run harness-eval --check          # write receipt; exit 1 on regression, 3 on incomplete coverage
+ *   bun run harness-eval --trend          # print dated receipts, oldest first
  *   bun run harness-eval --write-baseline # capture current window metrics as the new baseline
  *   bun run harness-eval --window 30      # trailing window in days (default 60)
  *
@@ -18,6 +19,8 @@
  */
 
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createEvalReceipt, EvalInputs, parseEvalBaseline, readEvalTrend, writeEvalReceipt, type EvalReceipt } from "./harness-eval-receipt";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import { homedir } from "node:os";
@@ -94,19 +97,25 @@ interface MetricSpec {
 // Loaders
 // ---------------------------------------------------------------------------
 
-export function loadRuns(runsDir: string): RunDoc[] {
+export function loadRuns(runsDir: string, inputs?: EvalInputs): RunDoc[] {
   const runs: RunDoc[] = [];
   let files: string[];
   try {
     files = readdirSync(runsDir);
   } catch {
+    if (inputs) {
+      inputs.runsAvailable = false;
+      inputs.inputs.push({ source: runsDir, sha256: null });
+    }
     return runs;
   }
-  for (const file of files) {
+  for (const file of files.sort()) {
     if (!file.endsWith(".json")) continue;
     try {
-      runs.push(JSON.parse(readFileSync(join(runsDir, file), "utf8")) as RunDoc);
+      const path = join(runsDir, file);
+      runs.push(JSON.parse(inputs ? inputs.read(path) : readFileSync(path, "utf8")) as RunDoc);
     } catch {
+      if (inputs) inputs.runsAvailable = false;
       // unreadable run files are a doctor concern, not an eval concern
     }
   }
@@ -130,6 +139,7 @@ interface LoadedEvents {
   firstEventAt: string | null;
   readError: boolean;
   coversWindow: boolean;
+  sha256: string;
 }
 
 export async function loadEventsWithCoverage(
@@ -140,9 +150,11 @@ export async function loadEventsWithCoverage(
   const events: EventDoc[] = [];
   let firstEventMs = Number.POSITIVE_INFINITY;
   let readError = false;
+  const hash = createHash("sha256");
   const rl = input ? createInterface({ input, crlfDelay: Infinity }) : streamEventLines(eventsPath);
   try {
     for await (const line of rl) {
+      hash.update(`${line}\n`);
       if (!line.trim()) continue;
       let event: EventDoc;
       try {
@@ -164,6 +176,7 @@ export async function loadEventsWithCoverage(
     firstEventAt: Number.isFinite(firstEventMs) ? new Date(firstEventMs).toISOString() : null,
     readError,
     coversWindow: !readError && firstEventMs <= sinceMs,
+    sha256: hash.digest("hex"),
   };
 }
 
@@ -553,10 +566,10 @@ export function errataLedgerFile(somaHome: string): string {
 }
 
 /** null when the ledger is missing or unreadable, so its metrics read n/a rather than zero. */
-export function loadErrataLedger(ledgerPath: string): ErrataLedgerLine[] | null {
+export function loadErrataLedger(ledgerPath: string, inputs?: EvalInputs): ErrataLedgerLine[] | null {
   let text: string;
   try {
-    text = readFileSync(ledgerPath, "utf8");
+    text = inputs ? inputs.read(ledgerPath) : readFileSync(ledgerPath, "utf8");
   } catch {
     return null;
   }
@@ -797,11 +810,18 @@ async function main(): Promise<void> {
   }
 
   const somaHome = process.env.SOMA_HOME ?? join(homedir(), ".soma");
+  const stateDir = join(somaHome, "memory", "STATE");
+  if (flag("--trend")) {
+    for (const line of readEvalTrend(stateDir)) console.log(line);
+    return;
+  }
+  const inputs = new EvalInputs();
   const now = new Date();
   // Only events within the trailing window can affect any metric, so drop older
   // rows at load time (see loadEvents) rather than holding all-time history.
   const sinceMs = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
   const loaded = await loadEventsWithCoverage(join(somaHome, "memory", "STATE", "events.jsonl"), sinceMs);
+  inputs.inputs.push({ source: "events:ordered-logical-lines", sha256: loaded.sha256 });
   const firstEventMs = loaded.firstEventAt ? Date.parse(loaded.firstEventAt) : null;
   const gapMs = firstEventMs === null ? null : Math.max(0, firstEventMs - sinceMs);
   const coverageComplete = loaded.coversWindow;
@@ -821,14 +841,30 @@ async function main(): Promise<void> {
         ? ` (earlier events may be in ${join(somaHome, "memory", "STATE", "events-snapshots")})`
         : "");
   const data: HarnessData = {
-    runs: loadRuns(join(somaHome, "memory", "WORK", "algorithm-runs")),
+    runs: loadRuns(join(somaHome, "memory", "WORK", "algorithm-runs"), inputs),
     events: loaded.events,
-    errata: loadErrataLedger(errataLedgerFile(somaHome)),
+    errata: loadErrataLedger(errataLedgerFile(somaHome), inputs),
     now,
     windowDays,
   };
   const results = computeMetrics(data);
   const errata = computeErrataMetrics(data);
+  let baseline: Baseline | null = null;
+  if (flag("--check")) {
+    try {
+      baseline = parseEvalBaseline(inputs.read(BASELINE_PATH));
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+    }
+  }
+  const finishCheck = (result: EvalReceipt["result"], regressions: Regression[] = []) => {
+    writeEvalReceipt(stateDir, createEvalReceipt({
+      now, windowDays, results, specs: METRICS, errata, baseline, regressions,
+      coverageComplete, runsAvailable: inputs.runsAvailable, result, inputs: inputs.inputs,
+    }));
+    const print = flag("--json") ? console.error : console.log;
+    print(`RESULT ${result}`);
+  };
 
   if (flag("--check") || flag("--write-baseline")) {
     if (!coverageComplete) {
@@ -841,6 +877,7 @@ async function main(): Promise<void> {
               `gap ${coverage.gapDays ?? "unknown"} days. Earlier events may be in ` +
               `${join(somaHome, "memory", "STATE", "events-snapshots")}. Cannot measure this window.`,
       );
+      if (flag("--check")) finishCheck("could-not-run");
       process.exit(3);
     }
   }
@@ -876,11 +913,9 @@ async function main(): Promise<void> {
   }
 
   if (flag("--check")) {
-    let baseline: Baseline;
-    try {
-      baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Baseline;
-    } catch {
+    if (baseline === null) {
       console.error(`\nNo readable baseline at ${BASELINE_PATH} — run with --write-baseline first.`);
+      finishCheck("could-not-run");
       process.exit(2);
     }
     // A baseline captured over a different window is not comparable — 30-day
@@ -891,6 +926,7 @@ async function main(): Promise<void> {
         `\nWindow mismatch: baseline was captured over ${baseline.windowDays}d but --check ran with ${windowDays}d. ` +
           `Re-run with --window ${baseline.windowDays}, or recapture the baseline for ${windowDays}d.`,
       );
+      finishCheck("could-not-run");
       process.exit(2);
     }
     // Harness activity for the silent-capture guard: count real sessions, not
@@ -906,9 +942,11 @@ async function main(): Promise<void> {
     if (regressions.length > 0) {
       console.error(`\nREGRESSION: ${regressions.length} metric(s) degraded past tolerance vs baseline (${baseline.capturedAt}):`);
       for (const regression of regressions) console.error(`  ✗ ${regression.message}`);
+      finishCheck("regressed", regressions);
       process.exit(1);
     }
     console.log(`\nOK: no regressions vs baseline (${baseline.capturedAt}, window ${baseline.windowDays}d)`);
+    finishCheck("ok");
   }
 }
 
