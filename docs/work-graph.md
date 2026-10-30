@@ -731,7 +731,13 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
                                    # before the node is created; every edge is
                                    # written before the node is attached to its
                                    # parent, and an edge that still fails leaves
-                                   # it unattached, on no frontier (#740)
+                                   # it unattached, on no frontier (#740).
+                                   # --once <marker> (GitHub; needs --label): if one
+                                   # node under the first label, by the acting
+                                   # identity, has <marker> as its body's last line,
+                                   # files nothing and reports it ("existing": true);
+                                   # two such nodes, or a failed listing, refuse.
+                                   # Otherwise <marker> becomes the last body line
 soma graph link <node> [--blocked-by <ref>]... [--parent <id>]
                                    # add blocking edges to an existing node, cycle
                                    # check included; an edge it has is skipped;
