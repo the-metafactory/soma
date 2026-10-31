@@ -66,6 +66,7 @@ reflect each forge's capabilities.
 | `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close. A PR, MR or commit says `Refs #N`, never a closing keyword: the tracker would close the node on merge and skip the gate (`references/closing.md`) |
 | `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |
 | `soma graph decisions <root> [--write]` | the map's decision index, derived from receipts; `--write` splices it into the map body |
+| `soma graph rule <id> --text <ruling>` | append a dated ruling (`--text-file` for several lines) under the node body's `## Rulings`, where a resumed worker reads it; append-only; refuses a closed node |
 
 `--repo github:github.com/<owner/name>` (or `SOMA_GRAPH_REPO`) picks the store;
 it defaults to the origin remote, and a node named in full (`…#N`) picks its own.
@@ -116,5 +117,4 @@ ported by hand through a reviewed PR, never by re-syncing. Two copies with
 diverging conventions would be the two-authoritative-homes problem this doctrine
 exists to prevent.
 
-Doctrine record: DD-16 and its Amendment A in `design/design-decisions.md`; the
-typed contracts in `docs/work-graph.md`.
+Doctrine record: DD-16 and its Amendment A in `design/design-decisions.md`; the typed contracts in `docs/work-graph.md`.
