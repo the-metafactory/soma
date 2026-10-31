@@ -3043,3 +3043,114 @@ test("close preserves a supplied Resolution heading without doubling it", () => 
     if (resolution.includes("fire groups")) expect(output).toContain("## Resolution — fire groups");
   }
 });
+
+// --- rule: a ruling recorded in the node body (cortex#2829) -----------------
+
+class RulingStore extends FakeStore {
+  writes = 0;
+  readBackOverride: string | undefined;
+
+  override async readNode(ref: NodeRef): Promise<NodeState> {
+    const state = await super.readNode(ref);
+    const raw = this.nodes.get(ref.id)?.rawBody;
+    return raw === undefined ? state : { ...state, body: decodeNodeBlock(raw).text };
+  }
+
+  override async writeRawBody(ref: NodeRef, body: string): Promise<void> {
+    this.writes += 1;
+    await super.writeRawBody(ref, this.readBackOverride ?? body);
+  }
+}
+
+const TYPED_BLOCK = encodeNodeBlock({ title: "t", autonomy: "approve", checkpointId: "cp-700" });
+const RULE_AT = new Date("2026-10-31T07:05:00.000Z");
+
+function rulingStore(rawBody: string, seed: Partial<SeedNode> = {}): RulingStore {
+  return new RulingStore().seed("700", { node: autoNode("700", { autonomy: "approve" }), rawBody, ...seed });
+}
+
+function rule(store: RulingStore, args: string[], overrides: Partial<GraphCliDeps> = {}): Promise<string> {
+  return run(["graph", "rule", "700", "--repo", REPO, ...args], store, { now: () => RULE_AT, ...overrides });
+}
+
+test("rule adds a Rulings section before the typed block, and node shows it", async () => {
+  const store = rulingStore(`## Deliverable\n\nThe thing.\n\n${TYPED_BLOCK}`);
+
+  const output = await rule(store, ["--text", "Use the shared drum"]);
+
+  expect(output).toContain("2026-10-31 07:05 UTC by ivy-agent");
+  const body = await store.readRawBody({ id: "700" });
+  expect(body).toBe(`## Deliverable\n\nThe thing.\n\n## Rulings\n\n- 2026-10-31 07:05 (ivy-agent): Use the shared drum\n\n${TYPED_BLOCK}`);
+  expect(decodeNodeBlock(body).raw).toBe(decodeNodeBlock(TYPED_BLOCK).raw);
+  expect(await run(["graph", "node", "700", "--repo", REPO], store)).toContain("- 2026-10-31 07:05 (ivy-agent): Use the shared drum");
+});
+
+test("a second ruling appends below the first and leaves earlier entries byte-identical", async () => {
+  const earlier = "## Rulings\n\n- 2026-10-30 18:00 (jcfischer): First call\n  with a second line\n";
+  const store = rulingStore(`## Deliverable\n\nThe thing.\n\n${earlier}\n## Notes\n\nKeep.\n\n${TYPED_BLOCK}`);
+
+  await rule(store, ["--text", "Second call"]);
+
+  const body = await store.readRawBody({ id: "700" });
+  expect(body).toBe(`## Deliverable\n\nThe thing.\n\n${earlier}- 2026-10-31 07:05 (ivy-agent): Second call\n\n## Notes\n\nKeep.\n\n${TYPED_BLOCK}`);
+});
+
+test("a multi-line ruling from --text-file is one entry with its lines indented", async () => {
+  const store = rulingStore(TYPED_BLOCK);
+
+  await rule(store, ["--text-file", "ruling.md"], { readTextFile: async () => "Take option B.\r\n\r\nReason: the drum is shared.\n" });
+
+  expect(await store.readRawBody({ id: "700" })).toBe(
+    `## Rulings\n\n- 2026-10-31 07:05 (ivy-agent): Take option B.\n\n  Reason: the drum is shared.\n\n${TYPED_BLOCK}`,
+  );
+});
+
+for (const [name, text, expected] of [
+  ["a heading line", "Fine.\n## Notes", "looks like a Markdown heading"],
+  ["an indented heading", "Fine.\n   # Title", "looks like a Markdown heading"],
+  ["a soma marker", "Fine.\n<!-- soma:work-graph-node {} -->", "<!-- soma: marker"],
+  ["an empty ruling", " \n\t\n", "is empty"],
+] as const) {
+  test(`rule refuses ${name} and writes nothing`, async () => {
+    const store = rulingStore(TYPED_BLOCK);
+    const message = await failure(["graph", "rule", "700", "--repo", REPO, "--text-file", "r.md"], store, { readTextFile: async () => text });
+    expect(message).toContain(expected);
+    expect(store.writes).toBe(0);
+    expect(await store.readRawBody({ id: "700" })).toBe(TYPED_BLOCK);
+  });
+}
+
+test("rule refuses a closed node, a typed node whose raw body has no block, and an unterminated block", async () => {
+  const closed = rulingStore(TYPED_BLOCK, { status: "closed" });
+  expect(await failure(["graph", "rule", "700", "--repo", REPO, "--text", "x"], closed)).toContain("node 700 is closed");
+  expect(closed.writes).toBe(0);
+
+  const unreadable = rulingStore("");
+  expect(await failure(["graph", "rule", "700", "--repo", REPO, "--text", "x"], unreadable)).toContain("no typed block to read back");
+  expect(unreadable.writes).toBe(0);
+
+  const broken = rulingStore("prose\n\n<!-- soma:work-graph-node\n{}");
+  expect(await failure(["graph", "rule", "700", "--repo", REPO, "--text", "x"], broken)).toContain("unterminated");
+  expect(broken.writes).toBe(0);
+});
+
+test("rule reports a write whose read-back differs", async () => {
+  const store = rulingStore(TYPED_BLOCK);
+  store.readBackOverride = "something else";
+  expect(await failure(["graph", "rule", "700", "--repo", REPO, "--text", "x"], store)).toContain("read back differs");
+});
+
+test("rule --json prints repo, node and the ruling's time and author", async () => {
+  const store = rulingStore(TYPED_BLOCK);
+  expect(JSON.parse(await rule(store, ["--text", "Go", "--json"]))).toEqual({
+    repo: REPO,
+    node: "700",
+    ruling: { at: "2026-10-31T07:05:00.000Z", by: "ivy-agent" },
+  });
+});
+
+test("rule needs exactly one of --text and --text-file", () => {
+  expect(() => parseGraphArgs(["graph", "rule", "700"])).toThrow("exactly one of --text or --text-file");
+  expect(() => parseGraphArgs(["graph", "rule", "700", "--text", "a", "--text-file", "b"])).toThrow("exactly one of --text or --text-file");
+  expect(() => parseGraphArgs(["graph", "rule", "700", "--text", "a", "--write"])).toThrow("Unknown option: --write");
+});

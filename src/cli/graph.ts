@@ -55,6 +55,11 @@ import {
   spliceSection,
   DECISIONS_BEGIN,
   DECISIONS_END,
+  RulingRefusal,
+  formatRulingEntry,
+  hasMetadataBlock,
+  rulingStamp,
+  spliceRuling,
   RECEIPT_COMMENT_BUDGET,
   RECEIPT_COMMENT_LIMIT,
   type CloseEvidence,
@@ -114,13 +119,13 @@ import { GOAL_ID_PATTERN, readGoalStatus, warnServes, type ServesOptions } from 
 
 const SOMA_VERSION: string = packageJson.version;
 
-const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "add", "link", "chart", "close", "audit", "decisions", "file-proposal"] as const;
+const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "add", "link", "chart", "close", "audit", "decisions", "rule", "file-proposal"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|edit|claim|release|add|link|chart|close|audit|decisions|file-proposal> ...",
+  usage: "Usage: soma graph <frontier|node|edit|claim|release|add|link|chart|close|audit|decisions|rule|file-proposal> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--json]",
     node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--json]",
@@ -135,6 +140,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run [--run-probes]] [--repo <forge>:<host>/<path>] — a dry run lists command probes without running them; --run-probes runs them",
     audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--json] [--verbose] — scoped audits omit unchecked findings; --verbose also lists the probe-registry entries open nodes use",
     decisions: "Usage: soma graph decisions <root> [--write] [--repo <forge>:<host>/<path>] [--json]",
+    rule: "Usage: soma graph rule <id> (--text <ruling>|--text-file <path>) [--repo <forge>:<host>/<path>] [--json] — append a dated ruling under the node body's ## Rulings section, before its typed block; append-only",
     "file-proposal":
       "Usage: soma graph file-proposal <proposal_ref> [--json] — file the node a <soma-home>/proposals/<ref>.md proposal describes under its landing map; a second run returns the node already filed",
   },
@@ -245,6 +251,13 @@ export interface ParsedGraphDecisionsArgs {
   };
 }
 
+export interface ParsedGraphRuleArgs {
+  command: "graph";
+  action: "rule";
+  target: string;
+  options: GraphSharedOptions & { text?: string; textFile?: string };
+}
+
 export interface ParsedGraphFileProposalArgs {
   command: "graph";
   action: "file-proposal";
@@ -265,7 +278,8 @@ export type ParsedGraphArgs =
   | ParsedGraphChartArgs
   | ParsedGraphCloseArgs
   | ParsedGraphAuditArgs
-  | ParsedGraphDecisionsArgs;
+  | ParsedGraphDecisionsArgs
+  | ParsedGraphRuleArgs;
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -596,6 +610,26 @@ function parseCloseArgs(target: string, rest: string[]): ParsedGraphCloseArgs {
   return { command: "graph", action: "close", target, options };
 }
 
+function parseRuleArgs(target: string, rest: string[]): ParsedGraphRuleArgs {
+  const options: ParsedGraphRuleArgs["options"] = {};
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    const shared = readShared(options, rest, index, arg);
+    if (shared !== undefined) {
+      index = shared;
+      continue;
+    }
+    if (arg === "--text") options.text = readOption(rest, index, arg);
+    else if (arg === "--text-file") options.textFile = readOption(rest, index, arg);
+    else throw new Error(`Unknown option: ${arg}`);
+    index += 1;
+  }
+  if ((options.text === undefined) === (options.textFile === undefined)) {
+    throw new Error(`soma graph rule needs exactly one of --text or --text-file.\n${GRAPH_COMMAND_HELP.subcommands.rule}`);
+  }
+  return { command: "graph", action: "rule", target, options };
+}
+
 export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   const [command, action, target, ...rest] = args;
 
@@ -610,6 +644,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   if (action === "add") return parseAddArgs(resolvedTarget, rest);
   if (action === "link") return parseLinkArgs(resolvedTarget, rest);
   if (action === "close") return parseCloseArgs(resolvedTarget, rest);
+  if (action === "rule") return parseRuleArgs(resolvedTarget, rest);
   if (action === "file-proposal") {
     const unknown = rest.find((arg) => arg !== "--json");
     if (unknown !== undefined) throw new Error(`Unknown option: ${unknown}`);
@@ -2044,6 +2079,41 @@ async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, 
   return [`Decisions — root ${parsed.target} (${repo}), derived from close receipts`, "", rendered].join("\n");
 }
 
+function ruleRefusal(message: string): SomaCliError {
+  return new SomaCliError(`soma graph rule refused: ${message}`, 1);
+}
+
+async function runRule(parsed: ParsedGraphRuleArgs, graph: WorkGraph, store: GraphStore, repo: string, deps: GraphCliDeps): Promise<string> {
+  const ref: NodeRef = { id: parsed.target };
+  const text = parsed.options.textFile === undefined ? (parsed.options.text ?? "") : await deps.readTextFile(resolve(parsed.options.textFile));
+  const state = await graph.readNode(ref);
+  if (state.status === "closed") throw ruleRefusal(`node ${ref.id} is closed, so nothing was written.`);
+  if (state.writable === false) throw ruleRefusal(`node ${ref.id} is not writable by this store, so nothing was written.`);
+  const by = await store.actingIdentity();
+  const at = deps.now();
+  let body: string;
+  let spliced: string;
+  try {
+    const entry = formatRulingEntry(text, at, by);
+    body = await graph.readRawBody(ref);
+    if (state.typed && !hasMetadataBlock(body)) {
+      throw new RulingRefusal(`the store's raw body of node ${ref.id} has no typed block to read back, so nothing was written.`);
+    }
+    spliced = spliceRuling(body, entry);
+  } catch (error) {
+    if (error instanceof RulingRefusal) throw ruleRefusal(error.message);
+    throw error;
+  }
+  await graph.writeRawBody(ref, spliced);
+  const after = await graph.readRawBody(ref);
+  if (after !== spliced) {
+    throw new SomaCliError(`soma graph rule wrote node ${ref.id} (${repo}), but the body read back differs from what was written; check the node with soma graph node ${shellWord(ref.id)}.`, 1);
+  }
+  const ruling = { at: at.toISOString(), by };
+  if (parsed.options.json === true) return JSON.stringify({ repo, node: ref.id, ruling }, null, 2);
+  return `Recorded a ruling on node ${ref.id} (${repo}) at ${rulingStamp(at)} UTC by ${by}.`;
+}
+
 /** `owner/repo#N` for a node of the landing store; a foreign node's id already carries its repo. */
 function landingNodeRef(landing: string, id: string): string {
   return /^\d+$/u.test(id) ? `${landing}#${id}` : id;
@@ -2200,5 +2270,7 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
       return await runAudit(parsed, graph, store, repoRef, deps);
     case "decisions":
       return await runDecisions(parsed, graph, repo);
+    case "rule":
+      return await runRule(parsed, graph, store, repo, deps);
   }
 }
