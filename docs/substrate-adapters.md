@@ -480,21 +480,62 @@ skill's absolute SKILL.md path. The agent reads the file by its path, so the
 skill stays out of the catalog. Only installed skills that declare a route are
 listed; a pack such as soma-pstack ships its own rows.
 
-Two Claude Code hooks route on top of the index. Both are adapter limitations:
-no other substrate has them yet.
+Tool nudges route on actions in Claude Code, Codex, and pi-dev. Each
+`soma install claude-code`, `soma install codex`, or `soma install pi-dev`
+collects the installed skills' declarations into
+`<soma-home>/runtime/tool-nudges.json`. The shared Node-compatible evaluator is
+`runtime/tool-nudges.mjs`. Claude Code's `principle-nudge` PostToolUse group,
+Codex's `post_tool_use` lifecycle action, and pi's `soma-routing.ts`
+`tool_result` handler read the same list. Claude Code and Codex inject additional
+context; pi appends text to the tool result and preserves its original content.
 
-- The `principle-nudge` PostToolUse group (matcher `Bash|Agent|Task`) of the
-  Soma hook runner fires on an action, not on prompt text. After a subagent
-  reports, a review-comment read, a commit or `gh pr create`, or a benchmark
-  run, it adds one line naming the principle or skill file. The rules live in
-  `SOMA_CLAUDE_HOOK_EVENTS` in `claude-code/hooks.ts`; a rule whose file is not
-  installed prints nothing.
-- `soma algorithm classify --json` adds a `card` hint (`bug-fix` or
-  `investigation`) from `PLAYBOOK_CARD_RULES`, and the mode hook prints the
-  card's path under `<soma-home>/skills/playbooks/references/`, when the pack
-  installed it. The hint is kept out of the mode classification, so
-  pi-dev's projected classifier is unchanged. `--record` writes it to the judge
-  ledger as `decision.card`, so `soma judge` counts it.
+A skill declares `nudge:` beside `route:` in its SKILL.md frontmatter:
+
+```yaml
+nudge:
+  - tool: Bash
+    command: '\bhyperfine\b'
+    text: 'You ran a benchmark. Read {path} before reporting the number.'
+```
+
+`tool` is a regular expression against the normalized tool name. Shell tools
+(`Bash`, `bash`, `shell`, `shell_command`, and `exec_command`, including namespaced
+Codex names) normalize to `Bash`. Delegation-result tools (`Agent`, `Task`,
+`subagent`, and `wait_agent`) normalize to `Agent`. Codex `wait` normalizes
+to `Agent` when its input has an `ids` array. Other names pass through.
+`command` is optional. When present, it must match at the start of an executable
+shell command, after any `rtk` wrapper and environment assignments. The evaluator
+separates shell commands, keeps quoted arguments together, and excludes heredoc
+bodies and comments. It does not evaluate shell expansions or infer commands
+executed by another program, such as `python -c` or `bash -c` in shell text.
+
+`text` is required. `{path}` expands to the declaring skill's installed SKILL.md.
+A rule whose target file is absent prints nothing. Reinstallation replaces the
+list, so editing a declaration or removing its skill changes every substrate's
+nudges. Invalid declarations reject installation before replacing the existing
+list. A skill needs no catalog entry or `route:` declaration to supply nudges.
+
+The three principle rules remain in Soma: `own-delegated-work`,
+`weigh-review-findings-on-merit`, and `verify-before-claiming`. Skill-specific
+rules come only from installed skills. Soma includes no benchmark rule.
+The two-day routing watch from 2026-10-29 supplied the command-position tuning:
+quoted examples, heredoc bodies, and filenames such as `benchmarks/` do not
+trigger a rule; `git -C <directory> commit` does.
+
+For the pstack A/B protocol, node #1105 changes action routing only: compare an
+installed skill's declaration before and after its removal and reinstallation,
+and assert that the three principle nudges remain. The reproducible probe is
+`bun test --timeout=60000 test/substrates/tool-nudges.test.ts`; it installs all
+three substrates into temporary homes and invokes their emitted hook surfaces.
+The soma-pstack declaration itself is a separate pack change.
+
+The playbook card hint remains in Claude Code's mode classifier.
+`soma algorithm classify --json` adds a `card` hint (`bug-fix` or
+`investigation`) from `PLAYBOOK_CARD_RULES`, and the mode hook prints the card's
+path under `<soma-home>/skills/playbooks/references/` when the pack installs it.
+The hint stays outside the mode classification, so pi-dev's projected classifier
+is unchanged. `--record` writes it to the judge ledger as `decision.card`, so
+`soma judge` counts it.
 
 `~/.soma/policy/behavior.md` (Policy) is parsed by
 `src/policy/behavior-policy.ts` and merged into each adapter's

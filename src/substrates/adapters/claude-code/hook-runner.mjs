@@ -6,7 +6,7 @@ import { readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "n
 import { appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 const FLUSH_EVENT = "flush-writeback-queue";
 const HOOK_EVENT_HANDLERS = __SOMA_CLAUDE_HOOK_EVENT_HANDLERS__;
@@ -443,23 +443,9 @@ async function writeback(config, input, kind, summary, source) {
   scheduleWritebackFlush(config);
 }
 
-function isInstalled(path) {
-  try {
-    return statSync(path).isFile();
-  } catch (error) {
-    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTDIR")) return false;
-    throw error;
-  }
-}
-
-function nudge(config, input, rules) {
-  const tool = typeof input.tool_name === "string" ? input.tool_name : "";
-  const command = typeof input.tool_input?.command === "string" ? input.tool_input.command : "";
-  const lines = rules
-    .filter((rule) => new RegExp(rule.tool).test(tool) && (rule.command === undefined || new RegExp(rule.command).test(command)))
-    .map((rule) => ({ rule, path: join(config.somaHome, rule.file) }))
-    .filter(({ path }) => isInstalled(path))
-    .map(({ rule, path }) => rule.text.replace("{path}", path));
+async function nudge(config, input) {
+  const { toolNudgeLines } = await import(pathToFileURL(join(config.somaHome, "runtime/tool-nudges.mjs")).href);
+  const lines = toolNudgeLines(config.somaHome, input.tool_name, input.tool_input);
   if (lines.length === 0) return;
   console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: lines.join("\n") } }));
 }
@@ -476,7 +462,7 @@ async function main() {
   if (!handler) return;
   if (handler.kind === "lifecycle") lifecycle(config, handler.lifecycleEvent, input);
   else if (handler.kind === "writeback") await writeback(config, input, handler.eventKind, handler.eventSummary, handler.source);
-  else if (handler.kind === "nudge") nudge(config, input, handler.rules);
+  else if (handler.kind === "nudge") await nudge(config, input);
 }
 
 main().catch(() => {
