@@ -188,7 +188,7 @@ export interface ParsedGraphAddArgs {
     /** Untyped on purpose — {@link WorkGraph.createNode} is the one validation barrier (§2.1). */
     spec: Record<string, unknown>;
     blockedBy: string[];
-    once?: string;
+    once?: { marker: string; label: string };
   };
 }
 
@@ -337,6 +337,7 @@ function requireTarget(action: GraphAction, target: string | undefined): string 
 }
 
 const ONCE_MARKER_MAX = 300;
+const ONCE_NEEDS_LABEL = "soma graph add --once needs a --label: the first label scopes the marker lookup.";
 
 function readOnceMarker(value: string): string {
   const marker = value.trim();
@@ -351,6 +352,7 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   const probes: unknown[] = [];
   const labels: string[] = [];
   const budget: Record<string, number> = {};
+  let onceMarker: string | undefined;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -411,7 +413,7 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
         break;
       case "--once":
         if (chart) throw new Error("--once belongs to soma graph add, not chart");
-        options.once = readOnceMarker(readOption(rest, index, arg));
+        onceMarker = readOnceMarker(readOption(rest, index, arg));
         index += 1;
         break;
       case "--budget-tokens":
@@ -434,8 +436,10 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   if (probes.length > 0) options.spec.probes = probes;
   if (labels.length > 0) options.spec.labels = labels;
   if (Object.keys(budget).length > 0) options.spec.budget = budget;
-  if (options.once !== undefined && labels.length === 0) {
-    throw new Error("soma graph add --once needs a --label: the first label scopes the marker lookup.");
+  if (onceMarker !== undefined) {
+    const label = labels.at(0);
+    if (label === undefined) throw new Error(ONCE_NEEDS_LABEL);
+    options.once = { marker: onceMarker, label };
   }
   if (options.spec.title === undefined) {
     throw new Error("soma graph add is missing required option: --title.");
@@ -1168,13 +1172,15 @@ async function runAdd(
   const { once } = parsed.options;
   const json = parsed.options.json === true;
   if (once !== undefined) {
-    const found = await findOnceNode(store, rest.labels, once, json);
+    const found = await findOnceNode(store, once.label, once.marker, json);
     if (found !== undefined) {
-      if (json) return JSON.stringify({ repo: displayRepo(repo), node: found, parent: parsed.target, blockedBy: [], existing: true }, null, 2);
-      return `Node ${found} already carries ${once} (${displayRepo(repo)}); nothing filed.`;
+      const parent = (await graph.readNode({ id: found }, { includeCurrentCloseReceipt: false })).parent?.id ?? null;
+      if (json) return JSON.stringify({ repo: displayRepo(repo), node: found, parent, blockedBy: [], existing: true }, null, 2);
+      const where = parent === null ? "has no parent" : `sits under ${parent}`;
+      return `Node ${found} already carries ${once.marker} and ${where} (${displayRepo(repo)}); nothing filed.`;
     }
   }
-  const body = once === undefined ? given : withOnceMarker(given, once);
+  const body = once === undefined ? given : withOnceMarker(given, once.marker);
   const onceResult = once === undefined ? {} : { existing: false };
 
   const isGitLabEpic = repo.forge === "gitlab" && parseLocatedNodeId(parsed.target)?.sigil === "&";
@@ -1194,14 +1200,14 @@ async function runAdd(
   const parentShown = created.rehomedTo?.id ?? parsed.target;
   const { edges } = created;
   if (!created.attached) {
-    if (parsed.options.json === true) {
+    if (json) {
       const attachError = created.attachError === undefined ? {} : { attachError: created.attachError };
       throw new SomaCliError(JSON.stringify({ ...base, ...edges, attached: false, ...attachError, ...onceResult }, null, 2), 1);
     }
     throw new SomaCliError(partialAddReport(parentShown, repo, created), 1);
   }
 
-  if (parsed.options.json === true) {
+  if (json) {
     return JSON.stringify({ ...base, blockedBy, ...onceResult }, null, 2);
   }
 
@@ -1221,17 +1227,15 @@ function withOnceMarker(body: string | undefined, marker: string): string {
   return lastLine(body) === marker ? body : `${body.trimEnd()}\n\n${marker}`;
 }
 
-async function findOnceNode(store: GraphStore, labels: unknown, marker: string, json: boolean): Promise<string | undefined> {
-  const label = Array.isArray(labels) && typeof labels[0] === "string" ? labels[0] : undefined;
-  if (label === undefined) throw new SomaCliError("soma graph add --once needs a --label: the first label scopes the marker lookup.", 1);
+async function findOnceNode(store: GraphStore, label: string, marker: string, json: boolean): Promise<string | undefined> {
   let hits: string[];
   try {
     if (store.listNodesByLabel === undefined) throw new Error("this store cannot list nodes by label");
-    const identity = (await store.actingIdentity()).toLowerCase();
+    const identity = (await store.actingIdentity()).trim();
     if (identity.length === 0) throw new Error("the acting identity is unknown");
-    const nodes = await store.listNodesByLabel(label);
+    const nodes = await store.listNodesByLabel(label, identity);
     hits = [...new Set(nodes
-      .filter((node) => node.author.toLowerCase() === identity && lastLine(node.body) === marker)
+      .filter((node) => node.author.toLowerCase() === identity.toLowerCase() && lastLine(node.body) === marker)
       .map((node) => node.id))];
   } catch (error) {
     throw new SomaCliError(`soma graph add --once refused: cannot check label ${label} for ${marker}, so nothing is filed: ${errorMessage(error)}`, 1);

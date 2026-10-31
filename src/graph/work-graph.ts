@@ -760,11 +760,11 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
    */
   findNodesByBodyMarker?(marker: string): Promise<NodeState[]>;
   /**
-   * Every node carrying the label, open and closed, with its API author and its
-   * prose body (node block removed). Complete all pages or reject. Absence means
-   * unsupported, never an empty result.
+   * Every node carrying the label and opened by the author, open and closed,
+   * with its API author and its prose body (node block removed). Complete all
+   * pages or reject. Absence means unsupported, never an empty result.
    */
-  listNodesByLabel?(label: string): Promise<LabeledNode[]>;
+  listNodesByLabel?(label: string, author: string): Promise<LabeledNode[]>;
   /**
    * Every node in the root's membership **subtree**, at any depth, in
    * depth-first pre-order, each reported at its **current** state.

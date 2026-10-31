@@ -854,15 +854,18 @@ class GitHubGraphStore implements GraphStore {
     }
   }
 
-  async listNodesByLabel(label: string): Promise<LabeledNode[]> {
-    const context = `listNodesByLabel ${JSON.stringify(label)} in ${this.repo}`;
+  async listNodesByLabel(label: string, author: string): Promise<LabeledNode[]> {
+    const context = `listNodesByLabel ${JSON.stringify(label)} by ${JSON.stringify(author)} in ${this.repo}`;
     if (label.trim().length === 0 || label.includes(",")) {
       throw new WorkGraphError("invalid-node", `${context}: GitHub lists one non-empty label without commas`);
+    }
+    if (author.trim().length === 0) {
+      throw new WorkGraphError("invalid-node", `${context}: the author is empty`);
     }
     try {
       const issues = asArray(await this.transport({
         method: "GET",
-        path: `repos/${this.repo}/issues?labels=${encodeURIComponent(label)}&state=all&per_page=100`,
+        path: `repos/${this.repo}/issues?labels=${encodeURIComponent(label)}&creator=${encodeURIComponent(author)}&state=all&per_page=100`,
         paginate: true,
       }), context);
       return issues.flatMap((entry) => {

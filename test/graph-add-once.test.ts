@@ -7,20 +7,23 @@ const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma"
 const MARKER = "<!-- ranger:intake discord=42 -->";
 const LABEL = "ranger:principal-intake";
 
-function fixture(listed: LabeledNode[] | "unsupported" | "fails" = []) {
+function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], parents: Record<string, string> = {}) {
   const created: CreateNodeSpec[] = [];
   const listedLabels: string[] = [];
+  const listedAuthors: string[] = [];
+  const attached: string[] = [];
   const unsupported = async (): Promise<never> => { throw new Error("Unexpected store operation"); };
   const state = (id: string): NodeState => ({
     ref: { id }, node: { id, title: id, autonomy: "propose", checkpointId: "cp" }, status: "open",
     updatedAt: "2026-10-30T10:00:00Z", assignees: [], blockedBy: [], author: "ivy-bot", typed: true,
+    ...(parents[id] === undefined ? {} : { parent: { id: parents[id] } }),
   });
   const store: GraphStore = {
     attestation: "verifiable",
     actingIdentity: async () => "Ivy-Bot",
     checkConfinement: unsupported,
     createNode: async (spec) => { created.push(spec); return { id: "900" }; },
-    attachToParent: async () => undefined,
+    attachToParent: async (child) => { attached.push(child.id); },
     addBlockingEdge: unsupported,
     readNode: async (ref) => state(ref.id),
     readSubtree: unsupported,
@@ -34,8 +37,9 @@ function fixture(listed: LabeledNode[] | "unsupported" | "fails" = []) {
     writeRawBody: unsupported,
     close: unsupported,
     ...(listed === "unsupported" ? {} : {
-      listNodesByLabel: async (label: string) => {
+      listNodesByLabel: async (label: string, author: string) => {
         listedLabels.push(label);
+        listedAuthors.push(author);
         if (listed === "fails") throw new WorkGraphError("backend", "GitHub said 502");
         return listed;
       },
@@ -53,7 +57,7 @@ function fixture(listed: LabeledNode[] | "unsupported" | "fails" = []) {
     }
     throw new Error("expected a refusal");
   };
-  return { created, listedLabels, run, failure };
+  return { created, listedLabels, listedAuthors, attached, run, failure };
 }
 
 const once = ["--label", LABEL, "--label", "other", "--once", ` ${MARKER} `];
@@ -64,6 +68,7 @@ test("no marked node: creates with the marker as the body's last line, scoped to
   expect(out).toEqual({ repo: "the-metafactory/soma", node: "900", parent: "7", blockedBy: [], existing: false });
   expect(fx.created[0]?.body).toBe(`words\n\n${MARKER}`);
   expect(fx.listedLabels).toEqual([LABEL]);
+  expect(fx.listedAuthors).toEqual(["Ivy-Bot"]);
 });
 
 test("the marker is the whole body when none is given, and is not appended twice", async () => {
@@ -75,12 +80,22 @@ test("the marker is the whole body when none is given, and is not appended twice
   expect(ending.created[0]?.body?.trimEnd()).toBe(`words\n\n${MARKER}`);
 });
 
-test("one marked node: returns it and creates nothing", async () => {
-  const fx = fixture([{ id: "77", author: "ivy-bot", body: `words\r\n\r\n${MARKER}\r\n` }]);
+test("one marked node: returns it with its actual parent and creates nothing", async () => {
+  const fx = fixture([{ id: "77", author: "ivy-bot", body: `words\r\n\r\n${MARKER}\r\n` }], { "77": "12" });
   const out = JSON.parse(await fx.run([...once, "--json"])) as Record<string, unknown>;
-  expect(out).toEqual({ repo: "the-metafactory/soma", node: "77", parent: "7", blockedBy: [], existing: true });
-  expect(await fx.run(once)).toContain("Node 77 already carries");
+  expect(out).toEqual({ repo: "the-metafactory/soma", node: "77", parent: "12", blockedBy: [], existing: true });
+  expect(await fx.run(once)).toBe(`Node 77 already carries ${MARKER} and sits under 12 (the-metafactory/soma); nothing filed.`);
   expect(fx.created).toEqual([]);
+  expect(fx.attached).toEqual([]);
+});
+
+test("one marked unattached node: reports no parent and leaves it unattached", async () => {
+  const fx = fixture([{ id: "77", author: "ivy-bot", body: MARKER }]);
+  const out = JSON.parse(await fx.run([...once, "--json"])) as Record<string, unknown>;
+  expect(out).toEqual({ repo: "the-metafactory/soma", node: "77", parent: null, blockedBy: [], existing: true });
+  expect(await fx.run(once)).toBe(`Node 77 already carries ${MARKER} and has no parent (the-metafactory/soma); nothing filed.`);
+  expect(fx.created).toEqual([]);
+  expect(fx.attached).toEqual([]);
 });
 
 test("a marker by another author or not on the last line is ignored", async () => {
@@ -139,15 +154,16 @@ test("GitHub lists a label's issues, open and closed, with the node block stripp
       { number: 79, body: MARKER, user: { login: "ivy-bot" }, pull_request: {} },
     ];
   } });
-  expect(await store.listNodesByLabel?.(LABEL)).toEqual([
+  expect(await store.listNodesByLabel?.(LABEL, "ivy-bot")).toEqual([
     { id: "77", author: "ivy-bot", body: `words\n\n${MARKER}` },
     { id: "78", author: "", body: "" },
   ]);
-  expect(requests).toEqual([{ method: "GET", path: `repos/${REPO.path}/issues?labels=ranger%3Aprincipal-intake&state=all&per_page=100`, paginate: true }]);
+  expect(requests).toEqual([{ method: "GET", path: `repos/${REPO.path}/issues?labels=ranger%3Aprincipal-intake&creator=ivy-bot&state=all&per_page=100`, paginate: true }]);
 });
 
 test("GitHub label listing rejects a failed read and a label it cannot express", async () => {
   const store = createGitHubGraphStore({ repo: REPO.path, transport: async () => { throw new Error("HTTP 502"); } });
-  await expect(store.listNodesByLabel?.(LABEL)).rejects.toThrow(/HTTP 502/u);
-  await expect(store.listNodesByLabel?.("a,b")).rejects.toThrow(/without commas/u);
+  await expect(store.listNodesByLabel?.(LABEL, "ivy-bot")).rejects.toThrow(/HTTP 502/u);
+  await expect(store.listNodesByLabel?.("a,b", "ivy-bot")).rejects.toThrow(/without commas/u);
+  await expect(store.listNodesByLabel?.(LABEL, " ")).rejects.toThrow(/author is empty/u);
 });
