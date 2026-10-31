@@ -1173,12 +1173,7 @@ async function runAdd(
   const json = parsed.options.json === true;
   if (once !== undefined) {
     const found = await findOnceNode(store, once.label, once.marker, json);
-    if (found !== undefined) {
-      const parent = (await graph.readNode({ id: found }, { includeCurrentCloseReceipt: false })).parent?.id ?? null;
-      if (json) return JSON.stringify({ repo: displayRepo(repo), node: found, parent, blockedBy: [], existing: true }, null, 2);
-      const where = parent === null ? "has no parent" : `sits under ${parent}`;
-      return `Node ${found} already carries ${once.marker} and ${where} (${displayRepo(repo)}); nothing filed.`;
-    }
+    if (found !== undefined) return finishOnceNode(graph, repo, found, parsed.target, blockedBy, once.marker, json);
   }
   const body = once === undefined ? given : withOnceMarker(given, once.marker);
   const onceResult = once === undefined ? {} : { existing: false };
@@ -1216,6 +1211,43 @@ async function runAdd(
     ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
     ...(edges.written.length > 0 ? ["", "Blocking edges:", ...edges.written.map((id) => `- ${edgeLabel(created.id, id)}`)] : []),
   ].join("\n");
+}
+
+async function finishOnceNode(graph: WorkGraph, repo: RepoRef, found: string, target: string, blockedBy: readonly string[], marker: string, json: boolean): Promise<string> {
+  const node = { id: found };
+  const { written, already, failed, state } = await graph.linkBlockers(node, blockedBy.map((id) => ({ id })));
+  let parent = state.parent?.id ?? null;
+  let attachError: string | undefined;
+  if (parent === null && failed.length === 0) {
+    try {
+      await graph.attach(node, { id: target });
+      parent = target;
+    } catch (error) {
+      attachError = errorMessage(error);
+    }
+  }
+  const complete = failed.length === 0 && parent !== null;
+  if (json) {
+    const result = JSON.stringify({
+      repo: displayRepo(repo),
+      node: found,
+      parent,
+      blockedBy: [...written, ...already],
+      existing: true,
+      ...(complete ? {} : { attached: parent !== null, failed, ...(attachError === undefined ? {} : { attachError }) }),
+    }, null, 2);
+    if (!complete) throw new SomaCliError(result, 1);
+    return result;
+  }
+  const where = parent === null ? "has no parent" : `sits under ${parent}`;
+  const lines = [
+    `Node ${found} already carries ${marker} and ${where} (${displayRepo(repo)}); nothing new filed.`,
+    ...written.map((id) => `- blocked by ${id}: written`),
+    ...failed.map((edge) => `- blocked by ${edge.id}: FAILED — ${edge.reason}`),
+    ...(attachError === undefined ? [] : [`- under ${target}: FAILED — ${attachError}`]),
+  ];
+  if (!complete) throw new SomaCliError(lines.join("\n"), 1);
+  return lines.join("\n");
 }
 
 function lastLine(body: string): string {

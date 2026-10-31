@@ -878,6 +878,7 @@ class GitHubGraphStore implements GraphStore {
         return [{ id: String(number), author: readLogin(issue.user), body: decodeNodeBlock(issue.body ?? "").text }];
       });
     } catch (error) {
+      if (error instanceof WorkGraphError) throw error;
       throw new WorkGraphError("backend", `${context}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

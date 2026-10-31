@@ -7,7 +7,7 @@ const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma"
 const MARKER = "<!-- ranger:intake discord=42 -->";
 const LABEL = "ranger:principal-intake";
 
-function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], parents: Record<string, string> = {}) {
+function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], parents: Record<string, string> = {}, attachFails = false) {
   const created: CreateNodeSpec[] = [];
   const listedLabels: string[] = [];
   const listedAuthors: string[] = [];
@@ -23,7 +23,10 @@ function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], parents: 
     actingIdentity: async () => "Ivy-Bot",
     checkConfinement: unsupported,
     createNode: async (spec) => { created.push(spec); return { id: "900" }; },
-    attachToParent: async (child) => { attached.push(child.id); },
+    attachToParent: async (child) => {
+      if (attachFails) throw new WorkGraphError("backend", "GitHub said 502");
+      attached.push(child.id);
+    },
     addBlockingEdge: unsupported,
     readNode: async (ref) => state(ref.id),
     readSubtree: unsupported,
@@ -84,18 +87,25 @@ test("one marked node: returns it with its actual parent and creates nothing", a
   const fx = fixture([{ id: "77", author: "ivy-bot", body: `words\r\n\r\n${MARKER}\r\n` }], { "77": "12" });
   const out = JSON.parse(await fx.run([...once, "--json"])) as Record<string, unknown>;
   expect(out).toEqual({ repo: "the-metafactory/soma", node: "77", parent: "12", blockedBy: [], existing: true });
-  expect(await fx.run(once)).toBe(`Node 77 already carries ${MARKER} and sits under 12 (the-metafactory/soma); nothing filed.`);
+  expect(await fx.run(once)).toBe(`Node 77 already carries ${MARKER} and sits under 12 (the-metafactory/soma); nothing new filed.`);
   expect(fx.created).toEqual([]);
   expect(fx.attached).toEqual([]);
 });
 
-test("one marked unattached node: reports no parent and leaves it unattached", async () => {
+test("one marked unattached node, left by a failed add: a retry attaches it under the requested parent", async () => {
   const fx = fixture([{ id: "77", author: "ivy-bot", body: MARKER }]);
   const out = JSON.parse(await fx.run([...once, "--json"])) as Record<string, unknown>;
-  expect(out).toEqual({ repo: "the-metafactory/soma", node: "77", parent: null, blockedBy: [], existing: true });
-  expect(await fx.run(once)).toBe(`Node 77 already carries ${MARKER} and has no parent (the-metafactory/soma); nothing filed.`);
+  expect(out).toEqual({ repo: "the-metafactory/soma", node: "77", parent: "7", blockedBy: [], existing: true });
   expect(fx.created).toEqual([]);
-  expect(fx.attached).toEqual([]);
+  expect(fx.attached).toEqual(["77"]);
+});
+
+test("a retry that cannot attach the found node fails instead of reporting it filed", async () => {
+  const fx = fixture([{ id: "77", author: "ivy-bot", body: MARKER }], {}, true);
+  const refused = await fx.failure([...once, "--json"]);
+  expect(refused.exitCode).toBe(1);
+  expect(JSON.parse(refused.message)).toMatchObject({ node: "77", parent: null, existing: true, attached: false, attachError: expect.stringContaining("502") });
+  expect(fx.created).toEqual([]);
 });
 
 test("a marker by another author or not on the last line is ignored", async () => {
