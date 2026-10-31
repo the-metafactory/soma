@@ -128,7 +128,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--repo <forge>:<host>/<path>] [--json]",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--once <marker>] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line",
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
@@ -188,6 +188,7 @@ export interface ParsedGraphAddArgs {
     /** Untyped on purpose — {@link WorkGraph.createNode} is the one validation barrier (§2.1). */
     spec: Record<string, unknown>;
     blockedBy: string[];
+    once?: { marker: string; label: string };
   };
 }
 
@@ -335,11 +336,23 @@ function requireTarget(action: GraphAction, target: string | undefined): string 
   return target.trim();
 }
 
+const ONCE_MARKER_MAX = 300;
+const ONCE_NEEDS_LABEL = "soma graph add --once needs a --label: the first label scopes the marker lookup.";
+
+function readOnceMarker(value: string): string {
+  const marker = value.trim();
+  if (marker.length === 0 || marker.length > ONCE_MARKER_MAX || /[\r\n]/u.test(marker)) {
+    throw new Error(`--once must be one line of 1-${ONCE_MARKER_MAX} characters.`);
+  }
+  return marker;
+}
+
 function parseAddArgs(target: string, rest: string[], chart = false): ParsedGraphAddArgs {
   const options: ParsedGraphAddArgs["options"] = { spec: {}, blockedBy: [] };
   const probes: unknown[] = [];
   const labels: string[] = [];
   const budget: Record<string, number> = {};
+  let onceMarker: string | undefined;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -398,6 +411,11 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
         labels.push(readOption(rest, index, arg));
         index += 1;
         break;
+      case "--once":
+        if (chart) throw new Error("--once belongs to soma graph add, not chart");
+        onceMarker = readOnceMarker(readOption(rest, index, arg));
+        index += 1;
+        break;
       case "--budget-tokens":
         budget.tokens = readPositiveInteger(rest, index, arg);
         index += 1;
@@ -418,6 +436,11 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   if (probes.length > 0) options.spec.probes = probes;
   if (labels.length > 0) options.spec.labels = labels;
   if (Object.keys(budget).length > 0) options.spec.budget = budget;
+  if (onceMarker !== undefined) {
+    const label = labels.at(0);
+    if (label === undefined) throw new Error(ONCE_NEEDS_LABEL);
+    options.once = { marker: onceMarker, label };
+  }
   if (options.spec.title === undefined) {
     throw new Error("soma graph add is missing required option: --title.");
   }
@@ -465,7 +488,7 @@ function parseLinkArgs(target: string, rest: string[]): ParsedGraphLinkArgs {
 function parseChartArgs(rest: string[]): ParsedGraphChartArgs {
   const parsed = parseAddArgs("__chart__", rest, true);
   if (parsed.options.blockedBy.length > 0) throw new Error("soma graph chart does not support --blocked-by");
-  const { blockedBy: _blockedBy, ...options } = parsed.options;
+  const { blockedBy: _blockedBy, once: _once, ...options } = parsed.options;
   return { command: "graph", action: "chart", options };
 }
 
@@ -1139,12 +1162,21 @@ function unreadableBlockersRefusal(error: UnreadableBlockersError, verb: string,
 async function runAdd(
   parsed: ParsedGraphAddArgs,
   graph: WorkGraph,
+  store: GraphStore,
   repo: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
   const { bodyFile, ...rest } = parsed.options.spec;
-  const body = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
+  const given = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
   const blockedBy = parsed.options.blockedBy;
+  const { once } = parsed.options;
+  const json = parsed.options.json === true;
+  if (once !== undefined) {
+    const found = await findOnceNode(store, once.label, once.marker, json);
+    if (found !== undefined) return finishOnceNode(graph, repo, found, parsed.target, blockedBy, once.marker, json);
+  }
+  const body = once === undefined ? given : withOnceMarker(given, once.marker);
+  const onceResult = once === undefined ? {} : { existing: false };
 
   const isGitLabEpic = repo.forge === "gitlab" && parseLocatedNodeId(parsed.target)?.sigil === "&";
   const storeData = repo.forge !== "gitlab" ? rest.storeData : { ...(rest.storeData !== undefined && typeof rest.storeData === "object" ? rest.storeData as Record<string, unknown> : {}), ...(isGitLabEpic ? {} : { scopeProject: repo.path }) };
@@ -1163,15 +1195,15 @@ async function runAdd(
   const parentShown = created.rehomedTo?.id ?? parsed.target;
   const { edges } = created;
   if (!created.attached) {
-    if (parsed.options.json === true) {
+    if (json) {
       const attachError = created.attachError === undefined ? {} : { attachError: created.attachError };
-      throw new SomaCliError(JSON.stringify({ ...base, ...edges, attached: false, ...attachError }, null, 2), 1);
+      throw new SomaCliError(JSON.stringify({ ...base, ...edges, attached: false, ...attachError, ...onceResult }, null, 2), 1);
     }
     throw new SomaCliError(partialAddReport(parentShown, repo, created), 1);
   }
 
-  if (parsed.options.json === true) {
-    return JSON.stringify({ ...base, blockedBy }, null, 2);
+  if (json) {
+    return JSON.stringify({ ...base, blockedBy, ...onceResult }, null, 2);
   }
 
   return [
@@ -1179,6 +1211,72 @@ async function runAdd(
     ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
     ...(edges.written.length > 0 ? ["", "Blocking edges:", ...edges.written.map((id) => `- ${edgeLabel(created.id, id)}`)] : []),
   ].join("\n");
+}
+
+async function finishOnceNode(graph: WorkGraph, repo: RepoRef, found: string, target: string, blockedBy: readonly string[], marker: string, json: boolean): Promise<string> {
+  const node = { id: found };
+  const { written, already, failed, state } = await graph.linkBlockers(node, blockedBy.map((id) => ({ id })));
+  let parent = state.parent?.id ?? null;
+  let attachError: string | undefined;
+  if (parent === null && failed.length === 0) {
+    try {
+      await graph.attach(node, { id: target });
+      parent = target;
+    } catch (error) {
+      attachError = errorMessage(error);
+    }
+  }
+  const complete = failed.length === 0 && parent !== null;
+  if (json) {
+    const result = JSON.stringify({
+      repo: displayRepo(repo),
+      node: found,
+      parent,
+      blockedBy: [...written, ...already],
+      existing: true,
+      ...(complete ? {} : { attached: parent !== null, failed, ...(attachError === undefined ? {} : { attachError }) }),
+    }, null, 2);
+    if (!complete) throw new SomaCliError(result, 1);
+    return result;
+  }
+  const where = parent === null ? "has no parent" : `sits under ${parent}`;
+  const lines = [
+    `Node ${found} already carries ${marker} and ${where} (${displayRepo(repo)}); nothing new filed.`,
+    ...written.map((id) => `- blocked by ${id}: written`),
+    ...failed.map((edge) => `- blocked by ${edge.id}: FAILED — ${edge.reason}`),
+    ...(attachError === undefined ? [] : [`- under ${target}: FAILED — ${attachError}`]),
+  ];
+  if (!complete) throw new SomaCliError(lines.join("\n"), 1);
+  return lines.join("\n");
+}
+
+function lastLine(body: string): string {
+  return body.trimEnd().split(/\r?\n/u).at(-1)?.trim() ?? "";
+}
+
+function withOnceMarker(body: string | undefined, marker: string): string {
+  if (body === undefined || body.trim().length === 0) return marker;
+  return lastLine(body) === marker ? body : `${body.trimEnd()}\n\n${marker}`;
+}
+
+async function findOnceNode(store: GraphStore, label: string, marker: string, json: boolean): Promise<string | undefined> {
+  let hits: string[];
+  try {
+    if (store.listNodesByLabel === undefined) throw new Error("this store cannot list nodes by label");
+    const identity = (await store.actingIdentity()).trim();
+    if (identity.length === 0) throw new Error("the acting identity is unknown");
+    const nodes = await store.listNodesByLabel(label, identity);
+    hits = [...new Set(nodes
+      .filter((node) => node.author.toLowerCase() === identity.toLowerCase() && lastLine(node.body) === marker)
+      .map((node) => node.id))];
+  } catch (error) {
+    throw new SomaCliError(`soma graph add --once refused: cannot check label ${label} for ${marker}, so nothing is filed: ${errorMessage(error)}`, 1);
+  }
+  if (hits.length > 1) {
+    if (json) throw new SomaCliError(JSON.stringify({ error: "once-ambiguous", marker, nodes: hits }), 1);
+    throw new SomaCliError(`nodes ${hits.map((id) => `#${id}`).join(", ")} all carry ${marker}; nothing more is filed`, 1);
+  }
+  return hits[0];
 }
 
 /**
@@ -2089,7 +2187,7 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "add":
     case "link":
       try {
-        return parsed.action === "add" ? await runAdd(parsed, graph, repoRef, deps) : await runLink(parsed, graph, repoRef);
+        return parsed.action === "add" ? await runAdd(parsed, graph, store, repoRef, deps) : await runLink(parsed, graph, repoRef);
       } catch (error) {
         if (error instanceof UnreadableBlockersError) throw unreadableBlockersRefusal(error, parsed.action, parsed.options.json === true);
         throw error;

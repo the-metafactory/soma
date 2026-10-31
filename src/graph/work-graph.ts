@@ -694,6 +694,12 @@ export interface CreatedNode extends NodeRef {
   attachError?: string;
 }
 
+export interface LabeledNode {
+  id: string;
+  author: string;
+  body: string;
+}
+
 export interface GraphReadOptions {
   /** False omits currentCloseReceipt enrichment (and its comment reads). Defaults to the store's usual read behaviour. */
   includeCurrentCloseReceipt?: boolean;
@@ -753,6 +759,12 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
    * Absence means unsupported, never an empty result.
    */
   findNodesByBodyMarker?(marker: string): Promise<NodeState[]>;
+  /**
+   * Every node carrying the label and opened by the author, open and closed,
+   * with its API author and its prose body (node block removed). Complete all
+   * pages or reject. Absence means unsupported, never an empty result.
+   */
+  listNodesByLabel?(label: string, author: string): Promise<LabeledNode[]>;
   /**
    * Every node in the root's membership **subtree**, at any depth, in
    * depth-first pre-order, each reported at its **current** state.
