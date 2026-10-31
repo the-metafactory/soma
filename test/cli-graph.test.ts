@@ -3073,6 +3073,10 @@ function rule(store: RulingStore, args: string[], overrides: Partial<GraphCliDep
   return run(["graph", "rule", "700", "--repo", REPO, ...args], store, { now: () => RULE_AT, ...overrides });
 }
 
+function ruleFailure(store: RulingStore, args: string[], overrides: Partial<GraphCliDeps> = {}): Promise<string> {
+  return failure(["graph", "rule", "700", "--repo", REPO, ...args], store, { now: () => RULE_AT, ...overrides });
+}
+
 test("rule adds a Rulings section before the typed block, and node shows it", async () => {
   const store = rulingStore(`## Deliverable\n\nThe thing.\n\n${TYPED_BLOCK}`);
 
@@ -3083,6 +3087,7 @@ test("rule adds a Rulings section before the typed block, and node shows it", as
   expect(body).toBe(`## Deliverable\n\nThe thing.\n\n## Rulings\n\n- 2026-10-31 07:05 (ivy-agent): Use the shared drum\n\n${TYPED_BLOCK}`);
   expect(decodeNodeBlock(body).raw).toBe(decodeNodeBlock(TYPED_BLOCK).raw);
   expect(await run(["graph", "node", "700", "--repo", REPO], store)).toContain("- 2026-10-31 07:05 (ivy-agent): Use the shared drum");
+  expect(await run(["graph", "node", "700", "--section", "Rulings", "--repo", REPO], store)).toBe("## Rulings\n\n- 2026-10-31 07:05 (ivy-agent): Use the shared drum");
 });
 
 test("a second ruling appends below the first and leaves earlier entries byte-identical", async () => {
@@ -3113,7 +3118,7 @@ for (const [name, text, expected] of [
 ] as const) {
   test(`rule refuses ${name} and writes nothing`, async () => {
     const store = rulingStore(TYPED_BLOCK);
-    const message = await failure(["graph", "rule", "700", "--repo", REPO, "--text-file", "r.md"], store, { readTextFile: async () => text });
+    const message = await ruleFailure(store, ["--text-file", "r.md"], { readTextFile: async () => text });
     expect(message).toContain(expected);
     expect(store.writes).toBe(0);
     expect(await store.readRawBody({ id: "700" })).toBe(TYPED_BLOCK);
@@ -3122,22 +3127,22 @@ for (const [name, text, expected] of [
 
 test("rule refuses a closed node, a typed node whose raw body has no block, and an unterminated block", async () => {
   const closed = rulingStore(TYPED_BLOCK, { status: "closed" });
-  expect(await failure(["graph", "rule", "700", "--repo", REPO, "--text", "x"], closed)).toContain("node 700 is closed");
+  expect(await ruleFailure(closed, ["--text", "x"])).toContain("node 700 is closed");
   expect(closed.writes).toBe(0);
 
   const unreadable = rulingStore("");
-  expect(await failure(["graph", "rule", "700", "--repo", REPO, "--text", "x"], unreadable)).toContain("no typed block to read back");
+  expect(await ruleFailure(unreadable, ["--text", "x"])).toContain("no typed block to read back");
   expect(unreadable.writes).toBe(0);
 
   const broken = rulingStore("prose\n\n<!-- soma:work-graph-node\n{}");
-  expect(await failure(["graph", "rule", "700", "--repo", REPO, "--text", "x"], broken)).toContain("unterminated");
+  expect(await ruleFailure(broken, ["--text", "x"])).toContain("unterminated");
   expect(broken.writes).toBe(0);
 });
 
 test("rule reports a write whose read-back differs", async () => {
   const store = rulingStore(TYPED_BLOCK);
   store.readBackOverride = "something else";
-  expect(await failure(["graph", "rule", "700", "--repo", REPO, "--text", "x"], store)).toContain("read back differs");
+  expect(await ruleFailure(store, ["--text", "x"])).toContain("read back differs");
 });
 
 test("rule --json prints repo, node and the ruling's time and author", async () => {

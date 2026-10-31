@@ -1,6 +1,6 @@
-export const RULINGS_HEADING = "## Rulings";
+import { GRAPH_METADATA_MARKER } from "./work-graph-node-block";
 
-const METADATA_BLOCK = /<!-- soma:(?:work-graph-node|gitlab-work-graph-route)\b/u;
+const RULINGS_HEADING = "## Rulings";
 const RULINGS_LINE = /^## Rulings[ \t]*\r?$/mu;
 const SECTION_END = /^#{1,2}(?:[ \t]|\r?$)/mu;
 const HEADING_LIKE = /^[ \t]*#{1,6}(?:[ \t]|$)/u;
@@ -38,11 +38,11 @@ export function formatRulingEntry(text: string, at: Date, by: string): string {
 }
 
 export function hasMetadataBlock(body: string): boolean {
-  return METADATA_BLOCK.test(body);
+  return GRAPH_METADATA_MARKER.test(body);
 }
 
 export function spliceRuling(body: string, entry: string): string {
-  const block = METADATA_BLOCK.exec(body);
+  const block = GRAPH_METADATA_MARKER.exec(body);
   const blockAt = block === null ? body.length : block.index;
   if (block !== null && !body.slice(blockAt).includes("-->")) {
     throw new RulingRefusal("The node body has an unterminated graph metadata block, so nothing was written.");
@@ -66,5 +66,6 @@ export function spliceRuling(body: string, entry: string): string {
   const kept = section.trimEnd();
   const gap = section.slice(kept.length);
   const separator = kept.length === afterHeading ? "\n\n" : "\n";
-  return `${kept}${separator}${entry}${gap.length === 0 && end < body.length ? "\n" : gap}${body.slice(end)}`;
+  const trailing = gap.length === 0 && end < body.length ? "\n" : gap;
+  return `${kept}${separator}${entry}${trailing}${body.slice(end)}`;
 }

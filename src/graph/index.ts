@@ -11,4 +11,4 @@ export { buildBriefMissing } from "./build-brief";
 export { declaresFullSuiteProbe, isFullSuiteCommand } from "./full-suite-probe";
 export { ProposalFileError, hasProposalMarker, parseProposal, proposalFrontMatterSchema, proposalMarker, proposalNodeSpec, readProposalFile, type ProposalFile, type ProposalFrontMatter } from "./proposal-file";
 export { findStaleRegistryEntries, type StaleRegistryFindings, type StaleRegistryInput } from "./work-graph-probe-registry-audit";
-export { RULINGS_HEADING, RulingRefusal, formatRulingEntry, hasMetadataBlock, rulingStamp, spliceRuling } from "./work-graph-rulings";
+export { RulingRefusal, formatRulingEntry, hasMetadataBlock, rulingStamp, spliceRuling } from "./work-graph-rulings";

@@ -824,7 +824,10 @@ verb edits or deletes one. The verb refuses, and writes nothing, for a closed
 node, an empty ruling, a line that looks like a Markdown heading, a
 `<!-- soma:` marker, or a typed node whose raw body has no readable typed
 block. It writes through the store's raw-body path, then reads the body back
-and fails when it differs. `--json` prints `{ repo, node, ruling: { at, by } }`.
+and fails when it differs. The forge offers no conditional body write, so a
+body edit landing between the verb's read and its write is lost, as with
+`decisions --write`; the read-back only proves the verb's own bytes landed.
+`--json` prints `{ repo, node, ruling: { at, by } }`.
 
 `soma graph file-proposal <proposal_ref>` files the follow-up node a producer
 (Errata first) proposed and the principal approved (soma#903 D6, D9). cortex
