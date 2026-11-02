@@ -741,6 +741,11 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
                                    # The guard lists, then creates: two concurrent
                                    # callers can both file, and the next --once then
                                    # refuses with once-ambiguous.
+                                   # --once <marker> --dry-run runs the same lookup
+                                   # and writes nothing: {"found":true,"repo","node",
+                                   # "parent"} (parent null when unattached) or
+                                   # {"found":false}; ambiguity and a failed read
+                                   # refuse as --once does. --dry-run needs --once.
 soma graph link <node> [--blocked-by <ref>]... [--parent <id>]
                                    # add blocking edges to an existing node, cycle
                                    # check included; an edge it has is skipped;

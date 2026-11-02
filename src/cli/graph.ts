@@ -133,7 +133,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--once <marker>] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     close:
@@ -195,6 +195,7 @@ export interface ParsedGraphAddArgs {
     spec: Record<string, unknown>;
     blockedBy: string[];
     once?: { marker: string; label: string };
+    dryRun?: boolean;
   };
 }
 
@@ -352,6 +353,7 @@ function requireTarget(action: GraphAction, target: string | undefined): string 
 
 const ONCE_MARKER_MAX = 300;
 const ONCE_NEEDS_LABEL = "soma graph add --once needs a --label: the first label scopes the marker lookup.";
+const DRY_RUN_NEEDS_ONCE = "soma graph add --dry-run needs --once: a dry run only reports the node already filed under that marker.";
 
 function readOnceMarker(value: string): string {
   const marker = value.trim();
@@ -430,6 +432,10 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
         onceMarker = readOnceMarker(readOption(rest, index, arg));
         index += 1;
         break;
+      case "--dry-run":
+        if (chart) throw new Error("--dry-run belongs to soma graph add, not chart");
+        options.dryRun = true;
+        break;
       case "--budget-tokens":
         budget.tokens = readPositiveInteger(rest, index, arg);
         index += 1;
@@ -455,6 +461,7 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
     if (label === undefined) throw new Error(ONCE_NEEDS_LABEL);
     options.once = { marker: onceMarker, label };
   }
+  if (options.dryRun === true && options.once === undefined) throw new Error(DRY_RUN_NEEDS_ONCE);
   if (options.spec.title === undefined) {
     throw new Error("soma graph add is missing required option: --title.");
   }
@@ -502,7 +509,7 @@ function parseLinkArgs(target: string, rest: string[]): ParsedGraphLinkArgs {
 function parseChartArgs(rest: string[]): ParsedGraphChartArgs {
   const parsed = parseAddArgs("__chart__", rest, true);
   if (parsed.options.blockedBy.length > 0) throw new Error("soma graph chart does not support --blocked-by");
-  const { blockedBy: _blockedBy, once: _once, ...options } = parsed.options;
+  const { blockedBy: _blockedBy, once: _once, dryRun: _dryRun, ...options } = parsed.options;
   return { command: "graph", action: "chart", options };
 }
 
@@ -1201,6 +1208,9 @@ async function runAdd(
   repo: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
+  if (parsed.options.dryRun === true && parsed.options.once !== undefined) {
+    return await reportOnceNode(store, repo, parsed.options.once, parsed.options.json === true);
+  }
   const { bodyFile, ...rest } = parsed.options.spec;
   const given = await resolveBody(deps, typeof rest.body === "string" ? rest.body : undefined, typeof bodyFile === "string" ? bodyFile : undefined);
   const blockedBy = parsed.options.blockedBy;
@@ -1283,6 +1293,22 @@ async function finishOnceNode(graph: WorkGraph, repo: RepoRef, found: string, ta
   ];
   if (!complete) throw new SomaCliError(lines.join("\n"), 1);
   return lines.join("\n");
+}
+
+async function reportOnceNode(store: GraphStore, repo: RepoRef, once: { marker: string; label: string }, json: boolean): Promise<string> {
+  const found = await findOnceNode(store, once.label, once.marker, json);
+  if (found === undefined) {
+    return json ? JSON.stringify({ found: false }, null, 2) : `No node under ${once.label} by you carries ${once.marker} (${displayRepo(repo)}); nothing filed.`;
+  }
+  let parent: string | null;
+  try {
+    parent = (await store.readNode({ id: found }, { includeCurrentCloseReceipt: false })).parent?.id ?? null;
+  } catch (error) {
+    throw new SomaCliError(`soma graph add --dry-run: node ${found} carries ${once.marker} but cannot be read: ${errorMessage(error)}`, 1);
+  }
+  if (json) return JSON.stringify({ found: true, repo: displayRepo(repo), node: found, parent }, null, 2);
+  const where = parent === null ? "has no parent" : `sits under ${parent}`;
+  return `Node ${found} carries ${once.marker} and ${where} (${displayRepo(repo)}); nothing filed.`;
 }
 
 function lastLine(body: string): string {
