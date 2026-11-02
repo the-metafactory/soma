@@ -372,6 +372,7 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   const labels: string[] = [];
   const budget: Record<string, number> = {};
   let onceMarker: string | undefined;
+  const verb: OnceVerb = chart ? "chart" : "add";
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -459,10 +460,10 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   if (Object.keys(budget).length > 0) options.spec.budget = budget;
   if (onceMarker !== undefined) {
     const label = labels.at(0);
-    if (label === undefined) throw new Error(onceNeedsLabel(chart ? "chart" : "add"));
+    if (label === undefined) throw new Error(onceNeedsLabel(verb));
     options.once = { marker: onceMarker, label };
   }
-  if (options.dryRun === true && options.once === undefined) throw new Error(dryRunNeedsOnce(chart ? "chart" : "add"));
+  if (options.dryRun === true && options.once === undefined) throw new Error(dryRunNeedsOnce(verb));
   if (options.spec.title === undefined) {
     throw new Error("soma graph add is missing required option: --title.");
   }

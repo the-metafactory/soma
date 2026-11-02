@@ -760,6 +760,9 @@ soma graph chart ... [--serves G<n>] # create a typed graph root; GitLab require
                                    # the last body line ("existing": false).
                                    # --dry-run prints {"found":true,"repo","node",
                                    # "parent"} or {"found":false} and writes nothing.
+                                   # Lists, then creates, like add: two concurrent
+                                   # callers can both chart, and the next --once then
+                                   # refuses with once-ambiguous.
 soma graph close <node>            # runs declared probes; refuses a hollow close;
                                    # refuses an already-closed node, --dry-run too;
                                    # --dry-run lists command probes without running
