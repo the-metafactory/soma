@@ -7,7 +7,7 @@ const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma"
 const MARKER = "<!-- ranger:intake discord=42 -->";
 const LABEL = "ranger:principal-intake";
 
-function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], parents: Record<string, string> = {}, attachFails = false, readFails = false) {
+function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], { parents = {}, attachFails = false, readFails = false }: { parents?: Record<string, string>; attachFails?: boolean; readFails?: boolean } = {}) {
   const created: CreateNodeSpec[] = [];
   const listedLabels: string[] = [];
   const listedAuthors: string[] = [];
@@ -87,7 +87,7 @@ test("the marker is the whole body when none is given, and is not appended twice
 });
 
 test("one marked node: returns it with its actual parent and creates nothing", async () => {
-  const fx = fixture([{ id: "77", author: "ivy-bot", body: `words\r\n\r\n${MARKER}\r\n` }], { "77": "12" });
+  const fx = fixture([{ id: "77", author: "ivy-bot", body: `words\r\n\r\n${MARKER}\r\n` }], { parents: { "77": "12" } });
   const out = JSON.parse(await fx.run([...once, "--json"])) as Record<string, unknown>;
   expect(out).toEqual({ repo: "the-metafactory/soma", node: "77", parent: "12", blockedBy: [], existing: true });
   expect(await fx.run(once)).toBe(`Node 77 already carries ${MARKER} and sits under 12 (the-metafactory/soma); nothing new filed.`);
@@ -104,7 +104,7 @@ test("one marked unattached node, left by a failed add: a retry attaches it unde
 });
 
 test("a retry that cannot attach the found node fails instead of reporting it filed", async () => {
-  const fx = fixture([{ id: "77", author: "ivy-bot", body: MARKER }], {}, true);
+  const fx = fixture([{ id: "77", author: "ivy-bot", body: MARKER }], { attachFails: true });
   const refused = await fx.failure([...once, "--json"]);
   expect(refused.exitCode).toBe(1);
   expect(JSON.parse(refused.message)).toMatchObject({ node: "77", parent: null, existing: true, attached: false, attachError: expect.stringContaining("502") });
@@ -184,7 +184,7 @@ test("GitHub label listing rejects a failed read and a label it cannot express",
 const dryRun = [...once, "--dry-run", "--json"];
 
 test("--dry-run reports the marked node with its parent and writes nothing", async () => {
-  const fx = fixture([{ id: "77", author: "ivy-bot", body: `words\n\n${MARKER}` }], { "77": "12" });
+  const fx = fixture([{ id: "77", author: "ivy-bot", body: `words\n\n${MARKER}` }], { parents: { "77": "12" } });
   expect(JSON.parse(await fx.run([...dryRun, "--blocked-by", "40"]))).toEqual({ found: true, repo: "the-metafactory/soma", node: "77", parent: "12" });
   expect(await fx.run([...once, "--dry-run"])).toBe(`Node 77 carries ${MARKER} and sits under 12 (the-metafactory/soma); nothing filed.`);
   expect(fx.listedLabels).toEqual([LABEL, LABEL]);
@@ -233,7 +233,7 @@ test("--dry-run whose listing fails exits non-zero instead of reporting found fa
     expect(refused.message).not.toContain("found");
     expect(fx.created).toEqual([]);
   }
-  const unreadable = fixture([{ id: "77", author: "ivy-bot", body: MARKER }], {}, false, true);
+  const unreadable = fixture([{ id: "77", author: "ivy-bot", body: MARKER }], { readFails: true });
   const refused = await unreadable.failure(dryRun);
   expect(refused.exitCode).toBe(1);
   expect(refused.message).toContain("node 77");

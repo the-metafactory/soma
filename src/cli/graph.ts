@@ -1298,7 +1298,7 @@ async function finishOnceNode(graph: WorkGraph, repo: RepoRef, found: string, ta
 async function reportOnceNode(store: GraphStore, repo: RepoRef, once: { marker: string; label: string }, json: boolean): Promise<string> {
   const found = await findOnceNode(store, once.label, once.marker, json);
   if (found === undefined) {
-    return json ? JSON.stringify({ found: false }) : `No node under ${once.label} by you carries ${once.marker} (${displayRepo(repo)}); nothing filed.`;
+    return json ? JSON.stringify({ found: false }, null, 2) : `No node under ${once.label} by you carries ${once.marker} (${displayRepo(repo)}); nothing filed.`;
   }
   let parent: string | null;
   try {
