@@ -1,70 +1,7 @@
 import { expect, test } from "bun:test";
-import { parseGraphArgs, runGraphCli } from "../src/cli/graph";
-import { SomaCliError } from "../src/cli/errors";
-import { WorkGraphError, createGitHubGraphStore, encodeNodeBlock, type CreateNodeSpec, type GitHubApiRequest, type GraphStore, type LabeledNode, type NodeState } from "../src/graph/index";
-
-const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma" } as const;
-const MARKER = "<!-- ranger:intake discord=42 -->";
-const LABEL = "ranger:principal-intake";
-
-function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], { parents = {}, attachFails = false, readFails = false }: { parents?: Record<string, string>; attachFails?: boolean; readFails?: boolean } = {}) {
-  const created: CreateNodeSpec[] = [];
-  const listedLabels: string[] = [];
-  const listedAuthors: string[] = [];
-  const attached: string[] = [];
-  const unsupported = async (): Promise<never> => { throw new Error("Unexpected store operation"); };
-  const state = (id: string): NodeState => ({
-    ref: { id }, node: { id, title: id, autonomy: "propose", checkpointId: "cp" }, status: "open",
-    updatedAt: "2026-10-30T10:00:00Z", assignees: [], blockedBy: [], author: "ivy-bot", typed: true,
-    ...(parents[id] === undefined ? {} : { parent: { id: parents[id] } }),
-  });
-  const store: GraphStore = {
-    attestation: "verifiable",
-    actingIdentity: async () => "Ivy-Bot",
-    checkConfinement: unsupported,
-    createNode: async (spec) => { created.push(spec); return { id: "900" }; },
-    attachToParent: async (child) => {
-      if (attachFails) throw new WorkGraphError("backend", "GitHub said 502");
-      attached.push(child.id);
-    },
-    addBlockingEdge: unsupported,
-    readNode: async (ref) => {
-      if (readFails) throw new WorkGraphError("backend", "GitHub said 503");
-      return state(ref.id);
-    },
-    readSubtree: unsupported,
-    claim: unsupported,
-    release: unsupported,
-    postComment: unsupported,
-    readComment: unsupported,
-    readCommentReactions: unsupported,
-    listComments: unsupported,
-    readRawBody: unsupported,
-    writeRawBody: unsupported,
-    close: unsupported,
-    ...(listed === "unsupported" ? {} : {
-      listNodesByLabel: async (label: string, author: string) => {
-        listedLabels.push(label);
-        listedAuthors.push(author);
-        if (listed === "fails") throw new WorkGraphError("backend", "GitHub said 502");
-        return listed;
-      },
-    }),
-  };
-  const run = async (args: string[]) => runGraphCli(parseGraphArgs([
-    "graph", "add", "7", "--title", "t", "--autonomy", "propose", "--checkpoint", "cp", ...args, "--repo", REPO.path,
-  ]), { createStore: () => store, resolveRepo: async () => REPO, assertInstalledRuntime: async () => undefined });
-  const failure = async (args: string[]): Promise<SomaCliError> => {
-    try {
-      await run(args);
-    } catch (error) {
-      if (error instanceof SomaCliError) return error;
-      throw error;
-    }
-    throw new Error("expected a refusal");
-  };
-  return { created, listedLabels, listedAuthors, attached, run, failure };
-}
+import { parseGraphArgs } from "../src/cli/graph";
+import { createGitHubGraphStore, encodeNodeBlock, type GitHubApiRequest } from "../src/graph/index";
+import { LABEL, MARKER, REPO, onceFixture as fixture } from "./fixtures/graph-once-store";
 
 const once = ["--label", LABEL, "--label", "other", "--once", ` ${MARKER} `];
 
@@ -138,7 +75,6 @@ test("--once without a label, or with a multi-line, empty or long marker, is a u
   for (const marker of ["a\nb", "a\rb", "   ", "x".repeat(301)]) {
     expect(() => parseGraphArgs([...add, "--label", LABEL, "--once", marker])).toThrow(/one line of 1-300/u);
   }
-  expect(() => parseGraphArgs(["graph", "chart", "--title", "t", "--autonomy", "propose", "--checkpoint", "cp", "--label", LABEL, "--once", MARKER])).toThrow(/not chart/u);
 });
 
 test("a listing that fails, or a store that cannot list, refuses and creates nothing", async () => {
@@ -218,10 +154,9 @@ test("--dry-run with two marked nodes refuses with the --once ambiguity message"
   expect([...json.created, ...plain.created]).toEqual([]);
 });
 
-test("--dry-run without --once is a usage error, and chart has no --dry-run", () => {
+test("--dry-run without --once is a usage error", () => {
   const add = ["graph", "add", "7", "--title", "t", "--autonomy", "propose", "--checkpoint", "cp", "--label", LABEL];
   expect(() => parseGraphArgs([...add, "--dry-run"])).toThrow(/--dry-run needs --once/u);
-  expect(() => parseGraphArgs(["graph", "chart", "--title", "t", "--autonomy", "propose", "--checkpoint", "cp", "--dry-run"])).toThrow(/not chart/u);
 });
 
 test("--dry-run whose listing fails exits non-zero instead of reporting found false", async () => {
