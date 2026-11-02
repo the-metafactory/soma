@@ -372,6 +372,15 @@ function isFreeStanding(text: string, index: number, end: number): boolean {
   return text[index - 1] !== WORD_JOINER && text[end] !== WORD_JOINER;
 }
 
+/** The first match of the global `pattern` in `text` that is a word of its own: `set-policy` names a verb, not a policy. */
+function firstFreeStanding(text: string, pattern: RegExp): RegExpExecArray | undefined {
+  pattern.lastIndex = 0;
+  for (let hit = pattern.exec(text); hit !== null; hit = pattern.exec(text)) {
+    if (isFreeStanding(text, hit.index, hit.index + hit[0].length)) return hit;
+  }
+  return undefined;
+}
+
 /**
  * Find `verbPattern` (bare forms only, free-standing, in request position)
  * followed by `targetPattern` within `window` chars **of the same clause**,
@@ -387,7 +396,7 @@ function findUnnegatedRequest(
   window = 60,
 ): string | undefined {
   const verb = new RegExp(verbPattern.source, "giu");
-  const target = new RegExp(targetPattern.source, "iu");
+  const target = new RegExp(targetPattern.source, "giu");
   for (let m = verb.exec(text); m !== null; m = verb.exec(text)) {
     const end = m.index + m[0].length;
     if (!isFreeStanding(text, m.index, end)) continue;
@@ -395,7 +404,7 @@ function findUnnegatedRequest(
     const lookahead = text.slice(m.index, end + window);
     const boundary = lookahead.search(CLAUSE_END);
     const sameClause = boundary === -1 ? lookahead : lookahead.slice(0, boundary);
-    const hit = target.exec(sameClause);
+    const hit = firstFreeStanding(sameClause, target);
     // Position is the costly check, so it runs only once a target is in reach.
     if (!hit || !inRequestPosition(text, m.index)) continue;
     return sameClause.slice(0, hit.index + hit[0].length).replace(/\s+/gu, " ");
