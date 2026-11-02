@@ -7,7 +7,7 @@ const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma"
 const MARKER = "<!-- ranger:intake discord=42 -->";
 const LABEL = "ranger:principal-intake";
 
-function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], parents: Record<string, string> = {}, attachFails = false) {
+function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], parents: Record<string, string> = {}, attachFails = false, readFails = false) {
   const created: CreateNodeSpec[] = [];
   const listedLabels: string[] = [];
   const listedAuthors: string[] = [];
@@ -28,7 +28,10 @@ function fixture(listed: LabeledNode[] | "unsupported" | "fails" = [], parents: 
       attached.push(child.id);
     },
     addBlockingEdge: unsupported,
-    readNode: async (ref) => state(ref.id),
+    readNode: async (ref) => {
+      if (readFails) throw new WorkGraphError("backend", "GitHub said 503");
+      return state(ref.id);
+    },
     readSubtree: unsupported,
     claim: unsupported,
     release: unsupported,
@@ -176,4 +179,63 @@ test("GitHub label listing rejects a failed read and a label it cannot express",
   await expect(store.listNodesByLabel?.(LABEL, "ivy-bot")).rejects.toThrow(/HTTP 502/u);
   await expect(store.listNodesByLabel?.("a,b", "ivy-bot")).rejects.toThrow(/without commas/u);
   await expect(store.listNodesByLabel?.(LABEL, " ")).rejects.toThrow(/author is empty/u);
+});
+
+const dryRun = [...once, "--dry-run", "--json"];
+
+test("--dry-run reports the marked node with its parent and writes nothing", async () => {
+  const fx = fixture([{ id: "77", author: "ivy-bot", body: `words\n\n${MARKER}` }], { "77": "12" });
+  expect(JSON.parse(await fx.run([...dryRun, "--blocked-by", "40"]))).toEqual({ found: true, repo: "the-metafactory/soma", node: "77", parent: "12" });
+  expect(await fx.run([...once, "--dry-run"])).toBe(`Node 77 carries ${MARKER} and sits under 12 (the-metafactory/soma); nothing filed.`);
+  expect(fx.listedLabels).toEqual([LABEL, LABEL]);
+  expect(fx.listedAuthors).toEqual(["Ivy-Bot", "Ivy-Bot"]);
+  expect(fx.created).toEqual([]);
+  expect(fx.attached).toEqual([]);
+});
+
+test("--dry-run on an unattached marked node says parent null and does not attach it", async () => {
+  const fx = fixture([{ id: "77", author: "ivy-bot", body: MARKER }]);
+  expect(JSON.parse(await fx.run(dryRun))).toEqual({ found: true, repo: "the-metafactory/soma", node: "77", parent: null });
+  expect(fx.created).toEqual([]);
+  expect(fx.attached).toEqual([]);
+});
+
+test("--dry-run with no marked node prints found false and writes nothing", async () => {
+  const fx = fixture([{ id: "1", author: "intruder", body: MARKER }, { id: "2", author: "ivy-bot", body: `${MARKER}\nmore` }]);
+  expect(JSON.parse(await fx.run(dryRun))).toEqual({ found: false });
+  expect(fx.created).toEqual([]);
+  expect(fx.attached).toEqual([]);
+});
+
+test("--dry-run with two marked nodes refuses with the --once ambiguity message", async () => {
+  const listed = [{ id: "9", author: "ivy-bot", body: MARKER }, { id: "10", author: "ivy-bot", body: `x\n${MARKER}` }];
+  const json = fixture(listed);
+  const refused = await json.failure(dryRun);
+  expect(refused.exitCode).toBe(1);
+  expect(JSON.parse(refused.message)).toEqual({ error: "once-ambiguous", marker: MARKER, nodes: ["9", "10"] });
+  const plain = fixture(listed);
+  expect((await plain.failure([...once, "--dry-run"])).message).toBe(`nodes #9, #10 all carry ${MARKER}; nothing more is filed`);
+  expect([...json.created, ...plain.created]).toEqual([]);
+});
+
+test("--dry-run without --once is a usage error, and chart has no --dry-run", () => {
+  const add = ["graph", "add", "7", "--title", "t", "--autonomy", "propose", "--checkpoint", "cp", "--label", LABEL];
+  expect(() => parseGraphArgs([...add, "--dry-run"])).toThrow(/--dry-run needs --once/u);
+  expect(() => parseGraphArgs(["graph", "chart", "--title", "t", "--autonomy", "propose", "--checkpoint", "cp", "--dry-run"])).toThrow(/not chart/u);
+});
+
+test("--dry-run whose listing fails exits non-zero instead of reporting found false", async () => {
+  for (const listed of ["fails", "unsupported"] as const) {
+    const fx = fixture(listed);
+    const refused = await fx.failure(dryRun);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.message).toContain("--once refused");
+    expect(refused.message).not.toContain("found");
+    expect(fx.created).toEqual([]);
+  }
+  const unreadable = fixture([{ id: "77", author: "ivy-bot", body: MARKER }], {}, false, true);
+  const refused = await unreadable.failure(dryRun);
+  expect(refused.exitCode).toBe(1);
+  expect(refused.message).toContain("node 77");
+  expect(refused.message).toContain("503");
 });
