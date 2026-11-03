@@ -174,23 +174,67 @@ test("runtime command tuning rejects the watcher false-positive classes and reco
   expect(toolNudgeLines(home, "functions.wait", { ids: ["subagent-id"] }).join("\n")).toContain("own-delegated-work.md");
 });
 
-const installs = [
-  { substrate: "claude-code", install: installSomaForClaudeCode, dir: ".claude" },
-  { substrate: "codex", install: installSomaForCodex, dir: ".codex" },
-  { substrate: "pi-dev", install: installSomaForPiDev, dir: ".pi" },
-];
+type RunNudge = (tool: string, command: string) => Promise<string>;
+interface NudgeRunner {
+  run: RunNudge;
+  checkMissingRuntime?: (tool: string) => Promise<void>;
+}
+interface RunnerContext {
+  homeDir: string;
+  substrateHome: string;
+  file: string;
+}
 
-for (const { substrate, install, dir } of installs) {
-  test(`${substrate}: real install and emitted hook consume pack data, edits, missing targets and removal`, async () => {
-    const homeDir = await tempHome();
-    const somaHome = join(homeDir, ".soma");
-    const file = await putSkill(somaHome, "benchmark-checklist", BENCHMARK.replace("\n---\n", "\n  - tool: Read\n    text: 'Read nudge: {path}'\n---\n"));
-    const options = { homeDir, runtimeSourceRoot: STUB_RUNTIME_SOURCE, modeClassifier: false, policyGuard: false, preCompact: false, statusLine: false, feedbackCapture: false };
-    await install(options);
-    const substrateHome = join(homeDir, dir);
-    let run: (tool: string, command: string) => Promise<string>;
-    let runtimeMissing = false;
-    if (substrate === "pi-dev") {
+async function makeHookRun(options: {
+  substrateHome: string;
+  hookFile: string;
+  configFile: string;
+  action: string;
+  commandField: string;
+  missingRuntimeWarning?: string;
+}): Promise<NudgeRunner> {
+  const { substrateHome, hookFile, configFile, action, commandField, missingRuntimeWarning } = options;
+  const hook = join(substrateHome, hookFile);
+  const config = JSON.parse(await readFile(join(substrateHome, configFile), "utf8"));
+  const registration = config.hooks.PostToolUse.flatMap((group: { hooks: { command: string }[] }) => group.hooks)
+    .find((entry: { command: string }) => entry.command.endsWith(` ${action}`));
+  expect(registration).toBeDefined();
+  let runtimeMissing = false;
+  const run: RunNudge = async (tool, command) => {
+    const input = { tool_name: tool, tool_input: { [commandField]: command } };
+    const result = spawnSync(process.execPath, [hook, action], { input: JSON.stringify(input), encoding: "utf8" });
+    expect(result.status).toBe(0);
+    if (runtimeMissing && missingRuntimeWarning) expect(result.stderr).toContain(missingRuntimeWarning);
+    else expect(result.stderr).toBe("");
+    return result.stdout.trim() ? JSON.parse(result.stdout).hookSpecificOutput.additionalContext : "";
+  };
+  return {
+    run,
+    checkMissingRuntime: async (tool) => {
+      runtimeMissing = true;
+      expect(await run(tool, "git commit -m x")).toBe("");
+    },
+  };
+}
+
+const installs = [
+  {
+    substrate: "claude-code", install: installSomaForClaudeCode, dir: ".claude", shell: "Bash", delegatedTool: "Agent",
+    makeRun: ({ substrateHome }: RunnerContext) => makeHookRun({
+      substrateHome, hookFile: "hooks/soma/soma-claude-code-hook.mjs", configFile: "settings.json",
+      action: "principle-nudge", commandField: "command",
+    }),
+  },
+  {
+    substrate: "codex", install: installSomaForCodex, dir: ".codex", shell: "functions.exec_command", delegatedTool: "wait_agent",
+    makeRun: ({ substrateHome }: RunnerContext) => makeHookRun({
+      substrateHome, hookFile: "hooks/soma-lifecycle.mjs", configFile: "hooks.json",
+      action: "post-tool-use", commandField: "cmd", missingRuntimeWarning: "Soma tool nudge failed:",
+    }),
+  },
+  {
+    substrate: "pi-dev", install: installSomaForPiDev, dir: ".pi", shell: "bash", delegatedTool: "Agent",
+    makeRun: async ({ homeDir, substrateHome, file }: RunnerContext): Promise<NudgeRunner> => {
       const extension = join(substrateHome, "agent/extensions/soma-routing.ts");
       const module = await import(pathToFileURL(extension).href);
       const nodeModule = join(homeDir, "pi-routing-node.mjs");
@@ -211,36 +255,33 @@ for (const { substrate, install, dir } of installs) {
       type Handler = (event: Event) => Promise<{ content: { type: string; text: string }[] } | undefined>;
       let handler: Handler | undefined;
       module.default({ on: (name: string, callback: Handler) => { expect(name).toBe("tool_result"); handler = callback; } });
-      run = async (tool, command) => {
+      const run: RunNudge = async (tool, command) => {
         if (!handler) throw new Error("pi tool_result handler was not registered");
         const result = await handler({ toolName: tool, input: { command }, content: [{ type: "text", text: "ORIGINAL TOOL OUTPUT" }] });
         if (result === undefined) return "";
         expect(result.content[0]?.text).toBe("ORIGINAL TOOL OUTPUT");
         return result.content.slice(1).map(({ text }) => text).join("\n");
       };
-    } else {
-      const isCodex = substrate === "codex";
-      const hook = join(substrateHome, isCodex ? "hooks/soma-lifecycle.mjs" : "hooks/soma/soma-claude-code-hook.mjs");
-      const config = JSON.parse(await readFile(join(substrateHome, isCodex ? "hooks.json" : "settings.json"), "utf8"));
-      const registration = config.hooks.PostToolUse.flatMap((group: { hooks: { command: string }[] }) => group.hooks)
-        .find((entry: { command: string }) => entry.command.endsWith(isCodex ? " post-tool-use" : " principle-nudge"));
-      expect(registration).toBeDefined();
-      run = async (tool, command) => {
-        const input = isCodex ? { tool_name: tool, tool_input: { cmd: command } } : { tool_name: tool, tool_input: { command } };
-        const result = spawnSync(process.execPath, [hook, isCodex ? "post-tool-use" : "principle-nudge"], { input: JSON.stringify(input), encoding: "utf8" });
-        expect(result.status).toBe(0);
-        if (runtimeMissing && isCodex) expect(result.stderr).toContain("Soma tool nudge failed:");
-        else expect(result.stderr).toBe("");
-        return result.stdout.trim() ? JSON.parse(result.stdout).hookSpecificOutput.additionalContext : "";
-      };
-    }
-    const shell = substrate === "codex" ? "functions.exec_command" : substrate === "pi-dev" ? "bash" : "Bash";
+      // The pi missing-runtime case is covered above in a fresh Node process.
+      return { run };
+    },
+  },
+];
+
+for (const { substrate, install, dir, shell, delegatedTool, makeRun } of installs) {
+  test(`${substrate}: real install and emitted hook consume pack data, edits, missing targets and removal`, async () => {
+    const homeDir = await tempHome();
+    const somaHome = join(homeDir, ".soma");
+    const file = await putSkill(somaHome, "benchmark-checklist", BENCHMARK.replace("\n---\n", "\n  - tool: Read\n    text: 'Read nudge: {path}'\n---\n"));
+    const options = { homeDir, runtimeSourceRoot: STUB_RUNTIME_SOURCE, modeClassifier: false, policyGuard: false, preCompact: false, statusLine: false, feedbackCapture: false };
+    await install(options);
+    const { run, checkMissingRuntime } = await makeRun({ homeDir, substrateHome: join(homeDir, dir), file });
     expect(await run(shell, "hyperfine 'bun a.ts'")).toContain(file);
     expect(await run("Read", "")).toContain("Read nudge:");
     expect(await run(shell, 'rg "hyperfine" skills/')).toBe("");
     expect(await run(shell, "git -C repo commit -m x")).toContain("verify-before-claiming.md");
     expect(await run(shell, "gh pr view 12 --comments")).toContain("weigh-review-findings-on-merit.md");
-    expect(await run(substrate === "codex" ? "wait_agent" : "Agent", "")).toContain("own-delegated-work.md");
+    expect(await run(delegatedTool, "")).toContain("own-delegated-work.md");
 
     await writeFile(file, BENCHMARK.replace("hyperfine", "measure").replace("Benchmark checklist:", "UPDATED:"));
     await install(options);
@@ -266,9 +307,7 @@ for (const { substrate, install, dir } of installs) {
     expect(await run(shell, "git commit -m x")).toContain("verify-before-claiming.md");
     expect(await run(shell, "gh pr view 12")).toContain("weigh-review-findings-on-merit.md");
     expect(await run("Agent", "")).toContain("own-delegated-work.md");
-    // The pi missing-runtime case is covered above in a fresh Node process.
     await rm(join(somaHome, "runtime/tool-nudges.mjs"));
-    runtimeMissing = true;
-    if (substrate !== "pi-dev") expect(await run(shell, "git commit -m x")).toBe("");
+    await checkMissingRuntime?.(shell);
   }, 60000);
 }
