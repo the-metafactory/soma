@@ -1,3 +1,4 @@
+import { installToolNudges } from "../shared/tool-nudges";
 import { CODEX_LIFECYCLE_CONFIG_PATH } from "./projection-constants";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -115,6 +116,7 @@ export const codexInstallSpec: SubstrateInstallSpec<"codex"> = {
     somaRepoPathPath: "memories/soma/soma-repo.txt",
   },
   postProjection: [
+    { name: "tool-nudges", run: installToolNudges },
     {
       name: "codex-agents-import",
       run: async ({ substrateHome }) => configureCodexAgentsImport(substrateHome),
