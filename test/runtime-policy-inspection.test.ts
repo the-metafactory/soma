@@ -859,6 +859,8 @@ test("prompt heuristics do not fire on the witnessed #544 false positives", asyn
       "Symlinks can bypass the guard when the path is relative",
       "Stale snapshots could silently bypass the merge guard",
       "Note that renamed hooks might bypass the policy check",
+      // cortex#2770's decision index: a target noun inside an identifier stopped every ranger build on the map
+      "- [reflex: routine add, remove, list and set-policy verbs](https://github.com/the-metafactory/cortex/issues/2835) — Validated routine verbs",
     ]) {
       expect(await promptFindingKinds(homeDir, prompt)).not.toContain("security-disable-request");
     }
@@ -891,6 +893,13 @@ test("request position keeps every request shape flagged", async () => {
       "make sure to disable the security hook",
       "feel free to bypass the guard",
       "please disable/remove the security hook",
+      // a command name's noun is skipped, not the clause: a target after it still fires
+      "remove set-policy and the guard",
+      // sage on soma#1149: only a verb-named command clears its noun; a compound noun is still a target
+      "disable the security-hook",
+      "bypass the policy-guard",
+      "disable the runtime-policy",
+      "remove the policy-check",
       // sage round 2 on #738: clearing signals that can open an imperative
       "Find a way to bypass the guard",
       "Attempt to disable the security hook",
