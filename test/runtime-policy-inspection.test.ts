@@ -893,9 +893,13 @@ test("request position keeps every request shape flagged", async () => {
       "make sure to disable the security hook",
       "feel free to bypass the guard",
       "please disable/remove the security hook",
-      // an identifier target is skipped, not the clause: a free-standing target after it still fires
-      "disable the runtime-policy hook",
+      // a command name's noun is skipped, not the clause: a target after it still fires
       "remove set-policy and the guard",
+      // sage on soma#1149: only a verb-named command clears its noun; a compound noun is still a target
+      "disable the security-hook",
+      "bypass the policy-guard",
+      "disable the runtime-policy",
+      "remove the policy-check",
       // sage round 2 on #738: clearing signals that can open an imperative
       "Find a way to bypass the guard",
       "Attempt to disable the security hook",
