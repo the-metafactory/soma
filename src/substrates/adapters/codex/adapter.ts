@@ -266,7 +266,7 @@ function renderCodexHooksJson(): string {
             matcher: ".*",
             hooks: [{
               type: "command",
-              command: "bun ~/.codex/hooks/soma-lifecycle.mjs post_tool_use",
+              command: "bun ~/.codex/hooks/soma-lifecycle.mjs post-tool-use",
               timeout: 30,
               statusMessage: "Checking Soma tool nudges",
             }],

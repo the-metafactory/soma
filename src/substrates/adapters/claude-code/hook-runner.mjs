@@ -444,10 +444,9 @@ async function writeback(config, input, kind, summary, source) {
 }
 
 async function nudge(config, input) {
-  const { toolNudgeLines } = await import(pathToFileURL(join(config.somaHome, "runtime/tool-nudges.mjs")).href);
-  const lines = toolNudgeLines(config.somaHome, input.tool_name, input.tool_input);
-  if (lines.length === 0) return;
-  console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: lines.join("\n") } }));
+  const { postToolUseNudgeOutput } = await import(pathToFileURL(join(config.somaHome, "runtime/tool-nudges.mjs")).href);
+  const output = postToolUseNudgeOutput(config.somaHome, input.tool_name, input.tool_input);
+  if (output) console.log(output);
 }
 
 async function main() {

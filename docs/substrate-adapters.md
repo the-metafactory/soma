@@ -485,9 +485,12 @@ Tool nudges route on actions in Claude Code, Codex, and pi-dev. Each
 collects the installed skills' declarations into
 `<soma-home>/runtime/tool-nudges.json`. The shared Node-compatible evaluator is
 `runtime/tool-nudges.mjs`. Claude Code's `principle-nudge` PostToolUse group,
-Codex's `post_tool_use` lifecycle action, and pi's `soma-routing.ts`
+Codex's `post-tool-use` lifecycle action, and pi's `soma-routing.ts`
 `tool_result` handler read the same list. Claude Code and Codex inject additional
 context; pi appends text to the tool result and preserves its original content.
+The shared runtime belongs to the Soma home rather than a substrate projection.
+If it is missing or broken, nudge hooks leave tool results unchanged; reinstalling
+Soma restores the runtime.
 
 A skill declares `nudge:` beside `route:` in its SKILL.md frontmatter:
 
@@ -512,15 +515,21 @@ executed by another program, such as `python -c` or `bash -c` in shell text.
 `text` is required. `{path}` expands to the declaring skill's installed SKILL.md.
 A rule whose target file is absent prints nothing. Reinstallation replaces the
 list, so editing a declaration or removing its skill changes every substrate's
-nudges. Invalid declarations reject installation before replacing the existing
-list. A skill needs no catalog entry or `route:` declaration to supply nudges.
+nudges. Unknown declaration fields are ignored. Invalid declarations warn and
+retain that installed skill's previous rules (or none on first installation);
+other skills still update. Removing `nudge:` or uninstalling a skill removes its
+rules on reinstallation. A skill needs no catalog entry or `route:` declaration
+to supply nudges.
 
 The three principle rules remain in Soma: `own-delegated-work`,
 `weigh-review-findings-on-merit`, and `verify-before-claiming`. Skill-specific
 rules come only from installed skills. Soma includes no benchmark rule.
-The two-day routing watch from 2026-10-29 supplied the command-position tuning:
-quoted examples, heredoc bodies, and filenames such as `benchmarks/` do not
-trigger a rule; `git -C <directory> commit` does.
+Command-position tuning excludes quoted examples, heredoc bodies, and filenames
+such as `benchmarks/`; `git -C <directory> commit` triggers a rule. The
+[regression cases](../test/substrates/tool-nudges.test.ts) encode these classes
+from the private 2026-10-29 routing-watch report, stored at
+`<soma-home>/runtime/poteto-routing-watch/last-message.md`. The raw report
+contains session text and is not shipped in this repository.
 
 For the pstack A/B protocol, node #1105 changes action routing only: compare an
 installed skill's declaration before and after its removal and reinstallation,

@@ -114,3 +114,10 @@ export function toolNudgeLines(somaHome, tool, input) {
     return installed(path) ? [rule.text.replaceAll("{path}", path)] : [];
   });
 }
+
+export function postToolUseNudgeOutput(somaHome, tool, input) {
+  const lines = toolNudgeLines(somaHome, tool, input);
+  return lines.length === 0 ? "" : JSON.stringify({
+    hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: lines.join("\n") },
+  });
+}

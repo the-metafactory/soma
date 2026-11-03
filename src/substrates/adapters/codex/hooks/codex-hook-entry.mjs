@@ -446,10 +446,10 @@ function handleLifecycleEvent(config, event, input) {
 }
 
 export function runCodexHook(config, event = process.argv[2], input = readHookInput()) {
-  if (event === "post_tool_use" || event === "post-tool-use") {
-    return import(pathToFileURL(join(config.somaHome, "runtime/tool-nudges.mjs")).href).then(({ toolNudgeLines }) => {
-      const lines = toolNudgeLines(config.somaHome, input.tool_name ?? input.toolName, input.tool_input ?? input.toolInput);
-      if (lines.length > 0) console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: lines.join("\n") } }));
+  if (event === "post-tool-use") {
+    return import(pathToFileURL(join(config.somaHome, "runtime/tool-nudges.mjs")).href).then(({ postToolUseNudgeOutput }) => {
+      const output = postToolUseNudgeOutput(config.somaHome, input.tool_name ?? input.toolName, input.tool_input ?? input.toolInput);
+      if (output) console.log(output);
     }).catch((error) => {
       process.stderr.write(`Soma tool nudge failed: ${error instanceof Error ? error.message : String(error)}\n`);
     });

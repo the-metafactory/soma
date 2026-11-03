@@ -1,10 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { installToolNudges, readToolNudges, skillNudges } from "../../src/substrates/adapters/shared/tool-nudges";
+import { renderSomaRoutingExtension } from "../../src/substrates/adapters/pi-dev/extensions/soma-routing";
 import { STUB_RUNTIME_SOURCE } from "../fixtures/stub-runtime";
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForPiDev } from "../fixtures/shared-runtime";
 
@@ -47,16 +48,83 @@ test("skill nudges accept flow and block YAML, CRLF, multiple rules and quoted r
   expect(skillNudges("# no frontmatter", "x")).toEqual([]);
 });
 
-test("invalid declarations refuse installation instead of silently dropping rules", async () => {
-  for (const value of ['[{tool: Bash, command: "[", text: hi}]', '[{tool: Bash}]', '[{tool: Bash, text: hi, file: /outside}]', 'wrong']) {
-    expect(() => skillNudges(`---\nnudge: ${value}\n---\n`, "skills/bad/SKILL.md")).toThrow("skills/bad/SKILL.md");
-  }
+test("additive nudge fields are ignored and cannot override the installed target", () => {
+  expect(skillNudges('---\nnudge: [{tool: Bash, text: hi, file: /outside, future: true}]\n---\n', "skills/pack/SKILL.md"))
+    .toEqual([{ tool: "Bash", text: "hi", file: "skills/pack/SKILL.md" }]);
+});
+
+test("invalid installed skills warn and retain only their own prior rules", async () => {
   const home = await tempHome();
+  const file = await putSkill(home, "benchmark-checklist");
+  const removed = await putSkill(home, "removed");
+  const edited = await putSkill(home, "edited");
   await installToolNudges({ somaHome: home });
-  const before = await readFile(join(home, "runtime/tool-nudges.json"), "utf8");
+  await rm(dirname(removed), { recursive: true });
+  await writeFile(edited, BENCHMARK.replace("Benchmark checklist:", "UPDATED:"));
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await putSkill(home, "new-invalid", '---\nnudge: wrong\n---\n');
+    for (const value of ['[{tool: Bash, command: "[", text: hi}]', '[{tool: Bash}]', 'wrong', '[broken']) {
+      await writeFile(file, `---\nnudge: ${value}\n---\n`);
+      await installToolNudges({ somaHome: home });
+      const rules = await readToolNudges(home);
+      expect(rules).toHaveLength(5);
+      expect(rules.find(({ file }) => file === "skills/benchmark-checklist/SKILL.md")?.text).toBe("Benchmark checklist: read {path}.");
+      expect(rules.find(({ file }) => file === "skills/edited/SKILL.md")?.text).toBe("UPDATED: read {path}.");
+      expect(warning.mock.calls.flat().join("\n")).toContain("skills/benchmark-checklist/SKILL.md");
+    }
+    await writeFile(file, "---\nname: benchmark-checklist\n---\n");
+    await installToolNudges({ somaHome: home });
+    expect(await readToolNudges(home)).toHaveLength(4);
+  } finally {
+    warning.mockRestore();
+  }
+});
+
+test("invalid new skill metadata installs without prior rules, including a corrupt prior cache", async () => {
+  const home = await tempHome();
   await putSkill(home, "bad", '---\nnudge: [{tool: Bash}]\n---\n');
-  await expect(installToolNudges({ somaHome: home })).rejects.toThrow("Invalid nudge declaration");
-  expect(await readFile(join(home, "runtime/tool-nudges.json"), "utf8")).toBe(before);
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await installToolNudges({ somaHome: home });
+    expect(await readToolNudges(home)).toHaveLength(3);
+    for (const content of ["bad JSON", '[{"tool":42}]']) {
+      await writeFile(join(home, "runtime/tool-nudges.json"), content);
+      await installToolNudges({ somaHome: home });
+      expect(await readToolNudges(home)).toHaveLength(3);
+    }
+    expect(warning.mock.calls.flat().join("\n")).toContain("skills/bad/SKILL.md");
+  } finally {
+    warning.mockRestore();
+  }
+});
+
+test("pi contains missing runtime, malformed JSON, and invalid rule failures", async () => {
+  const home = await tempHome();
+  const extension = join(home, "soma-routing.mjs");
+  await writeFile(extension, new Bun.Transpiler({ loader: "ts" }).transformSync(renderSomaRoutingExtension(home)));
+  const probe = `
+    import extension from ${JSON.stringify(pathToFileURL(extension).href)};
+    let handler;
+    extension({ on(name, callback) { handler = callback; } });
+    const event = { toolName: "bash", input: { command: "hyperfine x" }, content: [{type:"text",text:"ORIGINAL"}] };
+    const before = JSON.stringify(event);
+    const result = await handler(event);
+    if (result !== undefined || JSON.stringify(event) !== before) throw new Error("tool result changed");
+    console.log("preserved");
+  `;
+  const check = () => {
+    const result = spawnSync("node", ["--input-type=module", "-e", probe], { encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("preserved");
+    expect(result.stderr).toContain("Soma tool nudge failed:");
+  };
+  check();
+  await installToolNudges({ somaHome: home });
+  for (const content of ["invalid JSON", '[{"tool":42}]']) {
+    await writeFile(join(home, "runtime/tool-nudges.json"), content);
+    check();
+  }
 });
 
 test("a missing skills directory still yields exactly the three principle rules", async () => {
@@ -121,6 +189,7 @@ for (const { substrate, install, dir } of installs) {
     await install(options);
     const substrateHome = join(homeDir, dir);
     let run: (tool: string, command: string) => Promise<string>;
+    let runtimeMissing = false;
     if (substrate === "pi-dev") {
       const extension = join(substrateHome, "agent/extensions/soma-routing.ts");
       const module = await import(pathToFileURL(extension).href);
@@ -154,13 +223,14 @@ for (const { substrate, install, dir } of installs) {
       const hook = join(substrateHome, isCodex ? "hooks/soma-lifecycle.mjs" : "hooks/soma/soma-claude-code-hook.mjs");
       const config = JSON.parse(await readFile(join(substrateHome, isCodex ? "hooks.json" : "settings.json"), "utf8"));
       const registration = config.hooks.PostToolUse.flatMap((group: { hooks: { command: string }[] }) => group.hooks)
-        .find((entry: { command: string }) => entry.command.endsWith(isCodex ? " post_tool_use" : " principle-nudge"));
+        .find((entry: { command: string }) => entry.command.endsWith(isCodex ? " post-tool-use" : " principle-nudge"));
       expect(registration).toBeDefined();
       run = async (tool, command) => {
         const input = isCodex ? { tool_name: tool, tool_input: { cmd: command } } : { tool_name: tool, tool_input: { command } };
-        const result = spawnSync(process.execPath, [hook, isCodex ? "post_tool_use" : "principle-nudge"], { input: JSON.stringify(input), encoding: "utf8" });
+        const result = spawnSync(process.execPath, [hook, isCodex ? "post-tool-use" : "principle-nudge"], { input: JSON.stringify(input), encoding: "utf8" });
         expect(result.status).toBe(0);
-        expect(result.stderr).toBe("");
+        if (runtimeMissing && isCodex) expect(result.stderr).toContain("Soma tool nudge failed:");
+        else expect(result.stderr).toBe("");
         return result.stdout.trim() ? JSON.parse(result.stdout).hookSpecificOutput.additionalContext : "";
       };
     }
@@ -176,6 +246,15 @@ for (const { substrate, install, dir } of installs) {
     await install(options);
     expect(await run(shell, "hyperfine x")).toBe("");
     expect(await run(shell, "measure x")).toContain("UPDATED:");
+    await writeFile(file, '---\nnudge: [{tool: Bash}]\n---\n');
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await install(options);
+      expect(warning.mock.calls.flat().join("\n")).toContain("skills/benchmark-checklist/SKILL.md");
+      expect(await run(shell, "measure x")).toContain("UPDATED:");
+    } finally {
+      warning.mockRestore();
+    }
     await rm(file);
     expect(await run(shell, "measure x")).toBe("");
     await rm(dirname(file), { recursive: true });
@@ -187,5 +266,9 @@ for (const { substrate, install, dir } of installs) {
     expect(await run(shell, "git commit -m x")).toContain("verify-before-claiming.md");
     expect(await run(shell, "gh pr view 12")).toContain("weigh-review-findings-on-merit.md");
     expect(await run("Agent", "")).toContain("own-delegated-work.md");
+    // The pi missing-runtime case is covered above in a fresh Node process.
+    await rm(join(somaHome, "runtime/tool-nudges.mjs"));
+    runtimeMissing = true;
+    if (substrate !== "pi-dev") expect(await run(shell, "git commit -m x")).toBe("");
   }, 60000);
 }
