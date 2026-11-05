@@ -315,7 +315,7 @@ for (const fails of [false, true]) test(`real CLI consumes soma inference once a
   expect(result.exitCode).toBe(fails ? 1 : 0);
   const log = (await readFile(calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
   expect(log).toHaveLength(1);
-  expect(log[0].args).toEqual(["-p", "--model", "sonnet", "--allowedTools", "", "--hookTimeout", "1"]);
+  expect(log[0].args).toEqual(["-p", "--model", "sonnet", "--allowedTools", ""]);
   expect(log[0].prompt).toContain("Integration capture");
   const outputs = await readdir(join(f.deps.somaHome, "outputs"));
   expect(outputs).toHaveLength(1);

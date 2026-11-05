@@ -330,7 +330,7 @@ describe("goal announce CLI", () => {
     expect(JSON.parse(result.stdout.toString())).toEqual({ output: "soma:outputs/G5-2026-W42.md", fetched: [FEED] });
     const log = (await readFile(calls, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     expect(log).toHaveLength(2);
-    for (const call of log) expect(call.args).toEqual(["-p", "--model", "sonnet", "--allowedTools", "", "--hookTimeout", "1"]);
+    for (const call of log) expect(call.args).toEqual(["-p", "--model", "sonnet", "--allowedTools", ""]);
     expect((await readFile(f.output, "utf8")).match(/A short integration announcement/g)).toHaveLength(2);
   });
   test("missing, invalid or unknown arguments exit 2 without echoing values", async () => {

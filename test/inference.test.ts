@@ -243,8 +243,6 @@ test("Claude Code backend scrubs Anthropic env, writes prompt to stdin, and time
     "sonnet",
     "--allowedTools",
     "",
-    "--hookTimeout",
-    "1",
   ]);
   expect(launches[0]?.env?.ANTHROPIC_API_KEY).toBeUndefined();
   expect(launches[0]?.env?.ANTHROPIC_AUTH_TOKEN).toBeUndefined();

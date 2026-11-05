@@ -103,7 +103,7 @@ export class ClaudeCodeBackend implements InferenceBackend {
         "--setting-sources", "", "--settings", '{"disableAllHooks":true}',
         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
         "--system-prompt", "Return only the requested JSON. Do not use tools or retain the input.",
-      ] : ["--hookTimeout", "1"]),
+      ] : []),
     ], {
       stdin: promptStream(prompt),
       stdout: "pipe",
