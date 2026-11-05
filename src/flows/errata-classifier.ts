@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { PROPOSAL_KINDS, type ProposalKind } from "../core/index";
 
-export const ERRATA_TRIAGE_MODEL = "claude-haiku-4-5-20251001";
+export const ERRATA_TRIAGE_MODEL = "claude-sonnet-5-5";
 export const ERRATA_TRIAGE_SCHEMA = {
   type: "object",
   properties: {
