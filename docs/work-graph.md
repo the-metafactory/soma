@@ -731,7 +731,21 @@ soma graph add <root> ...          # create node (+ edges) — additive, structu
                                    # before the node is created; every edge is
                                    # written before the node is attached to its
                                    # parent, and an edge that still fails leaves
-                                   # it unattached, on no frontier (#740)
+                                   # it unattached, on no frontier (#740).
+                                   # --once <marker> (GitHub; needs --label): if one
+                                   # node under the first label, by the acting
+                                   # identity, has <marker> as its body's last line,
+                                   # files nothing and reports it ("existing": true);
+                                   # two such nodes, or a failed listing, refuse.
+                                   # Otherwise <marker> becomes the last body line.
+                                   # The guard lists, then creates: two concurrent
+                                   # callers can both file, and the next --once then
+                                   # refuses with once-ambiguous.
+                                   # --once <marker> --dry-run runs the same lookup
+                                   # and writes nothing: {"found":true,"repo","node",
+                                   # "parent"} (parent null when unattached) or
+                                   # {"found":false}; ambiguity and a failed read
+                                   # refuse as --once does. --dry-run needs --once.
 soma graph link <node> [--blocked-by <ref>]... [--parent <id>]
                                    # add blocking edges to an existing node, cycle
                                    # check included; an edge it has is skipped;
@@ -739,6 +753,16 @@ soma graph link <node> [--blocked-by <ref>]... [--parent <id>]
                                    # only once every edge landed (#740)
 soma graph chart ... [--serves G<n>] # create a typed graph root; GitLab requires
                                    # --home-project <group/project>
+                                   # --once <marker> [--dry-run] (GitHub; needs
+                                   # --label): the same lookup as add --once; a found
+                                   # root is printed with "existing": true and
+                                   # nothing is charted, otherwise <marker> becomes
+                                   # the last body line ("existing": false).
+                                   # --dry-run prints {"found":true,"repo","node",
+                                   # "parent"} or {"found":false} and writes nothing.
+                                   # Lists, then creates, like add: two concurrent
+                                   # callers can both chart, and the next --once then
+                                   # refuses with once-ambiguous.
 soma graph close <node>            # runs declared probes; refuses a hollow close;
                                    # refuses an already-closed node, --dry-run too;
                                    # --dry-run lists command probes without running
@@ -761,6 +785,10 @@ soma graph decisions <root>        # the map's decision index, DERIVED from clos
                                    # --write splices it into the map body between
                                    # <!-- soma:decisions:begin/end --> markers and
                                    # refuses when they are absent
+soma graph rule <node> --text <ruling>
+                                   # append a dated ruling to the node body under
+                                   # ## Rulings, before the typed block; also
+                                   # --text-file; append-only (cortex#2829)
 soma graph file-proposal <proposal_ref>
                                    # file the node a soma-home proposal file
                                    # describes; idempotent by a body marker
@@ -799,6 +827,22 @@ Without a scope, all existing findings remain. GitHub receipt scans read up to
 20 nodes' comments per request, with at most four batches in flight, following
 each node's pagination to completion. Stores without batch reads retain bounded
 individual reads; GitHub also falls back to these when GraphQL quota is exhausted.
+
+`soma graph rule <node> --text <ruling>` (or `--text-file <path>`) records
+the principal's ruling where a resumed worker reads it: walkers brief workers
+from the node body, never from issue comments (cortex#2826). The verb appends
+`- <YYYY-MM-DD HH:MM> (<acting login>): <ruling>` under a `## Rulings` section,
+creating the section just before the node's typed block when it is absent. The
+time is UTC. A multi-line ruling is one entry, its later lines indented two
+spaces. Rulings are append-only: earlier entries stay byte-identical, and no
+verb edits or deletes one. The verb refuses, and writes nothing, for a closed
+node, an empty ruling, a line that looks like a Markdown heading, a
+`<!-- soma:` marker, or a typed node whose raw body has no readable typed
+block. It writes through the store's raw-body path, then reads the body back
+and fails when it differs. The forge offers no conditional body write, so a
+body edit landing between the verb's read and its write is lost, as with
+`decisions --write`; the read-back only proves the verb's own bytes landed.
+`--json` prints `{ repo, node, ruling: { at, by } }`.
 
 `soma graph file-proposal <proposal_ref>` files the follow-up node a producer
 (Errata first) proposed and the principal approved (soma#903 D6, D9). cortex

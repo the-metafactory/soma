@@ -32,6 +32,7 @@ import {
   type CreateNodeOptions,
   type CreateNodeSpec,
   type GraphStore,
+  type LabeledNode,
   type GraphReadOptions,
   type NodeComment,
   type NodeRef,
@@ -849,6 +850,35 @@ class GitHubGraphStore implements GraphStore {
       }
       return matches;
     } catch (error) {
+      throw new WorkGraphError("backend", `${context}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async listNodesByLabel(label: string, author: string): Promise<LabeledNode[]> {
+    const context = `listNodesByLabel ${JSON.stringify(label)} by ${JSON.stringify(author)} in ${this.repo}`;
+    if (label.trim().length === 0 || label.includes(",")) {
+      throw new WorkGraphError("invalid-node", `${context}: GitHub lists one non-empty label without commas`);
+    }
+    if (author.trim().length === 0) {
+      throw new WorkGraphError("invalid-node", `${context}: the author is empty`);
+    }
+    try {
+      const issues = asArray(await this.transport({
+        method: "GET",
+        path: `repos/${this.repo}/issues?labels=${encodeURIComponent(label)}&creator=${encodeURIComponent(author)}&state=all&per_page=100`,
+        paginate: true,
+      }), context);
+      return issues.flatMap((entry) => {
+        const issue = asRecord(entry, context);
+        if (issue.pull_request !== undefined && issue.pull_request !== null) return [];
+        if (issue.body !== null && typeof issue.body !== "string") {
+          throw new WorkGraphError("backend", `${context}: missing issue body`);
+        }
+        const number = readNumber(issue, "number", context);
+        return [{ id: String(number), author: readLogin(issue.user), body: decodeNodeBlock(issue.body ?? "").text }];
+      });
+    } catch (error) {
+      if (error instanceof WorkGraphError) throw error;
       throw new WorkGraphError("backend", `${context}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

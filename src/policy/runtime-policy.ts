@@ -373,6 +373,22 @@ function isFreeStanding(text: string, index: number, end: number): boolean {
 }
 
 /**
+ * A command name built from a verb and a target noun: `set-policy`, `remove-hook`. The noun names a
+ * command, not the thing to defeat. Only a verb from this closed list clears it, so a compound noun
+ * such as `security-hook` or `policy-guard` is still a target (sage on soma#1149).
+ */
+const COMMAND_VERB_PREFIX = /\b(?:add|apply|check|create|delete|get|list|remove|set|show|update)-$/iu;
+
+/** The first match of the global `pattern` in `text` that is not the noun of a command name. */
+function firstTarget(text: string, pattern: RegExp): RegExpExecArray | undefined {
+  pattern.lastIndex = 0;
+  for (let hit = pattern.exec(text); hit !== null; hit = pattern.exec(text)) {
+    if (!COMMAND_VERB_PREFIX.test(text.slice(0, hit.index))) return hit;
+  }
+  return undefined;
+}
+
+/**
  * Find `verbPattern` (bare forms only, free-standing, in request position)
  * followed by `targetPattern` within `window` chars **of the same clause**,
  * rejecting negated occurrences. Returns the matched span, verb to target, or
@@ -387,7 +403,7 @@ function findUnnegatedRequest(
   window = 60,
 ): string | undefined {
   const verb = new RegExp(verbPattern.source, "giu");
-  const target = new RegExp(targetPattern.source, "iu");
+  const target = new RegExp(targetPattern.source, "giu");
   for (let m = verb.exec(text); m !== null; m = verb.exec(text)) {
     const end = m.index + m[0].length;
     if (!isFreeStanding(text, m.index, end)) continue;
@@ -395,7 +411,7 @@ function findUnnegatedRequest(
     const lookahead = text.slice(m.index, end + window);
     const boundary = lookahead.search(CLAUSE_END);
     const sameClause = boundary === -1 ? lookahead : lookahead.slice(0, boundary);
-    const hit = target.exec(sameClause);
+    const hit = firstTarget(sameClause, target);
     // Position is the costly check, so it runs only once a target is in reach.
     if (!hit || !inRequestPosition(text, m.index)) continue;
     return sameClause.slice(0, hit.index + hit[0].length).replace(/\s+/gu, " ");

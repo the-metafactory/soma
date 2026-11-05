@@ -1,3 +1,4 @@
+import { installToolNudges } from "../shared/tool-nudges";
 import { homedir } from "node:os";
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -116,35 +117,10 @@ const SOMA_CLAUDE_HOOK_EVENTS = [
   {
     event: "PostToolUse",
     commandEvent: "principle-nudge",
-    matcher: "Bash|Agent|Task",
+    matcher: ".*",
     summary: "Point at the principle an action calls for",
     runner: {
       kind: "nudge",
-      rules: [
-        {
-          tool: "^(Agent|Task)$",
-          file: "skills/the-algorithm/references/principles/own-delegated-work.md",
-          text: "A subagent just reported. Read {path} before you relay or act on its result.",
-        },
-        {
-          tool: "^Bash$",
-          command: "\\bgh (pr (view|checks)|api\\b.*/(comments|reviews))",
-          file: "skills/the-algorithm/references/principles/weigh-review-findings-on-merit.md",
-          text: "This output may carry automated review findings. Read {path} and weigh each one on its merits.",
-        },
-        {
-          tool: "^Bash$",
-          command: "\\b(git commit|gh pr create)\\b",
-          file: "skills/the-algorithm/references/principles/verify-before-claiming.md",
-          text: "You committed or opened a PR. Read {path} before you call the work done.",
-        },
-        {
-          tool: "^Bash$",
-          command: "\\b(hyperfine|bench|benchmarks?)\\b",
-          file: "skills/benchmark-checklist/SKILL.md",
-          text: "You ran a benchmark. Read {path} and run its checklist before you report or act on the number.",
-        },
-      ],
     },
   },
 ] as const;
@@ -469,8 +445,13 @@ function appendCommandHookGroup(
   for (const group of eventGroups) {
     if (!isObject(group) || !Array.isArray(group.hooks)) continue;
     if (group.hooks.some((hook) => isObject(hook) && typeof hook.command === "string" && presentCommands.has(hook.command))) {
-      settings.hooks = hooks;
-      return removedStale;
+      if (group.matcher === input.matcher) {
+        settings.hooks = hooks;
+        return removedStale;
+      }
+      const result = removeSomaCommandsFromGroup(group, presentCommands);
+      eventGroups = eventGroups.flatMap((entry) => entry === group ? (result.group ? [result.group] : []) : [entry]);
+      break;
     }
   }
 
@@ -835,6 +816,7 @@ export async function installClaudeCodeSomaHooks(context: {
     source: renderClaudeCodeSomaHook(),
     config,
   });
+  await installToolNudges(context);
   const settingsFiles = await patchClaudeCodeSomaHookSettings(context.substrateHome, bunPath);
   // soma#369: the adapter owns the session fleet. Mode classifier and policy
   // guard are default-on; a caller opts out with `modeClassifier: false` /

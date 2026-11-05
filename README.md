@@ -882,6 +882,7 @@ soma graph link <id> [--blocked-by <ref>]... [--parent <id>]  # wire a blocker l
 soma graph close <id> --resolution-file <path>
 soma graph audit <root>      # what the gates cannot see
 soma graph decisions <root>  # the map's resolutions, collected
+soma graph rule <id> --text "…"  # append a dated ruling to the node body, where a resumed worker reads it
 soma graph file-proposal <proposal_ref>  # file an approved soma-home proposal; a re-run returns the same node
 ```
 

@@ -60,12 +60,13 @@ reflect each forge's capabilities.
 | `soma graph node <id>` | read one node, body included — never `gh issue view` |
 | `soma graph claim <id>` | assign, re-read, tie-break on race; refuses a closed node or one with an open blocker |
 | `soma graph release <id>` | identity-bound self-release: abandon your own claim (the claim-race loser's DELETE-self, promoted to a verb); only ever unassigns the acting identity |
-| `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges, which may name `owner/name#N` in another repo), structurally validated; refuses without a checkpoint or with an unreadable blocker |
+| `soma graph add <root> … --checkpoint <id>` | create node (+ `--blocked-by` edges, which may name `owner/name#N` in another repo), structurally validated; refuses without a checkpoint or with an unreadable blocker; `--once <marker>` (GitHub, with `--label`) returns the node you already filed with that marker instead of a second; `--once <marker> --dry-run` only reports that node and its parent (or `found:false`), writing nothing |
 | `soma graph link <id> [--blocked-by <ref>]… [--parent <id>]` | add blocking edges to an existing node: a dependency found later; with `--parent`, the repair a failed `add` prints (edges first, then attach) |
-| `soma graph chart … --checkpoint <id>` | create a typed map root; GitLab requires `--home-project <group/project>` |
+| `soma graph chart … --checkpoint <id>` | create a typed map root; GitLab requires `--home-project <group/project>`; `--once <marker>` (GitHub, with `--label`) returns the root you already charted with that marker instead of a second; `--once <marker> --dry-run` only reports it (or `found:false`), writing nothing |
 | `soma graph close <id> --resolution-file <path> [--gist <line>]` | post the prose, run declared probes, derive the receipt, refuse a hollow close. A PR, MR or commit says `Refs #N`, never a closing keyword: the tracker would close the node on merge and skip the gate (`references/closing.md`) |
 | `soma graph audit <root>` | what the gates cannot see: closed-without-receipt, can-never-close, claimed-in-flight |
 | `soma graph decisions <root> [--write]` | the map's decision index, derived from receipts; `--write` splices it into the map body |
+| `soma graph rule <id> --text <ruling>` | append a dated ruling (`--text-file` for several lines) under the node body's `## Rulings`, where a resumed worker reads it; append-only; refuses a closed node |
 
 `--repo github:github.com/<owner/name>` (or `SOMA_GRAPH_REPO`) picks the store;
 it defaults to the origin remote, and a node named in full (`…#N`) picks its own.
@@ -116,5 +117,4 @@ ported by hand through a reviewed PR, never by re-syncing. Two copies with
 diverging conventions would be the two-authoritative-homes problem this doctrine
 exists to prevent.
 
-Doctrine record: DD-16 and its Amendment A in `design/design-decisions.md`; the
-typed contracts in `docs/work-graph.md`.
+Doctrine record: DD-16 and its Amendment A in `design/design-decisions.md`; the typed contracts in `docs/work-graph.md`.

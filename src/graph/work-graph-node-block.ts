@@ -3,6 +3,7 @@ import type { CreateNodeSpec, WorkGraphNode } from "./work-graph";
 
 const NODE_BLOCK_OPEN = "<!-- soma:work-graph-node";
 const NODE_BLOCK_CLOSE = "-->";
+export const GRAPH_METADATA_MARKER = /<!-- soma:(?:work-graph-node|gitlab-work-graph-route)\b/u;
 
 export function encodeNodeBlock(spec: CreateNodeSpec & { completion?: WorkGraphNode["completion"] }, storeFields: Readonly<Record<string, unknown>> = {}): string {
   const payload: Record<string, unknown> = { autonomy: spec.autonomy };
@@ -31,7 +32,7 @@ export function decodeNodeBlock(body: string): DecodedBody {
 
 /** Replace prose while keeping graph metadata byte-for-byte, including store routing. */
 export function replaceNodeProse(original: string, replacement: string): string {
-  const marker = /<!-- soma:(?:work-graph-node|gitlab-work-graph-route)\b/g;
+  const marker = new RegExp(GRAPH_METADATA_MARKER.source, "gu");
   const blocks = (body: string): string[] => [...body.matchAll(marker)].map((match) => {
     const end = body.indexOf("-->", match.index + match[0].length);
     if (end < 0) throw new Error("Cannot edit a body with an unterminated graph metadata block.");
