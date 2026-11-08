@@ -94,6 +94,9 @@ the test suite>
   asserted").
 - **Assumptions** are stop triggers, not a risk register. List only the ones
   whose failure would change the deliverable; `- none` is a real answer.
+- **A skill the worker needs** is named by path under **Touches**. A walker's
+  session may list only some skills, and a worker cannot find one it is not told
+  about: "Read `~/.soma/skills/writer/SKILL.md` and follow it."
 - **Out of scope** binds the review too. A finding that asks for *more* than the
   acceptance criteria (a further feature, an adjacent improvement) becomes a
   follow-up node below this one, not another commit on the PR. seelite#561
