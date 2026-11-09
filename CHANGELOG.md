@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-09
+
+### Added
+
+- `soma graph abandon <node> --reason-file <path>` closes a node whose work was deliberately not done. It closes the node as not planned and posts a receipt of kind `abandoned` with the reason, runs no probes, and follows the identity rule of `release`. An abandoned blocker keeps its dependents blocked, `soma graph audit` counts the close as receipted, and `decisions --write` marks it as abandoned. The GitLab store refuses the verb, because it cannot keep an abandoned blocker blocking. (node #1158, #1159)
+- `soma graph rule <id> --text <ruling>` (or `--text-file <path>`) appends a dated ruling under a `## Rulings` section of the node body, so a resumed worker is briefed with it. (#1146)
+- `soma graph add --once <marker> --dry-run` reports the node filed under that marker, and its parent, without filing anything. (#1147)
+- `soma graph chart --once <marker>` charts a map root at most once per marker, and `--dry-run` reports the existing root without writing. (#1148)
+- Principle nudges reach Codex and pi as well as Claude Code, and an installed skill pack can declare its own nudges. A malformed declaration is skipped with a warning instead of aborting the install. (node #1105, #1140)
+
+### Fixed
+
+- `security-disable-request` no longer matches a target noun inside a verb-named command such as `set-policy`, which had denied every Ranger worker prompt on one map. (#1149)
+- The Claude inference adapter no longer passes `--hookTimeout`, which Claude Code 2.1.318 rejects. (#1152)
+
+### Changed
+
+- Errata uses Sonnet 5.5 instead of Haiku for feedback promotion, theme assignment and proposal judgments. (#1153)
+
+### Documentation
+
+- `docs/verification/errata-triage-activation.md` records how the daily Errata triage is activated in reflex. (node #850, #1151)
+- The orienteer build brief names any skill its worker needs, because a Ranger worker may see only some skills. (#1156)
+
 ## [0.29.3] - 2026-10-28
 
 ### Documentation
@@ -1689,7 +1713,9 @@ but never tagged or published (registry latest was still 0.8.5).
 
 See git history. 0.1.x predates this changelog and was iterated rapidly during the initial ISA + adapter bootstrap. The 0.2.0 entry above marks the first stable surface.
 
-[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.29.2...HEAD
+[Unreleased]: https://github.com/the-metafactory/soma/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/the-metafactory/soma/compare/v0.29.3...v0.30.0
+[0.29.3]: https://github.com/the-metafactory/soma/compare/v0.29.2...v0.29.3
 [0.29.2]: https://github.com/the-metafactory/soma/compare/v0.29.1...v0.29.2
 [0.29.1]: https://github.com/the-metafactory/soma/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/the-metafactory/soma/compare/v0.28.0...v0.29.0

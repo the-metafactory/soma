@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.29.3-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.30.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,14 +30,16 @@
 
 ---
 
-## Current release: 0.29.3
+## Current release: 0.30.0
 
-[0.29.3](https://github.com/the-metafactory/soma/releases/tag/v0.29.3) is a
-documentation release. The release notes move to
-[docs/release-notes.md](docs/release-notes.md), the install steps use
-`arc install https://github.com/the-metafactory/soma`, and the README links the
-soma-pstack and soma-lifeos skill packs. See the
-[changelog](CHANGELOG.md#0293---2026-10-28).
+[0.30.0](https://github.com/the-metafactory/soma/releases/tag/v0.30.0) adds
+`soma graph abandon`, which closes a node whose work was deliberately not done
+with an `abandoned` receipt that audit accepts. `soma graph rule` records a
+dated ruling in a node body, and `add --once --dry-run` and `chart --once` let a
+caller retry a filing without filing twice. Principle nudges now reach Codex and
+pi, the Claude inference adapter works with Claude Code 2.1.318, and Errata
+judges feedback with Sonnet 5.5. See the
+[changelog](CHANGELOG.md#0300---2026-11-09).
 
 Earlier releases are summarized in [docs/release-notes.md](docs/release-notes.md).
 
@@ -1041,7 +1043,7 @@ arc install https://github.com/the-metafactory/soma
 To install a specific release, pin its tag:
 
 ```bash
-arc install https://github.com/the-metafactory/soma --pin v0.29.3
+arc install https://github.com/the-metafactory/soma --pin v0.30.0
 ```
 
 Arc installs the `soma` CLI on PATH. Verify the shim before continuing:

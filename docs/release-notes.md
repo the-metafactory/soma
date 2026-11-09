@@ -5,6 +5,17 @@ lists every change. The
 [GitHub releases](https://github.com/the-metafactory/soma/releases) carry the
 tags.
 
+## 0.30.0
+
+[0.30.0](https://github.com/the-metafactory/soma/releases/tag/v0.30.0) adds
+`soma graph abandon`, which closes a node whose work was deliberately not done
+with an `abandoned` receipt that audit accepts. `soma graph rule` records a
+dated ruling in a node body, and `add --once --dry-run` and `chart --once` let a
+caller retry a filing without filing twice. Principle nudges now reach Codex and
+pi, the Claude inference adapter works with Claude Code 2.1.318, and Errata
+judges feedback with Sonnet 5.5. See the
+[changelog](../CHANGELOG.md#0300---2026-11-09).
+
 ## 0.29.3
 
 [0.29.3](https://github.com/the-metafactory/soma/releases/tag/v0.29.3) is a
