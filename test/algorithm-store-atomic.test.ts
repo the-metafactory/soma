@@ -94,3 +94,48 @@ test("a run file without ownership reads unchanged and claims to epoch 1", async
     expect(await claimAlgorithmRun("legacy-own", "T", opts)).toBe(1);
   });
 });
+
+test("an unfenced write of a pre-claim snapshot keeps the on-disk epoch, so no epoch is issued twice", async () => {
+  await withHome(async (opts) => {
+    const snapshot = makeRun("regress-1");
+    await writeAlgorithmRun(snapshot, opts);
+    const epochA = await claimAlgorithmRun("regress-1", "A", opts);
+    // A legacy writer that read the run before the claim saves it back without a fence.
+    await writeAlgorithmRun(snapshot, opts);
+    const path = algorithmRunPath(snapshot, opts);
+    expect((await readAlgorithmRun(path)).ownership).toEqual({ token: "A", epoch: epochA });
+
+    const epochC = await claimAlgorithmRun("regress-1", "C", opts);
+    expect(epochC).toBe(epochA + 1);
+    await expect(
+      writeAlgorithmRun({ ...snapshot, ownership: { token: "A", epoch: epochA } }, { ...opts, expectedEpoch: epochA }),
+    ).rejects.toBeInstanceOf(StaleOwnershipError);
+  });
+});
+
+test("a fenced write cannot rewrite ownership; only a claim moves the epoch", async () => {
+  await withHome(async (opts) => {
+    const run = makeRun("regress-2");
+    await writeAlgorithmRun(run, opts);
+    const epoch = await claimAlgorithmRun("regress-2", "B", opts);
+    // Correct epoch, but the run object carries no ownership (or a forged one).
+    await writeAlgorithmRun(run, { ...opts, expectedEpoch: epoch });
+    await writeAlgorithmRun({ ...run, ownership: { token: "X", epoch: 0 } }, { ...opts, expectedEpoch: epoch });
+    expect((await readAlgorithmRun(algorithmRunPath(run, opts))).ownership).toEqual({ token: "B", epoch });
+  });
+});
+
+test("the temp file is written beside the run file, so the rename stays on one filesystem", async () => {
+  await withHome(async (opts) => {
+    const run = makeRun("beside-1");
+    const { path } = await writeAlgorithmRun(run, opts);
+    const dir = join(path, "..");
+    let tmpNames: string[] = [];
+    await writeAlgorithmRun(run, {
+      ...opts,
+      faultAfterPartialWrite: async () => { tmpNames = (await readdir(dir)).filter((n) => n.endsWith(".tmp")); },
+    });
+    expect(tmpNames.length).toBe(1);
+    expect(tmpNames[0]!.startsWith("beside-1.json.")).toBe(true);
+  });
+});

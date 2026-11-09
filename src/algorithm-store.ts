@@ -96,15 +96,39 @@ async function writeFileAtomic(path: string, content: string, fault?: () => void
   }
 }
 
-async function currentEpoch(path: string): Promise<number> {
+interface OnDiskOwnership {
+  /** `ownership` exactly as stored, or undefined when the file or the field is absent. */
+  ownership: unknown;
+  epoch: number;
+}
+
+// Reads the stored `ownership` without normalising the run. A missing file is
+// epoch 0. A malformed file is epoch 0 for an unfenced write (which may repair
+// it, as before) but an error for a fenced one.
+async function readOnDiskOwnership(path: string, fenced: boolean): Promise<OnDiskOwnership> {
+  let raw: unknown;
   try {
-    const raw = JSON.parse(await readFile(path, "utf8")) as { ownership?: { epoch?: unknown } };
-    const epoch = raw.ownership?.epoch;
-    return typeof epoch === "number" ? epoch : 0;
+    raw = JSON.parse(await readFile(path, "utf8"));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ownership: undefined, epoch: 0 };
+    if (!fenced && error instanceof SyntaxError) return { ownership: undefined, epoch: 0 };
     throw error;
   }
+  const ownership = typeof raw === "object" && raw !== null ? (raw as { ownership?: unknown }).ownership : undefined;
+  const epoch = typeof ownership === "object" && ownership !== null ? (ownership as { epoch?: unknown }).epoch : undefined;
+  return { ownership, epoch: typeof epoch === "number" ? epoch : 0 };
+}
+
+// Ownership is moved only by `claimAlgorithmRun`. Every other write carries the
+// stored ownership forward, so a stale snapshot can never lower the epoch and
+// let a later claim reissue one that an earlier owner still holds.
+function withStoredOwnership(run: AlgorithmRun, stored: unknown): AlgorithmRun {
+  if (stored === undefined) {
+    if (!("ownership" in run)) return run;
+    const { ownership: _dropped, ...rest } = run;
+    return rest as AlgorithmRun;
+  }
+  return { ...run, ownership: stored as AlgorithmRun["ownership"] };
 }
 
 async function persistAlgorithmRun(run: AlgorithmRun, path: string, options: AlgorithmStoreOptions): Promise<void> {
@@ -115,23 +139,22 @@ async function persistAlgorithmRun(run: AlgorithmRun, path: string, options: Alg
 export async function writeAlgorithmRun(run: AlgorithmRun, options: AlgorithmStoreOptions = {}): Promise<WrittenAlgorithmRun> {
   const path = algorithmRunPath(run, options);
 
+  const expected = options.expectedEpoch;
+  let persisted: AlgorithmRun;
   try {
-    if (options.expectedEpoch === undefined) {
-      await persistAlgorithmRun(run, path, options);
-    } else {
-      const expected = options.expectedEpoch;
-      await withRegistryFileLock(path, async () => {
-        const actual = await currentEpoch(path);
-        if (actual !== expected) throw new StaleOwnershipError(run.id, expected, actual);
-        await persistAlgorithmRun(run, path, options);
-      });
-    }
+    persisted = await withRegistryFileLock(path, async () => {
+      const stored = await readOnDiskOwnership(path, expected !== undefined);
+      if (expected !== undefined && stored.epoch !== expected) throw new StaleOwnershipError(run.id, expected, stored.epoch);
+      const next = withStoredOwnership(run, stored.ownership);
+      await persistAlgorithmRun(next, path, options);
+      return next;
+    });
   } catch (error) {
     if (error instanceof StaleOwnershipError) throw error;
     throw algorithmStoreWriteError(path, error);
   }
 
-  return { path, run };
+  return { path, run: persisted };
 }
 
 /**
