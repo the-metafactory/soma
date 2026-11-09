@@ -1,3 +1,4 @@
+import { assertGraphRead, permitsGraphRead, scopeNodeState, validateGraphReadScope, type GraphReadScope } from "./work-graph-read-scope";
 /**
  * GitHub backend for the work graph (`docs/work-graph.md` §2.5, #497).
  *
@@ -149,6 +150,7 @@ function isMissingRestResource(error: unknown): boolean {
 }
 
 export interface GitHubGraphStoreOptions {
+  readScope?: GraphReadScope;
   /** `owner/name`. A graph records its backend at creation and lives there forever (§2.5). */
   repo: string;
   /** The GitHub host (#536 D1). Defaults to `github.com`, and must be it: any other host refuses (GHES is out of scope until a host allow-list exists). */
@@ -682,6 +684,7 @@ class GitHubGraphStore implements GraphStore {
   /** GitHub can attest comment and reaction authorship via its API (§2.5). Capability, not verdict. */
   readonly attestation: AttestationCapability = "verifiable";
 
+  private readonly readScope?: GraphReadScope;
   private readonly repo: string;
   private readonly host: string;
   private readonly transport: GitHubApiTransport;
@@ -690,6 +693,7 @@ class GitHubGraphStore implements GraphStore {
   private readonly confinement: ConfinementDeps;
 
   constructor(options: GitHubGraphStoreOptions) {
+    this.readScope = options.readScope === undefined ? undefined : validateGraphReadScope(options.readScope);
     // The ref grammar's own path rule, not a looser local one: `../x` must
     // never reach a `repos/…` API path.
     const checked = validateRepoRef({ forge: "github", host: options.host ?? GITHUB_DOTCOM, path: options.repo });
@@ -720,7 +724,7 @@ class GitHubGraphStore implements GraphStore {
    * refuses rather than landing in a URL, where `#707` became a fragment.
    */
   private readPath(ref: NodeRef): string {
-    const { repo, number } = this.locate(ref);
+    const { repo, number } = this.checkedLocation(ref);
     return `repos/${repo}/issues/${number}`;
   }
 
@@ -824,16 +828,91 @@ class GitHubGraphStore implements GraphStore {
     });
   }
 
+  private allowed(ref: NodeRef): boolean {
+    return permitsGraphRead(this.readScope, { forge: "github", host: this.host, path: this.locate(ref).repo });
+  }
+
+  private assertRepoReadable(): void {
+    assertGraphRead(this.readScope, { forge: "github", host: this.host, path: this.repo });
+  }
+
+  private readApiId(id: string): string {
+    if (!/^[1-9]\d*$/u.test(id)) throw new WorkGraphError("invalid-node", "Graph read requires a positive decimal API identifier");
+    return id;
+  }
+
+  private checkedLocation(ref: NodeRef): { repo: string; number: number } {
+    const location = this.locate(ref);
+    assertGraphRead(this.readScope, { forge: "github", host: this.host, path: location.repo });
+    return location;
+  }
+
+  private async scopedLinks(ref: NodeRef, relation: "parent" | "blockedBy" | "subIssues"): Promise<NodeRef[]> {
+    const { repo, number } = this.checkedLocation(ref);
+    const [owner, name] = repo.split("/");
+    const refs: NodeRef[] = [];
+    const cursors = new Set<string>();
+    let after: string | null = null;
+    for (let pageIndex = 0; pageIndex < 100; pageIndex += 1) {
+      const selection = relation === "parent" ? "parent{number repository{nameWithOwner}}" : `${relation}(first:100,after:$after){nodes{number repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}`;
+      const query = `query($owner:String!,$name:String!,$number:Int!${relation === "parent" ? "" : ",$after:String"}){repository(owner:$owner,name:$name){issue(number:$number){${selection}}}}`;
+      const response = asRecord(await this.transport({ method: "POST", path: "graphql", body: { query, variables: { owner, name, number, ...(relation === "parent" ? {} : { after }) } } }), "scoped graph links");
+      if (response.errors !== undefined) throw new WorkGraphError("backend", "Scoped graph links unavailable");
+      const data = asRecord(response.data, "scoped graph links data");
+      const issue = asRecord(asRecord(data.repository, "scoped graph repository").issue, "scoped graph issue");
+      const value = issue[relation];
+      if (relation === "parent" && value === null) return [];
+      const connection = asRecord(value, "scoped graph connection");
+      const entries = relation === "parent" ? [connection] : asArray(connection.nodes, "scoped graph links");
+      for (const entry of entries) {
+        const record = asRecord(entry, "scoped graph link");
+        const path = readIssueRepo(record);
+        if (path === undefined) throw new WorkGraphError("backend", "Scoped graph link has no repository identity");
+        const id = localIssueId(this.repo, { number: readNumber(record, "number", "scoped graph link"), repo: path });
+        this.locate({ id });
+        refs.push({ id });
+      }
+      if (relation === "parent") return refs;
+      const page = asRecord(connection.pageInfo, "scoped graph page");
+      if (page.hasNextPage === false) return refs;
+      if (page.hasNextPage !== true || typeof page.endCursor !== "string" || cursors.has(page.endCursor) || cursors.size >= 100) throw new WorkGraphError("backend", "Scoped graph links have invalid or excessive pagination");
+      after = page.endCursor;
+      cursors.add(after);
+    }
+    throw new WorkGraphError("backend", "Scoped graph links exceed the pagination bound");
+  }
+
+  private async scopedSubtree(root: NodeRef, options: GraphReadOptions): Promise<NodeState[]> {
+    this.checkedLocation(root);
+    const states: NodeState[] = [];
+    const seen = new Set<string>([root.id]);
+    const visit = async (parent: NodeRef): Promise<void> => {
+      for (const ref of await this.scopedLinks(parent, "subIssues")) {
+        if (seen.has(ref.id) || !this.allowed(ref)) continue;
+        seen.add(ref.id);
+        states.push({ ...await this.readNode(ref, options), parent });
+        await visit(ref);
+      }
+    };
+    await visit(root);
+    return states;
+  }
+
   async readNode(ref: NodeRef, options: GraphReadOptions = {}): Promise<NodeState> {
     const issue = await this.fetchIssue(ref);
-    const parentId = issue.parent === undefined ? await this.fetchParentId(ref, issue.repo) : this.parentId(issue.parent, issue.repo);
-    const state = toNodeState(this.repo, issue, await this.fetchBlockers(ref), parentId === undefined ? undefined : { id: parentId });
+    const parentId = this.readScope !== undefined ? (await this.scopedLinks(ref, "parent"))[0]?.id : issue.parent === undefined ? await this.fetchParentId(ref, issue.repo) : this.parentId(issue.parent, issue.repo);
+    let state = toNodeState(this.repo, issue, await this.fetchBlockers(ref), parentId === undefined ? undefined : { id: parentId });
+    if (this.readScope !== undefined) {
+      state = scopeNodeState(state, (target) => this.allowed(target));
+      state.unavailableChildren = (await this.scopedLinks(ref, "subIssues")).filter((target) => !this.allowed(target)).map((target) => ({ id: target.id, unavailable: true }));
+    }
     if (issue.status !== "closed" || options.includeCurrentCloseReceipt === false) return state;
     if (state.node.completion === undefined) return { ...state, currentCloseReceipt: false };
     return { ...state, currentCloseReceipt: await this.hasCurrentCloseReceipt(ref, issue, state.node.completion) };
   }
 
   async findNodesByBodyMarker(marker: string): Promise<NodeState[]> {
+    this.assertRepoReadable();
     const context = `findNodesByBodyMarker in ${this.repo}`;
     if (marker.length === 0) throw new WorkGraphError("invalid-node", `${context}: marker must not be empty`);
     try {
@@ -863,6 +942,7 @@ class GitHubGraphStore implements GraphStore {
   }
 
   async listNodesByLabel(label: string, author: string): Promise<LabeledNode[]> {
+    this.assertRepoReadable();
     const context = `listNodesByLabel ${JSON.stringify(label)} by ${JSON.stringify(author)} in ${this.repo}`;
     if (label.trim().length === 0 || label.includes(",")) {
       throw new WorkGraphError("invalid-node", `${context}: GitHub lists one non-empty label without commas`);
@@ -892,6 +972,7 @@ class GitHubGraphStore implements GraphStore {
   }
 
   async listOpenRoots(serves: string): Promise<NodeState[]> {
+    this.assertRepoReadable();
     if (!/^G\d+$/u.test(serves)) {
       throw new WorkGraphError("invalid-node", `listOpenRoots in ${this.repo}: serves must be a G<n> goal ID`);
     }
@@ -917,6 +998,7 @@ class GitHubGraphStore implements GraphStore {
 
   /** Every open typed node in the repo with the probes it declares, from one paged read of the open issues. */
   async listOpenNodeProbes(): Promise<OpenNodeProbes[]> {
+    this.assertRepoReadable();
     const context = `listOpenNodeProbes in ${this.repo}`;
     try {
       const nodes: OpenNodeProbes[] = [];
@@ -1007,6 +1089,7 @@ class GitHubGraphStore implements GraphStore {
    * `readNode`, whose REST paths paginate.
    */
   async readSubtree(root: NodeRef, options: GraphReadOptions = {}): Promise<NodeState[]> {
+    if (this.readScope !== undefined) return await this.scopedSubtree(root, options);
     if (!BARE_ISSUE_ID.test(root.id)) {
       throw new WorkGraphError("backend", `readSubtree: ${root.id} is not an issue number`);
     }
@@ -1240,8 +1323,10 @@ class GitHubGraphStore implements GraphStore {
 
   /** Re-read a comment for its API author field — the proposal half of §3.2 conjunct 3. */
   async readComment(ref: CommentRef): Promise<CommentRef> {
+    this.assertRepoReadable();
+    this.checkedLocation({ id: ref.nodeId });
     const comment = readComment(
-      await this.transport({ method: "GET", path: `repos/${this.repo}/issues/comments/${ref.id}` }),
+      await this.transport({ method: "GET", path: `repos/${this.repo}/issues/comments/${this.readScope === undefined ? ref.id : this.readApiId(ref.id)}` }),
       "readComment",
     );
     return {
@@ -1254,10 +1339,12 @@ class GitHubGraphStore implements GraphStore {
 
   /** Authors come from the API author field — the whole point of reading reactions here (§3.2 conjunct 3). */
   async readCommentReactions(ref: CommentRef): Promise<Reaction[]> {
+    this.assertRepoReadable();
+    this.checkedLocation({ id: ref.nodeId });
     const reactions = asArray(
       await this.transport({
         method: "GET",
-        path: `repos/${this.repo}/issues/comments/${ref.id}/reactions`,
+        path: `repos/${this.repo}/issues/comments/${this.readScope === undefined ? ref.id : this.readApiId(ref.id)}/reactions`,
         paginate: true,
       }),
       "readCommentReactions",
@@ -1314,16 +1401,17 @@ class GitHubGraphStore implements GraphStore {
     // it is the one completion fact a tracker-writer cannot forge. Verify it live.
     if (node.autonomy === "auto") {
       if (completion.ciCheckRunId === undefined || completion.ciHeadSha === undefined) return false;
-      const run = await this.fetchCheckRun(completion.ciCheckRunId);
+      const run = await this.fetchCheckRun(completion.ciCheckRunId, ref);
       if (run.conclusion !== "success" || run.headSha !== completion.ciHeadSha) return false;
     }
     return true;
   }
 
   /** The one immutable completion fact an issue editor cannot mint: a GitHub check-run conclusion. */
-  private async fetchCheckRun(checkRunId: string): Promise<{ conclusion: string; headSha: string }> {
+  private async fetchCheckRun(checkRunId: string, ref: NodeRef): Promise<{ conclusion: string; headSha: string }> {
+    const { repo } = this.checkedLocation(ref);
     const record = asRecord(
-      await this.transport({ method: "GET", path: `repos/${this.repo}/check-runs/${checkRunId}` }),
+      await this.transport({ method: "GET", path: `repos/${repo}/check-runs/${this.readApiId(checkRunId)}` }),
       "check run",
     );
     return {
@@ -1356,6 +1444,7 @@ class GitHubGraphStore implements GraphStore {
 
   /** Twenty independent comment connections per request, with complete pagination. */
   async listCommentsBatch(refs: readonly NodeRef[]): Promise<NodeComment[][]> {
+    for (const ref of refs) this.checkedLocation(ref);
     const results: NodeComment[][] = [];
     for (let offset = 0; offset < refs.length; offset += 20) {
       const batch = refs.slice(offset, offset + 20);
@@ -1527,6 +1616,17 @@ class GitHubGraphStore implements GraphStore {
   }
 
   private async fetchBlockers(ref: NodeRef): Promise<BlockingRef[]> {
+    if (this.readScope !== undefined) {
+      const blockers: BlockingRef[] = [];
+      for (const target of await this.scopedLinks(ref, "blockedBy")) {
+        if (!this.allowed(target)) blockers.push({ id: target.id, status: "unavailable" });
+        else {
+          const issue = await this.fetchIssue(target);
+          blockers.push({ id: target.id, status: issue.status, ...(issue.abandoned === true ? { abandoned: true } : {}) });
+        }
+      }
+      return blockers;
+    }
     return asArray(
       await this.transport({
         method: "GET",

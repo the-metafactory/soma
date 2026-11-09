@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.30.0-2A3F6A?labelColor=0E1726" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.31.0-2A3F6A?labelColor=0E1726" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2A3F6A?labelColor=0E1726" />
   <img alt="Runs in" src="https://img.shields.io/badge/runs%20in-Codex%20%C2%B7%20Pi.dev%20%C2%B7%20Claude%20Code%20%C2%B7%20Cursor-2A3F6A?labelColor=0E1726" />
 </p>
@@ -30,16 +30,14 @@
 
 ---
 
-## Current release: 0.30.0
+## Current release: 0.31.0
 
-[0.30.0](https://github.com/the-metafactory/soma/releases/tag/v0.30.0) adds
-`soma graph abandon`, which closes a node whose work was deliberately not done
-with an `abandoned` receipt that audit accepts. `soma graph rule` records a
-dated ruling in a node body, and `add --once --dry-run` and `chart --once` let a
-caller retry a filing without filing twice. Principle nudges now reach Codex and
-pi, the Claude inference adapter works with Claude Code 2.1.318, and Errata
-judges feedback with Sonnet 5.5. See the
-[changelog](CHANGELOG.md#0300---2026-11-09).
+[0.31.0](https://github.com/the-metafactory/soma/releases/tag/v0.31.0) adds
+scoped read-only graph operations. Callers can permit exact repositories or
+GitLab namespaces before Soma traverses membership and dependency edges or
+reads receipts. Denied dependencies remain unavailable and blocking. The new
+`graph maps` verb reads an explicitly configured set of permitted roots.
+See the [changelog](CHANGELOG.md#0310---2026-11-09).
 
 Earlier releases are summarized in [docs/release-notes.md](docs/release-notes.md).
 

@@ -66,6 +66,13 @@ import {
   type CloseReceipt,
   type CommentRef,
   type CreatedNode,
+  unavailableMembership,
+  type GraphReadScope,
+  assertGraphRead,
+  permitsGraphRead,
+  parseRepoRef,
+  parseQualifiedNodeRef,
+  formatQualifiedNodeRef,
   type GraphStore,
   type NodeRef,
   type NodeState,
@@ -119,16 +126,17 @@ import { GOAL_ID_PATTERN, readGoalStatus, warnServes, type ServesOptions } from 
 
 const SOMA_VERSION: string = packageJson.version;
 
-const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "abandon", "add", "link", "chart", "close", "audit", "decisions", "rule", "file-proposal"] as const;
+const GRAPH_ACTIONS = ["maps", "frontier", "node", "edit", "claim", "release", "abandon", "add", "link", "chart", "close", "audit", "decisions", "rule", "file-proposal"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|edit|claim|release|abandon|add|link|chart|close|audit|decisions|rule|file-proposal> ...",
+  usage: "Usage: soma graph <maps|frontier|node|edit|claim|release|abandon|add|link|chart|close|audit|decisions|rule|file-proposal> ...",
   subcommands: {
-    frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--json]",
-    node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--json]",
+    maps: "Usage: soma graph maps --root <forge>:<host>/<path>#<iid>... --read-repo <forge>:<host>/<path>... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
+    frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
+    node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
     edit: "Usage: soma graph edit <id> [--title <text>] [--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
@@ -140,8 +148,8 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is charted when a node under the first --label, authored by you, ends with <marker>, and that node is printed with \"existing\": true; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, and writes nothing",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run [--run-probes]] [--repo <forge>:<host>/<path>] — a dry run lists command probes without running them; --run-probes runs them",
-    audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--json] [--verbose] — scoped audits omit unchecked findings; --verbose also lists the probe-registry entries open nodes use",
-    decisions: "Usage: soma graph decisions <root> [--write] [--repo <forge>:<host>/<path>] [--json]",
+    audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json] [--verbose] — scoped audits omit unchecked findings; --verbose also lists the probe-registry entries open nodes use",
+    decisions: "Usage: soma graph decisions <root> [--write] [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
     rule: "Usage: soma graph rule <id> (--text <ruling>|--text-file <path>) [--repo <forge>:<host>/<path>] [--json] — append a dated ruling under the node body's ## Rulings section, before its typed block; append-only",
     "file-proposal":
       "Usage: soma graph file-proposal <proposal_ref> [--json] — file the node a <soma-home>/proposals/<ref>.md proposal describes under its landing map; a second run returns the node already filed",
@@ -149,6 +157,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
 };
 
 interface GraphSharedOptions {
+  readScope?: GraphReadScope;
   repo?: string;
   json?: boolean;
 }
@@ -279,7 +288,14 @@ export interface ParsedGraphFileProposalArgs {
   options: { json?: boolean };
 }
 
+export interface ParsedGraphMapsArgs {
+  command: "graph";
+  action: "maps";
+  options: { roots: string[]; readScope: GraphReadScope; json?: boolean };
+}
+
 export type ParsedGraphArgs =
+  | ParsedGraphMapsArgs
   | ParsedGraphFileProposalArgs
   | ParsedGraphFrontierArgs
   | ParsedGraphNodeArgs
@@ -649,6 +665,31 @@ function parseRuleArgs(target: string, rest: string[]): ParsedGraphRuleArgs {
   return { command: "graph", action: "rule", target, options };
 }
 
+function readScopeOption(options: GraphSharedOptions, args: string[], index: number): boolean {
+  const arg = args[index];
+  if (arg !== "--read-repo" && arg !== "--read-namespace") return false;
+  const repo = parseRepoRef(readOption(args, index, arg));
+  if (arg === "--read-namespace" && repo.forge !== "gitlab") throw new Error("Read namespaces require GitLab refs");
+  const scope = options.readScope ?? { repositories: [], namespaces: [] };
+  options.readScope = arg === "--read-repo" ? { ...scope, repositories: [...scope.repositories, repo] } : { ...scope, namespaces: [...(scope.namespaces ?? []), repo] };
+  return true;
+}
+
+function parseMapsArgs(args: string[]): ParsedGraphMapsArgs {
+  const options: GraphSharedOptions = {};
+  const roots: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (readScopeOption(options, args, index)) { index += 1; continue; }
+    if (args[index] === "--root") {
+      roots.push(formatQualifiedNodeRef(parseQualifiedNodeRef(readOption(args, index, "--root"))));
+      index += 1;
+    } else if (args[index] === "--json") options.json = true;
+    else throw new Error(`Unknown option: ${args[index]}`);
+  }
+  if (roots.length === 0 || roots.length > 100 || options.readScope === undefined) throw new Error(GRAPH_COMMAND_HELP.subcommands.maps);
+  return { command: "graph", action: "maps", options: { roots: [...new Set(roots)], readScope: options.readScope, json: options.json } };
+}
+
 export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   const [command, action, target, ...rest] = args;
 
@@ -656,6 +697,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     throw new Error(GRAPH_COMMAND_HELP.usage);
   }
 
+  if (action === "maps") return parseMapsArgs(args.slice(2));
   if (action === "chart") return parseChartArgs([target, ...rest]);
 
   const resolvedTarget = requireTarget(action, target);
@@ -673,6 +715,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   const options: GraphSharedOptions & { identity?: string; reasonFile?: string; title?: string; bodyFile?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready"; verbose?: boolean } = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
+    if ((action === "node" || action === "frontier" || action === "audit" || action === "decisions") && readScopeOption(options, rest, index)) { index += 1; continue; }
     const shared = readShared(options, rest, index, arg);
     if (shared !== undefined) {
       index = shared;
@@ -730,7 +773,10 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     if (options.reasonFile === undefined) throw new Error(GRAPH_COMMAND_HELP.subcommands.abandon);
     return { command, action, target: resolvedTarget, options: { ...options, reasonFile: options.reasonFile } };
   }
-  if (action === "decisions") return { command, action, target: resolvedTarget, options };
+  if (action === "decisions") {
+    if (options.write && options.readScope) throw new Error("Scoped graph reads cannot write decisions");
+    return { command, action, target: resolvedTarget, options };
+  }
   return { command, action, target: resolvedTarget, options };
 }
 
@@ -741,7 +787,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
 /** `somaHome` is where `file-proposal` reads `proposals/` (and serves checks read goals); unset means `SOMA_HOME`, otherwise `~/.soma`. */
 export interface GraphCliDeps extends Pick<ServesOptions, "goalStatus" | "warn" | "somaHome"> {
   /** The store for a resolved ref (#535 D1) — the ref's forge decides the backend. */
-  createStore: (repo: RepoRef) => GraphStore;
+  createStore: (repo: RepoRef, readScope?: GraphReadScope) => GraphStore;
   /** `explicit` is `--repo` as typed; see {@link resolveGraphRepo} for the order. */
   resolveRepo: (explicit?: string) => Promise<RepoRef>;
   /**
@@ -1084,6 +1130,10 @@ function nodeSummary(state: NodeState): string {
 // Verbs
 // ---------------------------------------------------------------------------
 
+function renderUnavailableMembership(edges: ReturnType<typeof unavailableMembership>): string[] {
+  return edges.map((edge) => `Unavailable membership: ${edge.source.id} -> ${edge.target.id}`);
+}
+
 function skippedSection(notWritable: NodeState[]): string[] {
   if (notWritable.length === 0) return [];
   return ["", "Skipped: this store cannot write these (another repo):", ...notWritable.map(nodeSummary)];
@@ -1095,10 +1145,12 @@ function frontierFooter(confirmed: NodeState[], notWritable: NodeState[]): strin
 }
 
 async function runFrontier(parsed: ParsedGraphFrontierArgs, graph: WorkGraph, repo: string): Promise<string> {
-  const { frontier: confirmed, notWritable } = await graph.frontierReport({ id: parsed.target });
+  const { frontier: confirmed, notWritable, unavailableMembership: omitted = [] } = await graph.frontierReport({ id: parsed.target });
+  const rootState = parsed.options.readScope === undefined ? undefined : await graph.readNode({ id: parsed.target });
 
+  const unavailable = [...unavailableMembership(rootState === undefined ? [] : [rootState]), ...omitted];
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo, root: parsed.target, frontier: confirmed, notWritable }, null, 2);
+    return JSON.stringify({ repo, root: parsed.target, frontier: confirmed, notWritable, ...(rootState === undefined ? {} : { unavailableChildren: rootState.unavailableChildren, unavailableMembership: unavailable }) }, null, 2);
   }
 
   return [
@@ -1106,6 +1158,7 @@ async function runFrontier(parsed: ParsedGraphFrontierArgs, graph: WorkGraph, re
     "",
     ...(confirmed.length > 0 ? confirmed.map((state) => nodeSummary(state)) : ["- none"]),
     ...skippedSection(notWritable),
+    ...renderUnavailableMembership(unavailable),
     "",
     frontierFooter(confirmed, notWritable),
     "Advisory (§2.4): the frontier can read short when membership edges are missing or the tracker index lags.",
@@ -1956,7 +2009,7 @@ async function runAudit(
   repoRef: RepoRef,
   deps: GraphCliDeps,
 ): Promise<string> {
-  const repo = displayRepo(repoRef);
+  const repo = parsed.options.readScope === undefined ? displayRepo(repoRef) : formatRepoRef(repoRef);
   const full = parsed.options.scope === undefined;
   const { subtree, closed } = await scanClosedNodes(graph, { id: parsed.target }, { includeRoot: true, readReceipts: full });
 
@@ -1974,7 +2027,7 @@ async function runAudit(
     const missing = buildBriefMissing(state.body);
     return missing.length === 0 ? [] : [{ state, missing }];
   });
-  const registry = full ? await auditProbeRegistry(store, repoRef, deps) : undefined;
+  const registry = full && parsed.options.readScope === undefined ? await auditProbeRegistry(store, repoRef, deps) : undefined;
   const staleRegistry = registry?.findings;
   const registryStale = staleRegistry !== undefined && (staleRegistry.cwdMissing.length > 0 || (staleRegistry.unusedByOpenNodes?.length ?? 0) > 0);
   const registryInvalid = registry?.invalid;
@@ -1986,6 +2039,7 @@ async function runAudit(
         repo,
         root: parsed.target,
         nodes: subtree.length,
+        ...(parsed.options.readScope === undefined ? {} : { unavailableMembership: unavailableMembership(subtree) }),
         ...(full ? {
           closedWithoutReceipt: unreceipted.map((state) => state.ref.id),
           openWithoutCheckpoint: uncloseable.map((state) => state.ref.id),
@@ -2014,6 +2068,7 @@ async function runAudit(
     `Work graph audit — root ${parsed.target} (${repo}), ${subtree.length} node(s)`,
     ...(full ? [] : [`Scope: build-brief-not-ready; other findings were not checked.`]),
     "",
+    ...renderUnavailableMembership(unavailableMembership(subtree)),
     ...(unreceipted.length > 0
       ? [
           `Closed without a close receipt — the tracker closed these; no gate ran (§2.4 fail-open):`,
@@ -2127,7 +2182,9 @@ function decisionLine(entry: ScannedNode): string {
  */
 async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, repo: string): Promise<string> {
   const root: NodeRef = { id: parsed.target };
-  const { closed } = await scanClosedNodes(graph, root);
+  const { subtree, closed } = await scanClosedNodes(graph, root);
+  const rootState = parsed.options.readScope === undefined ? undefined : await graph.readNode(root);
+  const unavailable = unavailableMembership(rootState === undefined ? subtree : [rootState, ...subtree]);
   const lines = closed.map((entry) => decisionLine(entry));
   const rendered = lines.length > 0 ? lines.join("\n") : "- none yet";
 
@@ -2159,6 +2216,7 @@ async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, 
       {
         repo,
         root: parsed.target,
+        ...(rootState === undefined ? {} : { unavailableChildren: rootState.unavailableChildren, unavailableMembership: unavailable }),
         decisions: closed.map((entry) => ({
           id: entry.state.ref.id,
           title: entry.state.node.title,
@@ -2173,7 +2231,7 @@ async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, 
     );
   }
 
-  return [`Decisions — root ${parsed.target} (${repo}), derived from close receipts`, "", rendered].join("\n");
+  return [`Decisions — root ${parsed.target} (${repo}), derived from close receipts`, "", rendered, ...renderUnavailableMembership(unavailable)].join("\n");
 }
 
 function ruleRefusal(message: string): SomaCliError {
@@ -2305,9 +2363,9 @@ async function runFileProposal(parsed: ParsedGraphFileProposalArgs, deps: GraphC
  * edge refuses as a usage error.
  */
 async function resolveGraphTarget(
-  parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs>,
+  parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs | ParsedGraphMapsArgs>,
   deps: GraphCliDeps,
-): Promise<{ repo: RepoRef; parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs> }> {
+): Promise<{ repo: RepoRef; parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs | ParsedGraphMapsArgs> }> {
   try {
     if (parsed.action === "chart") return { repo: await deps.resolveRepo(parsed.options.repo), parsed };
     const { repo, id: target } = await resolveNodeTarget(parsed.target, parsed.options.repo, deps.resolveRepo);
@@ -2327,13 +2385,29 @@ function withBlockers<T extends ParsedGraphAddArgs | ParsedGraphLinkArgs>(parsed
   return { ...parsed, target, options: { ...parsed.options, blockedBy } };
 }
 
+async function runMaps(parsed: ParsedGraphMapsArgs, deps: GraphCliDeps): Promise<string> {
+  if (parsed.options.roots.length === 0 || parsed.options.roots.length > 100) throw new SomaCliError("Maps requires 1 to 100 configured roots", 1);
+  const maps: { ref: string; state?: NodeState; unavailable?: true }[] = [];
+  for (const root of parsed.options.roots) {
+    const ref = parseQualifiedNodeRef(root);
+    if (!permitsGraphRead(parsed.options.readScope, ref.repo)) { maps.push({ ref: root, unavailable: true }); continue; }
+    const { repo, id } = await resolveNodeTarget(root, undefined, deps.resolveRepo);
+    const state = await deps.createStore(repo, parsed.options.readScope).readNode({ id });
+    maps.push({ ref: root, state });
+  }
+  return parsed.options.json ? JSON.stringify({ maps }, null, 2) : maps.map((map) => map.state === undefined ? `${map.ref}: unavailable` : `${map.ref}: ${map.state.node.title}`).join("\n");
+}
+
 export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
   const deps: GraphCliDeps = { ...defaultDeps(), ...overrides };
+  if (input.action === "maps") return await runMaps(input, deps);
   if (input.action === "file-proposal") return await runFileProposal(input, deps);
+  if (input.options.readScope !== undefined && (input.action !== "node" && input.action !== "frontier" && input.action !== "audit" && input.action !== "decisions" || input.action === "decisions" && input.options.write)) throw new SomaCliError("Scoped graph operations are read-only", 1);
   const { repo: repoRef, parsed } = await resolveGraphTarget(input, deps);
-  const store = deps.createStore(repoRef);
+  assertGraphRead(parsed.options.readScope, repoRef);
+  const store = deps.createStore(repoRef, parsed.options.readScope);
   const graph = new WorkGraph(store);
-  const repo = displayRepo(repoRef);
+  const repo = parsed.options.readScope === undefined ? displayRepo(repoRef) : formatRepoRef(repoRef);
 
   switch (parsed.action) {
     case "frontier":

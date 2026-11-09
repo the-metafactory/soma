@@ -1268,19 +1268,27 @@ function autoCompletion(): Record<string, unknown> {
   };
 }
 
-async function autoCurrentCloseReceipt(checkRun: Record<string, unknown>): Promise<boolean | undefined> {
-  const completion = autoCompletion();
+async function autoCurrentCloseReceipt(checkRun: Record<string, unknown>, scopedForeign = false, ciId = "98765"): Promise<boolean | undefined> {
+  const completion: Record<string, unknown> = { ...autoCompletion(), ciCheckRunId: ciId };
+  const readRepo = scopedForeign ? "example/allowed" : REPO;
   const receiptBody =
     "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `auto`\n- **at:** 2026-01-03T00:00:00.000Z\n- **gated node hash:** `" + (completion.gatedNodeHash as string) +
     "`\n- **ci:** `98765@deadbeef`\n- **attestation:** `unverified`\n\n### Evidence\n\n- `probed` — bun test exit 0 (https://example.test/run/1)\n";
-  const { transport } = fakeTransport({
-    [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE], completion }) }),
-    [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
-    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: receiptBody, created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
-    [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
-    [`GET repos/${REPO}/check-runs/98765`]: checkRun,
+  const { transport, calls } = fakeTransport({
+    "POST graphql": { data: { repository: { issue: { parent: null, blockedBy: { nodes: [], pageInfo: { hasNextPage: false } }, subIssues: { nodes: [], pageInfo: { hasNextPage: false } } } } } },
+    [`GET repos/${readRepo}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "auto", checkpointId: "cp-497", probes: [PROBE], completion }) }),
+    [`GET repos/${readRepo}/issues/497/dependencies/blocked_by`]: [],
+    [`GET repos/${readRepo}/issues/497/comments`]: [{ id: 42, body: receiptBody, created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${readRepo}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
+    [`GET repos/${readRepo}/check-runs/98765`]: checkRun,
   });
-  return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;
+  const store = createGitHubGraphStore({ repo: REPO, transport, ...(scopedForeign ? { readScope: { repositories: [{ forge: "github" as const, host: "github.com", path: readRepo }] } } : {}) });
+  const state = await store.readNode({ id: scopedForeign ? `${readRepo}#497` : "497" });
+  if (scopedForeign) {
+    expect(calls.some((call) => call.key === `GET repos/${readRepo}/check-runs/98765`)).toBe(true);
+    expect(calls.some((call) => call.key.startsWith(`GET repos/${REPO}/`))).toBe(false);
+  }
+  return state.currentCloseReceipt;
 }
 
 test("readNode rejects an auto completion citing a failed CI check run", async () => {
@@ -1390,3 +1398,13 @@ test("GitHub edit writes title and body in one scoped request", async () => {
 });
 
 test("readNode never treats an abandoned receipt as completion authority", async () => { expect(await currentCloseReceipt(validCompletion, "- **kind:** `abandoned`\n")).toBe(false); });
+
+
+test("scoped foreign auto completion checks CI only in the permitted node repository", async () => {
+  expect(await autoCurrentCloseReceipt({ conclusion: "success", head_sha: "deadbeef" }, true)).toBe(true);
+});
+
+
+test("scoped completion refuses a traversal-shaped check-run identifier before transport", async () => {
+  await expect(autoCurrentCloseReceipt({ conclusion: "success", head_sha: "deadbeef" }, true, "../../../../repos/example/private/issues/9")).rejects.toThrow("positive decimal");
+});

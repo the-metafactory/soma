@@ -271,3 +271,19 @@ states/timestamps, detail provenance, mobile layout and explicit snapshot wordin
   adding the Codex install CLI. `bun test` passed with 30 tests across 9 files.
 - 2026-05-14: `bun run soma install codex --dry-run --home-dir /tmp/soma-cli-smoke`
   printed the planned `~/.soma` and `~/.codex` paths without applying writes.
+
+
+## Scoped graph reads — node #1154
+
+Goal: consumers can inspect configured maps without fetching foreign node
+content or receipts. Repository selection is distinct from read authorization.
+Exact forge/host/path grants and explicit GitLab namespace subtrees are enforced
+inside stores. Missing scope retains operator compatibility; conversation
+consumers must supply it. Denied blockers remain unavailable and blocking.
+
+Verification: `test/graph/read-scope.test.ts` records transport reads across
+allowed and denied namespaces, CLI dispatch, receipts, pagination, malformed
+output and omission diagnostics. Live CLI probes and full repository gates are
+recorded in the release PR. Map discovery uses configured qualified roots;
+there is no additional registry or map-kind discriminator, and legacy untyped
+roots remain readable.

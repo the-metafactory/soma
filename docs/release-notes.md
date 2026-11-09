@@ -5,6 +5,15 @@ lists every change. The
 [GitHub releases](https://github.com/the-metafactory/soma/releases) carry the
 tags.
 
+## 0.31.0
+
+[0.31.0](https://github.com/the-metafactory/soma/releases/tag/v0.31.0) adds
+scoped read-only graph operations. Callers can permit exact repositories or
+GitLab namespaces before Soma traverses membership and dependency edges or
+reads receipts. Denied dependencies remain unavailable and blocking. The new
+`graph maps` verb reads an explicitly configured set of permitted roots.
+See the [changelog](../CHANGELOG.md#0310---2026-11-09).
+
 ## 0.30.0
 
 [0.30.0](https://github.com/the-metafactory/soma/releases/tag/v0.30.0) adds

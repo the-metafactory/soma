@@ -13,6 +13,7 @@
  * It is also where a ref turns into a store (#535 D1): the ref names forge, host
  * and path, and {@link createGraphStore} builds the backend that forge needs.
  */
+import type { GraphReadScope } from "./work-graph-read-scope";
 import { WorkGraph, WorkGraphError } from "./work-graph";
 import type { BridgedNodeReport, GraphStore } from "./work-graph";
 import { createGitHubGraphStore } from "./work-graph-github";
@@ -193,12 +194,12 @@ export function probeRegistryKey(repo: RepoRef): string {
  * A GitHub ref on any host but github.com refuses in the GitHub store's own
  * constructor (see `createGitHubGraphStore`), so no entry point can skip it.
  */
-export function createGraphStore(repo: RepoRef): GraphStore {
+export function createGraphStore(repo: RepoRef, readScope?: GraphReadScope): GraphStore {
   switch (repo.forge) {
     case "github":
-      return createGitHubGraphStore({ repo: repo.path, host: repo.host });
+      return createGitHubGraphStore({ repo: repo.path, host: repo.host, readScope });
     case "gitlab":
-      return createGitLabGraphStore({ host: repo.host });
+      return createGitLabGraphStore({ host: repo.host, readScope });
   }
 }
 
