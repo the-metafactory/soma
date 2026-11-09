@@ -1364,3 +1364,53 @@ does not change topology, autonomy, probes, or checkpoint rules. Existing
 
 Close receipts keep a leading `## Resolution` heading supplied by the author
 (including a subtitle), instead of prepending a duplicate heading.
+
+
+## Scoped reads for consumers
+
+Conversation tools must pass an explicit read scope. `--repo` selects a store;
+it does not authorize its other repositories. Omitting read-scope flags retains
+the existing unrestricted operator behavior. An empty library scope permits
+nothing. Scope grants never come from graph edges or tracker text.
+
+```sh
+soma graph node 12 --repo gitlab:gitlab.example.test/group/project \
+  --read-repo gitlab:gitlab.example.test/group/project --json
+soma graph frontier github:github.com/example/project#1 \
+  --read-repo github:github.com/example/project --json
+soma graph maps --root github:github.com/example/project#1 \
+  --read-repo github:github.com/example/project --json
+```
+
+`maps` accepts 1–100 explicit, fully qualified `--root` arguments from the
+caller's configured inventory, and requires a scope. It does not enumerate an
+account or invent a map registry. Roots are supplied by trusted caller configuration; Soma does not infer
+map membership from free-form kind tags or require legacy roots to be typed. A denied root returns only its supplied
+reference and `unavailable: true`, without opening its store. Permitted roots
+return fresh node state and source links where the store provides them.
+
+Repeat `--read-repo <forge>:<host>/<path>` for exact repositories or namespaces.
+`--read-namespace gitlab:<host>/<group>` explicitly grants that GitLab namespace
+and its slash-delimited descendants, never a similarly prefixed group or a
+different host. The same flags are supported by `node`, `frontier`, `audit`, and
+`decisions`. Qualified forge and host identity is retained in scoped reports.
+The library equivalent is `createGraphStore(repo, { repositories, namespaces })`;
+backend constructors accept the same `readScope` option. Scope is snapshotted
+when the store is created.
+
+Stores first read edge identities from the permitted source, then authorize
+each target before fetching its content or receipts. A denied blocker has
+`status: "unavailable"`, no foreign status, and keeps its dependent blocked.
+Denied parent references carry `unavailable: true`. Denied children are reported
+in `unavailableChildren`; traversal reports aggregate them in
+`unavailableMembership` with source and target identities. These omissions mean
+the report is restricted to the permitted scope. A denied direct target fails
+with a neutral unavailable error. Receipt batches are checked in full before
+any request. Malformed or truncated scoped reads fail closed.
+
+Scoped CLI operations are read-only, including refusal of `decisions --write`.
+Scoped audit omits the machine-local probe registry, which can describe other
+repositories. The caller still owns data policy, command timeouts, output
+bounds, and validation before releasing results. A read scope does not grant
+tracker write authority or prove permission for text already in a permitted
+node body.

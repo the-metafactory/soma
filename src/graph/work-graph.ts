@@ -139,6 +139,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 
 /** Opaque handle to a node — backend-native id, the shape callers pass around. */
 export interface NodeRef {
+  unavailable?: true;
   id: string;
 }
 
@@ -180,7 +181,7 @@ export type CreateNodeSpec<TStoreData extends StoreCreationData = StoreCreationD
 
 /** A blocker as seen from the blocked node — status included so the frontier needs no second fetch. */
 export interface BlockingRef extends NodeRef {
-  status: NodeStatus;
+  status: NodeStatus | "unavailable";
   /** Closed as not planned (an abandoned node, node #1158): it never completed, so it keeps its dependents blocked. */
   abandoned?: boolean;
 }
@@ -210,6 +211,7 @@ export interface NodeState {
   /** False when this node is outside the store's write scope; absent means writable. Not a permission guarantee. */
   writable?: boolean;
   assignees: readonly string[];
+  unavailableChildren?: readonly NodeRef[];
   blockedBy: readonly BlockingRef[];
   /** Read from the backend's API author field, never from body text (§3.2 conjunct 3). */
   author: string;
@@ -230,8 +232,13 @@ export interface NodeState {
   currentCloseReceipt?: boolean;
 }
 
+export function unavailableMembership(states: readonly NodeState[]): { source: NodeRef; target: NodeRef }[] {
+  return states.flatMap((state) => (state.unavailableChildren ?? []).map((target) => ({ source: state.ref, target })));
+}
+
 /** Otherwise-ready subtree members partitioned by the store's write scope. */
 export interface FrontierReport {
+  unavailableMembership?: { source: NodeRef; target: NodeRef }[];
   frontier: NodeState[];
   notWritable: NodeState[];
 }
@@ -1856,7 +1863,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
       if (state.blockedBy.some((blocker) => !blockerCleared(blocker))) continue;
       (state.writable === false ? notWritable : frontier).push(state);
     }
-    return { frontier, notWritable };
+    return { frontier, notWritable, ...(subtree.some((state) => state.unavailableChildren !== undefined) ? { unavailableMembership: unavailableMembership(subtree) } : {}) };
   }
 
   /**
