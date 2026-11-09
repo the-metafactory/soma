@@ -12,7 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Graph stores accept a read scope of exact forge-qualified repositories and explicit GitLab namespace subtrees. Scoped traversal checks destinations before fetching node content or receipts, returns unavailable dependencies without foreign status, and keeps those dependencies blocking. GitHub scoped edge queries request identities only and never fall back to unrestricted nested traversal. (#1154)
-- `soma graph maps --root <qualified-node> --read-repo <qualified-repo>` reads a bounded, configured root inventory. `node`, `frontier`, `audit` and `decisions` accept repeated `--read-repo` and `--read-namespace` grants. Scoped commands refuse writes, report unavailable membership edges, and omit machine-local probe registry inspection. Existing unscoped commands retain their behavior. (#1154)
+- `soma graph maps --root <qualified-node> --read-repo <qualified-repo>` reads a bounded, configured root inventory. `node`, `frontier`, `audit` and `decisions` accept repeated `--read-repo` and `--read-namespace` grants. Scoped commands refuse writes, report unavailable membership edges, and omit machine-local probe registry inspection. Existing unscoped commands remain available. (#1154)
+
+### Fixed
+
+- CI receipt verification reads the check run in the node’s own repository, including for unscoped cross-repository reads, and rejects malformed check-run IDs before constructing an API request. (#1154)
 
 ## [0.30.0] - 2026-11-09
 

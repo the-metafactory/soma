@@ -1396,7 +1396,10 @@ different host. The same flags are supported by `node`, `frontier`, `audit`, and
 `decisions`. Qualified forge and host identity is retained in scoped reports.
 The library equivalent is `createGraphStore(repo, { repositories, namespaces })`;
 backend constructors accept the same `readScope` option. Scope is snapshotted
-when the store is created.
+when the store is created. Path matching is case-insensitive; namespace prefixes
+end at a slash boundary. Scope does not supply write authority. Library mutators
+keep their existing write contracts and any reads they perform remain scoped;
+some mutators also refuse out-of-scope destinations.
 
 Stores first read edge identities from the permitted source, then authorize
 each target before fetching its content or receipts. A denied blocker has

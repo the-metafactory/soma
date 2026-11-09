@@ -52,6 +52,7 @@ test("scope identity includes forge and host; namespaces use segment boundaries"
   expect(permitsGraphRead({ repositories: [] }, gitlab)).toBe(false);
   const scope = { repositories: [], namespaces: [parseRepoRef("gitlab:gitlab.example.test/example/team")] };
   expect(permitsGraphRead(scope, { ...gitlab, path: "example/team/project" })).toBe(true);
+  expect(permitsGraphRead(scope, { ...gitlab, path: "Example/Team/Project" })).toBe(true);
   expect(permitsGraphRead(scope, { ...gitlab, path: "example/team-private/project" })).toBe(false);
 });
 
@@ -67,6 +68,7 @@ test("GitLab scope blocks foreign membership and blockers before target queries"
   const before = calls.length;
   const denied = { id: "example/private#9" };
   for (const read of [() => store.readNode(denied), () => store.readSubtree(denied), () => store.listComments(denied), () => store.readRawBody(denied), () => store.readComment({ id: "1", nodeId: denied.id }), () => store.readCommentReactions({ id: "1", nodeId: denied.id })]) await expect(read()).rejects.toThrow("unavailable");
+  await expect(store.listCommentsBatch!([{ id: `${gitlab.path}#1` }, denied])).rejects.toThrow("unavailable");
   expect(calls).toHaveLength(before);
 });
 

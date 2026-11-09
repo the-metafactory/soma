@@ -832,6 +832,10 @@ class GitHubGraphStore implements GraphStore {
     return permitsGraphRead(this.readScope, { forge: "github", host: this.host, path: this.locate(ref).repo });
   }
 
+  private assertRepoReadable(): void {
+    assertGraphRead(this.readScope, { forge: "github", host: this.host, path: this.repo });
+  }
+
   private readApiId(id: string): string {
     if (!/^[1-9]\d*$/u.test(id)) throw new WorkGraphError("invalid-node", "Graph read requires a positive decimal API identifier");
     return id;
@@ -908,7 +912,7 @@ class GitHubGraphStore implements GraphStore {
   }
 
   async findNodesByBodyMarker(marker: string): Promise<NodeState[]> {
-    this.checkedLocation({ id: "1" });
+    this.assertRepoReadable();
     const context = `findNodesByBodyMarker in ${this.repo}`;
     if (marker.length === 0) throw new WorkGraphError("invalid-node", `${context}: marker must not be empty`);
     try {
@@ -938,7 +942,7 @@ class GitHubGraphStore implements GraphStore {
   }
 
   async listNodesByLabel(label: string, author: string): Promise<LabeledNode[]> {
-    this.checkedLocation({ id: "1" });
+    this.assertRepoReadable();
     const context = `listNodesByLabel ${JSON.stringify(label)} by ${JSON.stringify(author)} in ${this.repo}`;
     if (label.trim().length === 0 || label.includes(",")) {
       throw new WorkGraphError("invalid-node", `${context}: GitHub lists one non-empty label without commas`);
@@ -968,7 +972,7 @@ class GitHubGraphStore implements GraphStore {
   }
 
   async listOpenRoots(serves: string): Promise<NodeState[]> {
-    this.checkedLocation({ id: "1" });
+    this.assertRepoReadable();
     if (!/^G\d+$/u.test(serves)) {
       throw new WorkGraphError("invalid-node", `listOpenRoots in ${this.repo}: serves must be a G<n> goal ID`);
     }
@@ -994,7 +998,7 @@ class GitHubGraphStore implements GraphStore {
 
   /** Every open typed node in the repo with the probes it declares, from one paged read of the open issues. */
   async listOpenNodeProbes(): Promise<OpenNodeProbes[]> {
-    this.checkedLocation({ id: "1" });
+    this.assertRepoReadable();
     const context = `listOpenNodeProbes in ${this.repo}`;
     try {
       const nodes: OpenNodeProbes[] = [];
@@ -1319,7 +1323,7 @@ class GitHubGraphStore implements GraphStore {
 
   /** Re-read a comment for its API author field — the proposal half of §3.2 conjunct 3. */
   async readComment(ref: CommentRef): Promise<CommentRef> {
-    this.checkedLocation({ id: "1" });
+    this.assertRepoReadable();
     this.checkedLocation({ id: ref.nodeId });
     const comment = readComment(
       await this.transport({ method: "GET", path: `repos/${this.repo}/issues/comments/${this.readScope === undefined ? ref.id : this.readApiId(ref.id)}` }),
@@ -1335,7 +1339,7 @@ class GitHubGraphStore implements GraphStore {
 
   /** Authors come from the API author field — the whole point of reading reactions here (§3.2 conjunct 3). */
   async readCommentReactions(ref: CommentRef): Promise<Reaction[]> {
-    this.checkedLocation({ id: "1" });
+    this.assertRepoReadable();
     this.checkedLocation({ id: ref.nodeId });
     const reactions = asArray(
       await this.transport({

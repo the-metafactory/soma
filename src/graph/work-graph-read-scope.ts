@@ -16,8 +16,12 @@ export function validateGraphReadScope(scope: GraphReadScope): GraphReadScope {
 export function permitsGraphRead(scope: GraphReadScope | undefined, repo: RepoRef): boolean {
   if (scope === undefined) return true;
   const sameAuthority = (entry: RepoRef): boolean => entry.forge === repo.forge && entry.host === repo.host;
-  return scope.repositories.some((entry) => sameAuthority(entry) && entry.path.toLowerCase() === repo.path.toLowerCase()) ||
-    (scope.namespaces ?? []).some((entry) => sameAuthority(entry) && (repo.path === entry.path || repo.path.startsWith(`${entry.path}/`)));
+  const path = repo.path.toLowerCase();
+  return scope.repositories.some((entry) => sameAuthority(entry) && entry.path.toLowerCase() === path) ||
+    (scope.namespaces ?? []).some((entry) => {
+      const namespace = entry.path.toLowerCase();
+      return sameAuthority(entry) && (path === namespace || path.startsWith(`${namespace}/`));
+    });
 }
 
 export function assertGraphRead(scope: GraphReadScope | undefined, repo: RepoRef): void {
