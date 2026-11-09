@@ -1285,7 +1285,7 @@ class GitHubGraphStore implements GraphStore {
     ]);
     const comment = comments.find((entry) => entry.id === completion.receiptCommentId);
     if (comment?.author !== completion.closer || !isStructurallyValidCloseReceipt(comment.body)) return false;
-    if (completion.checkpointId !== node.checkpointId && !isAbandonedReceipt(comment.body)) return false;
+    if (completion.checkpointId !== node.checkpointId || isAbandonedReceipt(comment.body)) return false;
     const timeline = asArray(events, "issue events").flatMap((entry) => {
       const record = asRecord(entry, "issue event");
       const at = typeof record.created_at === "string" ? Date.parse(record.created_at) : NaN;
@@ -1312,7 +1312,7 @@ class GitHubGraphStore implements GraphStore {
     // Auto completion is only as strong as the CI run it cites: a check-run
     // `success` conclusion is written by a GitHub App, not an issue editor, so
     // it is the one completion fact a tracker-writer cannot forge. Verify it live.
-    if (node.autonomy === "auto" && !isAbandonedReceipt(comment.body)) {
+    if (node.autonomy === "auto") {
       if (completion.ciCheckRunId === undefined || completion.ciHeadSha === undefined) return false;
       const run = await this.fetchCheckRun(completion.ciCheckRunId);
       if (run.conclusion !== "success" || run.headSha !== completion.ciHeadSha) return false;
