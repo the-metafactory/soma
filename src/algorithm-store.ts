@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type {
@@ -14,10 +15,30 @@ import type {
 import { buildVsaArtifact, getCriteria, getGoal } from "./vsa-accessors";
 import { getRunPhase } from "./algorithm-lifecycle";
 import { DEFAULT_ALGORITHM_LOOP_STATE } from "./algorithm-execution-modes";
+import { withRegistryFileLock } from "./work-registry";
 
 export interface AlgorithmStoreOptions {
   homeDir?: string;
   somaHome?: string;
+  /**
+   * Reject the write with `StaleOwnershipError` unless the on-disk run's
+   * `ownership.epoch` (0 when absent) equals this value. The check and the
+   * write happen under the run's claim lock.
+   */
+  expectedEpoch?: number;
+  /** Test seam: runs after half of the bytes are in the temp file, before fsync/rename. */
+  faultAfterPartialWrite?: () => void | Promise<void>;
+}
+
+export class StaleOwnershipError extends Error {
+  constructor(
+    readonly runId: string,
+    readonly expectedEpoch: number,
+    readonly actualEpoch: number,
+  ) {
+    super(`Stale ownership for Algorithm run ${runId}: expected epoch ${expectedEpoch}, on-disk epoch is ${actualEpoch}. Write rejected.`);
+    this.name = "StaleOwnershipError";
+  }
 }
 
 export interface WrittenAlgorithmRun {
@@ -54,17 +75,82 @@ function algorithmStoreWriteError(path: string, error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+// Same temp-file-then-rename pattern as work-registry.ts writeJson, plus fsync
+// of the file before the rename so a crash never leaves a short file at `path`.
+async function writeFileAtomic(path: string, content: string, fault?: () => void | Promise<void>): Promise<void> {
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    const handle = await open(tmp, "wx", 0o644);
+    try {
+      const half = Math.floor(content.length / 2);
+      await handle.writeFile(content.slice(0, half), "utf8");
+      await fault?.();
+      await handle.writeFile(content.slice(half), "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(tmp, path);
+  } finally {
+    await rm(tmp, { force: true });
+  }
+}
+
+async function currentEpoch(path: string): Promise<number> {
+  try {
+    const raw = JSON.parse(await readFile(path, "utf8")) as { ownership?: { epoch?: unknown } };
+    const epoch = raw.ownership?.epoch;
+    return typeof epoch === "number" ? epoch : 0;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    throw error;
+  }
+}
+
+async function persistAlgorithmRun(run: AlgorithmRun, path: string, options: AlgorithmStoreOptions): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFileAtomic(path, `${JSON.stringify(run, null, 2)}\n`, options.faultAfterPartialWrite);
+}
+
 export async function writeAlgorithmRun(run: AlgorithmRun, options: AlgorithmStoreOptions = {}): Promise<WrittenAlgorithmRun> {
   const path = algorithmRunPath(run, options);
 
   try {
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+    if (options.expectedEpoch === undefined) {
+      await persistAlgorithmRun(run, path, options);
+    } else {
+      const expected = options.expectedEpoch;
+      await withRegistryFileLock(path, async () => {
+        const actual = await currentEpoch(path);
+        if (actual !== expected) throw new StaleOwnershipError(run.id, expected, actual);
+        await persistAlgorithmRun(run, path, options);
+      });
+    }
   } catch (error) {
+    if (error instanceof StaleOwnershipError) throw error;
     throw algorithmStoreWriteError(path, error);
   }
 
   return { path, run };
+}
+
+/**
+ * Take (or take over) ownership of a run. Serialised by a `mkdir` lock beside
+ * the run file; raises `ownership.epoch` by one and returns the new epoch.
+ * Every claim gets a distinct epoch; the highest epoch is the live owner.
+ */
+export async function claimAlgorithmRun(id: string, token: string, options: AlgorithmStoreOptions = {}): Promise<number> {
+  const path = algorithmRunPathById(id, options);
+  try {
+    return await withRegistryFileLock(path, async () => {
+      const run = await readAlgorithmRun(path);
+      const epoch = (run.ownership?.epoch ?? 0) + 1;
+      await persistAlgorithmRun({ ...run, ownership: { token, epoch } }, path, {});
+      return epoch;
+    });
+  } catch (error) {
+    throw algorithmStoreWriteError(path, error);
+  }
 }
 
 export async function readAlgorithmRun(path: string): Promise<AlgorithmRun> {

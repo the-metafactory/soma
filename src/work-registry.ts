@@ -290,7 +290,7 @@ async function reclaimStaleWorkRegistryLock(lockPath: string, ownerlessTimeoutMs
   }
 }
 
-async function withRegistryFileLock<T>(
+export async function withRegistryFileLock<T>(
   registryPath: string,
   fn: () => Promise<T>,
   timeoutMs?: number,

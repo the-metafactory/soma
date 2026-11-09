@@ -498,6 +498,13 @@ export interface AlgorithmRun {
    * to `[]` rather than bumping the schema version. See {@link AlgorithmReference}.
    */
   references?: AlgorithmReference[];
+  /**
+   * Ownership fence (P3). Optional on disk: runs written before this shipped
+   * have none and load unchanged (epoch is then treated as 0). `epoch` rises by
+   * one on every `claimAlgorithmRun`; a write that names a stale
+   * `expectedEpoch` is rejected with `StaleOwnershipError`.
+   */
+  ownership?: AlgorithmOwnership;
   /** Current-state probes recorded during OBSERVE. See {@link AlgorithmObservation}. */
   observations: AlgorithmObservation[];
   changelog: AlgorithmLogEntry[];
@@ -506,6 +513,11 @@ export interface AlgorithmRun {
   /** Per-run meta-reflections ("how the Algorithm should have behaved"). See {@link AlgorithmMetaReflection}. */
   metaReflection: AlgorithmMetaReflection[];
   provenance: AlgorithmProvenanceEntry[];
+}
+
+export interface AlgorithmOwnership {
+  token: string;
+  epoch: number;
 }
 
 export interface AlgorithmRunSummary {

@@ -341,6 +341,8 @@ export {
 } from "./algorithm-lifecycle";
 export {
   algorithmRunPath,
+  claimAlgorithmRun,
+  StaleOwnershipError,
   algorithmRunPathById,
   listAlgorithmRunSummaries,
   listAlgorithmRuns,
