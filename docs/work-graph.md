@@ -724,6 +724,8 @@ soma graph release <node>          # identity-bound self-release: abandon your
                                    # own claim (the claim-race loser's
                                    # DELETE-self, promoted to a verb); only
                                    # ever unassigns the acting identity
+soma graph abandon <node> --reason-file <path>  # close as not planned with an `abandoned`
+                                   # receipt; no probes, dependents stay blocked
 soma graph add <root> ...          # create node (+ edges) — additive, structurally
                                    # validated; --checkpoint is REQUIRED, since a
                                    # node without one can never close and no verb

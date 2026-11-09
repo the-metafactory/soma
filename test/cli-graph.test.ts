@@ -22,7 +22,7 @@ import {
 // Receipt-rendering tests reach the defining module directly (sage on
 // #584); collapseHome stays internal to graph.
 import { collapseHome, describeProbeTree } from "../src/graph/work-graph";
-import { WorkGraphError, closeDeadlineSec, listProbeRegistryEntries, probeRegistryPath, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type DeclaredCommand, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeRegistryEntries, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
+import { WorkGraph, WorkGraphError, closeDeadlineSec, listProbeRegistryEntries, probeRegistryPath, renderCloseReceipt, runProbe, runProbes, scanCommentsForReceipt, type DeclaredCommand, type ClaimResult, type ReleaseResult, type CloseReceipt, type CommentRef, type CreateNodeOptions, type CreateNodeSpec, type RehomeSelection, type GraphStore, type NodeComment, type NodeRef, type NodeState, type Probe, type ProbeRegistry, type ProbeRegistryEntries, type ProbeResult, type Reaction, type WorkGraphNode } from "../src/graph/index";
 import { walkFakeSubtree } from "./fixtures/work-graph-fixtures";
 
 const SERVES_CHART = ["graph", "chart", "--title", "map", "--autonomy", "approve", "--checkpoint", "cp-map"];
@@ -106,7 +106,7 @@ interface SeedNode {
   status?: "open" | "closed";
   writable?: boolean;
   assignees?: string[];
-  blockedBy?: { id: string; status: "open" | "closed" }[];
+  blockedBy?: { id: string; status: "open" | "closed"; abandoned?: boolean }[];
   author?: string;
   parent?: string;
   typed?: boolean;
@@ -325,9 +325,11 @@ function cleanNode(id: string): WorkGraphNode {
 // --- parsing ---------------------------------------------------------------
 
 test("the parser accepts exactly the verbs of §2.6, including chart", () => {
-  for (const action of ["frontier", "node", "claim", "release", "add", "link", "chart", "close", "audit", "decisions"]) {
+  for (const action of ["frontier", "node", "claim", "release", "abandon", "add", "link", "chart", "close", "audit", "decisions"]) {
     const parsed = parseGraphArgs(
-      action === "add" || action === "chart"
+      action === "abandon"
+        ? ["graph", action, "495", "--reason-file", "reason.md"]
+        : action === "add" || action === "chart"
         ? ["graph", action, ...(action === "add" ? ["495"] : []), "--title", "t", "--autonomy", "approve", "--checkpoint", "cp-t"]
         : action === "link"
           ? ["graph", action, "495", "--blocked-by", "498"]
@@ -336,7 +338,7 @@ test("the parser accepts exactly the verbs of §2.6, including chart", () => {
     expect(parsed.action).toBe(action as never);
   }
   expect(() => parseGraphArgs(["graph", "delete", "495"])).toThrow(
-    /frontier\|node\|edit\|claim\|release\|add\|link\|chart\|close\|audit\|decisions/u,
+    /frontier\|node\|edit\|claim\|release\|abandon\|add\|link\|chart\|close\|audit\|decisions/u,
   );
 });
 
@@ -3158,4 +3160,92 @@ test("rule needs exactly one of --text and --text-file", () => {
   expect(() => parseGraphArgs(["graph", "rule", "700"])).toThrow("exactly one of --text or --text-file");
   expect(() => parseGraphArgs(["graph", "rule", "700", "--text", "a", "--text-file", "b"])).toThrow("exactly one of --text or --text-file");
   expect(() => parseGraphArgs(["graph", "rule", "700", "--text", "a", "--write"])).toThrow("Unknown option: --write");
+});
+
+// --- abandon (node #1158) -----------------------------------------------------
+
+const REASON = "The upstream API was withdrawn, so this work will not be done.";
+
+function abandonStore(seed: Partial<SeedNode> = {}): FakeStore {
+  return new FakeStore().seed("700", { node: autoNode("700", { title: "doomed" }), ...seed });
+}
+
+test("abandon closes the node with an abandoned receipt carrying the reason, and runs no probes", async () => {
+  const store = abandonStore();
+  const probed: string[] = [];
+  const output = await run(["graph", "abandon", "700", "--reason-file", "reason.md", "--repo", REPO], store, {
+    readTextFile: async () => REASON,
+    runProbes: async (probes) => { probed.push(...probes.map(() => "ran")); return []; },
+  });
+
+  expect(output).toContain("Abandoned node 700");
+  expect(probed).toEqual([]);
+  expect(store.closed).toHaveLength(1);
+  const receipt = store.closed[0].receipt;
+  expect(receipt.kind).toBe("abandoned");
+  expect(receipt.resolution).toBe(REASON);
+  const body = renderCloseReceipt(receipt);
+  expect(body).toContain(REASON);
+  const scan = scanCommentsForReceipt([body]);
+  expect(scan).toMatchObject({ hasReceipt: true, abandoned: true });
+});
+
+test("abandon refuses a missing or empty reason file and closes nothing", async () => {
+  const empty = abandonStore();
+  expect(await failure(["graph", "abandon", "700", "--reason-file", "r.md", "--repo", REPO], empty, { readTextFile: async () => "  \n" })).toContain("is empty");
+  expect(empty.closed).toEqual([]);
+
+  const missing = abandonStore();
+  const message = await failure(["graph", "abandon", "700", "--reason-file", "r.md", "--repo", REPO], missing, {
+    readTextFile: async () => { throw new Error("ENOENT"); },
+  });
+  expect(message).toContain("could not be read");
+  expect(missing.closed).toEqual([]);
+  expect(() => parseGraphArgs(["graph", "abandon", "700"])).toThrow(/reason-file/u);
+});
+
+test("abandon refuses an identity that is not the acting one, and a node another identity holds", async () => {
+  const other = abandonStore();
+  const overrides = { readTextFile: async () => REASON };
+  expect(await failure(["graph", "abandon", "700", "--reason-file", "r.md", "--identity", "mallory", "--repo", REPO], other, overrides)).toContain("not the acting identity");
+  expect(other.closed).toEqual([]);
+
+  const held = abandonStore({ assignees: ["Ada"] });
+  expect(await failure(["graph", "abandon", "700", "--reason-file", "r.md", "--repo", REPO], held, overrides)).toContain("only the holder");
+  expect(held.closed).toEqual([]);
+
+  const mine = abandonStore({ assignees: ["ivy-agent"] });
+  await run(["graph", "abandon", "700", "--reason-file", "r.md", "--repo", REPO], mine, overrides);
+  expect(mine.closed).toHaveLength(1);
+});
+
+test("an abandoned blocker keeps its dependent off the frontier and unclaimable", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: autoNode("495"), children: ["701"] })
+    .seed("701", { node: autoNode("701"), parent: "495", blockedBy: [{ id: "700", status: "closed", abandoned: true }] });
+  expect((await new WorkGraph(store).frontier({ id: "495" })).map((state) => state.ref.id)).toEqual([]);
+  expect(await failure(["graph", "claim", "701", "--repo", REPO], store)).toContain("blocked");
+});
+
+test("audit accepts an abandoned close as receipted, and decisions marks it abandoned", async () => {
+  const store = new FakeStore()
+    .seed("495", { node: cleanNode("495"), children: ["700"] })
+    .seed("700", { node: cleanNode("700"), status: "closed", parent: "495" });
+  await store.postComment({ id: "700" }, renderCloseReceipt({
+    kind: "abandoned",
+    checkpointId: "cp-700",
+    closedBy: "ivy-agent",
+    at: AT.toISOString(),
+    gist: "upstream withdrawn",
+    resolution: REASON,
+    evidence: [],
+    probeResults: [],
+    attestation: "unverified",
+    autonomy: "auto",
+  }));
+
+  expect(await run(["graph", "audit", "495", "--repo", REPO], store)).toContain("Clean");
+  const decisions = await run(["graph", "decisions", "495", "--repo", REPO], store);
+  expect(decisions).toContain("ABANDONED");
+  expect(decisions).toContain("upstream withdrawn");
 });
