@@ -21,6 +21,7 @@ import {
   parseNodeSpec,
   renderCloseReceipt,
   isStructurallyValidCloseReceipt,
+  isAbandonedReceipt,
   hashGatedNodeFields,
   resolveClaimRace,
   toNode,
@@ -240,6 +241,8 @@ interface GitHubIssue {
   title: string;
   body: string;
   status: NodeStatus;
+  /** Closed as not planned: an abandoned node (node #1158). */
+  abandoned?: boolean;
   updatedAt: string;
   author: string;
   assignees: string[];
@@ -340,6 +343,7 @@ function readIssue(value: unknown, context: string): GitHubIssue {
     title: typeof record.title === "string" ? record.title : "",
     body: typeof record.body === "string" ? record.body : "",
     status: record.state === "closed" ? "closed" : "open",
+    ...(record.state === "closed" && record.state_reason === "not_planned" ? { abandoned: true } : {}),
     updatedAt: readUpdatedAt(record.updated_at, context),
     author: readLogin(record.user),
     assignees,
@@ -438,7 +442,7 @@ const BLOCKER_PAGE = 20;
  * few frontier nodes. Nothing here establishes where that crosses over — revisit
  * when payload rather than round trips is what a real map is paying.
  */
-const NODE_FIELDS = `number title state body updatedAt url databaseId repository{nameWithOwner} author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state repository{nameWithOwner}}}`;
+const NODE_FIELDS = `number title state body updatedAt url databaseId repository{nameWithOwner} author{login} assignees(first:${ASSIGNEE_PAGE}){totalCount nodes{login}} blockedBy(first:${BLOCKER_PAGE}){totalCount nodes{number state stateReason repository{nameWithOwner}}}`;
 
 // Scan the live repo connection, not search (which has index lag and a result
 // cap). Hydrate only goal candidates; totalCount proves the scan is complete.
@@ -498,6 +502,10 @@ const SUBTREE_QUERY = `query($owner:String!,$name:String!,$number:Int!,$after:St
  */
 function readGraphQLStatus(record: Record<string, unknown>): NodeStatus {
   return record.state === "OPEN" ? "open" : "closed";
+}
+
+function readGraphQLAbandoned(record: Record<string, unknown>): { abandoned: true } | Record<string, never> {
+  return record.state === "CLOSED" && record.stateReason === "NOT_PLANNED" ? { abandoned: true } : {};
 }
 
 /** A connection read as `{totalCount, nodes}`, with the shortfall reported rather than swallowed. */
@@ -576,7 +584,7 @@ function readSubtreeState(storeRepo: string, record: Record<string, unknown>): {
       blockers.entries.map((entry) => {
         const blocker = asRecord(entry, context);
         const located = { number: readNumber(blocker, "number", context), repo: readIssueRepo(blocker) };
-        return { id: localIssueId(storeRepo, located), status: readGraphQLStatus(blocker) };
+        return { id: localIssueId(storeRepo, located), status: readGraphQLStatus(blocker), ...readGraphQLAbandoned(blocker) };
       }),
     ),
   };
@@ -1269,7 +1277,7 @@ class GitHubGraphStore implements GraphStore {
   /** Completion is authority only when its persisted binding matches this closure. */
   private async hasCurrentCloseReceipt(ref: NodeRef, issue: GitHubIssue, completion: NonNullable<WorkGraphNode["completion"]>): Promise<boolean> {
     const node = nodeFromIssue(issue).node;
-    if (completion.checkpointId !== node.checkpointId || completion.autonomy !== node.autonomy) return false;
+    if (completion.autonomy !== node.autonomy) return false;
     if (completion.gatedNodeHash !== hashGatedNodeFields(node)) return false;
     const [comments, events] = await Promise.all([
       this.listComments(ref),
@@ -1277,6 +1285,7 @@ class GitHubGraphStore implements GraphStore {
     ]);
     const comment = comments.find((entry) => entry.id === completion.receiptCommentId);
     if (comment?.author !== completion.closer || !isStructurallyValidCloseReceipt(comment.body)) return false;
+    if (completion.checkpointId !== node.checkpointId || isAbandonedReceipt(comment.body)) return false;
     const timeline = asArray(events, "issue events").flatMap((entry) => {
       const record = asRecord(entry, "issue event");
       const at = typeof record.created_at === "string" ? Date.parse(record.created_at) : NaN;
@@ -1475,7 +1484,7 @@ class GitHubGraphStore implements GraphStore {
     await this.transport({
       method: "PATCH",
       path: this.writePath(ref),
-      body: { body, state: "closed", state_reason: "completed" },
+      body: { body, state: "closed", state_reason: receipt.kind === "abandoned" ? "not_planned" : "completed" },
     });
   }
 
@@ -1527,7 +1536,7 @@ class GitHubGraphStore implements GraphStore {
       `node ${ref.id} blocked_by`,
     ).map((entry) => {
       const blocker = readIssue(entry, `node ${ref.id} blocked_by`);
-      return { id: localIssueId(this.repo, blocker), status: blocker.status };
+      return { id: localIssueId(this.repo, blocker), status: blocker.status, ...(blocker.abandoned === true ? { abandoned: true } : {}) };
     });
   }
 }

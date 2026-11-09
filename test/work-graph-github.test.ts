@@ -1233,12 +1233,12 @@ test("readNode ignores a receipt from before reopen and current reclose", async 
 
 interface CompletionFixture { receiptCommentId: string; checkpointId: string; autonomy: "approve"; closer: string; closedAt: string; gatedNodeHash: string }
 
-async function currentCloseReceipt(completion?: CompletionFixture): Promise<boolean | undefined> {
+async function currentCloseReceipt(completion?: CompletionFixture, kindLine = ""): Promise<boolean | undefined> {
   const { transport } = fakeTransport({
     [`GET repos/${REPO}/issues/497`]: issuePayload({ state: "closed", body: typedBody({ autonomy: "approve", checkpointId: "cp-497", ...(completion === undefined ? {} : { completion }) }) }),
     [`GET repos/${REPO}/issues/497/dependencies/blocked_by`]: [],
     [`GET repos/${REPO}/issues/comments/42`]: { id: 42, user: { login: "ivy" } },
-    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n- **at:** 2026-01-03T00:00:00.000Z\n- **attestation:** `verified`\n- **gated node hash:** `" + hashGatedNodeFields({ autonomy: "approve", checkpointId: "cp-497", probes: [] }) + "`\n\n### Evidence\n", created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
+    [`GET repos/${REPO}/issues/497/comments`]: [{ id: 42, body: "## Close receipt\n\n- **checkpoint:** `cp-497`\n- **closed by:** ivy\n- **autonomy:** `approve`\n" + kindLine + "- **at:** 2026-01-03T00:00:00.000Z\n- **attestation:** `verified`\n- **gated node hash:** `" + hashGatedNodeFields({ autonomy: "approve", checkpointId: "cp-497", probes: [] }) + "`\n\n### Evidence\n", created_at: "2026-01-03T00:00:00.000Z", user: { login: "ivy" } }],
     [`GET repos/${REPO}/issues/497/events`]: [{ event: "closed", created_at: "2026-01-03T00:00:00.000Z", actor: { login: "ivy" } }],
   });
   return (await createGitHubGraphStore({ repo: REPO, transport }).readNode({ id: "497" })).currentCloseReceipt;
@@ -1388,3 +1388,5 @@ test("GitHub edit writes title and body in one scoped request", async () => {
   await expect(store.editContent!({ id: "other/repo#1" }, { title: "bad" })).rejects.toThrow();
   expect(requests).toHaveLength(1);
 });
+
+test("readNode never treats an abandoned receipt as completion authority", async () => { expect(await currentCloseReceipt(validCompletion, "- **kind:** `abandoned`\n")).toBe(false); });

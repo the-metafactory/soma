@@ -838,7 +838,7 @@ export type { BridgedNodeReport };
  */
 export function deriveBridgedPlanStepStatus(report: BridgedNodeReport): AlgorithmPlanStep["status"] {
   if (report.status === "closed") return report.hasCloseReceipt ? "done" : "blocked";
-  return report.blockedBy.some((blocker) => blocker.status === "open") ? "blocked" : "open";
+  return report.blockedBy.some((blocker) => blocker.status === "open" || blocker.abandoned === true) ? "blocked" : "open";
 }
 
 /**

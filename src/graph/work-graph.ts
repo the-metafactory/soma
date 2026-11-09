@@ -181,6 +181,13 @@ export type CreateNodeSpec<TStoreData extends StoreCreationData = StoreCreationD
 /** A blocker as seen from the blocked node — status included so the frontier needs no second fetch. */
 export interface BlockingRef extends NodeRef {
   status: NodeStatus;
+  /** Closed as not planned (an abandoned node, node #1158): it never completed, so it keeps its dependents blocked. */
+  abandoned?: boolean;
+}
+
+/** A blocker that has completed. A closed-but-abandoned blocker has not. */
+export function blockerCleared(blocker: BlockingRef): boolean {
+  return blocker.status === "closed" && blocker.abandoned !== true;
 }
 
 export type NodeStatus = "open" | "closed";
@@ -417,6 +424,8 @@ export interface ProbeTree {
 }
 
 export interface CloseReceipt {
+  /** `abandoned`: the work was deliberately not done (node #1158). Absent for a normal gated close. */
+  kind?: "abandoned";
   /** Must match the node's attached checkpoint — one work item, one completion gate. */
   checkpointId: string;
   closedBy: string;
@@ -1413,6 +1422,8 @@ const RECEIPT_GIST_LINE = /^- \*\*gist:\*\* (.+)$/mu;
 export interface ReceiptScan {
   /** Did any comment carry a close receipt? `false` on a closed node is the #588 auto-close signature. */
   hasReceipt: boolean;
+  /** The last receipt found records an abandon, not a completed close. */
+  abandoned?: boolean;
   /** The gist from the LAST receipt found — a re-close supersedes, so the last word wins. */
   gist?: string;
 }
@@ -1433,7 +1444,12 @@ export function isStructurallyValidCloseReceipt(body: string): boolean {
   const hasEvidence = /^- `[^`\n]+` — \S.+$/mu.test(evidence);
   return hasReceiptFrame(body)
     && autonomy !== undefined
-    && (autonomy !== "auto" || hasEvidence);
+    && (autonomy !== "auto" || hasEvidence || isAbandonedReceipt(body));
+}
+
+/** Does this receipt body record an abandon rather than a completed close? */
+export function isAbandonedReceipt(body: string): boolean {
+  return /^- \*\*kind:\*\* `abandoned`$/mu.test(body);
 }
 
 /** The receipt lines every renderer version has written. */
@@ -1501,7 +1517,7 @@ export function scanCommentsForReceipt(bodies: readonly string[]): ReceiptScan {
   }
   if (found === undefined) return { hasReceipt: false };
   const gist = RECEIPT_GIST_LINE.exec(found)?.[1]?.trim();
-  return { hasReceipt: true, ...(gist === undefined || gist.length === 0 ? {} : { gist }) };
+  return { hasReceipt: true, ...(isAbandonedReceipt(found) ? { abandoned: true } : {}), ...(gist === undefined || gist.length === 0 ? {} : { gist }) };
 }
 
 /** Markers bounding the derived decisions section in a map body. */
@@ -1547,6 +1563,7 @@ export function renderCloseReceipt(receipt: CloseReceipt): string {
     `## Close receipt`,
     ``,
     `- **checkpoint:** \`${receipt.checkpointId}\``,
+    ...(receipt.kind === "abandoned" ? ["- **kind:** `abandoned`"] : []),
     ...((receipt.gist ?? "").trim().length === 0 ? [] : [`- **gist:** ${(receipt.gist ?? "").trim()}`]),
     `- **closed by:** ${receipt.closedBy}`,
     `- **autonomy:** \`${receipt.autonomy ?? "approve"}\``,
@@ -1836,7 +1853,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
       seen.add(state.ref.id);
       if (state.status !== "open") continue;
       if (state.assignees.length > 0) continue;
-      if (state.blockedBy.some((blocker) => blocker.status !== "closed")) continue;
+      if (state.blockedBy.some((blocker) => !blockerCleared(blocker))) continue;
       (state.writable === false ? notWritable : frontier).push(state);
     }
     return { frontier, notWritable };
@@ -1855,7 +1872,7 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     if (state.status === "closed") {
       throw new WorkGraphError("node-closed", `node ${ref.id} is closed — nothing to claim`);
     }
-    const open = state.blockedBy.filter((blocker) => blocker.status !== "closed").map((blocker) => blocker.id);
+    const open = state.blockedBy.filter((blocker) => !blockerCleared(blocker)).map((blocker) => blocker.id);
     if (open.length > 0) {
       throw new WorkGraphError("blocked", `node ${ref.id} is blocked by open node(s) ${open.join(", ")} — not claimable until they close`);
     }
@@ -1926,5 +1943,29 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     const state = await this.store.readNode(ref);
     assertCloseTarget(state, receipt);
     await this.store.close(ref, { ...receipt, autonomy: state.node.autonomy }, hashGatedNodeFields(state.node, state.storeFields));
+  }
+
+  /**
+   * Close a node whose work was deliberately not done (node #1158). Runs no
+   * probes and no close gate: the receipt is the reason. Only the acting
+   * identity may abandon, and not a node another identity holds — the
+   * identity rule of {@link release}. The tracker records it as not planned,
+   * and its dependents stay blocked.
+   */
+  async abandon(ref: NodeRef, reason: string, identity: string, actingIdentity: string, receipt: Omit<CloseReceipt, "kind" | "resolution" | "checkpointId" | "probeResults" | "evidence" | "attestation">): Promise<void> {
+    if (identity !== actingIdentity) {
+      throw new WorkGraphError("invalid-node", `identity ${identity} is not the acting identity ${actingIdentity} — only the acting identity may abandon`);
+    }
+    if (reason.trim().length === 0) throw new WorkGraphError("invalid-node", "abandon needs a non-empty reason");
+    const state = await this.store.readNode(ref);
+    assertNodeOpen(state);
+    if (state.assignees.length > 0 && !state.assignees.includes(identity)) {
+      throw new WorkGraphError("invalid-node", `node ${ref.id} is claimed by ${state.assignees.join(", ")}, not ${identity} — only the holder may abandon it`);
+    }
+    await this.store.close(
+      ref,
+      { ...receipt, kind: "abandoned", resolution: reason.trim(), checkpointId: state.node.checkpointId ?? "none", probeResults: [], evidence: [], attestation: "unverified", autonomy: state.node.autonomy },
+      hashGatedNodeFields(state.node, state.storeFields),
+    );
   }
 }

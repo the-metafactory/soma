@@ -119,13 +119,13 @@ import { GOAL_ID_PATTERN, readGoalStatus, warnServes, type ServesOptions } from 
 
 const SOMA_VERSION: string = packageJson.version;
 
-const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "add", "link", "chart", "close", "audit", "decisions", "rule", "file-proposal"] as const;
+const GRAPH_ACTIONS = ["frontier", "node", "edit", "claim", "release", "abandon", "add", "link", "chart", "close", "audit", "decisions", "rule", "file-proposal"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <frontier|node|edit|claim|release|add|link|chart|close|audit|decisions|rule|file-proposal> ...",
+  usage: "Usage: soma graph <frontier|node|edit|claim|release|abandon|add|link|chart|close|audit|decisions|rule|file-proposal> ...",
   subcommands: {
     frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--json]",
     node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--json]",
@@ -133,6 +133,8 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
+    abandon:
+      "Usage: soma graph abandon <id> --reason-file <path> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — close a node whose work was deliberately not done: closed as not planned, with an `abandoned` receipt carrying the reason; runs no probes, keeps dependents blocked, and only the acting identity that holds (or nobody holds) the node may do it",
     add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is charted when a node under the first --label, authored by you, ends with <marker>, and that node is printed with \"existing\": true; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, and writes nothing",
@@ -184,6 +186,13 @@ export interface ParsedGraphReleaseArgs {
   action: "release";
   target: string;
   options: GraphSharedOptions & { identity?: string };
+}
+
+export interface ParsedGraphAbandonArgs {
+  command: "graph";
+  action: "abandon";
+  target: string;
+  options: GraphSharedOptions & { identity?: string; reasonFile: string };
 }
 
 export interface ParsedGraphAddArgs {
@@ -277,6 +286,7 @@ export type ParsedGraphArgs =
   | ParsedGraphEditArgs
   | ParsedGraphClaimArgs
   | ParsedGraphReleaseArgs
+  | ParsedGraphAbandonArgs
   | ParsedGraphAddArgs
   | ParsedGraphLinkArgs
   | ParsedGraphChartArgs
@@ -660,7 +670,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     return { command, action, target: resolvedTarget, options: rest.length > 0 ? { json: true } : {} };
   }
 
-  const options: GraphSharedOptions & { identity?: string; title?: string; bodyFile?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready"; verbose?: boolean } = {};
+  const options: GraphSharedOptions & { identity?: string; reasonFile?: string; title?: string; bodyFile?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready"; verbose?: boolean } = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     const shared = readShared(options, rest, index, arg);
@@ -683,7 +693,14 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
       index += 1;
       continue;
     }
-    if (arg === "--identity" && (action === "claim" || action === "release")) {
+    if (arg === "--reason-file" && action === "abandon") {
+      const value = readOption(rest, index, arg);
+      if (!value.trim()) throw new Error("--reason-file must not be empty.");
+      options.reasonFile = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--identity" && (action === "claim" || action === "release" || action === "abandon")) {
       options.identity = readOption(rest, index, arg);
       index += 1;
       continue;
@@ -709,6 +726,10 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   if (action === "edit" && options.title === undefined && options.bodyFile === undefined) throw new Error(GRAPH_COMMAND_HELP.subcommands.edit);
   if (action === "claim") return { command, action, target: resolvedTarget, options };
   if (action === "release") return { command, action, target: resolvedTarget, options };
+  if (action === "abandon") {
+    if (options.reasonFile === undefined) throw new Error(GRAPH_COMMAND_HELP.subcommands.abandon);
+    return { command, action, target: resolvedTarget, options: { ...options, reasonFile: options.reasonFile } };
+  }
   if (action === "decisions") return { command, action, target: resolvedTarget, options };
   return { command, action, target: resolvedTarget, options };
 }
@@ -1162,6 +1183,42 @@ async function runRelease(
     `Released node ${parsed.target} as ${identity} (${repo}).`,
     `assignees: ${result.assignees.join(", ") || "—"}`,
   ].join("\n");
+}
+
+async function runAbandon(
+  parsed: ParsedGraphAbandonArgs,
+  graph: WorkGraph,
+  store: GraphStore,
+  repo: string,
+  deps: GraphCliDeps,
+): Promise<string> {
+  const runtimeHash = await deps.assertInstalledRuntime();
+  let reason: string;
+  try {
+    reason = (await deps.readTextFile(resolve(parsed.options.reasonFile))).trim();
+  } catch (error) {
+    throw new SomaCliError(`soma graph abandon --reason-file ${parsed.options.reasonFile} could not be read: ${errorMessage(error)}. Nothing was closed.`, 1);
+  }
+  if (reason.length === 0) {
+    throw new SomaCliError(`soma graph abandon --reason-file ${parsed.options.reasonFile} is empty — the reason is the receipt. Nothing was closed.`, 1);
+  }
+  const acting = await store.actingIdentity();
+  const identity = parsed.options.identity ?? acting;
+  try {
+    await graph.abandon({ id: parsed.target }, reason, identity, acting, {
+      closedBy: acting,
+      closedWith: await deps.describeTool(deps.fromDevTree, runtimeHash),
+      at: deps.now().toISOString(),
+      gist: reason.split("\n")[0].trim().slice(0, 200),
+    });
+  } catch (error) {
+    if (!(error instanceof WorkGraphError)) throw error;
+    throw new SomaCliError(`soma graph abandon refused: ${error.message}. Nothing was closed.`, 1);
+  }
+  if (parsed.options.json === true) {
+    return JSON.stringify({ repo, node: parsed.target, abandoned: true, closedBy: acting }, null, 2);
+  }
+  return [`Abandoned node ${parsed.target} (${repo}) as ${acting}: closed as not planned.`, "", "Receipt posted to the tracker; dependents stay blocked."].join("\n");
 }
 
 async function resolveBody(
@@ -2051,7 +2108,7 @@ function decisionLine(entry: ScannedNode): string {
   const title = entry.state.node.title;
   const target = entry.state.url ?? entry.state.ref.id;
   const gist = entry.scan.hasReceipt
-    ? (entry.scan.gist ?? "no gist on the receipt — read the node")
+    ? `${entry.scan.abandoned === true ? "ABANDONED, not done: " : ""}${entry.scan.gist ?? "no gist on the receipt — read the node"}`
     : "closed without a receipt (see `soma graph audit`)";
   return `- [${title}](${target}) — ${gist}`;
 }
@@ -2107,6 +2164,7 @@ async function runDecisions(parsed: ParsedGraphDecisionsArgs, graph: WorkGraph, 
           title: entry.state.node.title,
           url: entry.state.url,
           hasReceipt: entry.scan.hasReceipt,
+          abandoned: entry.scan.abandoned === true,
           gist: entry.scan.gist,
         })),
       },
@@ -2293,6 +2351,8 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
       return await runClaim(parsed, graph, store, repo);
     case "release":
       return await runRelease(parsed, graph, store, repo);
+    case "abandon":
+      return await runAbandon(parsed, graph, store, repo, deps);
     case "add":
     case "link":
       try {
