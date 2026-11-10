@@ -238,8 +238,10 @@ test("the GitHub store lists only its own repository and refuses a foreign curso
   await expect(listNodes({ repo: GITHUB_REF, state: "open", limit: 5, cursor: "not-a-cursor" })).rejects.toThrow(
     "the cursor is not one this verb issued",
   );
+  // A decodable cursor with no continuation field is still not one this verb
+  // issued, and it says so in the one sentence every listing reader shares.
   await expect(listNodes({ repo: GITHUB_REF, state: "open", limit: 5, cursor: Buffer.from('{"v":1}').toString("base64url") })).rejects.toThrow(
-    "not one this store issued",
+    "the cursor is not one this verb issued",
   );
   await expect(listNodes({ repo: GITHUB_REF, state: "open", limit: 101 })).rejects.toThrow("limit must be an integer from 1 to 100");
   expect(calls).toEqual([]);
@@ -475,6 +477,38 @@ test("one GitLab listing call reads a bounded number of forge pages and continue
   expect(second.next).toBeNull();
   // Continuing is bounded too: the remaining two forge pages, not a second walk.
   expect(calls).toHaveLength(7);
+});
+
+test("a GitLab page that fills exactly on a forge page's last entry ends or advances, never re-reading the page", async () => {
+  const openItems = (count: number): FixtureWorkItem[] =>
+    Array.from({ length: count }, (_, index) => ({ iid: String(index + 1), state: "OPEN", kind: "task", children: [] }));
+
+  // The entire listing is one forge page, and the page fills on that page's
+  // last entry: the listing has ended, so `next` is null and the forge is read
+  // once. A cursor held here would re-read twenty rows the caller already has.
+  const exact = gitlabListingFixture(openItems(20));
+  const whole = await listNodesOf(exact.store)({ repo: GITLAB_REF, state: "open", limit: 20 });
+  expect(whole.nodes).toHaveLength(20);
+  expect(whole.next).toBeNull();
+  expect(exact.calls).toHaveLength(1);
+
+  // More forge pages remain: the full page continues at the next forge page,
+  // not by re-reading the twenty rows it just returned.
+  const more = gitlabListingFixture(openItems(30));
+  const listNodes = listNodesOf(more.store);
+  const held = await listNodes({ repo: GITLAB_REF, state: "open", limit: 20 });
+  expect(held.nodes).toHaveLength(20);
+  expect(held.next).toEqual(expect.any(String));
+
+  const rest = await listNodes({ repo: GITLAB_REF, state: "open", limit: 20, cursor: String(held.next) });
+  expect(rest.nodes.map((row) => row.ref.id)).toEqual(
+    Array.from({ length: 10 }, (_, index) => `${GITLAB_PROJECT}#${index + 21}`),
+  );
+  expect(rest.next).toBeNull();
+  const ids = [...held.nodes, ...rest.nodes].map((row) => row.ref.id);
+  expect(new Set(ids).size).toBe(30);
+  expect(more.calls).toHaveLength(2);
+  expect((more.calls[1].body?.variables as { after: unknown }).after).toBe("page-20");
 });
 
 test("a root-scoped page walks the subtree, pages it, and refuses a cursor from another root", async () => {

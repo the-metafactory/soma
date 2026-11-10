@@ -60,6 +60,7 @@ import {
   decodeNodeListCursor,
   encodeNodeListCursor,
   pageNodeListings,
+  readCursorField,
   toNodeListing,
 } from "./work-graph-list";
 import { GITHUB_DOTCOM, gitHubNodeId, parseLocatedNodeId, sameStore, validateRepoRef } from "./work-graph-ref";
@@ -540,12 +541,7 @@ function nodeListQuery(state: NodeListState): string {
 
 /** The forge page cursor a listing's `next` carries, or a refusal for anything else. */
 function readNodeListAfter(cursor: string, context: string): string {
-  const decoded = decodeNodeListCursor(cursor, context);
-  const after = decoded.after;
-  if (typeof after !== "string" || after.length === 0) {
-    throw new WorkGraphError("invalid-node", `${context}: the cursor is not one this store issued`);
-  }
-  return after;
+  return readCursorField(decodeNodeListCursor(cursor, context), "after", context);
 }
 
 /**

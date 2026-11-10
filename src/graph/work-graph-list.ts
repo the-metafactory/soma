@@ -110,12 +110,41 @@ export function encodeNodeListCursor(payload: Readonly<Record<string, string | n
   return Buffer.from(JSON.stringify({ v: 1, ...payload }), "utf8").toString("base64url");
 }
 
-/** Decode a cursor this module issued, or refuse. Each backend validates its own fields after this. */
-export function decodeNodeListCursor(cursor: string, context: string): Record<string, unknown> {
-  const unreadable = new WorkGraphError(
+/**
+ * The one refusal for a cursor this module did not issue.
+ *
+ * Three readers decode a listing cursor (a subtree boundary, GitHub's forge
+ * page, GitLab's forge page plus the rows taken from it), and each of them
+ * needs the same sentence, so it is written once here.
+ */
+export function unreadableCursor(context: string): WorkGraphError {
+  return new WorkGraphError(
     "invalid-node",
     `${context}: the cursor is not one this verb issued; pass the previous page's next verbatim`,
   );
+}
+
+/**
+ * A cursor field this module wrote, or {@link unreadableCursor}.
+ *
+ * An empty value refuses by default. `allowEmpty` is for the one field where an
+ * empty string is a position rather than a missing continuation: GitLab's first
+ * forge page has no `after` cursor, and a page split inside it is named `""`.
+ */
+export function readCursorField(
+  decoded: Record<string, unknown>,
+  field: string,
+  context: string,
+  options: { allowEmpty?: boolean } = {},
+): string {
+  const value = decoded[field];
+  if (typeof value !== "string" || (value.length === 0 && options.allowEmpty !== true)) throw unreadableCursor(context);
+  return value;
+}
+
+/** Decode a cursor this module issued, or refuse. Each backend validates its own fields after this. */
+export function decodeNodeListCursor(cursor: string, context: string): Record<string, unknown> {
+  const unreadable = unreadableCursor(context);
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown;
@@ -146,13 +175,7 @@ function afterSubtreeRow(cursor: string, root: string, rows: readonly NodeListin
       `node listing of ${root}: the cursor was issued for another subtree; pass the previous page's next verbatim`,
     );
   }
-  const after = decoded.after;
-  if (typeof after !== "string" || after.length === 0) {
-    throw new WorkGraphError(
-      "invalid-node",
-      `node listing of ${root}: the cursor is not one this verb issued; pass the previous page's next verbatim`,
-    );
-  }
+  const after = readCursorField(decoded, "after", `node listing of ${root}`);
   const index = rows.findIndex((row) => row.ref.id === after);
   if (index < 0) {
     throw new WorkGraphError(

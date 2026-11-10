@@ -1392,12 +1392,20 @@ creation, so a newly filed issue lands after the rows a caller already holds.
 GitLab's work-item connection offers no creation order to key a boundary on and
 its status filter runs locally, so a page may end mid-forge-page. The GitLab
 cursor therefore records the forge page **and the ids already returned from
-it**, and continuation skips by identity: a row filed or deleted between two
-calls neither repeats a row the caller holds nor drops one it has not seen. One
-GitLab call reads at most five forge pages and returns what it found with a
-`next`, so a status that matches little costs bounded reads rather than a walk
-over the project; a page that finds nothing is a real page boundary, not a
-failure.
+it**, and continuation skips by identity **inside that page**: a row filed or
+deleted between two calls neither repeats a row the caller holds nor drops one
+it has not seen, as long as both calls are still reading the same forge page.
+That guarantee ends at a forge-page boundary, where the continuation is a
+positional forge cursor: a filing or deletion that moves a row across the
+boundary can repeat one row the caller holds or drop one it has not seen.
+GitLab's work-item connection exposes no stable key to paginate on, so this is
+a stated limit rather than a promise kept by the cursor; a caller that needs an
+exact sweep re-reads from the first page. One GitLab call reads at most five
+forge pages and returns what it found with a `next`, so a status that matches
+little costs bounded reads rather than a walk over the project; a page that
+finds nothing is a real page boundary, not a failure. A page that fills exactly
+on a forge page's last entry continues at the next forge page, or reports
+`next: null`, so the cursor never re-reads the page it just finished.
 
 A `--root` page re-reads the subtree each time, so every row is reported at its
 current state and paging a large subtree to its end costs one traversal per
