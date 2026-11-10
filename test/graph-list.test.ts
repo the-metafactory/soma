@@ -252,15 +252,22 @@ const GITLAB_PROJECT = "example/allowed";
 const GITLAB_REF = parseRepoRef(`gitlab:${GITLAB_HOST}/${GITLAB_PROJECT}`);
 const GITLAB_SCOPE: GraphReadScope = { repositories: [GITLAB_REF], namespaces: [] };
 
-const WORK_ITEMS = [
-  { iid: "1", state: "OPEN", kind: "task", children: ["2", "3", "4"] },
-  { iid: "2", state: "OPEN", kind: "research", children: [] as string[] },
-  { iid: "3", state: "CLOSED", kind: "grilling", children: [] as string[] },
-  { iid: "4", state: "OPEN", kind: "prototype", children: [] as string[] },
-] as const;
+interface FixtureWorkItem {
+  iid: string;
+  state: "OPEN" | "CLOSED";
+  kind: string;
+  children: readonly string[];
+}
 
-function gitlabWorkItem(iid: string) {
-  const entry = WORK_ITEMS.find((item) => item.iid === iid);
+const WORK_ITEMS: readonly FixtureWorkItem[] = [
+  { iid: "1", state: "OPEN", kind: "task", children: ["2", "3", "4"] },
+  { iid: "2", state: "OPEN", kind: "research", children: [] },
+  { iid: "3", state: "CLOSED", kind: "grilling", children: [] },
+  { iid: "4", state: "OPEN", kind: "prototype", children: [] },
+];
+
+function gitlabWorkItem(iid: string, items: readonly FixtureWorkItem[]) {
+  const entry = items.find((item) => item.iid === iid);
   if (entry === undefined) throw new Error(`unknown work item ${iid}`);
   return {
     id: `gid://gitlab/WorkItem/${iid}`,
@@ -286,9 +293,16 @@ function gitlabWorkItem(iid: string) {
   };
 }
 
-/** A GitLab GraphQL transport answering the listing query and the subtree walk. */
-function gitlabListingFixture() {
+/**
+ * A GitLab GraphQL transport answering the listing query and the subtree walk.
+ *
+ * `setItems` changes what the forge holds between two calls: the listing's
+ * continuation has to survive a page that shifted underneath its cursor, which
+ * a frozen fixture cannot show.
+ */
+function gitlabListingFixture(initial: readonly FixtureWorkItem[] = WORK_ITEMS) {
   const calls: GitLabApiRequest[] = [];
+  let items = initial;
   const store = createGitLabGraphStore({
     host: GITLAB_HOST,
     readScope: GITLAB_SCOPE,
@@ -303,36 +317,34 @@ function gitlabListingFixture() {
         expect(variables.fullPath).toBe(GITLAB_PROJECT);
         const after = typeof variables.after === "string" ? variables.after : null;
         const start = after === null ? 0 : Number(after.slice("page-".length));
-        // One forge page holds the whole fixture; a CLI page may still end
-        // inside it, which is the cursor case this exercises.
-        const page = WORK_ITEMS.slice(start, start + 20);
+        const page = items.slice(start, start + 20);
         const consumed = start + page.length;
         return {
           data: {
             namespace: {
               workItems: {
-                pageInfo: { hasNextPage: consumed < WORK_ITEMS.length, endCursor: `page-${consumed}` },
-                nodes: page.map((entry) => gitlabWorkItem(entry.iid)),
+                pageInfo: { hasNextPage: consumed < items.length, endCursor: `page-${consumed}` },
+                nodes: page.map((entry) => gitlabWorkItem(entry.iid, items)),
               },
             },
           },
         };
       }
       expect(variables.fullPath ?? variables.path0).toBe(GITLAB_PROJECT);
-      if (typeof variables.iid === "string") return { data: { namespace: { workItem: gitlabWorkItem(variables.iid) } } };
+      if (typeof variables.iid === "string") return { data: { namespace: { workItem: gitlabWorkItem(variables.iid, items) } } };
       return {
         data: Object.fromEntries(
           Object.keys(variables)
             .filter((key) => key.startsWith("path"))
             .map((key) => {
               const suffix = key.slice(4);
-              return [`item${suffix}`, { workItem: gitlabWorkItem(String(variables[`iid${suffix}`])) }];
+              return [`item${suffix}`, { workItem: gitlabWorkItem(String(variables[`iid${suffix}`]), items) }];
             }),
         ),
       };
     },
   });
-  return { store, calls };
+  return { store, calls, setItems: (next: readonly FixtureWorkItem[]) => { items = next; } };
 }
 
 test("the GitLab backend pages by a local status filter without duplicating or skipping rows", async () => {
@@ -371,6 +383,100 @@ test("the GitLab backend pages by a local status filter without duplicating or s
   expect(calls.every((call) => String(call.body?.query).startsWith("query"))).toBe(true);
 });
 
+test("a GitLab continuation skips by identity: a row that left the page drops none of the rows after it", async () => {
+  const { store, setItems } = gitlabListingFixture([
+    { iid: "1", state: "OPEN", kind: "task", children: [] },
+    { iid: "2", state: "OPEN", kind: "research", children: [] },
+    { iid: "3", state: "OPEN", kind: "grilling", children: [] },
+    { iid: "4", state: "OPEN", kind: "prototype", children: [] },
+  ]);
+  const overrides = { createStore: () => store };
+  const args = (extra: string[]) =>
+    parseGraphArgs(["graph", "list", "--repo", `gitlab:${GITLAB_HOST}/${GITLAB_PROJECT}`, ...extra, "--json"]);
+
+  const first = JSON.parse(await runGraphCli(args(["--limit", "2"]), overrides)) as {
+    nodes: { ref: { id: string } }[];
+    next: string | null;
+  };
+  expect(first.nodes.map((row) => row.ref.id)).toEqual([`${GITLAB_PROJECT}#1`, `${GITLAB_PROJECT}#2`]);
+
+  // #1 and #2 were returned; #1 is then deleted from the forge, so the page
+  // this cursor re-reads is one row shorter. A row offset would resume at #4
+  // and silently drop #3; skipping the rows already returned returns it.
+  setItems([
+    { iid: "2", state: "OPEN", kind: "research", children: [] },
+    { iid: "3", state: "OPEN", kind: "grilling", children: [] },
+    { iid: "4", state: "OPEN", kind: "prototype", children: [] },
+  ]);
+  const second = JSON.parse(await runGraphCli(args(["--limit", "5", "--cursor", String(first.next)]), overrides)) as {
+    nodes: { ref: { id: string } }[];
+    next: string | null;
+  };
+  expect(second.nodes.map((row) => row.ref.id)).toEqual([`${GITLAB_PROJECT}#3`, `${GITLAB_PROJECT}#4`]);
+  expect(second.next).toBeNull();
+});
+
+test("a GitLab continuation skips by identity: a row filed ahead of the cursor repeats none of the rows held", async () => {
+  const { store, setItems } = gitlabListingFixture([
+    { iid: "1", state: "OPEN", kind: "task", children: [] },
+    { iid: "2", state: "OPEN", kind: "research", children: [] },
+    { iid: "3", state: "OPEN", kind: "grilling", children: [] },
+  ]);
+  const overrides = { createStore: () => store };
+  const args = (extra: string[]) =>
+    parseGraphArgs(["graph", "list", "--repo", `gitlab:${GITLAB_HOST}/${GITLAB_PROJECT}`, ...extra, "--json"]);
+
+  const first = JSON.parse(await runGraphCli(args(["--limit", "1"]), overrides)) as {
+    nodes: { ref: { id: string } }[];
+    next: string | null;
+  };
+  expect(first.nodes.map((row) => row.ref.id)).toEqual([`${GITLAB_PROJECT}#1`]);
+
+  // A new work item is filed ahead of the cursor, shifting every row down one
+  // place. A row offset would return #1 again; skipping by identity does not.
+  setItems([
+    { iid: "9", state: "OPEN", kind: "task", children: [] },
+    { iid: "1", state: "OPEN", kind: "task", children: [] },
+    { iid: "2", state: "OPEN", kind: "research", children: [] },
+    { iid: "3", state: "OPEN", kind: "grilling", children: [] },
+  ]);
+  const second = JSON.parse(await runGraphCli(args(["--limit", "5", "--cursor", String(first.next)]), overrides)) as {
+    nodes: { ref: { id: string } }[];
+    next: string | null;
+  };
+  expect(second.nodes.map((row) => row.ref.id)).toEqual(
+    ["9", "2", "3"].map((iid) => `${GITLAB_PROJECT}#${iid}`),
+  );
+  expect(second.next).toBeNull();
+  const seen = [...first.nodes, ...second.nodes].map((row) => row.ref.id);
+  expect(new Set(seen).size).toBe(seen.length);
+});
+
+test("one GitLab listing call reads a bounded number of forge pages and continues from what it scanned", async () => {
+  const many: FixtureWorkItem[] = Array.from({ length: 130 }, (_, index) => ({
+    iid: String(index + 1),
+    state: "OPEN",
+    kind: "task",
+    children: [],
+  }));
+  const { store, calls } = gitlabListingFixture(many);
+  const listNodes = listNodesOf(store);
+
+  // A closed listing over a mostly-open project matches nothing here, yet one
+  // call must not walk the whole project: it reads a fixed number of forge
+  // pages and hands the rest back as `next`.
+  const first = await listNodes({ repo: GITLAB_REF, state: "closed", limit: 5 });
+  expect(first.nodes).toEqual([]);
+  expect(first.next).toEqual(expect.any(String));
+  expect(calls).toHaveLength(5);
+
+  const second = await listNodes({ repo: GITLAB_REF, state: "closed", limit: 5, cursor: String(first.next) });
+  expect(second.nodes).toEqual([]);
+  expect(second.next).toBeNull();
+  // Continuing is bounded too: the remaining two forge pages, not a second walk.
+  expect(calls).toHaveLength(7);
+});
+
 test("a root-scoped page walks the subtree, pages it, and refuses a cursor from another root", async () => {
   const { store, calls } = gitlabListingFixture();
   const overrides = { createStore: () => store };
@@ -406,6 +512,58 @@ test("a root-scoped page walks the subtree, pages it, and refuses a cursor from 
   ]);
   await expect(runGraphCli(other, overrides)).rejects.toThrow("another subtree");
   expect(calls.length).toBeGreaterThan(0);
+});
+
+test("a root-scoped continuation survives a row closing before its boundary, and refuses one that left", async () => {
+  const root = `gitlab:${GITLAB_HOST}/${GITLAB_PROJECT}#1`;
+  const args = (extra: string[]) =>
+    parseGraphArgs(["graph", "list", "--repo", `gitlab:${GITLAB_HOST}/${GITLAB_PROJECT}`, "--root", root, ...extra, "--json"]);
+  const children = [
+    { iid: "1", state: "OPEN" as const, kind: "task", children: ["2", "3", "4"] },
+    { iid: "2", state: "OPEN" as const, kind: "research", children: [] },
+    { iid: "3", state: "OPEN" as const, kind: "grilling", children: [] },
+    { iid: "4", state: "OPEN" as const, kind: "prototype", children: [] },
+  ];
+
+  // A row before the boundary leaves the subtree: the boundary is found by
+  // identity, so the rest of the page is still returned. A row offset would
+  // have resumed past the end and reported an empty page.
+  const shifted = gitlabListingFixture(children);
+  const shiftedOverrides = { createStore: () => shifted.store };
+  const first = JSON.parse(await runGraphCli(args(["--limit", "2"]), shiftedOverrides)) as {
+    nodes: { ref: { id: string } }[];
+    next: string | null;
+  };
+  expect(first.nodes.map((row) => row.ref.id)).toEqual([`${GITLAB_PROJECT}#2`, `${GITLAB_PROJECT}#3`]);
+  shifted.setItems([
+    { iid: "1", state: "OPEN", kind: "task", children: ["3", "4"] },
+    { iid: "3", state: "OPEN", kind: "grilling", children: [] },
+    { iid: "4", state: "OPEN", kind: "prototype", children: [] },
+  ]);
+  const second = JSON.parse(await runGraphCli(args(["--limit", "2", "--cursor", String(first.next)]), shiftedOverrides)) as {
+    nodes: { ref: { id: string } }[];
+    next: string | null;
+  };
+  expect(second.nodes.map((row) => row.ref.id)).toEqual([`${GITLAB_PROJECT}#4`]);
+  expect(second.next).toBeNull();
+
+  // A row that *is* the boundary leaves: it cannot tell where to resume, so it
+  // refuses instead of guessing.
+  const vanished = gitlabListingFixture(children);
+  const vanishedOverrides = { createStore: () => vanished.store };
+  const head = JSON.parse(await runGraphCli(args(["--limit", "1"]), vanishedOverrides)) as {
+    nodes: { ref: { id: string } }[];
+    next: string | null;
+  };
+  expect(head.nodes.map((row) => row.ref.id)).toEqual([`${GITLAB_PROJECT}#2`]);
+  vanished.setItems([
+    { iid: "1", state: "OPEN", kind: "task", children: ["3", "4"] },
+    { iid: "3", state: "OPEN", kind: "grilling", children: [] },
+    { iid: "4", state: "OPEN", kind: "prototype", children: [] },
+  ]);
+  await expect(runGraphCli(args(["--limit", "1", "--cursor", String(head.next)]), vanishedOverrides)).rejects.toThrow(
+    "is no longer in the subtree",
+  );
 });
 
 test("the GitLab store refuses a project on another host or outside the scope before any read", async () => {

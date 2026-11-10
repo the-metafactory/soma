@@ -1388,10 +1388,25 @@ body and the edges stay unread. `kind`, `parent` and `url` are `null` when the
 node or the backend has none, so a caller pages over a fixed row shape.
 
 Both backends support it. On GitHub a page is one GraphQL read ordered by
-creation; on GitLab the status filter is applied locally to work items, and the
-cursor records the forge page plus how much of it was already returned. With a
-read scope the verb refuses a repository outside it **before any read**, naming
-nothing from that repository, and a parent outside the scope is reported
+creation, so a newly filed issue lands after the rows a caller already holds.
+GitLab's work-item connection offers no creation order to key a boundary on and
+its status filter runs locally, so a page may end mid-forge-page. The GitLab
+cursor therefore records the forge page **and the ids already returned from
+it**, and continuation skips by identity: a row filed or deleted between two
+calls neither repeats a row the caller holds nor drops one it has not seen. One
+GitLab call reads at most five forge pages and returns what it found with a
+`next`, so a status that matches little costs bounded reads rather than a walk
+over the project; a page that finds nothing is a real page boundary, not a
+failure.
+
+A `--root` page re-reads the subtree each time, so every row is reported at its
+current state and paging a large subtree to its end costs one traversal per
+page. Its cursor names the last row returned: a row that closed earlier in the
+subtree shifts nothing, while the boundary row itself leaving the subtree
+refuses rather than resuming at a guessed offset.
+
+With a read scope the verb refuses a repository outside it **before any read**,
+naming nothing from that repository, and a parent outside the scope is reported
 `unavailable: true`. The verb reads only: no path in it writes.
 
 

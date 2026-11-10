@@ -60,6 +60,7 @@ import {
   decodeNodeListCursor,
   encodeNodeListCursor,
   pageNodeListings,
+  toNodeListing,
 } from "./work-graph-list";
 import { GITHUB_DOTCOM, gitHubNodeId, parseLocatedNodeId, sameStore, validateRepoRef } from "./work-graph-ref";
 
@@ -548,9 +549,14 @@ function readNodeListAfter(cursor: string, context: string): string {
 }
 
 /**
- * One listing row from a GraphQL issue node. The typed block is decoded through
- * {@link nodeFromIssue}, so a row's `kind` is the same `kind` `soma graph node`
- * reports for that issue, including its fail-soft on an unreadable block.
+ * One listing row from a GraphQL issue node.
+ *
+ * The typed block is decoded through {@link nodeFromIssue}, so a row's `kind` is
+ * the same `kind` `soma graph node` reports for that issue, including its
+ * fail-soft on an unreadable block; the row is then projected by
+ * {@link toNodeListing}, the one projection both backends answer with. This
+ * function only decodes the wire shape, so a change to the projection (the
+ * parent-scoping rule, a new field) reaches GitHub and GitLab at once.
  */
 function listingFromIssue(
   storeRepo: string,
@@ -565,7 +571,7 @@ function listingFromIssue(
   if (record.state !== "OPEN" && record.state !== "CLOSED") {
     throw new WorkGraphError("backend", `${context}: issue ${number} has an unreadable state`);
   }
-  const { node } = nodeFromIssue({ number, title, body });
+  const { node, typed } = nodeFromIssue({ number, title, body });
   const parentRecord = typeof record.parent === "object" && record.parent !== null
     ? (record.parent as Record<string, unknown>)
     : undefined;
@@ -578,15 +584,21 @@ function listingFromIssue(
             repo: readIssueRepo(parentRecord),
           }),
         };
-  const scopedParent = parent === undefined || permitted(parent) ? parent : { id: parent.id, unavailable: true as const };
-  return {
+  // Only the fields the projection reads are assembled: a listing is never a
+  // hydrated state, so the rest of {@link NodeState} stays empty here.
+  const state: NodeState = {
     ref: { id: localIssueId(storeRepo, { number, repo: readIssueRepo(record) }) },
-    title: node.title,
+    node,
     status: record.state === "OPEN" ? "open" : "closed",
-    ...(node.kind === undefined ? {} : { kind: node.kind }),
-    ...(scopedParent === undefined ? {} : { parent: scopedParent }),
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
+    author: "",
+    assignees: [],
+    blockedBy: [],
+    typed,
+    ...(parent === undefined ? {} : { parent }),
     ...(typeof record.url === "string" ? { url: record.url } : {}),
   };
+  return toNodeListing(state, permitted);
 }
 
 /** A connection read as `{totalCount, nodes}`, with the shortfall reported rather than swallowed. */
@@ -1035,6 +1047,8 @@ class GitHubGraphStore implements GraphStore {
     }
     this.assertRepoReadable();
     if (request.root !== undefined) {
+      // Each page re-reads the subtree whole (see `pageNodeListings`): every row
+      // is reported at its current state, at the cost of one traversal per page.
       const subtree = await this.readSubtree(request.root, { includeCurrentCloseReceipt: false });
       return pageNodeListings(request.root.id, subtree, request, (ref) => this.allowed(ref));
     }

@@ -9,8 +9,9 @@
  *
  * The cursor is deliberately **opaque**: a versioned base64url JSON object. The
  * caller may only hand `next` back, which is what lets each backend carry its
- * own continuation (a forge page cursor on GitHub, a page cursor plus a local
- * skip on GitLab, an offset inside a subtree) without the CLI knowing which.
+ * own continuation (a forge page cursor on GitHub, a forge page cursor plus the
+ * rows already taken from it on GitLab, the last row returned inside a subtree)
+ * without the CLI knowing which.
  */
 
 import {
@@ -73,9 +74,17 @@ export function toNodeListing(state: NodeState, permitted: (ref: NodeRef) => boo
  *
  * A root-scoped listing reads the root's membership (the same read `frontier`
  * and `decisions` make) and then pages over it in traversal order. The cursor
- * records the root it belongs to and how many rows were already returned, so a
- * cursor from another root — or one whose subtree shrank underneath it —
- * refuses instead of silently skipping or repeating rows.
+ * records the root it belongs to and the **ref of the last row returned**, not
+ * a row offset: a node that closed or left the subtree between two calls then
+ * shifts nothing the caller already holds, because the boundary is found by
+ * identity. A cursor from another root refuses, and so does one whose own last
+ * row left the subtree — it cannot tell where to resume, and guessing would
+ * silently skip rows.
+ *
+ * Cost: each page re-reads the whole subtree, so paging a subtree to its end
+ * costs (rows / limit) traversals. That is acceptable while a map stays small,
+ * and it is the price of reporting every row at its **current** state; a walk
+ * that cached membership across pages would report a page from a stale tree.
  */
 export function pageNodeListings(
   root: string,
@@ -86,20 +95,18 @@ export function pageNodeListings(
   const rows = states
     .map((state) => toNodeListing(state, permitted))
     .filter((row) => request.state === "all" || row.status === request.state);
-  const start = request.cursor === undefined ? 0 : readSubtreeOffset(request.cursor, root);
-  if (start > rows.length) {
-    throw new WorkGraphError(
-      "backend",
-      `node listing of ${root}: the cursor is past the end of the subtree it was issued for; start again without a cursor`,
-    );
-  }
+  const start = request.cursor === undefined ? 0 : afterSubtreeRow(request.cursor, root, rows);
   const page = rows.slice(start, start + request.limit);
-  const next = start + page.length < rows.length ? encodeNodeListCursor({ root, at: start + page.length }) : null;
+  const last = page.at(-1);
+  const next =
+    last !== undefined && start + page.length < rows.length
+      ? encodeNodeListCursor({ root, after: last.ref.id })
+      : null;
   return { nodes: page, next };
 }
 
 /** The opaque listing cursor: a versioned base64url JSON object, never interpreted by a caller. */
-export function encodeNodeListCursor(payload: Readonly<Record<string, string | number>>): string {
+export function encodeNodeListCursor(payload: Readonly<Record<string, string | number | readonly string[]>>): string {
   return Buffer.from(JSON.stringify({ v: 1, ...payload }), "utf8").toString("base64url");
 }
 
@@ -124,15 +131,34 @@ export function decodeNodeListCursor(cursor: string, context: string): Record<st
   return record;
 }
 
-/** The row offset a subtree cursor records, refused when it was issued for another root. */
-function readSubtreeOffset(cursor: string, root: string): number {
+/**
+ * Where a subtree cursor resumes: the row after the last one it returned.
+ *
+ * Refused when it was issued for another root (`invalid-node`: the caller's
+ * mistake) or when the row it names is no longer in the subtree (`backend`:
+ * the tree moved underneath a valid cursor).
+ */
+function afterSubtreeRow(cursor: string, root: string, rows: readonly NodeListing[]): number {
   const decoded = decodeNodeListCursor(cursor, `node listing of ${root}`);
-  const at = decoded.at;
-  if (decoded.root !== root || typeof at !== "number" || !Number.isInteger(at) || at < 0) {
+  if (decoded.root !== root) {
     throw new WorkGraphError(
       "invalid-node",
       `node listing of ${root}: the cursor was issued for another subtree; pass the previous page's next verbatim`,
     );
   }
-  return at;
+  const after = decoded.after;
+  if (typeof after !== "string" || after.length === 0) {
+    throw new WorkGraphError(
+      "invalid-node",
+      `node listing of ${root}: the cursor is not one this verb issued; pass the previous page's next verbatim`,
+    );
+  }
+  const index = rows.findIndex((row) => row.ref.id === after);
+  if (index < 0) {
+    throw new WorkGraphError(
+      "backend",
+      `node listing of ${root}: the node the cursor stopped at (${after}) is no longer in the subtree; start again without a cursor`,
+    );
+  }
+  return index + 1;
 }

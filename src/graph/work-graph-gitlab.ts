@@ -236,9 +236,26 @@ const GITLAB_BATCH_SIZE = 6;
 // subtree item and 20 fit comfortably in GitLab's 250-point authenticated cap.
 const LIST_ITEM_FIELDS = `id iid title state updatedAt description webUrl workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}}}}`;
 const LIST_PAGE_SIZE = 20;
+// One `soma graph list` call reads at most this many forge pages. The status
+// filter runs locally, so without a cap a `closed` page over a mostly-open
+// project would walk the whole project in one call; with it, a call is bounded
+// by a fixed number of reads and hands back what it found, `next` included.
+const LIST_MAX_FORGE_PAGES = 5;
 const LIST_QUERY = `query($fullPath:ID!,$after:String){namespace(fullPath:$fullPath){workItems(first:${LIST_PAGE_SIZE},after:$after){pageInfo{hasNextPage endCursor} nodes{${LIST_ITEM_FIELDS}}}}}`;
 function listPageInfo(page: Record<string, unknown>, context: string): { hasNextPage: boolean; endCursor?: string } { const pageInfo = rec(page.pageInfo, `${context} page`); if (pageInfo.hasNextPage === true) { if (typeof pageInfo.endCursor !== "string" || pageInfo.endCursor.length === 0) throw new WorkGraphError("backend", `${context}: more work items but no usable cursor`); return { hasNextPage: true, endCursor: pageInfo.endCursor }; } if (pageInfo.hasNextPage !== false) throw new WorkGraphError("backend", `${context}: unusable hasNextPage`); return { hasNextPage: false }; }
-function readListCursor(cursor: string, context: string): { after: string | null; skip: number } { const decoded = decodeNodeListCursor(cursor, context); const after = decoded.after; const skip = decoded.skip; if (typeof after !== "string" || typeof skip !== "number" || !Number.isInteger(skip) || skip < 0) throw new WorkGraphError("invalid-node", `${context}: the cursor is not one this store issued`); return { after: after.length === 0 ? null : after, skip }; }
+/**
+ * The GitLab listing cursor: the forge page this call was reading and the ids
+ * it already returned from that page.
+ *
+ * `seen` — a set of ids, not a count — is what keeps a continuation free of
+ * duplicates and gaps. GitLab's `workItems` connection offers no creation
+ * order to key a page boundary on (node #1155 review), so this store splits one
+ * forge page across calls. Skipping by identity survives the page shifting
+ * underneath the cursor: a newly filed item is simply returned later, and a
+ * deleted one was never returned. Skipping by offset would re-send or drop a
+ * row whenever the page changed between two calls.
+ */
+function readListCursor(cursor: string, context: string): { after: string; seen: Set<string> } { const decoded = decodeNodeListCursor(cursor, context); const after = decoded.after; const seen = decoded.seen; if (typeof after !== "string" || !Array.isArray(seen) || seen.some((id) => typeof id !== "string" || id.length === 0)) throw new WorkGraphError("invalid-node", `${context}: the cursor is not one this store issued`); return { after, seen: new Set(seen as string[]) }; }
 const ITEM_QUERY = `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){${ITEM_FIELDS}}}}`;
 const SUBTREE_ITEM_QUERY = `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){${SUBTREE_ITEM_FIELDS}}}}`;
 function defaultConfinement(): ConfinementDeps { return { runCommand, env: process.env, platform: process.platform, now: () => new Date() }; }
@@ -345,9 +362,13 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
    * store filters status locally — the connection's state argument differs by
    * work-item type, and a listing must mean the same thing for an Epic and an
    * Issue. So a page may end mid-forge-page, and the cursor records both the
-   * forge page it was reading and how many of its entries were already
-   * returned: continuing re-reads that page and skips them, which is what keeps
-   * `next` free of duplicates and free of gaps.
+   * forge page it was reading and the ids already returned from it (see
+   * {@link readListCursor}): continuing re-reads that page and skips them by
+   * identity, which is what keeps `next` free of duplicates and free of gaps.
+   *
+   * A call reads at most {@link LIST_MAX_FORGE_PAGES} forge pages and then hands
+   * back the rows it has with a `next`, so a status filter that matches little
+   * costs a bounded number of reads rather than a walk over the whole project.
    */
   async listNodes(request: NodeListRequest): Promise<NodeListPage> {
     assertNodeListRequest(request);
@@ -355,36 +376,40 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
     assertGraphRead(this.readScope, request.repo);
     if (request.root !== undefined) { this.checkedParts(request.root); return pageNodeListings(request.root.id, await this.readSubtree(request.root), request, (ref) => this.allowed(ref)); }
     const context = `listNodes in ${request.repo.path}`;
-    const cursor = request.cursor === undefined ? { after: null as string | null, skip: 0 } : readListCursor(request.cursor, context);
+    const cursor = request.cursor === undefined ? { after: "", seen: new Set<string>() } : readListCursor(request.cursor, context);
     const rows: NodeListing[] = [];
     let after = cursor.after;
-    let skip = cursor.skip;
+    let seen = cursor.seen;
     const cursors = new Set<string>();
-    for (;;) {
-      const page = rec(gqlValue(await this.transport({ method: "POST", path: "graphql", body: { query: LIST_QUERY, variables: { fullPath: request.repo.path, after } } }), "namespace"), `${context} namespace`).workItems;
+    for (let read = 0; ; read += 1) {
+      if (read >= LIST_MAX_FORGE_PAGES) return { nodes: rows, next: encodeNodeListCursor({ after, seen: [...seen] }) };
+      const pageAfter = after;
+      const page = rec(gqlValue(await this.transport({ method: "POST", path: "graphql", body: { query: LIST_QUERY, variables: { fullPath: request.repo.path, after: pageAfter === "" ? null : pageAfter } } }), "namespace"), `${context} namespace`).workItems;
       const connection = rec(page, `${context} work items`);
       const entries = arr(connection.nodes, `${context} work items`);
       const pageInfo = listPageInfo(connection, context);
       if (entries.length === 0 && pageInfo.hasNextPage) throw new WorkGraphError("backend", `${context}: an empty page reported more work items`);
-      if (skip > entries.length) throw new WorkGraphError("backend", `${context}: the cursor is past the end of the page it was issued for`);
-      let taken = skip;
-      skip = 0;
-      for (; taken < entries.length; taken += 1) {
-        const entry = rec(entries[taken], `${context} work item`);
+      let index = 0;
+      for (; index < entries.length; index += 1) {
+        const entry = rec(entries[index], `${context} work item`);
         const state = stateFrom(itemFrom(entry, `${context} work item`, request.repo.path));
+        if (seen.has(state.ref.id)) continue;
         if (request.state !== "all" && state.status !== request.state) continue;
+        seen.add(state.ref.id);
         // `webUrl` is read here rather than added to every item read: the link is
         // what a listing renders, and no other verb needs it.
         rows.push({ ...toNodeListing(state, (ref) => this.allowed(ref)), ...(typeof entry.webUrl === "string" ? { url: entry.webUrl } : {}) });
-        if (rows.length < request.limit) continue;
-        const consumed = taken + 1;
-        if (consumed < entries.length) return { nodes: rows, next: encodeNodeListCursor({ after: after ?? "", skip: consumed }) };
-        return { nodes: rows, next: pageInfo.hasNextPage ? encodeNodeListCursor({ after: pageInfo.endCursor ?? "", skip: 0 }) : null };
+        if (rows.length === request.limit) break;
+      }
+      if (rows.length === request.limit) {
+        if (index < entries.length) return { nodes: rows, next: encodeNodeListCursor({ after: pageAfter, seen: [...seen] }) };
+        return { nodes: rows, next: pageInfo.hasNextPage ? encodeNodeListCursor({ after: pageInfo.endCursor ?? "", seen: [] }) : null };
       }
       if (!pageInfo.hasNextPage) return { nodes: rows, next: null };
       if (cursors.has(pageInfo.endCursor ?? "")) throw new WorkGraphError("backend", `${context}: repeated a pagination cursor`);
       cursors.add(pageInfo.endCursor ?? "");
-      after = pageInfo.endCursor ?? null;
+      after = pageInfo.endCursor ?? "";
+      seen = new Set<string>();
     }
   }
 
