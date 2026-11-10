@@ -647,6 +647,8 @@ interface GraphStore {
   readNode(ref: NodeRef): Promise<NodeState>;
   readSubtree(root: NodeRef): Promise<NodeState[]>;         // whole subtree, pre-order,
                                                             // already confirmed (#576)
+  listNodes?(request: NodeListRequest): Promise<NodeListPage>; // one bounded page; next
+                                                            // continues, null only at the end
   claim(ref: NodeRef, identity: string): Promise<ClaimResult>; // re-reads after write
   postComment(ref: NodeRef, body: string): Promise<CommentRef>;
   readCommentReactions(ref: CommentRef): Promise<Reaction[]>;  // author from API, not body text
@@ -719,6 +721,9 @@ soma graph frontier <root>         # open, unassigned, unblocked, over the whole
                                    # confirms (§2.4)
 soma graph node <id>               # read one node, BODY INCLUDED — the walker's
                                    # first read must not need the tracker's CLI
+soma graph list [--repo <ref>] [--root <id>] [--state open|closed|all] [--limit <n>] [--cursor <opaque>]
+                                   # one bounded, read-only page of nodes from one
+                                   # repository or one root's subtree
 soma graph claim <node>            # assign, re-read, tie-break on race
 soma graph release <node>          # identity-bound self-release: abandon your
                                    # own claim (the claim-race loser's
@@ -1365,6 +1370,30 @@ does not change topology, autonomy, probes, or checkpoint rules. Existing
 Close receipts keep a leading `## Resolution` heading supplied by the author
 (including a subtitle), instead of prepending a duplicate heading.
 
+### Listing nodes
+
+`soma graph list --repo <ref> [--root <id>] [--state open|closed|all] [--limit <n>] [--cursor <opaque>] --json`
+returns one bounded page: `{ nodes: [{ ref, title, status, kind, parent, url }], next }`.
+`--state` defaults to `open` and `--limit` to 50, and a limit above 100 refuses
+rather than clamping. `next` is opaque: pass it back as `--cursor` to continue
+and stop when it is null. A page never repeats a row, and `next` is null only
+where the listing ended, so an empty page is never a forge failure in disguise —
+a failed read exits nonzero instead.
+
+`--root <id>` pages that node's membership **subtree** in traversal order, the
+root itself excluded, the way `frontier` and `decisions` scope to a root;
+without it the page covers the repository. A row is a projection, not
+`soma graph node`: `title` and `kind` come from the same typed block, while the
+body and the edges stay unread. `kind`, `parent` and `url` are `null` when the
+node or the backend has none, so a caller pages over a fixed row shape.
+
+Both backends support it. On GitHub a page is one GraphQL read ordered by
+creation; on GitLab the status filter is applied locally to work items, and the
+cursor records the forge page plus how much of it was already returned. With a
+read scope the verb refuses a repository outside it **before any read**, naming
+nothing from that repository, and a parent outside the scope is reported
+`unavailable: true`. The verb reads only: no path in it writes.
+
 
 ## Scoped reads for consumers
 
@@ -1392,8 +1421,9 @@ return fresh node state and source links where the store provides them.
 Repeat `--read-repo <forge>:<host>/<path>` for exact repositories or namespaces.
 `--read-namespace gitlab:<host>/<group>` explicitly grants that GitLab namespace
 and its slash-delimited descendants, never a similarly prefixed group or a
-different host. The same flags are supported by `node`, `frontier`, `audit`, and
-`decisions`. Qualified forge and host identity is retained in scoped reports.
+different host. The same flags are supported by `node`, `frontier`, `audit`,
+`decisions`, and `list`. `list --repo` names what it lists; the scope is what
+permits it, and an out-of-scope repository refuses before any read. Qualified forge and host identity is retained in scoped reports.
 The library equivalent is `createGraphStore(repo, { repositories, namespaces })`;
 backend constructors accept the same `readScope` option. Scope is snapshotted
 when the store is created. Path matching is case-insensitive; namespace prefixes

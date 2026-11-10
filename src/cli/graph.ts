@@ -70,6 +70,10 @@ import {
   type GraphReadScope,
   assertGraphRead,
   permitsGraphRead,
+  NODE_LIST_DEFAULT_LIMIT,
+  NODE_LIST_MAX_LIMIT,
+  NODE_LIST_STATES,
+  type NodeListState,
   parseRepoRef,
   parseQualifiedNodeRef,
   formatQualifiedNodeRef,
@@ -126,15 +130,16 @@ import { GOAL_ID_PATTERN, readGoalStatus, warnServes, type ServesOptions } from 
 
 const SOMA_VERSION: string = packageJson.version;
 
-const GRAPH_ACTIONS = ["maps", "frontier", "node", "edit", "claim", "release", "abandon", "add", "link", "chart", "close", "audit", "decisions", "rule", "file-proposal"] as const;
+const GRAPH_ACTIONS = ["maps", "list", "frontier", "node", "edit", "claim", "release", "abandon", "add", "link", "chart", "close", "audit", "decisions", "rule", "file-proposal"] as const;
 type GraphAction = (typeof GRAPH_ACTIONS)[number];
 
 const EVIDENCE_KINDS: readonly WorkGraphEvidenceKind[] = ["specified", "probed", "tested", "judged", "approved"];
 
 export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphAction, string> } = {
-  usage: "Usage: soma graph <maps|frontier|node|edit|claim|release|abandon|add|link|chart|close|audit|decisions|rule|file-proposal> ...",
+  usage: "Usage: soma graph <maps|list|frontier|node|edit|claim|release|abandon|add|link|chart|close|audit|decisions|rule|file-proposal> ...",
   subcommands: {
     maps: "Usage: soma graph maps --root <forge>:<host>/<path>#<iid>... --read-repo <forge>:<host>/<path>... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
+    list: "Usage: soma graph list [--repo <forge>:<host>/<path>] [--root <id>] [--state open|closed|all] [--limit <n>] [--cursor <opaque>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json] — one bounded page of nodes from one repository or one root's subtree; --state defaults to open, --limit to 50 and refuses above 100",
     frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
     node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
     edit: "Usage: soma graph edit <id> [--title <text>] [--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
@@ -294,8 +299,21 @@ export interface ParsedGraphMapsArgs {
   options: { roots: string[]; readScope: GraphReadScope; json?: boolean };
 }
 
+export interface ParsedGraphListArgs {
+  command: "graph";
+  action: "list";
+  /** No positional target: the repository, or the root's subtree, is the selection. */
+  options: GraphSharedOptions & {
+    state: NodeListState;
+    limit: number;
+    root?: string;
+    cursor?: string;
+  };
+}
+
 export type ParsedGraphArgs =
   | ParsedGraphMapsArgs
+  | ParsedGraphListArgs
   | ParsedGraphFileProposalArgs
   | ParsedGraphFrontierArgs
   | ParsedGraphNodeArgs
@@ -690,6 +708,50 @@ function parseMapsArgs(args: string[]): ParsedGraphMapsArgs {
   return { command: "graph", action: "maps", options: { roots: [...new Set(roots)], readScope: options.readScope, json: options.json } };
 }
 
+function parseListArgs(args: string[]): ParsedGraphListArgs {
+  const options: ParsedGraphListArgs["options"] = { state: "open", limit: NODE_LIST_DEFAULT_LIMIT };
+  for (let index = 0; index < args.length; index += 1) {
+    if (readScopeOption(options, args, index)) { index += 1; continue; }
+    const arg = args[index];
+    const shared = readShared(options, args, index, arg);
+    if (shared !== undefined) { index = shared; continue; }
+    switch (arg) {
+      case "--root":
+        options.root = readOption(args, index, arg);
+        index += 1;
+        break;
+      case "--state": {
+        const state = readOption(args, index, arg);
+        if (!(NODE_LIST_STATES as readonly string[]).includes(state)) {
+          throw new Error(`--state must be one of ${NODE_LIST_STATES.join(", ")}, not ${JSON.stringify(state)}.`);
+        }
+        options.state = state as NodeListState;
+        index += 1;
+        break;
+      }
+      case "--limit": {
+        const limit = readPositiveInteger(args, index, arg);
+        // Refused, not clamped: a caller that asked for 500 rows and silently got
+        // 100 would believe it had read everything it asked for.
+        if (limit > NODE_LIST_MAX_LIMIT) throw new Error(`--limit must be ${NODE_LIST_MAX_LIMIT} or fewer; a page nobody can hold is not a page.`);
+        options.limit = limit;
+        index += 1;
+        break;
+      }
+      case "--cursor": {
+        const cursor = readOption(args, index, arg);
+        if (cursor.trim().length === 0) throw new Error("--cursor must not be empty; pass the previous page's next verbatim.");
+        options.cursor = cursor;
+        index += 1;
+        break;
+      }
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+  return { command: "graph", action: "list", options };
+}
+
 export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   const [command, action, target, ...rest] = args;
 
@@ -698,6 +760,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
   }
 
   if (action === "maps") return parseMapsArgs(args.slice(2));
+  if (action === "list") return parseListArgs(args.slice(2));
   if (action === "chart") return parseChartArgs([target, ...rest]);
 
   const resolvedTarget = requireTarget(action, target);
@@ -2363,9 +2426,9 @@ async function runFileProposal(parsed: ParsedGraphFileProposalArgs, deps: GraphC
  * edge refuses as a usage error.
  */
 async function resolveGraphTarget(
-  parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs | ParsedGraphMapsArgs>,
+  parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs | ParsedGraphMapsArgs | ParsedGraphListArgs>,
   deps: GraphCliDeps,
-): Promise<{ repo: RepoRef; parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs | ParsedGraphMapsArgs> }> {
+): Promise<{ repo: RepoRef; parsed: Exclude<ParsedGraphArgs, ParsedGraphFileProposalArgs | ParsedGraphMapsArgs | ParsedGraphListArgs> }> {
   try {
     if (parsed.action === "chart") return { repo: await deps.resolveRepo(parsed.options.repo), parsed };
     const { repo, id: target } = await resolveNodeTarget(parsed.target, parsed.options.repo, deps.resolveRepo);
@@ -2398,9 +2461,69 @@ async function runMaps(parsed: ParsedGraphMapsArgs, deps: GraphCliDeps): Promise
   return parsed.options.json ? JSON.stringify({ maps }, null, 2) : maps.map((map) => map.state === undefined ? `${map.ref}: unavailable` : `${map.ref}: ${map.state.node.title}`).join("\n");
 }
 
+/**
+ * `soma graph list` (node #1155): one bounded page of nodes from one repository
+ * or one root's subtree, from a store that only ever reads.
+ *
+ * The scope check runs **before** the store is built and before any transport
+ * call, and its refusal names no repository — a conversation tool that asks for
+ * a repository outside its grant learns that the read is unavailable, not what
+ * lives there. A forge failure rejects, so the verb exits nonzero having
+ * printed nothing: an empty page is only ever a real end of the listing.
+ */
+async function runList(parsed: ParsedGraphListArgs, deps: GraphCliDeps): Promise<string> {
+  let repoRef: RepoRef;
+  let root: NodeRef | undefined;
+  if (parsed.options.root === undefined) {
+    repoRef = await deps.resolveRepo(parsed.options.repo);
+  } else {
+    try {
+      const target = await resolveNodeTarget(parsed.options.root, parsed.options.repo, deps.resolveRepo);
+      repoRef = target.repo;
+      root = { id: target.id };
+    } catch (error) {
+      if (error instanceof WorkGraphError && error.code === "invalid-node") throw new SomaCliError(error.message, 1);
+      throw error;
+    }
+  }
+  assertGraphRead(parsed.options.readScope, repoRef);
+  const store = deps.createStore(repoRef, parsed.options.readScope);
+  if (store.listNodes === undefined) throw new SomaCliError("this store cannot list nodes", 1);
+  const page = await store.listNodes({
+    repo: repoRef,
+    state: parsed.options.state,
+    ...(root === undefined ? {} : { root }),
+    limit: parsed.options.limit,
+    ...(parsed.options.cursor === undefined ? {} : { cursor: parsed.options.cursor }),
+  });
+  // A fixed set of keys, nulls included: a caller can page without guessing
+  // which fields the store happened to have.
+  const nodes = page.nodes.map((row) => ({
+    ref: row.ref,
+    title: row.title,
+    status: row.status,
+    kind: row.kind ?? null,
+    parent: row.parent ?? null,
+    url: row.url ?? null,
+  }));
+  if (parsed.options.json === true) return JSON.stringify({ nodes, next: page.next }, null, 2);
+
+  const where = `${formatRepoRef(repoRef)}${root === undefined ? "" : ` under ${root.id}`}`;
+  return [
+    `Work graph list — ${where} (state ${parsed.options.state}, limit ${parsed.options.limit})`,
+    "",
+    ...(nodes.length > 0
+      ? nodes.map((row) => `- ${row.ref.id} ${row.title} [${row.status}${row.kind === null ? "" : `, ${row.kind}`}]${row.url === null ? "" : ` ${row.url}`}`)
+      : ["- none"]),
+    "",
+    page.next === null ? "End of listing." : `More: --cursor ${shellWord(page.next)}`,
+  ].join("\n");
+}
+
 export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<GraphCliDeps> = {}): Promise<string> {
   const deps: GraphCliDeps = { ...defaultDeps(), ...overrides };
   if (input.action === "maps") return await runMaps(input, deps);
+  if (input.action === "list") return await runList(input, deps);
   if (input.action === "file-proposal") return await runFileProposal(input, deps);
   if (input.options.readScope !== undefined && (input.action !== "node" && input.action !== "frontier" && input.action !== "audit" && input.action !== "decisions" || input.action === "decisions" && input.options.write)) throw new SomaCliError("Scoped graph operations are read-only", 1);
   const { repo: repoRef, parsed } = await resolveGraphTarget(input, deps);
