@@ -875,6 +875,7 @@ walked one node at a time, closed only through a checkpoint gate.
 ```bash
 soma graph frontier <root>   # open, unassigned, unblocked nodes — anywhere in the subtree
 soma graph node <id>         # its state and body
+soma graph list --repo <ref> [--root <id>]  # one bounded, read-only page of nodes; --cursor continues
 soma graph claim <id>        # take it
 soma graph chart --title "…" --autonomy approve --checkpoint <id>  # create a typed graph root
 soma graph add <root> --title "…" --autonomy approve --checkpoint <id>

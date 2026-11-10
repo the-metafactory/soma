@@ -37,6 +37,10 @@ import {
   type LabeledNode,
   type GraphReadOptions,
   type NodeComment,
+  type NodeListPage,
+  type NodeListRequest,
+  type NodeListing,
+  type NodeListState,
   type NodeRef,
   type NodeState,
   type NodeStatus,
@@ -51,7 +55,15 @@ import {
 import { decodeNodeBlock, encodeNodeBlock } from "./work-graph-node-block";
 import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation";
 import { runCommand } from "./work-graph-probes";
-import { GITHUB_DOTCOM, gitHubNodeId, parseLocatedNodeId, validateRepoRef } from "./work-graph-ref";
+import {
+  assertNodeListRequest,
+  decodeNodeListCursor,
+  encodeNodeListCursor,
+  pageNodeListings,
+  readCursorField,
+  toNodeListing,
+} from "./work-graph-list";
+import { GITHUB_DOTCOM, gitHubNodeId, parseLocatedNodeId, sameStore, validateRepoRef } from "./work-graph-ref";
 
 export interface GitHubApiRequest {
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -510,6 +522,81 @@ function readGraphQLAbandoned(record: Record<string, unknown>): { abandoned: tru
   return record.state === "CLOSED" && record.stateReason === "NOT_PLANNED" ? { abandoned: true } : {};
 }
 
+/**
+ * One page of the repo's nodes (`soma graph list`, node #1155), ordered by
+ * creation so a page cursor never repeats or skips: `after` continues exactly
+ * where the previous page stopped, and a new issue lands at the end instead of
+ * shifting rows the caller already holds.
+ *
+ * `body` rides along because the free-form `kind` lives in the typed block and
+ * has no second home: without it every row would cost another REST read for one
+ * small string. Nothing else about the body is returned.
+ */
+const NODE_LIST_FIELDS = `number title state body updatedAt url repository{nameWithOwner} parent{number repository{nameWithOwner}}`;
+
+function nodeListQuery(state: NodeListState): string {
+  const states = state === "all" ? "[OPEN,CLOSED]" : state === "open" ? "[OPEN]" : "[CLOSED]";
+  return `query($owner:String!,$name:String!,$limit:Int!,$after:String){repository(owner:$owner,name:$name){issues(first:$limit,states:${states},orderBy:{field:CREATED_AT,direction:ASC},after:$after){pageInfo{hasNextPage endCursor} nodes{${NODE_LIST_FIELDS}}}}}`;
+}
+
+/** The forge page cursor a listing's `next` carries, or a refusal for anything else. */
+function readNodeListAfter(cursor: string, context: string): string {
+  return readCursorField(decodeNodeListCursor(cursor, context), "after", context);
+}
+
+/**
+ * One listing row from a GraphQL issue node.
+ *
+ * The typed block is decoded through {@link nodeFromIssue}, so a row's `kind` is
+ * the same `kind` `soma graph node` reports for that issue, including its
+ * fail-soft on an unreadable block; the row is then projected by
+ * {@link toNodeListing}, the one projection both backends answer with. This
+ * function only decodes the wire shape, so a change to the projection (the
+ * parent-scoping rule, a new field) reaches GitHub and GitLab at once.
+ */
+function listingFromIssue(
+  storeRepo: string,
+  value: unknown,
+  context: string,
+  permitted: (ref: NodeRef) => boolean,
+): NodeListing {
+  const record = asRecord(value, context);
+  const number = readNumber(record, "number", context);
+  const title = typeof record.title === "string" ? record.title : "";
+  const body = typeof record.body === "string" ? record.body : "";
+  if (record.state !== "OPEN" && record.state !== "CLOSED") {
+    throw new WorkGraphError("backend", `${context}: issue ${number} has an unreadable state`);
+  }
+  const { node, typed } = nodeFromIssue({ number, title, body });
+  const parentRecord = typeof record.parent === "object" && record.parent !== null
+    ? (record.parent as Record<string, unknown>)
+    : undefined;
+  const parent =
+    parentRecord === undefined
+      ? undefined
+      : {
+          id: localIssueId(storeRepo, {
+            number: readNumber(parentRecord, "number", context),
+            repo: readIssueRepo(parentRecord),
+          }),
+        };
+  // Only the fields the projection reads are assembled: a listing is never a
+  // hydrated state, so the rest of {@link NodeState} stays empty here.
+  const state: NodeState = {
+    ref: { id: localIssueId(storeRepo, { number, repo: readIssueRepo(record) }) },
+    node,
+    status: record.state === "OPEN" ? "open" : "closed",
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
+    author: "",
+    assignees: [],
+    blockedBy: [],
+    typed,
+    ...(parent === undefined ? {} : { parent }),
+    ...(typeof record.url === "string" ? { url: record.url } : {}),
+  };
+  return toNodeListing(state, permitted);
+}
+
 /** A connection read as `{totalCount, nodes}`, with the shortfall reported rather than swallowed. */
 function readCountedNodes(
   value: unknown,
@@ -939,6 +1026,61 @@ class GitHubGraphStore implements GraphStore {
     } catch (error) {
       throw new WorkGraphError("backend", `${context}: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /**
+   * One page of `soma graph list` (node #1155). Ordered by creation, so the
+   * cursor continues where the page stopped and a newly filed issue lands at
+   * the end rather than shifting rows the caller already holds.
+   */
+  async listNodes(request: NodeListRequest): Promise<NodeListPage> {
+    assertNodeListRequest(request);
+    if (!sameStore(request.repo, { forge: "github", host: this.host, path: this.repo })) {
+      throw new WorkGraphError(
+        "invalid-node",
+        `this store lists only ${this.repo}; ${request.repo.path} is another repository`,
+      );
+    }
+    this.assertRepoReadable();
+    if (request.root !== undefined) {
+      // Each page re-reads the subtree whole (see `pageNodeListings`): every row
+      // is reported at its current state, at the cost of one traversal per page.
+      const subtree = await this.readSubtree(request.root, { includeCurrentCloseReceipt: false });
+      return pageNodeListings(request.root.id, subtree, request, (ref) => this.allowed(ref));
+    }
+    const context = `listNodes in ${this.repo}`;
+    const [owner, name] = this.repo.split("/");
+    const after = request.cursor === undefined ? null : readNodeListAfter(request.cursor, context);
+    const response = asRecord(
+      await this.transport({
+        method: "POST",
+        path: "graphql",
+        body: { query: nodeListQuery(request.state), variables: { owner, name, limit: request.limit, after } },
+      }),
+      context,
+    );
+    if (response.errors !== undefined && asArray(response.errors, context).length > 0) {
+      throw new WorkGraphError("backend", `${context}: GraphQL returned errors`);
+    }
+    const connection = asRecord(asRecord(asRecord(response.data, context).repository, context).issues, context);
+    const nodes = asArray(connection.nodes, context).map((entry) =>
+      listingFromIssue(this.repo, entry, context, (ref) => this.allowed(ref)),
+    );
+    if (nodes.length > request.limit) {
+      throw new WorkGraphError("backend", `${context}: the forge returned ${nodes.length} rows for a ${request.limit}-row page`);
+    }
+    const pageInfo = asRecord(connection.pageInfo, context);
+    if (pageInfo.hasNextPage === false) return { nodes, next: null };
+    if (pageInfo.hasNextPage !== true || typeof pageInfo.endCursor !== "string" || pageInfo.endCursor.length === 0) {
+      throw new WorkGraphError("backend", `${context}: unusable pagination cursor or hasNextPage`);
+    }
+    // An empty page that claims more nodes is not a page boundary; reporting it
+    // would let a caller that stops on an empty page read a forge failure as
+    // the end of a repo with no nodes.
+    if (nodes.length === 0) {
+      throw new WorkGraphError("backend", `${context}: an empty page reported more nodes; refusing a page that reads as the end`);
+    }
+    return { nodes, next: encodeNodeListCursor({ after: pageInfo.endCursor }) };
   }
 
   async listNodesByLabel(label: string, author: string): Promise<LabeledNode[]> {

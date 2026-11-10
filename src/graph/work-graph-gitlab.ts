@@ -18,6 +18,9 @@ import {
   type CreateNodeSpec,
   type GraphStore,
   type NodeComment,
+  type NodeListPage,
+  type NodeListRequest,
+  type NodeListing,
   type NodeRef,
   type NodeState,
   type NodeStatus,
@@ -31,6 +34,7 @@ import { envWithoutTokens, type ConfinementDeps } from "./work-graph-attestation
 import { decodeNodeBlock, encodeNodeBlock } from "./work-graph-node-block";
 import { runCommand } from "./work-graph-probes";
 import { parseLocatedNodeId, validateRepoRef } from "./work-graph-ref";
+import { assertNodeListRequest, decodeNodeListCursor, encodeNodeListCursor, pageNodeListings, readCursorField, toNodeListing, unreadableCursor } from "./work-graph-list";
 
 // A ref-provided host must be the only route that glab can use. Strip both
 // process-wide credentials and host overrides that could route to another host.
@@ -226,6 +230,49 @@ const SUBTREE_ITEM_FIELDS = `id iid title description state updatedAt workItemTy
 // GitLab caps an authenticated query at complexity 250; one subtree item costs about 37 (live, 19.4), so six fit in one request.
 // readSubtree splits each level at this size so its concurrency bound spreads the batches; items() splits again for any other caller.
 const GITLAB_BATCH_SIZE = 6;
+// One `soma graph list` row (node #1155): identity, title, status, the parent edge
+// and the description the typed `kind` is decoded from. No children, assignee or
+// linked-item connection, so a page of rows costs far less complexity than a
+// subtree item and 20 fit comfortably in GitLab's 250-point authenticated cap.
+const LIST_ITEM_FIELDS = `id iid title state updatedAt description webUrl workItemType{name} namespace{fullPath} author{username} widgets{type ... on WorkItemWidgetHierarchy{parent{iid namespace{fullPath} workItemType{name}}}}`;
+const LIST_PAGE_SIZE = 20;
+// One `soma graph list` call reads at most this many forge pages. The status
+// filter runs locally, so without a cap a `closed` page over a mostly-open
+// project would walk the whole project in one call; with it, a call is bounded
+// by a fixed number of reads and hands back what it found, `next` included.
+const LIST_MAX_FORGE_PAGES = 5;
+const LIST_QUERY = `query($fullPath:ID!,$after:String){namespace(fullPath:$fullPath){workItems(first:${LIST_PAGE_SIZE},after:$after){pageInfo{hasNextPage endCursor} nodes{${LIST_ITEM_FIELDS}}}}}`;
+type ListPageInfo = { hasNextPage: false } | { hasNextPage: true; endCursor: string };
+/** The forge page's continuation, with the end cursor present exactly when there is one. */
+function listPageInfo(page: Record<string, unknown>, context: string): ListPageInfo { const pageInfo = rec(page.pageInfo, `${context} page`); if (pageInfo.hasNextPage === true) { if (typeof pageInfo.endCursor !== "string" || pageInfo.endCursor.length === 0) throw new WorkGraphError("backend", `${context}: more work items but no usable cursor`); return { hasNextPage: true, endCursor: pageInfo.endCursor }; } if (pageInfo.hasNextPage !== false) throw new WorkGraphError("backend", `${context}: unusable hasNextPage`); return { hasNextPage: false }; }
+/**
+ * The GitLab listing cursor: the forge page this call was reading and the ids
+ * it already returned from that page.
+ *
+ * `seen` — a set of ids, not a count — is what keeps a continuation free of
+ * duplicates and gaps **inside that forge page**. GitLab's `workItems`
+ * connection offers no creation order to key a page boundary on (node #1155
+ * review), so this store splits one forge page across calls. Skipping by
+ * identity survives that page shifting underneath the cursor: a newly filed
+ * item is simply returned later, and a deleted one was never returned.
+ * Skipping by offset would re-send or drop a row whenever the page changed
+ * between two calls.
+ *
+ * `seen` is reset when the listing leaves the forge page for the next one, so
+ * the guarantee stops at that seam: a filing or deletion that moves a row
+ * across a forge-page boundary can repeat one row the caller holds or drop one
+ * it has not seen. Only a keyset boundary on a stable forge key could close
+ * that, and this connection does not expose one; `docs/work-graph.md` states
+ * the limit rather than promising more.
+ */
+function readListCursor(cursor: string, context: string): { after: string; seen: Set<string> } {
+  const decoded = decodeNodeListCursor(cursor, context);
+  // An empty `after` is the first forge page, not a missing continuation.
+  const after = readCursorField(decoded, "after", context, { allowEmpty: true });
+  const seen = decoded.seen;
+  if (!Array.isArray(seen) || seen.some((id) => typeof id !== "string" || id.length === 0)) throw unreadableCursor(context);
+  return { after, seen: new Set(seen as string[]) };
+}
 const ITEM_QUERY = `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){${ITEM_FIELDS}}}}`;
 const SUBTREE_ITEM_QUERY = `query($fullPath:ID!,$iid:String!){namespace(fullPath:$fullPath){workItem(iid:$iid){${SUBTREE_ITEM_FIELDS}}}}`;
 function defaultConfinement(): ConfinementDeps { return { runCommand, env: process.env, platform: process.platform, now: () => new Date() }; }
@@ -325,6 +372,73 @@ class GitLabGraphStore implements GraphStore<GitLabCreateData> {
   private async addLinkedEdge(source: NodeRef, related: NodeRef, linkType: "BLOCKS" | "RELATED"): Promise<void> { const [left, right] = await Promise.all([this.item(source), this.item(related)]); mutation(await this.transport({ method: "POST", path: "graphql", body: { query: `mutation($source:WorkItemID!,$target:WorkItemID!,$linkType:WorkItemRelatedLinkType!){workItemAddLinkedItems(input:{id:$source,workItemsIds:[$target],linkType:$linkType}){errors}}`, variables: { source: left.id, target: right.id, linkType } } }), "workItemAddLinkedItems"); }
   async addBlockingEdge(blocker: NodeRef, blocked: NodeRef): Promise<void> { await this.addLinkedEdge(blocker, blocked, "BLOCKS"); }
   async selectRehomeParent(requested: NodeState): Promise<RehomeSelection | undefined> { if (requested.trackerType !== "Task") return undefined; const related = (requested as HydratedNodeState)[GITLAB_ITEM] ?? await this.item(requested.ref); let parent = requested.parent; while (parent !== undefined) { const candidate = await this.readNode(parent) as HydratedNodeState; if (candidate.trackerType === "Issue") { const parentItem = candidate[GITLAB_ITEM]; if (parentItem === undefined) throw new WorkGraphError("backend", `GitLab re-home parent ${candidate.ref.id} was not hydrated`); return { parent: candidate.ref, context: { [GITLAB_REHOME]: true, parent: parentItem, related } satisfies GitLabRehomeContext }; } parent = candidate.parent; } throw new WorkGraphError("invalid-node", `cannot re-home parent ${requested.ref.id}: no allowed ancestor`); }
+  /**
+   * One page of `soma graph list` (node #1155).
+   *
+   * GitLab's work-item connection is paged by an opaque forge cursor and this
+   * store filters status locally — the connection's state argument differs by
+   * work-item type, and a listing must mean the same thing for an Epic and an
+   * Issue. So a page may end mid-forge-page, and the cursor records both the
+   * forge page it was reading and the ids already returned from it (see
+   * {@link readListCursor}): continuing re-reads that page and skips them by
+   * identity, which is what keeps `next` free of duplicates and free of gaps
+   * inside that page.
+   *
+   * A call reads at most {@link LIST_MAX_FORGE_PAGES} forge pages and then hands
+   * back the rows it has with a `next`, so a status filter that matches little
+   * costs a bounded number of reads rather than a walk over the whole project.
+   *
+   * `next` is null only where the listing ended: a page that fills on the last
+   * entry of a forge page continues at the next forge page, or stops, rather
+   * than handing back a cursor that would re-read the page it just finished.
+   */
+  async listNodes(request: NodeListRequest): Promise<NodeListPage> {
+    assertNodeListRequest(request);
+    if (request.repo.forge !== "gitlab" || request.repo.host !== this.host) throw new WorkGraphError("invalid-node", `this GitLab store lists only projects on ${this.host}`);
+    assertGraphRead(this.readScope, request.repo);
+    if (request.root !== undefined) { this.checkedParts(request.root); return pageNodeListings(request.root.id, await this.readSubtree(request.root), request, (ref) => this.allowed(ref)); }
+    const context = `listNodes in ${request.repo.path}`;
+    const cursor = request.cursor === undefined ? { after: "", seen: new Set<string>() } : readListCursor(request.cursor, context);
+    const rows: NodeListing[] = [];
+    let after = cursor.after;
+    let seen = cursor.seen;
+    const cursors = new Set<string>();
+    for (let read = 0; ; read += 1) {
+      if (read >= LIST_MAX_FORGE_PAGES) return { nodes: rows, next: encodeNodeListCursor({ after, seen: [...seen] }) };
+      const pageAfter = after;
+      const page = rec(gqlValue(await this.transport({ method: "POST", path: "graphql", body: { query: LIST_QUERY, variables: { fullPath: request.repo.path, after: pageAfter === "" ? null : pageAfter } } }), "namespace"), `${context} namespace`).workItems;
+      const connection = rec(page, `${context} work items`);
+      const entries = arr(connection.nodes, `${context} work items`);
+      const pageInfo = listPageInfo(connection, context);
+      if (entries.length === 0 && pageInfo.hasNextPage) throw new WorkGraphError("backend", `${context}: an empty page reported more work items`);
+      let index = 0;
+      for (; index < entries.length; index += 1) {
+        const entry = rec(entries[index], `${context} work item`);
+        const state = stateFrom(itemFrom(entry, `${context} work item`, request.repo.path));
+        if (seen.has(state.ref.id)) continue;
+        if (request.state !== "all" && state.status !== request.state) continue;
+        seen.add(state.ref.id);
+        // `webUrl` is read here rather than added to every item read: the link is
+        // what a listing renders, and no other verb needs it.
+        rows.push({ ...toNodeListing(state, (ref) => this.allowed(ref)), ...(typeof entry.webUrl === "string" ? { url: entry.webUrl } : {}) });
+        if (rows.length === request.limit) break;
+      }
+      if (rows.length === request.limit) {
+        // `index` still names the entry that filled the page, so the forge page
+        // continues only while an entry after it is unread; otherwise the cursor
+        // moves to the next forge page or ends the listing here.
+        if (index + 1 < entries.length) return { nodes: rows, next: encodeNodeListCursor({ after: pageAfter, seen: [...seen] }) };
+        if (!pageInfo.hasNextPage) return { nodes: rows, next: null };
+        return { nodes: rows, next: encodeNodeListCursor({ after: pageInfo.endCursor, seen: [] }) };
+      }
+      if (!pageInfo.hasNextPage) return { nodes: rows, next: null };
+      if (cursors.has(pageInfo.endCursor)) throw new WorkGraphError("backend", `${context}: repeated a pagination cursor`);
+      cursors.add(pageInfo.endCursor);
+      after = pageInfo.endCursor;
+      seen = new Set<string>();
+    }
+  }
+
   async readSubtree(root: NodeRef): Promise<NodeState[]> { const seen = new Set<string>([root.id]); const records = new Map<string, { item: Item; parent?: NodeRef }>(); const bounded = limitConcurrency(8); let frontier: { ref: NodeRef; parent?: NodeRef }[] = [{ ref: root }]; while (frontier.length > 0) { const current = frontier; frontier = []; const batches = Array.from({ length: Math.ceil(current.length / GITLAB_BATCH_SIZE) }, (_, index) => current.slice(index * GITLAB_BATCH_SIZE, (index + 1) * GITLAB_BATCH_SIZE)); const items = (await Promise.all(batches.map((batch) => bounded(async () => await this.items(batch.map((entry) => entry.ref), true))))).flat(); for (const [index, item] of items.entries()) { const entry = current[index]; if (item.childrenTruncated) throw new WorkGraphError("backend", `GitLab subtree ${entry.ref.id} is paginated; refusing a partial membership walk`); records.set(entry.ref.id, { item, ...(entry.parent === undefined ? {} : { parent: entry.parent }) }); for (const child of item.children) if (this.allowed(child) && !seen.has(child.id)) { seen.add(child.id); frontier.push({ ref: child, parent: entry.ref }); } } }
     const result: NodeState[] = []; const visit = async (ref: NodeRef): Promise<void> => { const record = records.get(ref.id); if (record === undefined) return; for (const child of record.item.children) { const childRecord = records.get(child.id); if (childRecord?.parent?.id !== ref.id) continue; result.push({ ...await this.scopedState(childRecord.item), parent: ref }); await visit(child); } }; await visit(root); return result; }
   private async requireActingIdentity(identity: string): Promise<void> {

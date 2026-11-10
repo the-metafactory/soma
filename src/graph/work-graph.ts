@@ -1,4 +1,5 @@
 import { replaceNodeProse } from "./work-graph-node-block";
+import type { RepoRef } from "./work-graph-ref";
 /**
  * Work graph — typed contracts (`docs/work-graph.md` §2, DD-16, map #495 / #497).
  *
@@ -230,6 +231,57 @@ export interface NodeState {
   parseError?: string;
   /** True only when the production store proved a receipt belongs to this current closure. */
   currentCloseReceipt?: boolean;
+}
+
+/**
+ * A listing (node #1155) is a **projection**, not a node state: the identity and
+ * picker fields of a node, never its body, its edges or its claims. A field
+ * outside this type is not a truth the store forgot to read — a caller that
+ * needs one reads the node.
+ *
+ * The projection is what lets a page stay bounded: hydrating whole states for
+ * 50 nodes would fetch 50 bodies, 50 blocker sets and 50 child lists to render
+ * six fields.
+ */
+export interface NodeListing {
+  ref: NodeRef;
+  title: string;
+  status: NodeStatus;
+  /** The typed block's free-form kind tag; absent on an untyped or unreadable block. */
+  kind?: string;
+  parent?: NodeRef;
+  url?: string;
+}
+
+/** The statuses a listing can ask for: one of them, or both. */
+export const NODE_LIST_STATES = ["open", "closed", "all"] as const;
+export type NodeListState = (typeof NODE_LIST_STATES)[number];
+/** The listing's default and its ceiling. Above the ceiling the verb refuses rather than truncating a page. */
+export const NODE_LIST_DEFAULT_LIMIT = 50;
+export const NODE_LIST_MAX_LIMIT = 100;
+
+/** One request for one bounded page of nodes. */
+export interface NodeListRequest {
+  /**
+   * The repository to list. A GitHub store lists only its own; a GitLab store
+   * is host-scoped, so the request names the project and the store authorizes
+   * it against the read scope before its first read.
+   */
+  repo: RepoRef;
+  state: NodeListState;
+  /** Restrict the page to this node's membership subtree. Absent lists the whole repository. */
+  root?: NodeRef;
+  /** 1..{@link NODE_LIST_MAX_LIMIT}; the page holds at most this many rows. */
+  limit: number;
+  /** The previous page's `next`, passed back verbatim. Absent starts at the first page. */
+  cursor?: string;
+}
+
+/** One page of a listing, plus the cursor that continues it. */
+export interface NodeListPage {
+  nodes: NodeListing[];
+  /** The cursor for the next page, or null only when this page ends the listing. */
+  next: string | null;
 }
 
 export function unavailableMembership(states: readonly NodeState[]): { source: NodeRef; target: NodeRef }[] {
@@ -781,6 +833,23 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
    * pages or reject. Absence means unsupported, never an empty result.
    */
   listNodesByLabel?(label: string, author: string): Promise<LabeledNode[]>;
+  /**
+   * One bounded page of this repository's nodes (node #1155), optionally scoped
+   * to one node's membership subtree.
+   *
+   * **A page, never the list.** At most `limit` rows are returned, and `next`
+   * continues from exactly where the page stopped: it is null only when this
+   * page ends the listing, so a caller pages until null and never re-reads a
+   * row. The cursor is opaque — each backend defines it, and a cursor from
+   * another store or another root refuses rather than restarting silently.
+   *
+   * **Complete or reject.** A failed forge read rejects, naming the repo. An
+   * empty page and a failed read are different answers, and a caller that
+   * cannot tell them apart would report a forge outage as "no nodes".
+   *
+   * Absence means unsupported, never "this repo is empty".
+   */
+  listNodes?(request: NodeListRequest): Promise<NodeListPage>;
   /**
    * Every node in the root's membership **subtree**, at any depth, in
    * depth-first pre-order, each reported at its **current** state.
