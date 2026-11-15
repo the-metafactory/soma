@@ -89,6 +89,11 @@ import {
   type WorkGraphEvidenceKind,
   deriveAttestation,
   findGraphRoot,
+  checkSpawnBudget,
+  spawnReport,
+  type SpawnCaps,
+  type SpawnExcess,
+  type SpawnReport,
   GITHUB_DOTCOM,
   displayRepo,
   formatRepoRef,
@@ -148,9 +153,9 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     abandon:
       "Usage: soma graph abandon <id> --reason-file <path> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — close a node whose work was deliberately not done: closed as not planned, with an `abandoned` receipt carrying the reason; runs no probes, keeps dependents blocked, and only the acting identity that holds (or nobody holds) the node may do it",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--over-budget <reason>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — refuses when the parent already has its map's children-per-node cap of children (default 3) or the map is at its declared open-node cap; --over-budget files anyway and records the reason under \"## Over budget\" in the body. With --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
-    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--label <name>]... [--body <text>|--body-file <path>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is charted when a node under the first --label, authored by you, ends with <marker>, and that node is printed with \"existing\": true; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, and writes nothing",
+    chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--spawn-children-per-node <n>] [--spawn-open-nodes <n>] [--label <name>]... [--body <text>|--body-file <path>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is charted when a node under the first --label, authored by you, ends with <marker>, and that node is printed with \"existing\": true; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, and writes nothing",
     close:
       "Usage: soma graph close <id> --resolution-file <path> [--gist <one line>] [--ci <checkRunId>@<headSha>] [--propose --body <text>|--body-file <path>] [--proposal-comment <id>] [--checkpoint <id>] [--evidence <json>]... [--identity <login>] [--dry-run [--run-probes]] [--repo <forge>:<host>/<path>] — a dry run lists command probes without running them; --run-probes runs them",
     audit: "Usage: soma graph audit <root> [--scope build-brief-not-ready] [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json] [--verbose] — scoped audits omit unchecked findings; --verbose also lists the probe-registry entries open nodes use",
@@ -219,6 +224,7 @@ export interface ParsedGraphAddArgs {
     blockedBy: string[];
     once?: OnceMarker;
     dryRun?: boolean;
+    overBudget?: string;
   };
 }
 
@@ -415,6 +421,7 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   const probes: unknown[] = [];
   const labels: string[] = [];
   const budget: Record<string, number> = {};
+  const spawnBudget: Record<string, number> = {};
   let onceMarker: string | undefined;
   const verb: OnceVerb = chart ? "chart" : "add";
 
@@ -494,6 +501,20 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
         budget.wallClockMin = readPositiveInteger(rest, index, arg);
         index += 1;
         break;
+      case "--spawn-children-per-node":
+      case "--spawn-open-nodes":
+        if (!chart) throw new Error("spawnBudget belongs on the map root only; set it with soma graph chart.");
+        spawnBudget[arg === "--spawn-open-nodes" ? "openNodes" : "childrenPerNode"] = readPositiveInteger(rest, index, arg);
+        index += 1;
+        break;
+      case "--over-budget": {
+        if (chart) throw new Error("soma graph chart has no parent, so --over-budget does not apply.");
+        const reason = readOption(rest, index, arg).trim();
+        if (reason.length === 0) throw new Error("--over-budget needs a non-empty reason.");
+        options.overBudget = reason;
+        index += 1;
+        break;
+      }
       default:
         throw new Error(`Unknown option: ${arg}`);
     }
@@ -502,6 +523,7 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   if (probes.length > 0) options.spec.probes = probes;
   if (labels.length > 0) options.spec.labels = labels;
   if (Object.keys(budget).length > 0) options.spec.budget = budget;
+  if (Object.keys(spawnBudget).length > 0) options.spec.spawnBudget = spawnBudget;
   if (onceMarker !== undefined) {
     const label = labels.at(0);
     if (label === undefined) throw new Error(onceNeedsLabel(verb));
@@ -555,7 +577,7 @@ function parseLinkArgs(target: string, rest: string[]): ParsedGraphLinkArgs {
 function parseChartArgs(rest: string[]): ParsedGraphChartArgs {
   const parsed = parseAddArgs("__chart__", rest, true);
   if (parsed.options.blockedBy.length > 0) throw new Error("soma graph chart does not support --blocked-by");
-  const { blockedBy: _blockedBy, ...options } = parsed.options;
+  const { blockedBy: _blockedBy, overBudget: _overBudget, ...options } = parsed.options;
   return { command: "graph", action: "chart", options };
 }
 
@@ -1395,8 +1417,10 @@ async function runAdd(
     const found = await findOnceNode(store, once, json, "add");
     if (found !== undefined) return finishOnceNode(graph, repo, found, parsed.target, blockedBy, once.marker, json);
   }
-  const body = once === undefined ? given : withOnceMarker(given, once.marker);
-  const onceResult = once === undefined ? {} : { existing: false };
+  const overBudget = await enforceSpawnBudget(graph, parsed.target, parsed.options.overBudget, json);
+  const reasoned = overBudget === undefined ? given : withOverBudgetSection(given, overBudget);
+  const body = once === undefined ? reasoned : withOnceMarker(reasoned, once.marker);
+  const onceResult = { ...(once === undefined ? {} : { existing: false }), ...(overBudget === undefined ? {} : { overBudget }) };
 
   const isGitLabEpic = repo.forge === "gitlab" && parseLocatedNodeId(parsed.target)?.sigil === "&";
   const storeData = repo.forge !== "gitlab" ? rest.storeData : { ...(rest.storeData !== undefined && typeof rest.storeData === "object" ? rest.storeData as Record<string, unknown> : {}), ...(isGitLabEpic ? {} : { scopeProject: repo.path }) };
@@ -1431,6 +1455,46 @@ async function runAdd(
     ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
     ...(edges.written.length > 0 ? ["", "Blocking edges:", ...edges.written.map((id) => `- ${edgeLabel(created.id, id)}`)] : []),
   ].join("\n");
+}
+
+interface OverBudget { reason: string; exceeded: SpawnExcess[] }
+
+function describeExcess(excess: SpawnExcess, caps: SpawnCaps): string {
+  return excess.cap === "childrenPerNode"
+    ? `node ${excess.node} has ${excess.count} children (open and closed), at the cap of ${excess.limit} per node${caps.childrenPerNodeDeclared ? "" : " (the default)"}`
+    : `map ${excess.node} has ${excess.count} open nodes, at its cap of ${excess.limit}`;
+}
+
+/**
+ * Refuse an add over the spawn budget unless it carries a reason. Returns the
+ * reason and the caps it exceeds, or undefined when no cap is exceeded.
+ */
+async function enforceSpawnBudget(graph: WorkGraph, target: string, reason: string | undefined, json: boolean): Promise<OverBudget | undefined> {
+  let check: Awaited<ReturnType<typeof checkSpawnBudget>>;
+  try {
+    check = await checkSpawnBudget(graph, { id: target });
+  } catch (error) {
+    throw new SomaCliError(`soma graph add refused: cannot read the spawn budget above ${target}, so nothing is filed: ${errorMessage(error)}`, 1);
+  }
+  if (check.exceeded.length === 0) return undefined;
+  if (reason !== undefined) return { reason, exceeded: check.exceeded };
+  if (json) throw new SomaCliError(JSON.stringify({ refused: true, written: [], overBudget: check.exceeded }, null, 2), 1);
+  throw new SomaCliError([
+    "soma graph add refused: over the spawn budget, so nothing is filed.",
+    ...check.exceeded.map((excess) => `- ${describeExcess(excess, check.caps)}`),
+    `File it under another node, close or abandon open ones, or pass --over-budget "<reason>" to file it anyway; the reason is recorded on the node.`,
+  ].join("\n"), 1);
+}
+
+function withOverBudgetSection(body: string | undefined, { reason, exceeded }: OverBudget): string {
+  const section = ["## Over budget", "", reason, "", `Exceeded: ${exceeded.map(describeExcessShort).join("; ")}.`].join("\n");
+  return body === undefined || body.trim().length === 0 ? section : `${body.trimEnd()}\n\n${section}`;
+}
+
+function describeExcessShort(excess: SpawnExcess): string {
+  return excess.cap === "childrenPerNode"
+    ? `node ${excess.node} had ${excess.count} children, cap ${excess.limit} per node`
+    : `map ${excess.node} had ${excess.count} open nodes, cap ${excess.limit}`;
 }
 
 async function finishOnceNode(graph: WorkGraph, repo: RepoRef, found: string, target: string, blockedBy: readonly string[], marker: string, json: boolean): Promise<string> {
@@ -2095,6 +2159,7 @@ async function runAudit(
   const registryStale = staleRegistry !== undefined && (staleRegistry.cwdMissing.length > 0 || (staleRegistry.unusedByOpenNodes?.length ?? 0) > 0);
   const registryInvalid = registry?.invalid;
   const verbose = parsed.options.verbose === true;
+  const spawn = full && subtree.length > 0 ? spawnReport(subtree[0], subtree.slice(1)) : undefined;
 
   if (parsed.options.json === true) {
     return JSON.stringify(
@@ -2110,6 +2175,7 @@ async function runAudit(
           openWithBareBunTestProbe: bareBunTest.map((state) => state.ref.id),
           openClaimed: claimed.map((state) => ({ id: state.ref.id, assignees: state.assignees })),
         } : {}),
+        ...(spawn === undefined ? {} : { spawn }),
         buildBriefNotReady: buildBriefNotReady.map(({ state, missing }) => ({ id: state.ref.id, missing })),
         ...(staleRegistry !== undefined && (registryStale || verbose) ? {
           probeRegistry: {
@@ -2169,6 +2235,7 @@ async function runAudit(
       : []),
     ...(registryInvalid === undefined ? [] : [`Probe registry unusable — every command probe close refuses until it parses: ${registryInvalid}`, ""]),
     ...(staleRegistry === undefined ? [] : renderStaleRegistry(staleRegistry, verbose)),
+    ...(spawn === undefined ? [] : renderSpawn(spawn)),
     ...(claimed.length > 0
       ? [
           `Open and claimed — in flight, or stale:`,
@@ -2182,6 +2249,20 @@ async function runAudit(
       ? `Clean: every closed node carries a receipt and every open node can close.`
       : `The audit names; it does not repair. A receipt-less close is re-opened and re-closed through the verb, or ratified by hand with a comment saying why.`,
   ].join("\n");
+}
+
+function renderSpawn(spawn: SpawnReport): string[] {
+  const { caps } = spawn;
+  const rate = spawn.spawnRate === null ? "no closed node below the root yet" : `${spawn.spawnRate.toFixed(2)} children per closed node`;
+  return [
+    `Spawn: ${spawn.open} open, ${spawn.closed} closed below the root; spawn rate R = ${rate}.`,
+    `Caps: ${caps.childrenPerNode} children per node${caps.childrenPerNodeDeclared ? "" : " (default)"}; ${caps.openNodes === undefined ? "no open-node cap declared" : `${caps.openNodes} open nodes`}.`,
+    ...(spawn.overChildrenCap.length > 0
+      ? [`Over the children cap:`, ...spawn.overChildrenCap.map((entry) => `- ${entry.id} ${entry.title} — ${entry.children} children`)]
+      : []),
+    ...(spawn.openOverCap ? [`Open nodes exceed the cap: ${spawn.open} > ${caps.openNodes}.`] : []),
+    "",
+  ];
 }
 
 async function auditProbeRegistry(

@@ -11,10 +11,11 @@ export function encodeNodeBlock(spec: CreateNodeSpec & { completion?: WorkGraphN
   if (spec.serves !== undefined) payload.serves = spec.serves;
   if (spec.checkpointId !== undefined) payload.checkpointId = spec.checkpointId;
   if (spec.budget !== undefined) payload.budget = spec.budget;
+  if (spec.spawnBudget !== undefined) payload.spawnBudget = spec.spawnBudget;
   if (spec.probes !== undefined && spec.probes.length > 0) payload.probes = spec.probes;
   if (spec.completion !== undefined) payload.completion = spec.completion;
   for (const [key, value] of Object.entries(storeFields)) {
-    if (["autonomy", "kind", "serves", "checkpointId", "budget", "probes", "completion"].includes(key)) throw new Error(`store field ${key} conflicts with the typed node contract`);
+    if (["autonomy", "kind", "serves", "checkpointId", "budget", "spawnBudget", "probes", "completion"].includes(key)) throw new Error(`store field ${key} conflicts with the typed node contract`);
     payload[key] = value;
   }
   return `${NODE_BLOCK_OPEN}\n${JSON.stringify(payload, null, 2)}\n${NODE_BLOCK_CLOSE}`;

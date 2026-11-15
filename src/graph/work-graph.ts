@@ -38,6 +38,15 @@ export interface NodeBudget {
   wallClockMin?: number;
 }
 
+/** A map root's cap on spawning (positive integers): children per node, and open nodes under the root. */
+export interface SpawnBudget {
+  childrenPerNode?: number;
+  openNodes?: number;
+}
+
+/** The children cap `soma graph add` applies when the map root declares none. */
+export const DEFAULT_CHILDREN_PER_NODE = 3;
+
 /**
  * A machine-checkable expectation (§2.2). Prose probes are `judged` evidence in
  * disguise (#492 correction 1), so there is no free-text variant. `type` alone
@@ -123,6 +132,8 @@ export interface WorkGraphNodeBase {
    */
   checkpointId?: string;
   budget?: NodeBudget;
+  /** Map root only: the caps `soma graph add` enforces below it. */
+  spawnBudget?: SpawnBudget;
 }
 
 /**
@@ -1120,6 +1131,23 @@ function parseBudget(input: unknown): NodeBudget {
   return budget;
 }
 
+function parseSpawnBudget(input: unknown): SpawnBudget {
+  const record = asRecord(input, "invalid-node", "spawnBudget");
+  const spawnBudget: SpawnBudget = {};
+  for (const key of ["childrenPerNode", "openNodes"] as const) {
+    const value = record[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+      throw new WorkGraphError("invalid-node", `spawnBudget: "${key}" must be a positive integer`);
+    }
+    spawnBudget[key] = value;
+  }
+  if (Object.keys(spawnBudget).length === 0) {
+    throw new WorkGraphError("invalid-node", "spawnBudget must declare childrenPerNode or openNodes");
+  }
+  return spawnBudget;
+}
+
 function parseAutonomy(value: unknown): WorkGraphAutonomy {
   if (value === "auto" || value === "propose" || value === "approve") return value;
   throw new WorkGraphError("invalid-node", `"autonomy" must be one of auto | propose | approve`);
@@ -1183,6 +1211,7 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
       ? (() => { throw new WorkGraphError("invalid-node", "node spec: storeData requires a store-declared creation capability"); })()
       : parseCreateData(record.storeData);
   const budget = record.budget === undefined || record.budget === null ? undefined : parseBudget(record.budget);
+  const spawnBudget = record.spawnBudget === undefined || record.spawnBudget === null ? undefined : parseSpawnBudget(record.spawnBudget);
   const body = optionalString(record, "body", "invalid-node", "node spec");
   const parentId = record.parent === undefined || record.parent === null
     ? undefined
@@ -1193,6 +1222,9 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
   }
   if (serves !== undefined && parentId !== undefined) {
     throw new WorkGraphError("invalid-node", "serves belongs on the root only (D10)");
+  }
+  if (spawnBudget !== undefined && parentId !== undefined) {
+    throw new WorkGraphError("invalid-node", "spawnBudget belongs on the map root only");
   }
   const probes = parseProbes(record.probes);
   const labels = parseLabels(record.labels);
@@ -1219,6 +1251,7 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
     ...(checkpointId === undefined ? {} : { checkpointId }),
     ...(storeData === undefined ? {} : { storeData }),
     ...(budget === undefined ? {} : { budget }),
+    ...(spawnBudget === undefined ? {} : { spawnBudget }),
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),
     ...(labels.length === 0 ? {} : { labels }),

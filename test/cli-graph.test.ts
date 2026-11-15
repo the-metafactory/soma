@@ -979,7 +979,7 @@ test("add refuses an auto node with no probes — zero machine-checkable evidenc
 });
 
 test("GitLab Epic parents retain their declared home-project route", async () => {
-  const store = new FakeStore();
+  const store = new FakeStore().seed("saca&1", { node: { id: "saca&1", title: "epic", autonomy: "approve" } });
   (store as unknown as { parseCreateData: (value: unknown) => { capability: "gitlab"; scopeProject?: string } }).parseCreateData = (value) => ({ capability: "gitlab", ...(value as Record<string, unknown>) });
   await run(
     ["graph", "add", "gitlab:gitlab-int.switch.ch/saca&1", "--title", "route", "--autonomy", "approve", "--checkpoint", "cp-route"],
@@ -2572,7 +2572,7 @@ test("full audits batch a 400-node map with bounded fan-out and read fresh recei
   };
   const args = ["graph", "audit", "1", "--repo", REPO, "--json"];
   const first = JSON.parse(await run(args, store));
-  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openWithFullSuiteProbe: [], openWithBareBunTestProbe: [], openClaimed: [], buildBriefNotReady: [] });
+  expect(first).toEqual({ repo: REPO, root: "1", nodes: 400, closedWithoutReceipt: ["2"], openWithoutCheckpoint: [], openWithFullSuiteProbe: [], openWithBareBunTestProbe: [], openClaimed: [], buildBriefNotReady: [], spawn: expect.any(Object) });
   expect(batches).toEqual(Array(17).fill(20));
   expect(peak).toBeGreaterThan(1);
   expect(peak).toBeLessThanOrEqual(4);
