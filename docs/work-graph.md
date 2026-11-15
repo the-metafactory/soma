@@ -57,12 +57,18 @@ interface WorkGraphNodeBase {
                          // node; may attach after creation, but close REFUSES
                          // while it is absent — required-by-close invariant
   budget?: NodeBudget;   // optional deterministic circuit breaker
+  spawnBudget?: SpawnBudget; // map root only; rejected on a node with a parent
 }
 
 interface NodeBudget {   // deterministic circuit breaker (§3.3)
   tokens?: number;
   agentInvocations?: number;
   wallClockMin?: number;
+}
+
+interface SpawnBudget {  // positive integers, at least one; only a declared cap is enforced
+  childrenPerNode?: number; // graph add refuses under a parent with this many children
+  openNodes?: number;       // graph add refuses when the map has this many open nodes
 }
 
 type WorkGraphNode =
