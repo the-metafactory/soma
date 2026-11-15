@@ -1,5 +1,5 @@
 /** Forge-neutral typed-node codec shared by every GraphStore. */
-import type { CreateNodeSpec, WorkGraphNode } from "./work-graph";
+import type { CreateNodeSpec, SpawnBudget, WorkGraphNode } from "./work-graph";
 
 const NODE_BLOCK_OPEN = "<!-- soma:work-graph-node";
 const NODE_BLOCK_CLOSE = "-->";
@@ -50,4 +50,33 @@ export function replaceNodeProse(original: string, replacement: string): string 
   let prose = replacement;
   for (const block of supplied) prose = prose.replace(block, "");
   return [prose.trim(), ...saved].filter(Boolean).join("\n\n");
+}
+
+/**
+ * Set or clear `spawnBudget` in a raw body's typed block, leaving every other
+ * byte of the body as it was. Refuses a block it would have to reformat: one
+ * not in the JSON form `encodeNodeBlock` writes, or more than one block.
+ */
+export function rewriteSpawnBudget(body: string, spawnBudget: SpawnBudget | undefined): string {
+  const open = body.indexOf(NODE_BLOCK_OPEN);
+  if (open === -1) throw new Error("the node has no typed block to hold a spawn budget.");
+  if (body.includes(NODE_BLOCK_OPEN, open + NODE_BLOCK_OPEN.length)) throw new Error("the node has more than one typed block; refusing to pick one.");
+  const close = body.indexOf(NODE_BLOCK_CLOSE, open + NODE_BLOCK_OPEN.length);
+  if (close === -1) throw new Error("the node's typed block is unterminated.");
+  const inner = body.slice(open + NODE_BLOCK_OPEN.length, close);
+  const json = inner.trim();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(json);
+  } catch (error) {
+    throw new Error(`the node's typed block is not valid JSON: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) throw new Error("the node's typed block is not a JSON object.");
+  if (inner !== `\n${JSON.stringify(payload, null, 2)}\n`) {
+    throw new Error("the node's typed block is not in the form soma writes, so rewriting it would change other fields' bytes; fix the block by hand.");
+  }
+  const next: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
+  if (spawnBudget === undefined) delete next.spawnBudget;
+  else next.spawnBudget = spawnBudget;
+  return `${body.slice(0, open + NODE_BLOCK_OPEN.length)}\n${JSON.stringify(next, null, 2)}\n${body.slice(close)}`;
 }

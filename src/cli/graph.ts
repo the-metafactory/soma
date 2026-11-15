@@ -91,7 +91,7 @@ import {
   findGraphRoot,
   checkSpawnBudget,
   spawnReport,
-  type SpawnCaps,
+  type SpawnBudget,
   type SpawnExcess,
   type SpawnReport,
   GITHUB_DOTCOM,
@@ -147,13 +147,13 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
     list: "Usage: soma graph list [--repo <forge>:<host>/<path>] [--root <id>] [--state open|closed|all] [--limit <n>] [--cursor <opaque>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json] — one bounded page of nodes from one repository or one root's subtree; --state defaults to open, --limit to 50 and refuses above 100",
     frontier: "Usage: soma graph frontier <root> [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
     node: "Usage: soma graph node <id> [--section <name,...>]... [--repo <forge>:<host>/<path>] [--read-repo <forge>:<host>/<path>]... [--read-namespace <gitlab>:<host>/<path>]... [--json]",
-    edit: "Usage: soma graph edit <id> [--title <text>] [--body-file <path>] [--repo <forge>:<host>/<path>] [--json]",
+    edit: "Usage: soma graph edit <id> [--title <text>] [--body-file <path>] | [--spawn-children-per-node <n>] [--spawn-open-nodes <n>] | [--spawn-budget none] [--repo <forge>:<host>/<path>] [--json] — the spawn flags set or change the caps on a map root (caps not named are kept); --spawn-budget none clears them",
     claim: "Usage: soma graph claim <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json]",
     release:
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     abandon:
       "Usage: soma graph abandon <id> --reason-file <path> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — close a node whose work was deliberately not done: closed as not planned, with an `abandoned` receipt carrying the reason; runs no probes, keeps dependents blocked, and only the acting identity that holds (or nobody holds) the node may do it",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--over-budget <reason>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — refuses when the parent already has its map's children-per-node cap of children (default 3) or the map is at its declared open-node cap; --over-budget files anyway and records the reason under \"## Over budget\" in the body. With --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--over-budget <reason>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — refuses when the parent already has its map root's declared children-per-node cap of children, or the map is at its declared open-node cap; --over-budget files anyway and records the reason under \"## Over budget\" in the body. With --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--spawn-children-per-node <n>] [--spawn-open-nodes <n>] [--label <name>]... [--body <text>|--body-file <path>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is charted when a node under the first --label, authored by you, ends with <marker>, and that node is printed with \"existing\": true; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, and writes nothing",
     close:
@@ -190,7 +190,7 @@ export interface ParsedGraphEditArgs {
   command: "graph";
   action: "edit";
   target: string;
-  options: GraphSharedOptions & { title?: string; bodyFile?: string };
+  options: GraphSharedOptions & { title?: string; bodyFile?: string; spawnBudget?: SpawnBudget | null };
 }
 
 export interface ParsedGraphClaimArgs {
@@ -797,7 +797,7 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     return { command, action, target: resolvedTarget, options: rest.length > 0 ? { json: true } : {} };
   }
 
-  const options: GraphSharedOptions & { identity?: string; reasonFile?: string; title?: string; bodyFile?: string; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready"; verbose?: boolean } = {};
+  const options: GraphSharedOptions & { identity?: string; reasonFile?: string; title?: string; bodyFile?: string; spawnBudget?: SpawnBudget | null; write?: boolean; sections?: string[]; scope?: "build-brief-not-ready"; verbose?: boolean } = {};
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if ((action === "node" || action === "frontier" || action === "audit" || action === "decisions") && readScopeOption(options, rest, index)) { index += 1; continue; }
@@ -811,6 +811,19 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
       if (!value.trim()) throw new Error(`${arg} must not be empty.`);
       if (arg === "--title") options.title = value;
       else options.bodyFile = value;
+      index += 1;
+      continue;
+    }
+    if (action === "edit" && (arg === "--spawn-children-per-node" || arg === "--spawn-open-nodes")) {
+      if (options.spawnBudget === null) throw new Error("--spawn-budget none cannot be combined with a spawn cap.");
+      options.spawnBudget = { ...options.spawnBudget, [arg === "--spawn-open-nodes" ? "openNodes" : "childrenPerNode"]: readPositiveInteger(rest, index, arg) };
+      index += 1;
+      continue;
+    }
+    if (action === "edit" && arg === "--spawn-budget") {
+      if (readOption(rest, index, arg) !== "none") throw new Error("--spawn-budget takes only none; set caps with --spawn-children-per-node and --spawn-open-nodes.");
+      if (options.spawnBudget !== undefined && options.spawnBudget !== null) throw new Error("--spawn-budget none cannot be combined with a spawn cap.");
+      options.spawnBudget = null;
       index += 1;
       continue;
     }
@@ -851,7 +864,10 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
     throw new Error(`Unknown option: ${arg}`);
   }
 
-  if (action === "edit" && options.title === undefined && options.bodyFile === undefined) throw new Error(GRAPH_COMMAND_HELP.subcommands.edit);
+  if (action === "edit" && options.title === undefined && options.bodyFile === undefined && options.spawnBudget === undefined) throw new Error(GRAPH_COMMAND_HELP.subcommands.edit);
+  if (action === "edit" && options.spawnBudget !== undefined && (options.title !== undefined || options.bodyFile !== undefined)) {
+    throw new Error("soma graph edit changes the spawn budget or the content, not both in one call.");
+  }
   if (action === "claim") return { command, action, target: resolvedTarget, options };
   if (action === "release") return { command, action, target: resolvedTarget, options };
   if (action === "abandon") {
@@ -1185,6 +1201,7 @@ function renderNodeState(state: NodeState): string {
     `kind: ${node.kind ?? "—"}`,
     `checkpoint: ${node.checkpointId ?? "—"}`,
     ...(node.serves === undefined ? [] : [`serves: ${node.serves}`]),
+    ...(node.spawnBudget === undefined ? [] : [`spawn budget: ${JSON.stringify(node.spawnBudget)}`]),
     ...(typeof state.storeFields?.home === "string" ? [`home: ${state.storeFields.home}`] : []),
     `author: ${state.author.length > 0 ? state.author : "—"}`,
     `assignees: ${state.assignees.length > 0 ? state.assignees.join(", ") : "—"}`,
@@ -1459,9 +1476,9 @@ async function runAdd(
 
 interface OverBudget { reason: string; exceeded: SpawnExcess[] }
 
-function describeExcess(excess: SpawnExcess, caps: SpawnCaps): string {
+function describeExcess(excess: SpawnExcess): string {
   return excess.cap === "childrenPerNode"
-    ? `node ${excess.node} has ${excess.count} children (open and closed), at the cap of ${excess.limit} per node${caps.childrenPerNodeDeclared ? "" : " (the default)"}`
+    ? `node ${excess.node} has ${excess.count} children (open and closed), at the cap of ${excess.limit} per node`
     : `map ${excess.node} has ${excess.count} open nodes, at its cap of ${excess.limit}`;
 }
 
@@ -1481,7 +1498,7 @@ async function enforceSpawnBudget(graph: WorkGraph, target: string, reason: stri
   if (json) throw new SomaCliError(JSON.stringify({ refused: true, written: [], overBudget: check.exceeded }, null, 2), 1);
   throw new SomaCliError([
     "soma graph add refused: over the spawn budget, so nothing is filed.",
-    ...check.exceeded.map((excess) => `- ${describeExcess(excess, check.caps)}`),
+    ...check.exceeded.map((excess) => `- ${describeExcess(excess)}`),
     `File it under another node, close or abandon open ones, or pass --over-budget "<reason>" to file it anyway; the reason is recorded on the node.`,
   ].join("\n"), 1);
 }
@@ -2256,11 +2273,11 @@ function renderSpawn(spawn: SpawnReport): string[] {
   const rate = spawn.spawnRate === null ? "no closed node below the root yet" : `${spawn.spawnRate.toFixed(2)} children per closed node`;
   return [
     `Spawn: ${spawn.open} open, ${spawn.closed} closed below the root; spawn rate R = ${rate}.`,
-    `Caps: ${caps.childrenPerNode} children per node${caps.childrenPerNodeDeclared ? "" : " (default)"}; ${caps.openNodes === undefined ? "no open-node cap declared" : `${caps.openNodes} open nodes`}.`,
-    ...(spawn.overChildrenCap.length > 0
+    `Caps: ${caps.childrenPerNode === undefined ? "no children cap declared" : `${caps.childrenPerNode} children per node`}; ${caps.openNodes === undefined ? "no open-node cap declared" : `${caps.openNodes} open nodes`}.`,
+    ...(spawn.overChildrenCap !== undefined && spawn.overChildrenCap.length > 0
       ? [`Over the children cap:`, ...spawn.overChildrenCap.map((entry) => `- ${entry.id} ${entry.title} — ${entry.children} children`)]
       : []),
-    ...(spawn.openOverCap ? [`Open nodes exceed the cap: ${spawn.open} > ${caps.openNodes}.`] : []),
+    ...(spawn.openOverCap === true ? [`Open nodes exceed the cap: ${spawn.open} > ${caps.openNodes}.`] : []),
     "",
   ];
 }
@@ -2619,6 +2636,10 @@ export async function runGraphCli(input: ParsedGraphArgs, overrides: Partial<Gra
     case "node":
       return await runNode(parsed, graph, repo);
     case "edit": {
+      if (parsed.options.spawnBudget !== undefined) {
+        const state = await graph.setSpawnBudget({ id: parsed.target }, parsed.options.spawnBudget);
+        return parsed.options.json ? JSON.stringify({ repo, ...state }, null, 2) : `Updated the spawn budget of ${parsed.target} (${repo})\n${renderNodeState(state)}`;
+      }
       const state = await graph.editNode({ id: parsed.target }, {
         ...(parsed.options.title === undefined ? {} : { title: parsed.options.title }),
         ...(parsed.options.bodyFile === undefined ? {} : { body: await deps.readTextFile(resolve(parsed.options.bodyFile)) }),

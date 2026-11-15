@@ -1,4 +1,4 @@
-import { replaceNodeProse } from "./work-graph-node-block";
+import { replaceNodeProse, rewriteSpawnBudget } from "./work-graph-node-block";
 import type { RepoRef } from "./work-graph-ref";
 /**
  * Work graph — typed contracts (`docs/work-graph.md` §2, DD-16, map #495 / #497).
@@ -43,9 +43,6 @@ export interface SpawnBudget {
   childrenPerNode?: number;
   openNodes?: number;
 }
-
-/** The children cap `soma graph add` applies when the map root declares none. */
-export const DEFAULT_CHILDREN_PER_NODE = 3;
 
 /**
  * A machine-checkable expectation (§2.2). Prose probes are `judged` evidence in
@@ -1748,6 +1745,28 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     const updated = { ...changes };
     if (changes.body !== undefined) updated.body = replaceNodeProse(await this.store.readRawBody(ref), changes.body);
     await this.store.editContent(ref, updated);
+    return this.store.readNode(ref);
+  }
+
+  /**
+   * Set, change or clear a map root's `spawnBudget` (null clears). Caps given
+   * replace the root's caps of the same name; the others are kept. Only the
+   * typed block's `spawnBudget` changes, through the same write as an edit.
+   */
+  async setSpawnBudget(ref: NodeRef, change: SpawnBudget | null): Promise<NodeState> {
+    const state = await this.store.readNode(ref);
+    if (state.parent !== undefined) throw new WorkGraphError("invalid-node", `node ${ref.id} sits under ${state.parent.id}; spawnBudget belongs on the map root only`);
+    if (!state.typed || state.parseError !== undefined) throw new WorkGraphError("invalid-node", `node ${ref.id} has no readable typed block to hold a spawn budget`);
+    if (state.writable === false) throw new WorkGraphError("invalid-node", "node is not writable by this store");
+    if (!this.store.editContent) throw new WorkGraphError("backend", "store does not support content edits");
+    const next = change === null ? undefined : parseSpawnBudget({ ...state.node.spawnBudget, ...change });
+    let body: string;
+    try {
+      body = rewriteSpawnBudget(await this.store.readRawBody(ref), next);
+    } catch (error) {
+      throw new WorkGraphError("invalid-node", `cannot set the spawn budget on ${ref.id}: ${errorText(error)}`);
+    }
+    await this.store.editContent(ref, { body });
     return this.store.readNode(ref);
   }
 
