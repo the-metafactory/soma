@@ -61,17 +61,24 @@ test fail without it?** Being on topic is not enough. A polish pass, a second
 prototype of something that already works, an edge case nobody on the route
 will hit, a reviewer's suggestion, a "while we're here": each one is plausibly
 in scope and none is necessary. Each goes under **Out of scope** as one line,
-not a node. When the test is unclear, it is out: a necessary step comes back
-on its own, as a failing check on the route.
+not a node. When the test is unclear, it is out.
 
-A map without this test grows by about one node per node it closes. Across
-three maps measured on 2026-11-15, each closed node spawned 0.83 to 1.03
-children, and the largest map's open count rose from 30 to 112 in ten weeks
-while about 400 nodes closed.
+A step ruled out wrongly is not lost. When a node on the route fails, or the
+destination's test fails, because that step is missing, the failure is new
+evidence: file the step then, as a new node below the node that exposed it, and
+link the Out-of-scope line to it. That is a need the route revealed, not the
+old line graduating. Out of scope keeps meaning "not needed for this test";
+what changes is what the route has shown.
+
+For scale: three maps measured on 2026-11-15, none of which applied this test,
+spawned 0.83 to 1.03 child nodes per node closed, and the largest map's open
+count rose from 30 to 112 over ten weeks while about 400 nodes closed. The
+data does not separate this test's absence from other sources of growth, such
+as review splits; it shows the growth the test is meant to stop.
 
 Out-of-scope work never graduates — the frontier stops at the destination — so
-it returns only if the destination is redrawn, and then as a fresh effort, not a
-resumption.
+it returns only if the destination is redrawn, as a fresh effort, or when the
+route fails for want of it, as above.
 
 Ruling something out of scope is a scoping act, not a step on the route. When a
 node that already exists turns out to sit past the destination — mis-scoped in
