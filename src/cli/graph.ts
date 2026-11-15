@@ -92,6 +92,7 @@ import {
   checkSpawnBudget,
   spawnReport,
   type SpawnBudget,
+  type SpawnCap,
   type FrontierRank,
   type SpawnExcess,
   type SpawnReport,
@@ -357,6 +358,13 @@ function readShared(options: GraphSharedOptions, args: string[], index: number, 
   }
 }
 
+const SPAWN_CAP_FLAGS: Readonly<Record<string, SpawnCap>> = { "--spawn-children-per-node": "childrenPerNode", "--spawn-open-nodes": "openNodes" };
+
+function readSpawnCapFlag(args: string[], index: number, arg: string): SpawnBudget | undefined {
+  const cap = SPAWN_CAP_FLAGS[arg] as SpawnCap | undefined;
+  return cap === undefined ? undefined : { [cap]: readPositiveInteger(args, index, arg) };
+}
+
 function readPositiveInteger(args: string[], index: number, arg: string): number {
   const raw = readOption(args, index, arg);
   if (!/^[1-9]\d*$/.test(raw)) {
@@ -422,7 +430,7 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   const probes: unknown[] = [];
   const labels: string[] = [];
   const budget: Record<string, number> = {};
-  const spawnBudget: Record<string, number> = {};
+  let spawnBudget: SpawnBudget = {};
   let onceMarker: string | undefined;
   const verb: OnceVerb = chart ? "chart" : "add";
 
@@ -431,6 +439,14 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
     const shared = readShared(options, rest, index, arg);
     if (shared !== undefined) {
       index = shared;
+      continue;
+    }
+
+    const spawnCap = readSpawnCapFlag(rest, index, arg);
+    if (spawnCap !== undefined) {
+      if (!chart) throw new Error("spawnBudget belongs on the map root only; set it with soma graph chart or soma graph edit <root>.");
+      spawnBudget = { ...spawnBudget, ...spawnCap };
+      index += 1;
       continue;
     }
 
@@ -500,12 +516,6 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
         break;
       case "--budget-minutes":
         budget.wallClockMin = readPositiveInteger(rest, index, arg);
-        index += 1;
-        break;
-      case "--spawn-children-per-node":
-      case "--spawn-open-nodes":
-        if (!chart) throw new Error("spawnBudget belongs on the map root only; set it with soma graph chart.");
-        spawnBudget[arg === "--spawn-open-nodes" ? "openNodes" : "childrenPerNode"] = readPositiveInteger(rest, index, arg);
         index += 1;
         break;
       case "--over-budget": {
@@ -815,9 +825,10 @@ export function parseGraphArgs(args: string[]): ParsedGraphArgs {
       index += 1;
       continue;
     }
-    if (action === "edit" && (arg === "--spawn-children-per-node" || arg === "--spawn-open-nodes")) {
+    const spawnCap = action === "edit" ? readSpawnCapFlag(rest, index, arg) : undefined;
+    if (spawnCap !== undefined) {
       if (options.spawnBudget === null) throw new Error("--spawn-budget none cannot be combined with a spawn cap.");
-      options.spawnBudget = { ...options.spawnBudget, [arg === "--spawn-open-nodes" ? "openNodes" : "childrenPerNode"]: readPositiveInteger(rest, index, arg) };
+      options.spawnBudget = { ...options.spawnBudget, ...spawnCap };
       index += 1;
       continue;
     }
@@ -1484,44 +1495,53 @@ async function runAdd(
   ].join("\n");
 }
 
-interface OverBudget { reason: string; exceeded: SpawnExcess[] }
+/** Why an add went over budget: the caps it exceeded, or why the budget could not be checked. */
+type OverBudget = { reason: string; exceeded: SpawnExcess[] } | { reason: string; budgetUnreadable: string };
 
-function describeExcess(excess: SpawnExcess): string {
-  return excess.cap === "childrenPerNode"
-    ? `node ${excess.node} has ${excess.count} children (open and closed), at the cap of ${excess.limit} per node`
-    : `map ${excess.node} has ${excess.count} open nodes, at its cap of ${excess.limit}`;
+function describeExcess(excess: SpawnExcess, tense: "refusal" | "record"): string {
+  const children = excess.cap === "childrenPerNode";
+  const refusal = tense === "refusal";
+  const subject = `${children ? "node" : "map"} ${excess.node} ${refusal ? "has" : "had"} ${excess.count} ${children ? "children" : "open nodes"}`;
+  const cap = refusal ? `at ${children ? "the" : "its"} cap of` : "cap";
+  return `${subject}${children && refusal ? " (open and closed)" : ""}, ${cap} ${excess.limit}${children ? " per node" : ""}`;
 }
 
 /**
- * Refuse an add over the spawn budget unless it carries a reason. Returns the
- * reason and the caps it exceeds, or undefined when no cap is exceeded.
+ * Refuse an add over the spawn budget, or one whose budget cannot be checked,
+ * unless it carries a reason. Returns the reason with the caps it exceeds or
+ * why the budget could not be checked, or undefined when nothing is exceeded.
  */
 async function enforceSpawnBudget(graph: WorkGraph, target: string, reason: string | undefined, json: boolean): Promise<OverBudget | undefined> {
   let check: Awaited<ReturnType<typeof checkSpawnBudget>>;
   try {
     check = await checkSpawnBudget(graph, { id: target });
   } catch (error) {
-    throw new SomaCliError(`soma graph add refused: cannot read the spawn budget above ${target}, so nothing is filed: ${errorMessage(error)}`, 1);
+    const unread = `cannot read the spawn budget above ${target}: ${errorMessage(error)}`;
+    if (reason !== undefined) return { reason, budgetUnreadable: unread };
+    throw new SomaCliError(`soma graph add refused: ${unread}, so nothing is filed.`, 1);
+  }
+  if (check.budgetError !== undefined) {
+    const unread = `map root ${check.root} has a typed block that does not parse, so its spawn budget is unknown: ${check.budgetError}`;
+    if (reason !== undefined) return { reason, budgetUnreadable: unread };
+    if (json) throw new SomaCliError(JSON.stringify({ refused: true, written: [], budgetError: { root: check.root, error: check.budgetError } }, null, 2), 1);
+    throw new SomaCliError(`soma graph add refused: ${unread}. Repair the root's typed block, or pass --over-budget "<reason>" to file it anyway; the reason is recorded on the node.`, 1);
   }
   if (check.exceeded.length === 0) return undefined;
   if (reason !== undefined) return { reason, exceeded: check.exceeded };
   if (json) throw new SomaCliError(JSON.stringify({ refused: true, written: [], overBudget: check.exceeded }, null, 2), 1);
   throw new SomaCliError([
     "soma graph add refused: over the spawn budget, so nothing is filed.",
-    ...check.exceeded.map((excess) => `- ${describeExcess(excess)}`),
+    ...check.exceeded.map((excess) => `- ${describeExcess(excess, "refusal")}`),
     `File it under another node, close or abandon open ones, or pass --over-budget "<reason>" to file it anyway; the reason is recorded on the node.`,
   ].join("\n"), 1);
 }
 
-function withOverBudgetSection(body: string | undefined, { reason, exceeded }: OverBudget): string {
-  const section = ["## Over budget", "", reason, "", `Exceeded: ${exceeded.map(describeExcessShort).join("; ")}.`].join("\n");
+function withOverBudgetSection(body: string | undefined, overBudget: OverBudget): string {
+  const detail = "exceeded" in overBudget
+    ? `Exceeded: ${overBudget.exceeded.map((excess) => describeExcess(excess, "record")).join("; ")}.`
+    : `Budget not checked: ${overBudget.budgetUnreadable}.`;
+  const section = ["## Over budget", "", overBudget.reason, "", detail].join("\n");
   return body === undefined || body.trim().length === 0 ? section : `${body.trimEnd()}\n\n${section}`;
-}
-
-function describeExcessShort(excess: SpawnExcess): string {
-  return excess.cap === "childrenPerNode"
-    ? `node ${excess.node} had ${excess.count} children, cap ${excess.limit} per node`
-    : `map ${excess.node} had ${excess.count} open nodes, cap ${excess.limit}`;
 }
 
 async function finishOnceNode(graph: WorkGraph, repo: RepoRef, found: string, target: string, blockedBy: readonly string[], marker: string, json: boolean): Promise<string> {
@@ -2283,7 +2303,9 @@ function renderSpawn(spawn: SpawnReport): string[] {
   const rate = spawn.spawnRate === null ? "no closed node below the root yet" : `${spawn.spawnRate.toFixed(2)} children per closed node`;
   return [
     `Spawn: ${spawn.open} open, ${spawn.closed} closed below the root; spawn rate R = ${rate}.`,
-    `Caps: ${caps.childrenPerNode === undefined ? "no children cap declared" : `${caps.childrenPerNode} children per node`}; ${caps.openNodes === undefined ? "no open-node cap declared" : `${caps.openNodes} open nodes`}.`,
+    spawn.budgetError !== undefined
+      ? `Caps: BROKEN — the root's typed block does not parse, so its spawn budget is unknown: ${spawn.budgetError}`
+      : `Caps: ${caps.childrenPerNode === undefined ? "no children cap declared" : `${caps.childrenPerNode} children per node`}; ${caps.openNodes === undefined ? "no open-node cap declared" : `${caps.openNodes} open nodes`}.`,
     ...(spawn.overChildrenCap !== undefined && spawn.overChildrenCap.length > 0
       ? [`Over the children cap:`, ...spawn.overChildrenCap.map((entry) => `- ${entry.id} ${entry.title} — ${entry.children} children`)]
       : []),

@@ -39,11 +39,12 @@ export interface NodeBudget {
   wallClockMin?: number;
 }
 
-/** A map root's cap on spawning (positive integers): children per node, and open nodes under the root. */
-export interface SpawnBudget {
-  childrenPerNode?: number;
-  openNodes?: number;
-}
+/** The spawn caps a map root may declare: children per node, and open nodes under the root. */
+export const SPAWN_CAPS = ["childrenPerNode", "openNodes"] as const;
+export type SpawnCap = (typeof SPAWN_CAPS)[number];
+
+/** A map root's caps on spawning, positive integers; an absent cap is not enforced. */
+export type SpawnBudget = Partial<Record<SpawnCap, number>>;
 
 /**
  * A machine-checkable expectation (§2.2). Prose probes are `judged` evidence in
@@ -1135,7 +1136,7 @@ function parseBudget(input: unknown): NodeBudget {
 function parseSpawnBudget(input: unknown): SpawnBudget {
   const record = asRecord(input, "invalid-node", "spawnBudget");
   const spawnBudget: SpawnBudget = {};
-  for (const key of ["childrenPerNode", "openNodes"] as const) {
+  for (const key of SPAWN_CAPS) {
     const value = record[key];
     if (value === undefined || value === null) continue;
     if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {

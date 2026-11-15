@@ -8,7 +8,7 @@ const REPO = { forge: "github", host: "github.com", path: "the-metafactory/soma"
 const MARKER = "<!-- ranger:intake discord=7 -->";
 const LABEL = "ranger:principal-intake";
 
-interface Seed { status?: "open" | "closed"; parent?: string; children?: string[]; node?: Partial<WorkGraphNode>; raw?: string }
+interface Seed { status?: "open" | "closed"; parent?: string; children?: string[]; node?: Partial<WorkGraphNode>; raw?: string; parseError?: string }
 
 function fixture(seeds: Record<string, Seed>, listed: LabeledNode[] = []) {
   const created: CreateNodeSpec[] = [];
@@ -24,7 +24,8 @@ function fixture(seeds: Record<string, Seed>, listed: LabeledNode[] = []) {
       : toNode(id, parseNodeSpec({ ...JSON.parse(raw) as object, title: `node ${id}` }));
     return {
       ref: { id }, node,
-      status: seed.status ?? "open", updatedAt: "2026-11-15T10:00:00Z", assignees: [], blockedBy: [], author: "ivy-bot", typed: true,
+      status: seed.status ?? "open", updatedAt: "2026-11-15T10:00:00Z", assignees: [], blockedBy: [], author: "ivy-bot",
+      ...(seed.parseError === undefined ? { typed: true } : { typed: false, parseError: seed.parseError }),
       ...(seed.parent === undefined ? {} : { parent: { id: seed.parent } }),
     };
   };
@@ -305,4 +306,47 @@ test("edit refuses a spawn budget on a node with a parent, on a block soma did n
   expect(() => parseGraphArgs([...edit, "--spawn-budget", "off"])).toThrow(/takes only none/u);
   expect(() => parseGraphArgs([...edit, "--spawn-budget", "none", "--spawn-open-nodes", "3"])).toThrow(/cannot be combined/u);
   expect(() => parseGraphArgs([...edit, "--spawn-open-nodes", "3", "--title", "t"])).toThrow(/not both/u);
+});
+
+const BROKEN = 'spawnBudget: "openNodes" must be a positive integer';
+const brokenRoot = (): Record<string, Seed> => ({ "1": { children: ["2"], parseError: BROKEN }, "2": { parent: "1" } });
+
+test("a root whose typed block does not parse refuses add, naming the root and the error, and reads no subtree", async () => {
+  const fx = fixture(brokenRoot());
+  expect((await fx.refusal("2")).message).toBe(
+    `soma graph add refused: map root 1 has a typed block that does not parse, so its spawn budget is unknown: ${BROKEN}. Repair the root's typed block, or pass --over-budget "<reason>" to file it anyway; the reason is recorded on the node.`,
+  );
+  expect(JSON.parse((await fx.refusal("2", ["--json"])).message)).toEqual({ refused: true, written: [], budgetError: { root: "1", error: BROKEN } });
+  expect(fx.created).toEqual([]);
+  expect(fx.subtreeReads).toEqual([]);
+});
+
+test("--over-budget files under a root whose budget does not parse and records that it was not checked", async () => {
+  const fx = fixture(brokenRoot());
+  const out = JSON.parse(await fx.add("2", ["--over-budget", "intake", "--json"])) as Record<string, unknown>;
+  const unread = `map root 1 has a typed block that does not parse, so its spawn budget is unknown: ${BROKEN}`;
+  expect(out.overBudget).toEqual({ reason: "intake", budgetUnreadable: unread });
+  expect(fx.created[0]?.body).toBe(`## Over budget\n\nintake\n\nBudget not checked: ${unread}.`);
+});
+
+test("an unreadable ancestor refuses add without --over-budget, and files with it, recording the failed read", async () => {
+  const seeds: Record<string, Seed> = { "2": { parent: "404" } };
+  const fx = fixture(seeds);
+  expect((await fx.refusal("2")).message).toBe("soma graph add refused: cannot read the spawn budget above 2: no such node 404, so nothing is filed.");
+  expect(fx.created).toEqual([]);
+  const out = JSON.parse(await fx.add("2", ["--over-budget", "ranger intake", "--label", LABEL, "--once", MARKER, "--json"])) as Record<string, unknown>;
+  expect(out).toEqual({
+    repo: "the-metafactory/soma", node: "900", parent: "2", blockedBy: [], existing: false,
+    overBudget: { reason: "ranger intake", budgetUnreadable: "cannot read the spawn budget above 2: no such node 404" },
+  });
+  expect(fx.created[0]?.body).toBe(`## Over budget\n\nranger intake\n\nBudget not checked: cannot read the spawn budget above 2: no such node 404.\n\n${MARKER}`);
+});
+
+test("audit reports a root budget that does not parse as broken, not as no cap", async () => {
+  const fx = fixture(brokenRoot());
+  const json = JSON.parse(await fx.run(["graph", "audit", "1", "--repo", REPO.path, "--json"])) as { spawn: unknown };
+  expect(json.spawn).toEqual({ open: 1, closed: 0, spawnRate: null, caps: {}, budgetError: BROKEN });
+  const text = await fx.run(["graph", "audit", "1", "--repo", REPO.path]);
+  expect(text).toContain(`Caps: BROKEN — the root's typed block does not parse, so its spawn budget is unknown: ${BROKEN}`);
+  expect(text).not.toContain("no children cap declared");
 });

@@ -1,14 +1,5 @@
 /** Spawn budget: the caps `soma graph add` enforces and the growth `soma graph audit` reports. */
-import { WorkGraphError, type GraphReadOptions, type NodeRef, type NodeState } from "./work-graph";
-
-export const SPAWN_CAPS = ["childrenPerNode", "openNodes"] as const;
-export type SpawnCap = (typeof SPAWN_CAPS)[number];
-
-/** The caps the map root declares; an absent cap is not enforced. */
-export interface SpawnCaps {
-  childrenPerNode?: number;
-  openNodes?: number;
-}
+import { WorkGraphError, type GraphReadOptions, type NodeRef, type NodeState, type SpawnBudget, type SpawnCap } from "./work-graph";
 
 export interface SpawnExcess {
   cap: SpawnCap;
@@ -21,7 +12,9 @@ export interface SpawnExcess {
 export interface SpawnCheck {
   parent: string;
   root: string;
-  caps: SpawnCaps;
+  caps: SpawnBudget;
+  /** Set when the root's typed block does not parse, so its caps are unknown; nothing else is read. */
+  budgetError?: string;
   children?: number;
   open?: number;
   exceeded: SpawnExcess[];
@@ -32,7 +25,9 @@ export interface SpawnReport {
   closed: number;
   /** Mean direct children per closed non-root node, two decimals; null with no closed node. */
   spawnRate: number | null;
-  caps: SpawnCaps;
+  caps: SpawnBudget;
+  /** Set when the root's typed block does not parse, so its caps are unknown. */
+  budgetError?: string;
   /** Present only when the root declares a children cap. */
   overChildrenCap?: { id: string; title: string; children: number }[];
   /** Present only when the root declares an open cap. */
@@ -46,7 +41,7 @@ interface SpawnReader {
 
 const NO_RECEIPTS: GraphReadOptions = { includeCurrentCloseReceipt: false };
 
-export function spawnCaps(root: NodeState): SpawnCaps {
+export function spawnCaps(root: NodeState): SpawnBudget {
   const declared = root.typed ? root.node.spawnBudget : undefined;
   return {
     ...(declared?.childrenPerNode === undefined ? {} : { childrenPerNode: declared.childrenPerNode }),
@@ -70,6 +65,7 @@ export async function checkSpawnBudget(graph: SpawnReader, parent: NodeRef): Pro
   }
   const caps = spawnCaps(root);
   const base = { parent: parentState.ref.id, root: root.ref.id, caps };
+  if (root.parseError !== undefined) return { ...base, budgetError: root.parseError, exceeded: [] };
   if (caps.childrenPerNode === undefined && caps.openNodes === undefined) return { ...base, exceeded: [] };
   const subtree = await graph.readSubtree(caps.openNodes === undefined ? parentState.ref : root.ref, NO_RECEIPTS);
   const children = subtree.filter((state) => state.parent?.id === parentState.ref.id).length;
@@ -100,6 +96,7 @@ export function spawnReport(root: NodeState, descendants: readonly NodeState[]):
     closed: closed.length,
     spawnRate,
     caps,
+    ...(root.parseError === undefined ? {} : { budgetError: root.parseError }),
     ...(overChildrenCap === undefined ? {} : { overChildrenCap }),
     ...(openNodes === undefined ? {} : { openOverCap: open > openNodes }),
   };
