@@ -33,7 +33,7 @@ export function onceFixture(listed: LabeledNode[] | "unsupported" | "fails" = []
       if (readFails) throw new WorkGraphError("backend", "GitHub said 503");
       return state(ref.id);
     },
-    readSubtree: unsupported,
+    readSubtree: async () => [],
     claim: unsupported,
     release: unsupported,
     postComment: unsupported,

@@ -1,4 +1,5 @@
-import { replaceNodeProse } from "./work-graph-node-block";
+import { compareFrontier, rankSubtree, type FrontierRank } from "./work-graph-frontier-rank";
+import { replaceNodeProse, rewriteSpawnBudget } from "./work-graph-node-block";
 import type { RepoRef } from "./work-graph-ref";
 /**
  * Work graph — typed contracts (`docs/work-graph.md` §2, DD-16, map #495 / #497).
@@ -37,6 +38,13 @@ export interface NodeBudget {
   agentInvocations?: number;
   wallClockMin?: number;
 }
+
+/** The spawn caps a map root may declare: children per node, and open nodes under the root. */
+export const SPAWN_CAPS = ["childrenPerNode", "openNodes"] as const;
+export type SpawnCap = (typeof SPAWN_CAPS)[number];
+
+/** A map root's caps on spawning, positive integers; an absent cap is not enforced. */
+export type SpawnBudget = Partial<Record<SpawnCap, number>>;
 
 /**
  * A machine-checkable expectation (§2.2). Prose probes are `judged` evidence in
@@ -123,6 +131,8 @@ export interface WorkGraphNodeBase {
    */
   checkpointId?: string;
   budget?: NodeBudget;
+  /** Map root only: the caps `soma graph add` enforces below it. */
+  spawnBudget?: SpawnBudget;
 }
 
 /**
@@ -291,8 +301,11 @@ export function unavailableMembership(states: readonly NodeState[]): { source: N
 /** Otherwise-ready subtree members partitioned by the store's write scope. */
 export interface FrontierReport {
   unavailableMembership?: { source: NodeRef; target: NodeRef }[];
+  /** Ordered by {@link compareFrontier}: most open nodes unblocked, then shallowest, then oldest, then id. */
   frontier: NodeState[];
   notWritable: NodeState[];
+  /** Each frontier and skipped node's rank, keyed by id. */
+  ranks: ReadonlyMap<string, FrontierRank>;
 }
 
 /**
@@ -1120,6 +1133,23 @@ function parseBudget(input: unknown): NodeBudget {
   return budget;
 }
 
+function parseSpawnBudget(input: unknown): SpawnBudget {
+  const record = asRecord(input, "invalid-node", "spawnBudget");
+  const spawnBudget: SpawnBudget = {};
+  for (const key of SPAWN_CAPS) {
+    const value = record[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+      throw new WorkGraphError("invalid-node", `spawnBudget: "${key}" must be a positive integer`);
+    }
+    spawnBudget[key] = value;
+  }
+  if (Object.keys(spawnBudget).length === 0) {
+    throw new WorkGraphError("invalid-node", "spawnBudget must declare childrenPerNode or openNodes");
+  }
+  return spawnBudget;
+}
+
 function parseAutonomy(value: unknown): WorkGraphAutonomy {
   if (value === "auto" || value === "propose" || value === "approve") return value;
   throw new WorkGraphError("invalid-node", `"autonomy" must be one of auto | propose | approve`);
@@ -1183,6 +1213,7 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
       ? (() => { throw new WorkGraphError("invalid-node", "node spec: storeData requires a store-declared creation capability"); })()
       : parseCreateData(record.storeData);
   const budget = record.budget === undefined || record.budget === null ? undefined : parseBudget(record.budget);
+  const spawnBudget = record.spawnBudget === undefined || record.spawnBudget === null ? undefined : parseSpawnBudget(record.spawnBudget);
   const body = optionalString(record, "body", "invalid-node", "node spec");
   const parentId = record.parent === undefined || record.parent === null
     ? undefined
@@ -1193,6 +1224,9 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
   }
   if (serves !== undefined && parentId !== undefined) {
     throw new WorkGraphError("invalid-node", "serves belongs on the root only (D10)");
+  }
+  if (spawnBudget !== undefined && parentId !== undefined) {
+    throw new WorkGraphError("invalid-node", "spawnBudget belongs on the map root only");
   }
   const probes = parseProbes(record.probes);
   const labels = parseLabels(record.labels);
@@ -1219,6 +1253,7 @@ export function parseNodeSpec<TStoreData extends StoreCreationData = StoreCreati
     ...(checkpointId === undefined ? {} : { checkpointId }),
     ...(storeData === undefined ? {} : { storeData }),
     ...(budget === undefined ? {} : { budget }),
+    ...(spawnBudget === undefined ? {} : { spawnBudget }),
     ...(body === undefined ? {} : { body }),
     ...(parentId === undefined ? {} : { parent: { id: parentId } }),
     ...(labels.length === 0 ? {} : { labels }),
@@ -1718,6 +1753,28 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
     return this.store.readNode(ref);
   }
 
+  /**
+   * Set, change or clear a map root's `spawnBudget` (null clears). Caps given
+   * replace the root's caps of the same name; the others are kept. Only the
+   * typed block's `spawnBudget` changes, through the same write as an edit.
+   */
+  async setSpawnBudget(ref: NodeRef, change: SpawnBudget | null): Promise<NodeState> {
+    const state = await this.store.readNode(ref);
+    if (state.parent !== undefined) throw new WorkGraphError("invalid-node", `node ${ref.id} sits under ${state.parent.id}; spawnBudget belongs on the map root only`);
+    if (!state.typed || state.parseError !== undefined) throw new WorkGraphError("invalid-node", `node ${ref.id} has no readable typed block to hold a spawn budget`);
+    if (state.writable === false) throw new WorkGraphError("invalid-node", "node is not writable by this store");
+    if (!this.store.editContent) throw new WorkGraphError("backend", "store does not support content edits");
+    const next = change === null ? undefined : parseSpawnBudget({ ...state.node.spawnBudget, ...change });
+    let body: string;
+    try {
+      body = rewriteSpawnBudget(await this.store.readRawBody(ref), next);
+    } catch (error) {
+      throw new WorkGraphError("invalid-node", `cannot set the spawn budget on ${ref.id}: ${errorText(error)}`);
+    }
+    await this.store.editContent(ref, { body });
+    return this.store.readNode(ref);
+  }
+
   /** Backend capability, not a receipt verdict (§2.5). */
   get attestation(): AttestationCapability {
     return this.store.attestation;
@@ -1932,7 +1989,11 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
       if (state.blockedBy.some((blocker) => !blockerCleared(blocker))) continue;
       (state.writable === false ? notWritable : frontier).push(state);
     }
-    return { frontier, notWritable, ...(subtree.some((state) => state.unavailableChildren !== undefined) ? { unavailableMembership: unavailableMembership(subtree) } : {}) };
+    const ranks = rankSubtree(root, subtree);
+    const order = compareFrontier(ranks);
+    frontier.sort(order);
+    notWritable.sort(order);
+    return { frontier, notWritable, ranks, ...(subtree.some((state) => state.unavailableChildren !== undefined) ? { unavailableMembership: unavailableMembership(subtree) } : {}) };
   }
 
   /**

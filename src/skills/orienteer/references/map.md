@@ -198,6 +198,14 @@ Also on a node: `checkpointId` (required before close — see
 (`tokens` / `agentInvocations` / `wallClockMin`) read as a deterministic circuit
 breaker at claim and execution time.
 
+A map root may also carry `spawnBudget` (`childrenPerNode` / `openNodes`,
+positive integers), set with `--spawn-children-per-node <n> --spawn-open-nodes
+<n>` on `soma graph chart`, or later on `soma graph edit <root>`
+(`--spawn-budget none` clears it). Only a declared cap is enforced: `graph add`
+refuses a node under a parent that already has `childrenPerNode` children, or
+when the map already has `openNodes` open nodes, unless `--over-budget
+"<reason>"` records why.
+
 ## The five work kinds
 
 Every node is either **HITL** — human in the loop, worked *with* a human who
