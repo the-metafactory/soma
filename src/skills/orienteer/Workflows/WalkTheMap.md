@@ -98,7 +98,10 @@ resolution — do not pass both.
 
 ## 5. Advance the frontier
 
-- **Add newly-surfaced nodes**, wiring their blockers. On a map whose Notes allow Build nodes, build work a decision made specifiable is filed **unclaimed** unless this session builds it now. A claimed node is invisible to an autonomous walker (`references/walker.md`). Write each build node's body from `references/build-brief.md`, and split it there if it holds more than one slice; a choice the decision left open is a grilling node the build is blocked by, not part of the brief.
+- **Run the necessity test first** (`references/fog.md`): a surfaced item the
+  destination's test does not need is one line under **Out of scope**, not a
+  node. Most of what a resolution turns up lands there.
+- **Add newly-surfaced nodes** that pass it, wiring their blockers. On a map whose Notes allow Build nodes, build work a decision made specifiable is filed **unclaimed** unless this session builds it now. A claimed node is invisible to an autonomous walker (`references/walker.md`). Write each build node's body from `references/build-brief.md`, and split it there if it holds more than one slice; a choice the decision left open takes a `Default:` in the brief, unless it is irreversible, a security or matching boundary, or a contract across repositories, which is a grilling node the build is blocked by (`references/build-brief.md`).
 - **Graduate any fog** the answer made specifiable, clearing each graduated
   patch from **Not yet specified** so it lives only as its new node.
 - **Rule out of scope** anything the answer revealed to sit past the

@@ -78,6 +78,7 @@ A bare `owner/name` takes the remote's host, and refuses outside a checkout.
   work is usually the signal you've reached the edge of the map and it's time to
   hand off. Map **Notes** can override this (how a walked map allows **Build**
   nodes, `references/walker.md`); absent that, produce decisions, not deliverables.
+- **File only what the destination needs.** Before any `add`, ask whether the destination's test fails without it; if not, it is one line under **Out of scope**, no node. In scope is not the bar; necessary is (`references/fog.md`).
 - **One node per session** — research nodes excepted.
 - **Claim first**, before any work, so concurrent sessions skip it.
 - **Refer by name.** In everything the human reads, name a map or node by its
@@ -111,10 +112,6 @@ Load only what the task routes to.
 
 ## Lineage
 
-Forked from Matt Pocock's `wayfinder` skill and re-based onto the `soma graph`
-verbs. Upstream is a **manual cherry-pick** relationship: improvements are
-ported by hand through a reviewed PR, never by re-syncing. Two copies with
-diverging conventions would be the two-authoritative-homes problem this doctrine
-exists to prevent.
+Forked from Matt Pocock's `wayfinder` skill and re-based onto the `soma graph` verbs. Upstream is a **manual cherry-pick** relationship: improvements are ported by hand through a reviewed PR, never by re-syncing. Two copies with diverging conventions would be the two-authoritative-homes problem this doctrine exists to prevent.
 
 Doctrine record: DD-16 and its Amendment A in `design/design-decisions.md`; the typed contracts in `docs/work-graph.md`.

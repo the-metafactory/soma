@@ -16,11 +16,21 @@ rounds, but that is not a brief problem and is not addressed here.
 
 A build node is filed below a closed decision, because the decision made it
 specifiable (`references/fog.md`). If writing the brief surfaces a choice the
-decision did not settle, the node is not ready:
+decision did not settle, **you settle it in the brief**: pick the simplest
+reversible option and write it under **Assumptions** as
+`Default: <choice>, because <one line>`. The worker builds it, the PR body and
+close receipt list it, and the principal overturns it on the PR if it is wrong.
+Taste counts as reversible: wording, layout and feel take a default and merge
+normally.
 
-- file the choice as a `grilling` node below the decision, and the build node
-  `--blocked-by` it, or
-- leave the build in **Not yet specified** until the choice closes.
+Only three kinds of choice are not yours to default. Each becomes a `grilling`
+node below the decision, and the build node `--blocked-by` it:
+
+- **irreversible**: deletion, a data migration, published content, money spent;
+- **a security or matching boundary**: what is allowed, matched or trusted;
+- **a contract across repositories**: an API another repository consumes.
+
+When you cannot tell whether a choice is one of these, treat it as one.
 
 Never hand the choice to the worker. A brief with a section headed "Shape (to
 settle in the build)" let the worker on ranger#82 hand-roll a config-include
@@ -92,14 +102,17 @@ the test suite>
   named seam is where the tests drive them; an untested failure path is what
   reviewers flag round after round (seelite#687: "seed 0 only", "printed, not
   asserted").
-- **Assumptions** are stop triggers, not a risk register. List only the ones
-  whose failure would change the deliverable; `- none` is a real answer.
+- **Assumptions** are stop triggers and defaults, not a risk register. List
+  only the ones whose failure would change the deliverable, and each
+  `Default:` the brief chose; `- none` is a real answer.
 - **A skill the worker needs** is named by path under **Touches**. A walker's
   session may list only some skills, and a worker cannot find one it is not told
   about: "Read `~/.soma/skills/writer/SKILL.md` and follow it."
 - **Out of scope** binds the review too. A finding that asks for *more* than the
-  acceptance criteria (a further feature, an adjacent improvement) becomes a
-  follow-up node below this one, not another commit on the PR. seelite#561
+  acceptance criteria (a further feature, an adjacent improvement) is neither
+  another commit on the PR nor, by default, a new node: it goes through the
+  necessity test (`references/fog.md`) and usually lands as one line under the
+  map's **Out of scope**. seelite#561
   added five features after its seventh round and needed three more. A defect
   the PR itself introduces is not new scope: a regression, a security hole or a
   broken invariant in the changed code is fixed on the PR, whether or not the

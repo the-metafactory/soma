@@ -223,7 +223,11 @@ runtime holds you to it: HITL work belongs on `propose` or `approve`, never
   UI/logic code via the `/prototype` skill. Links the prototype as an asset. Use
   when "how should it look" or "how should it behave" is the key question.
 - **Grilling** (HITL): Conversation via the `/grilling` and `/domain-modeling`
-  skills, one question at a time. The default case.
+  skills, one question at a time. The default case. Its resolution lists
+  **Defaults taken** for the sub-questions it did not put to the principal;
+  only a sub-question that is irreversible, a security or matching boundary,
+  or a contract across repositories becomes a child grilling
+  (`references/build-brief.md`).
 - **Task** (HITL or AFK): Manual work that must happen before a *decision* can
   be made — nothing to decide, prototype, or research, but the discussion is
   blocked until it's done. Signing up for a service so its API can be judged,
