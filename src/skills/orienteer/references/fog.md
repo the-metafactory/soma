@@ -11,8 +11,8 @@ the destination is clear and no nodes remain.
 
 The map's **Not yet specified** section is where that dim view is written down:
 the suspected question, the area to revisit later. It's the undiscovered
-frontier _toward_ the destination — everything there is in scope, just not sharp
-enough to chart. Write as loosely or as fully as the view allows; it doubles as
+frontier _toward_ the destination — everything there is needed to pass the
+destination's test, just not sharp enough to chart. Write as loosely or as fully as the view allows; it doubles as
 a signpost for collaborators reading where the effort is headed.
 
 ### Fog or node?
@@ -54,6 +54,21 @@ so work beyond it is **out of scope** — it isn't fog, and it doesn't belong in
 you've consciously ruled out of _this_ effort. Scope, not sharpness, lands it
 there.
 
+### The necessity test
+
+Ask of every candidate node, fog patch and follow-up: **does the destination's
+test fail without it?** Being on topic is not enough. A polish pass, a second
+prototype of something that already works, an edge case nobody on the route
+will hit, a reviewer's suggestion, a "while we're here": each one is plausibly
+in scope and none is necessary. Each goes under **Out of scope** as one line,
+not a node. When the test is unclear, it is out: a necessary step comes back
+on its own, as a failing check on the route.
+
+A map without this test grows by about one node per node it closes. Across
+three maps measured on 2026-11-15, each closed node spawned 0.83 to 1.03
+children, and the largest map's open count rose from 30 to 112 in ten weeks
+while about 400 nodes closed.
+
 Out-of-scope work never graduates — the frontier stops at the destination — so
 it returns only if the destination is redrawn, and then as a fresh effort, not a
 resumption.
@@ -89,4 +104,5 @@ invisible exactly when its spawning node closed and it became takeable.
 So there is no burying a question. Work you do not want taken is either **past
 the destination** — close it, one line under Out of scope — or **waiting on
 something**, which is a blocking edge. If it is neither, and nobody has claimed
-it, the frontier is right to offer it.
+it, the frontier is right to offer it. That is why the necessity test runs
+before the `add`, not after: once filed, scaffold is work someone will take.

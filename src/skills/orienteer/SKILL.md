@@ -78,6 +78,11 @@ A bare `owner/name` takes the remote's host, and refuses outside a checkout.
   work is usually the signal you've reached the edge of the map and it's time to
   hand off. Map **Notes** can override this (how a walked map allows **Build**
   nodes, `references/walker.md`); absent that, produce decisions, not deliverables.
+- **File only what the destination needs.** Before any `add`, ask: does the
+  destination's test fail without this? If not, it is past the destination:
+  one line under **Out of scope**, no node. In scope is not the bar; necessary
+  is. Maps that filed everything in scope spawned about one node per node
+  closed and never converged (`references/fog.md`).
 - **One node per session** — research nodes excepted.
 - **Claim first**, before any work, so concurrent sessions skip it.
 - **Refer by name.** In everything the human reads, name a map or node by its

@@ -98,8 +98,10 @@ the test suite>
   session may list only some skills, and a worker cannot find one it is not told
   about: "Read `~/.soma/skills/writer/SKILL.md` and follow it."
 - **Out of scope** binds the review too. A finding that asks for *more* than the
-  acceptance criteria (a further feature, an adjacent improvement) becomes a
-  follow-up node below this one, not another commit on the PR. seelite#561
+  acceptance criteria (a further feature, an adjacent improvement) is neither
+  another commit on the PR nor, by default, a new node: it goes through the
+  necessity test (`references/fog.md`) and usually lands as one line under the
+  map's **Out of scope**. seelite#561
   added five features after its seventh round and needed three more. A defect
   the PR itself introduces is not new scope: a regression, a security hole or a
   broken invariant in the changed code is fixed on the PR, whether or not the

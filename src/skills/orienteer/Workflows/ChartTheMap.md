@@ -9,8 +9,14 @@ Run a `/grilling` and `/domain-modeling` session to pin down what this map is
 finding its way to — the spec, decision, or change. One or two lines that a
 later session can orient to before choosing a node.
 
-The destination fixes the scope, so it is settled first: everything past it is
-out of scope, and everything short of it is either charted or fog.
+Write it as a **test someone can run**: who does what, and what they observe.
+"A newcomer installs it with one installer and works on real data without help"
+is a destination. "Every load-bearing decision is resolved" is not: no one can
+check it, so nothing ever falls outside it and the map never closes. When the
+test passes, the map closes; what is left becomes a new map.
+
+The destination fixes the scope, so it is settled first: everything the test
+does not need is out of scope, and everything it needs is either charted or fog.
 
 Then ask what is **fixed regardless of route** — budget, time, tooling that
 cannot change, things that must not break, capabilities not available. This pass
