@@ -1055,8 +1055,8 @@ test("the frontier is one backend call over the whole subtree", async () => {
   const graph = new WorkGraph(createGitHubGraphStore({ repo: REPO, transport }));
   const frontier = await graph.frontier({ id: "495" });
 
-  // 561 withheld as claimed, 562 as blocked, 501/510 as closed.
-  expect(ids(frontier)).toEqual(["527", "556", "560"]);
+  // 561 withheld as claimed, 562 as blocked, 501/510 as closed; 560 first because it blocks 562.
+  expect(ids(frontier)).toEqual(["560", "527", "556"]);
   expect(keys).toEqual(["495"]);
 });
 

@@ -56,7 +56,7 @@ reflect each forge's capabilities.
 
 | Verb | What it does |
 | --- | --- |
-| `soma graph frontier <root>` | open ∧ unassigned ∧ unblocked, confirmed by direct fetch |
+| `soma graph frontier <root>` | open ∧ unassigned ∧ unblocked, confirmed by direct fetch; ordered by how many open map nodes each one unblocks, then shallowest, then oldest |
 | `soma graph node <id>` / `soma graph list [--root <id>] [--state open\|closed\|all] [--limit <n>] [--cursor <opaque>]` | read one node, body included — never `gh issue view`; `list` pages a repository or a root's subtree read-only, `next` continuing where the page stopped and null only at the end |
 | `soma graph claim <id>` | assign, re-read, tie-break on race; refuses a closed node or one with an open blocker |
 | `soma graph release <id>` | identity-bound self-release: abandon your own claim (the claim-race loser's DELETE-self, promoted to a verb); only ever unassigns the acting identity |

@@ -9,6 +9,7 @@ export { CLOSE_DEADLINE_SEC, PROBE_ESCAPED_PREFIX, allProbesPassed, authorizePro
 export { PROBE_REFUSED_PREFIX, PROBE_REGISTRY_RELATIVE_PATH, PROBE_REGISTRY_VERSION, authorizeProbe, describeDeclaredCommand, isProbeRefusal, listProbeRegistryEntries, loadProbeRegistry, parseProbeRegistry, probeRegistryPath, type DeclaredCommand, type LoadProbeRegistryOptions, type ParseProbeRegistryInput, type ProbeAuthorization, type ProbeRegistry, type ProbeRegistryEntries, type ProbeRegistryHomeOptions, type RegistryCommandEntry } from "./work-graph-probe-registry";
 export { deriveAttestation, findGraphRoot, type AttestationInputs, type AttestationOutcome, type ConfinementDeps } from "./work-graph-attestation";
 export { buildBriefMissing } from "./build-brief";
+export { compareFrontier, rankSubtree, type FrontierRank } from "./work-graph-frontier-rank";
 export { SPAWN_CAPS, checkSpawnBudget, spawnCaps, spawnReport, type SpawnCap, type SpawnCaps, type SpawnCheck, type SpawnExcess, type SpawnReport } from "./work-graph-spawn";
 export { declaresFullSuiteProbe, isFullSuiteCommand } from "./full-suite-probe";
 export { ProposalFileError, hasProposalMarker, parseProposal, proposalFrontMatterSchema, proposalMarker, proposalNodeSpec, readProposalFile, type ProposalFile, type ProposalFrontMatter } from "./proposal-file";

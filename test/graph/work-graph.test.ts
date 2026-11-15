@@ -618,7 +618,7 @@ test("the frontier is open, unassigned and unblocked — each candidate confirme
 
   const frontier = await new WorkGraph(store).frontier({ id: "map" });
   expect(frontier.map((state) => state.ref.id)).toEqual(["open-unassigned", "released"]);
-  expect(await new WorkGraph(store).frontierReport({ id: "map" })).toEqual({ frontier, notWritable: [] });
+  expect(await new WorkGraph(store).frontierReport({ id: "map" })).toEqual({ frontier, notWritable: [], ranks: expect.any(Map) });
 });
 
 test("a stale candidate list cannot put a closed or claimed node on the frontier", async () => {
@@ -646,7 +646,7 @@ test("frontierReport separates ready unwritable members from writable members", 
 
   const graph = new WorkGraph(store);
   const report = await graph.frontierReport({ id: "map" });
-  expect(report.frontier.map((state) => state.ref.id)).toEqual(["local", "explicit-writable"]);
+  expect(report.frontier.map((state) => state.ref.id)).toEqual(["explicit-writable", "local"]);
   expect(report.notWritable.map((state) => state.ref.id)).toEqual(["sibling/repo#1", "sibling/repo#2"]);
   expect(await graph.frontier({ id: "map" })).toEqual(report.frontier);
 });

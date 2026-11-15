@@ -92,6 +92,7 @@ import {
   checkSpawnBudget,
   spawnReport,
   type SpawnBudget,
+  type FrontierRank,
   type SpawnExcess,
   type SpawnReport,
   GITHUB_DOTCOM,
@@ -1246,19 +1247,28 @@ function frontierFooter(confirmed: NodeState[], notWritable: NodeState[]): strin
   return `${confirmed.length} writable node(s) open, unassigned, and unblocked (${notWritable.length} skipped).`;
 }
 
+function withRank(rank: FrontierRank | undefined): { rank?: FrontierRank } {
+  return rank === undefined ? {} : { rank: { unblocks: rank.unblocks, depth: rank.depth } };
+}
+
+function rankReason(rank: FrontierRank | undefined): string {
+  return rank === undefined ? "" : ` — unblocks ${rank.unblocks} · depth ${rank.depth}`;
+}
+
 async function runFrontier(parsed: ParsedGraphFrontierArgs, graph: WorkGraph, repo: string): Promise<string> {
-  const { frontier: confirmed, notWritable, unavailableMembership: omitted = [] } = await graph.frontierReport({ id: parsed.target });
+  const { frontier: confirmed, notWritable, ranks, unavailableMembership: omitted = [] } = await graph.frontierReport({ id: parsed.target });
   const rootState = parsed.options.readScope === undefined ? undefined : await graph.readNode({ id: parsed.target });
 
   const unavailable = [...unavailableMembership(rootState === undefined ? [] : [rootState]), ...omitted];
   if (parsed.options.json === true) {
-    return JSON.stringify({ repo, root: parsed.target, frontier: confirmed, notWritable, ...(rootState === undefined ? {} : { unavailableChildren: rootState.unavailableChildren, unavailableMembership: unavailable }) }, null, 2);
+    const ranked = confirmed.map((state) => ({ ...state, ...withRank(ranks.get(state.ref.id)) }));
+    return JSON.stringify({ repo, root: parsed.target, frontier: ranked, notWritable, ...(rootState === undefined ? {} : { unavailableChildren: rootState.unavailableChildren, unavailableMembership: unavailable }) }, null, 2);
   }
 
   return [
     `Work graph frontier — root ${parsed.target} (${repo})`,
     "",
-    ...(confirmed.length > 0 ? confirmed.map((state) => nodeSummary(state)) : ["- none"]),
+    ...(confirmed.length > 0 ? confirmed.map((state) => `${nodeSummary(state)}${rankReason(ranks.get(state.ref.id))}`) : ["- none"]),
     ...skippedSection(notWritable),
     ...renderUnavailableMembership(unavailable),
     "",

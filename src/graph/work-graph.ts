@@ -1,3 +1,4 @@
+import { compareFrontier, rankSubtree, type FrontierRank } from "./work-graph-frontier-rank";
 import { replaceNodeProse, rewriteSpawnBudget } from "./work-graph-node-block";
 import type { RepoRef } from "./work-graph-ref";
 /**
@@ -299,8 +300,11 @@ export function unavailableMembership(states: readonly NodeState[]): { source: N
 /** Otherwise-ready subtree members partitioned by the store's write scope. */
 export interface FrontierReport {
   unavailableMembership?: { source: NodeRef; target: NodeRef }[];
+  /** Ordered by {@link compareFrontier}: most open nodes unblocked, then shallowest, then oldest, then id. */
   frontier: NodeState[];
   notWritable: NodeState[];
+  /** Each frontier and skipped node's rank, keyed by id. */
+  ranks: ReadonlyMap<string, FrontierRank>;
 }
 
 /**
@@ -1984,7 +1988,11 @@ export class WorkGraph<TStoreData extends StoreCreationData = StoreCreationData>
       if (state.blockedBy.some((blocker) => !blockerCleared(blocker))) continue;
       (state.writable === false ? notWritable : frontier).push(state);
     }
-    return { frontier, notWritable, ...(subtree.some((state) => state.unavailableChildren !== undefined) ? { unavailableMembership: unavailableMembership(subtree) } : {}) };
+    const ranks = rankSubtree(root, subtree);
+    const order = compareFrontier(ranks);
+    frontier.sort(order);
+    notWritable.sort(order);
+    return { frontier, notWritable, ranks, ...(subtree.some((state) => state.unavailableChildren !== undefined) ? { unavailableMembership: unavailableMembership(subtree) } : {}) };
   }
 
   /**

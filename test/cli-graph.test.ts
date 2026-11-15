@@ -410,7 +410,7 @@ test("frontier reports open, unassigned, unblocked children and says it is advis
   expect(output).toBe([
     `Work graph frontier — root 495 (${REPO})`,
     "",
-    "- 498 node 498 [auto, no kind, typed]",
+    "- 498 node 498 [auto, no kind, typed] — unblocks 1 · depth 1",
     "",
     "1 node(s) open, unassigned, and unblocked.",
     "Advisory (§2.4): the frontier can read short when membership edges are missing or the tracker index lags.",
