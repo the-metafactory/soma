@@ -361,7 +361,7 @@ function readShared(options: GraphSharedOptions, args: string[], index: number, 
 const SPAWN_CAP_FLAGS: Readonly<Record<string, SpawnCap>> = { "--spawn-children-per-node": "childrenPerNode", "--spawn-open-nodes": "openNodes" };
 
 function readSpawnCapFlag(args: string[], index: number, arg: string): SpawnBudget | undefined {
-  const cap = SPAWN_CAP_FLAGS[arg] as SpawnCap | undefined;
+  const cap = Object.hasOwn(SPAWN_CAP_FLAGS, arg) ? SPAWN_CAP_FLAGS[arg] : undefined;
   return cap === undefined ? undefined : { [cap]: readPositiveInteger(args, index, arg) };
 }
 
