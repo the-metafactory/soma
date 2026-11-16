@@ -13,8 +13,9 @@ import {
   type EffortTier,
   type VsaListEntry,
 } from "../vsa/index";
+import { checkProjectVsa } from "../vsa/vsa-project";
 import { installVsaSkill } from "../substrates/index";
-import { datePrefixSlug } from "../core/index";
+import { datePrefixSlug, isEnoent } from "../core/index";
 
 /**
  * `soma vsa <action>` CLI surface (#36). Thin shell over the library
@@ -130,7 +131,7 @@ export const VSA_SUBCOMMAND_HELP: Record<string, string> = {
   use: "Usage: soma vsa use <slug> [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
   scaffold:
     "Usage: soma vsa scaffold --slug <name> --effort <E1|E2|E3|E4|E5> --goal <text> [--force] [--dry-run]",
-  check: "Usage: soma vsa check <slug> [--home-dir <dir>] [--soma-home <dir>]",
+  check: "Usage: soma vsa check <slug> [--home-dir <dir>] [--soma-home <dir>] | soma vsa check --project <repo-dir|VSA.md>",
   archive: "Usage: soma vsa archive <slug> [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
   skill: "Usage: soma vsa skill upgrade [--dry-run] [--home-dir <dir>] [--soma-home <dir>]",
 };
@@ -261,6 +262,7 @@ async function runScaffold(args: string[]): Promise<VsaCliResult> {
 }
 
 async function runCheck(args: string[]): Promise<VsaCliResult> {
+  if (args[0] === "--project") return runCheckProject(args[1]);
   const result = parseSlugAction(args, "check");
   if ("exitCode" in result) return result;
   const { slug, parsed } = result;
@@ -278,6 +280,24 @@ async function runCheck(args: string[]): Promise<VsaCliResult> {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { exitCode: 1, text: `VSA not found: '${slug}'\n` };
     }
+    throw error;
+  }
+}
+
+async function runCheckProject(target: string | undefined): Promise<VsaCliResult> {
+  if (target === undefined || target.startsWith("--")) return { exitCode: 1, text: `${VSA_SUBCOMMAND_HELP.check}\n` };
+  const info = await stat(target).catch((error: unknown) => {
+    if (isEnoent(error)) return null;
+    throw error;
+  });
+  const path = info?.isDirectory() === true ? join(target, "VSA.md") : target;
+  try {
+    const report = await checkProjectVsa(path);
+    if (report.passed) return { exitCode: 0, text: `${path}: passed project completeness check at ${report.tier}.\n` };
+    const gapLines = report.gaps.map((g) => `  - ${g.section}: ${g.reason}`).join("\n");
+    return { exitCode: 1, text: `${path}: incomplete project VSA at ${report.tier}.\n\nGaps:\n${gapLines}\n` };
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return { exitCode: 1, text: `VSA not found: '${path}'\n` };
     throw error;
   }
 }

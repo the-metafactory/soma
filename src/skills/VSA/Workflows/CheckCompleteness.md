@@ -80,7 +80,7 @@ Load `isa_path`. Parse frontmatter and section headers.
 | E4 | All twelve sections |
 | E5 | All twelve sections + Interview workflow ran before BUILD |
 
-Project VSA (`<project>/VSA.md`) — bump tier to max(declared-tier, E3).
+Project VSA (`<project>/VSA.md`) — bump tier to max(declared-tier, E3), and require Vision Levels 1–3 (see `references/format.md`). `soma vsa check --project <repo-dir|VSA.md>` runs this deterministically; prefer it over a by-hand read.
 
 ### Step 4 — Classify each required section
 
@@ -126,6 +126,7 @@ When invoked from VERIFY-phase doctrine, hard gaps block the `phase: complete` t
 | Principles missing | — | — | — | hard | hard |
 | Decisions missing | — | — | — | hard | hard |
 | Changelog missing | — | — | — | hard | hard |
+| Vision Level 1, 2 or 3 missing (project VSA) | hard | hard | hard | hard | hard |
 | Interview not run pre-BUILD | — | — | — | — | hard |
 | Anti-criteria count = 0 | hard | hard | hard | hard | hard |
 | Antecedent missing (experiential) | hard | hard | hard | hard | hard |
