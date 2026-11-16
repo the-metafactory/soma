@@ -89,3 +89,13 @@ test("a repo without VSA.md is reported as not found", async () => {
     await rm(repo, { recursive: true, force: true });
   }
 });
+
+test("a CRLF file keeps its declared tier, so an E4 VSA missing E4 sections still fails", async () => {
+  const e4 = projectVsa(THREE_LEVELS, "E4").replaceAll("\n", "\r\n");
+  await inRepo(e4, async (repo) => {
+    const run = await runVsaCli(["check", "--project", repo]);
+    expect(run.exitCode).toBe(1);
+    expect(run.text).toContain("at E4");
+    expect(run.text).toContain("Principles: missing");
+  });
+});

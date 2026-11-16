@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { AlgorithmEffortTier } from "../core/types";
+import { ALGORITHM_EFFORT_TIERS } from "../core/types";
 import { getSection, SECTION_NAME_MAP } from "./vsa-accessors";
 import { parseVsa } from "./vsa-parse";
 import { evaluateCompleteness, type CompletenessReport } from "./vsa-schema";
@@ -17,8 +17,6 @@ export function visionLevels(content: string): Set<VisionLevel> {
   return found;
 }
 
-const TIER_ORDER: readonly AlgorithmEffortTier[] = ["E1", "E2", "E3", "E4", "E5"];
-
 /**
  * A product's root `VSA.md` needs at least E3 structure and a Vision that
  * states Level 1 (life outcome), Level 2 (system behavior) and Level 3
@@ -26,7 +24,7 @@ const TIER_ORDER: readonly AlgorithmEffortTier[] = ["E1", "E2", "E3", "E4", "E5"
  */
 export function evaluateProjectCompleteness(isa: VerificationStateArtifact): CompletenessReport {
   const own = isa.frontmatter.effort;
-  const tier = TIER_ORDER.indexOf(own) >= TIER_ORDER.indexOf("E3") ? own : "E3";
+  const tier = ALGORITHM_EFFORT_TIERS.indexOf(own) >= ALGORITHM_EFFORT_TIERS.indexOf("E3") ? own : "E3";
   const report = evaluateCompleteness(isa, tier);
   const vision = getSection(isa, SECTION_NAME_MAP.vision);
   if (vision !== null && vision.content.trim().length > 0) {
@@ -40,5 +38,6 @@ export function evaluateProjectCompleteness(isa: VerificationStateArtifact): Com
 
 /** Checks a product's root `VSA.md` by path, under the rules of `evaluateProjectCompleteness`. */
 export async function checkProjectVsa(path: string): Promise<CompletenessReport> {
-  return evaluateProjectCompleteness(parseVsa(await readFile(path, "utf8"), path));
+  const markdown = (await readFile(path, "utf8")).replaceAll("\r\n", "\n");
+  return evaluateProjectCompleteness(parseVsa(markdown, path));
 }
