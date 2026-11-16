@@ -73,8 +73,21 @@ derived from those guardrails so they become probe-able.
 | E4 | All twelve sections |
 | E5 | All twelve sections plus an active Interview workflow run before BUILD |
 
-Project VSA override: any `<project>/VSA.md` requires E3+ structure regardless
-of the active task tier.
+Project VSA override: a product's root `<project>/VSA.md` requires E3+ structure
+regardless of its own effort tier, and its `## Vision` states three levels, each
+on a line or subheading that opens with `Level N`:
+
+```markdown
+## Vision
+
+- **Level 1 — Life outcome.** What changes in the principal's life when this product works.
+- **Level 2 — System behavior.** What the product reliably does, observed from outside.
+- **Level 3 — Mechanism.** The parts that make Level 2 true.
+```
+
+The principal confirms Levels 1 and 2; Level 3 is the builders' to change.
+`soma vsa check --project <repo-dir|VSA.md>` enforces both rules and names
+each missing section or level.
 
 `CheckCompleteness` enforces this gate. A miss blocks `phase: complete` until
 the missing sections are filled in.

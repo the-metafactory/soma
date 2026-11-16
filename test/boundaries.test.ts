@@ -203,7 +203,7 @@ describe("component boundaries on the repository", () => {
     await withRepoFixture("soma-boundaries-migrate-entry-", async (root) => {
       const importer = join(root, "src/cli/migrate-entry-fixture.ts");
       const internals = (await readdir(join(root, "src/migrate")))
-        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts" && name !== "vsa-project.ts");
       expect(internals.length).toBeGreaterThan(0);
       await writeFile(importer, internals.map((name) => `import "../migrate/${name.slice(0, -3)}";\n`).join(""));
       const internal = checkBoundaries({ root, updateBaseline: true });
@@ -229,7 +229,7 @@ describe("component boundaries on the repository", () => {
     await withRepoFixture("soma-boundaries-flows-entry-", async (root) => {
       const importer = join(root, "src/cli/flows-entry-fixture.ts");
       const internals = (await readdir(join(root, "src/flows"), { recursive: true }))
-        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts" && name !== "vsa-project.ts");
       expect(internals).toContain("goal-kinds/registry.ts");
       await writeFile(importer, internals.map((name) => `import "../flows/${name.slice(0, -3)}";\n`).join(""));
       const internal = checkBoundaries({ root, updateBaseline: true });
@@ -485,12 +485,12 @@ describe("component boundaries on the repository", () => {
     });
   }, { timeout: 30_000 });
 
-  test("another component may import vsa's runtime and types entries, but no vsa internal", async () => {
-    expect(components.vsa.publicEntries).toEqual(["src/vsa/index.ts", "src/vsa/types.ts"]);
+  test("another component may import vsa's runtime, types and project-check entries, but no vsa internal", async () => {
+    expect(components.vsa.publicEntries).toEqual(["src/vsa/index.ts", "src/vsa/types.ts", "src/vsa/vsa-project.ts"]);
     await withRepoFixture("soma-boundaries-vsa-", async (root) => {
       const importer = join(root, "src/cli/vsa-entry-fixture.ts");
       const internals = (await readdir(join(root, "src/vsa")))
-        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts" && name !== "vsa-project.ts");
       expect(internals.length).toBeGreaterThan(0);
       await writeFile(importer, internals.map((name) => `import "../vsa/${name.slice(0, -3)}";\n`).join(""));
       const internal = checkBoundaries({ root, updateBaseline: true });
@@ -523,7 +523,7 @@ describe("component boundaries on the repository", () => {
     await withRepoFixture("soma-boundaries-memory-", async (root) => {
       const importer = join(root, "src/cli/memory-entry-fixture.ts");
       const internals = (await readdir(join(root, "src/memory")))
-        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts");
+        .filter((name) => name.endsWith(".ts") && name !== "index.ts" && name !== "types.ts" && name !== "vsa-project.ts");
       expect(internals.length).toBeGreaterThan(0);
       await writeFile(importer, internals.map((name) => `import "../memory/${name.slice(0, -3)}";\n`).join(""));
       const internal = checkBoundaries({ root, updateBaseline: true });
