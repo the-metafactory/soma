@@ -6,7 +6,7 @@ learning, and adapter contracts.
 
 ## How To Work In This Repo
 
-- Treat `ISA.md` as the current source of truth for scope, criteria, decisions,
+- Treat `VSA.md` as the current source of truth for scope, criteria, decisions,
   and verification.
 - Read `README.md`, `docs/architecture.md`, and
   `docs/substrate-adapters.md` before changing architecture.
@@ -102,7 +102,7 @@ Five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-fo
 
 ### Design Decisions
 
-Single-context repo. Design Decisions follow the **metafactory DD format** (numbered DD-N) at `design/design-decisions.md`. `ISA.md` is the live source of truth; DDs are the durable rule-record. See `docs/agents/domain.md`.
+Single-context repo. Design Decisions follow the **metafactory DD format** (numbered DD-N) at `design/design-decisions.md`. `VSA.md` is the live source of truth; DDs are the durable rule-record. See `docs/agents/domain.md`.
 
 ## Next Step
 

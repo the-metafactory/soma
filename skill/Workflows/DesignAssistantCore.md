@@ -10,7 +10,7 @@ Use this workflow to design, revise, or evaluate Soma's portable assistant core.
 3. Add substrate mappings only after the core contract is clear.
 4. Keep deterministic storage and validation in code.
 5. Keep substrate-specific behavior behind adapter boundaries.
-6. Record decisions in `ISA.md`.
+6. Record decisions in `VSA.md`.
 
 ## Output
 
