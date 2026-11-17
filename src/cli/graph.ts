@@ -129,6 +129,7 @@ import {
   resolveGraphRepo,
   resolveNodeTarget,
 } from "../graph/index";
+import { ISC_ID, VSA_FILE, iscCitationLine, iscCitationRefusal, kindNeedsIscCitation, type IscCitation } from "./graph-isc";
 
 import { invocationCwd } from "../core/index";
 import { SomaCliError } from "./errors";
@@ -155,7 +156,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     abandon:
       "Usage: soma graph abandon <id> --reason-file <path> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — close a node whose work was deliberately not done: closed as not planned, with an `abandoned` receipt carrying the reason; runs no probes, keeps dependents blocked, and only the acting identity that holds (or nobody holds) the node may do it",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--over-budget <reason>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — refuses when the parent already has its map root's declared children-per-node cap of children, or the map is at its declared open-node cap; --over-budget files anyway and records the reason under \"## Over budget\" in the body. With --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--over-budget <reason>] [--isc <ISC-n>]... | [--isc-none <reason>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — a task or build node in a repo whose default branch has a root VSA.md needs --isc naming each criterion it moves (a \"- [ ] ISC-n:\" line there) or --isc-none with the reason none fits; the body then opens with \"Serves: ISC-n.\" or \"ISC: none (<reason>)\". Refuses when the parent already has its map root's declared children-per-node cap of children, or the map is at its declared open-node cap; --over-budget files anyway and records the reason under \"## Over budget\" in the body. With --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--spawn-children-per-node <n>] [--spawn-open-nodes <n>] [--label <name>]... [--body <text>|--body-file <path>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is charted when a node under the first --label, authored by you, ends with <marker>, and that node is printed with \"existing\": true; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, and writes nothing",
     close:
@@ -227,6 +228,8 @@ export interface ParsedGraphAddArgs {
     once?: OnceMarker;
     dryRun?: boolean;
     overBudget?: string;
+    /** `--isc` / `--isc-none`: the VSA criterion the node moves, or why none fits. */
+    isc?: IscCitation;
   };
 }
 
@@ -432,6 +435,8 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
   const budget: Record<string, number> = {};
   let spawnBudget: SpawnBudget = {};
   let onceMarker: string | undefined;
+  const iscIds: string[] = [];
+  let iscNone: string | undefined;
   const verb: OnceVerb = chart ? "chart" : "add";
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -518,6 +523,22 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
         budget.wallClockMin = readPositiveInteger(rest, index, arg);
         index += 1;
         break;
+      case "--isc": {
+        if (chart) throw new Error("--isc belongs on soma graph add: a map root cites no criterion.");
+        const id = readOption(rest, index, arg).trim();
+        if (!ISC_ID.test(id)) throw new Error(`--isc must match ISC-<n> or ISC-<n>.<m>, got ${JSON.stringify(id)}.`);
+        iscIds.push(id);
+        index += 1;
+        break;
+      }
+      case "--isc-none": {
+        if (chart) throw new Error("--isc-none belongs on soma graph add: a map root cites no criterion.");
+        const reason = readOption(rest, index, arg).replace(/\s+/gu, " ").trim();
+        if (reason.length === 0) throw new Error("--isc-none needs a non-empty reason.");
+        iscNone = reason;
+        index += 1;
+        break;
+      }
       case "--over-budget": {
         if (chart) throw new Error("soma graph chart has no parent, so --over-budget does not apply.");
         const reason = readOption(rest, index, arg).trim();
@@ -531,6 +552,9 @@ function parseAddArgs(target: string, rest: string[], chart = false): ParsedGrap
     }
   }
 
+  if (iscIds.length > 0 && iscNone !== undefined) throw new Error("Pass --isc or --isc-none, not both.");
+  if (iscIds.length > 0) options.isc = { ids: [...new Set(iscIds)] };
+  if (iscNone !== undefined) options.isc = { none: iscNone };
   if (probes.length > 0) options.spec.probes = probes;
   if (labels.length > 0) options.spec.labels = labels;
   if (Object.keys(budget).length > 0) options.spec.budget = budget;
@@ -1455,8 +1479,9 @@ async function runAdd(
     const found = await findOnceNode(store, once, json, "add");
     if (found !== undefined) return finishOnceNode(graph, repo, found, parsed.target, blockedBy, once.marker, json);
   }
+  const cited = await enforceIscCitation(store, repo, rest.kind, parsed.options.isc, given);
   const overBudget = await enforceSpawnBudget(graph, parsed.target, parsed.options.overBudget, json);
-  const reasoned = overBudget === undefined ? given : withOverBudgetSection(given, overBudget);
+  const reasoned = overBudget === undefined ? cited : withOverBudgetSection(cited, overBudget);
   const body = once === undefined ? reasoned : withOnceMarker(reasoned, once.marker);
   const onceResult = { ...(once === undefined ? {} : { existing: false }), ...(overBudget === undefined ? {} : { overBudget }) };
 
@@ -1493,6 +1518,37 @@ async function runAdd(
     ...(created.rehomedFrom === undefined ? [] : [`Re-homed from Task ${created.rehomedFrom.id}: GitLab Tasks require an Issue parent; linked with relates_to.`]),
     ...(edges.written.length > 0 ? ["", "Blocking edges:", ...edges.written.map((id) => `- ${edgeLabel(created.id, id)}`)] : []),
   ].join("\n");
+}
+
+/**
+ * Refuse a task or build node that cites no criterion of the repo's `VSA.md`,
+ * or cites one it does not declare (D1, 2026-11-17); otherwise return the body
+ * with the citation as its first paragraph. A VSA.md read that fails for any
+ * reason but "not found" refuses: filing an uncited node ranger will not claim
+ * is the outcome this check exists to prevent. A store that cannot read repo
+ * files enforces nothing.
+ */
+async function enforceIscCitation(
+  store: GraphStore,
+  repo: RepoRef,
+  kind: unknown,
+  citation: IscCitation | undefined,
+  body: string | undefined,
+): Promise<string | undefined> {
+  if (citation === undefined && !kindNeedsIscCitation(kind)) return body;
+  let vsa: string | undefined;
+  if (store.readDefaultBranchFile !== undefined) {
+    try {
+      vsa = await store.readDefaultBranchFile(repo.path, VSA_FILE);
+    } catch (error) {
+      throw new SomaCliError(`soma graph add refused: could not read ${VSA_FILE} from ${displayRepo(repo)}, so the node's criterion cannot be checked and nothing is filed: ${errorMessage(error)}`, 1);
+    }
+  }
+  const refusal = iscCitationRefusal({ kind, citation, vsa, where: displayRepo(repo) });
+  if (refusal !== undefined) throw new SomaCliError(`soma graph add refused: ${refusal}`, 1);
+  if (citation === undefined) return body;
+  const line = iscCitationLine(citation);
+  return body === undefined || body.trim().length === 0 ? line : `${line}\n\n${body}`;
 }
 
 /** Why an add went over budget: the caps it exceeded, or why the budget could not be checked. */
