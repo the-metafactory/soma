@@ -192,3 +192,42 @@ test("the GitLab store reads VSA.md from the project's default branch", async ()
   const missing = createGitLabGraphStore({ host: "gitlab.example.org", transport: async () => { throw new WorkGraphError("backend", "glab api GET x failed (exit 1): 404 Not Found"); } });
   expect(await missing.readDefaultBranchFile?.("group/proj", "VSA.md")).toBeUndefined();
 });
+
+test("a body Serves line counts as the citation and the body is filed unchanged", async () => {
+  const { run, created } = fixture(VSA);
+  const body = "## Deliverable\nShip it.\n\nServes: ISC-7, ISC-9.2.";
+  await run(["--kind", "build", "--body", body]);
+  expect(created).toEqual([{ body }]);
+});
+
+test("a body Serves line naming an unknown id is refused, naming it", async () => {
+  const { run, created } = fixture(VSA);
+  const message = await refusal(run(["--kind", "build", "--body", "Serves: ISC-7, ISC-42.\n\nShip it."]));
+  expect(message).toContain("ISC-42 is not a criterion in VSA.md");
+  expect(created).toEqual([]);
+});
+
+test("a body ISC: none line with a reason counts as the exemption", async () => {
+  const { run, created } = fixture(VSA);
+  const body = "ISC: none (repo hygiene)\n\nTidy up.";
+  await run(["--kind", "task", "--body", body]);
+  expect(created).toEqual([{ body }]);
+});
+
+test("a body ISC: none line with an empty reason does not count", async () => {
+  const { run, created } = fixture(VSA);
+  expect(await refusal(run(["--kind", "build", "--body", "ISC: none ( )\n\nTidy up."]))).toContain("must cite the criterion it moves");
+  expect(created).toEqual([]);
+});
+
+test("prose that mentions an id outside the Serves line format is still refused", async () => {
+  const { run, created } = fixture(VSA);
+  expect(await refusal(run(["--kind", "build", "--body", "This serves ISC-7 nicely.\nServes ISC-7"]))).toContain("must cite the criterion it moves");
+  expect(created).toEqual([]);
+});
+
+test("a flag whose line the body already carries is not added twice", async () => {
+  const { run, created } = fixture(VSA);
+  await run(["--kind", "build", "--isc", "ISC-7", "--body", "Serves: ISC-7.\n\nShip it."]);
+  expect(created).toEqual([{ body: "Serves: ISC-7.\n\nShip it." }]);
+});

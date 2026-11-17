@@ -129,7 +129,7 @@ import {
   resolveGraphRepo,
   resolveNodeTarget,
 } from "../graph/index";
-import { ISC_ID, VSA_FILE, iscCitationLine, iscCitationRefusal, kindNeedsIscCitation, type IscCitation } from "./graph-isc";
+import { ISC_ID, VSA_FILE, bodyIscCitation, citedBody, iscCitationRefusal, kindNeedsIscCitation, type IscCitation } from "./graph-isc";
 
 import { invocationCwd } from "../core/index";
 import { SomaCliError } from "./errors";
@@ -156,7 +156,7 @@ export const GRAPH_COMMAND_HELP: { usage: string; subcommands: Record<GraphActio
       "Usage: soma graph release <id> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — identity-bound self-release: abandon your own claim (only ever unassigns the acting identity)",
     abandon:
       "Usage: soma graph abandon <id> --reason-file <path> [--identity <login>] [--repo <forge>:<host>/<path>] [--json] — close a node whose work was deliberately not done: closed as not planned, with an `abandoned` receipt carrying the reason; runs no probes, keeps dependents blocked, and only the acting identity that holds (or nobody holds) the node may do it",
-    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--over-budget <reason>] [--isc <ISC-n>]... | [--isc-none <reason>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — a task or build node in a repo whose default branch has a root VSA.md needs --isc naming each criterion it moves (a \"- [ ] ISC-n:\" line there) or --isc-none with the reason none fits; the body then opens with \"Serves: ISC-n.\" or \"ISC: none (<reason>)\". Refuses when the parent already has its map root's declared children-per-node cap of children, or the map is at its declared open-node cap; --over-budget files anyway and records the reason under \"## Over budget\" in the body. With --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
+    add: "Usage: soma graph add <root> --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--kind <k>] [--label <name>]... [--body <text>|--body-file <path>] [--probe <json>]... [--blocked-by <ref>]... [--budget-tokens <n>] [--budget-invocations <n>] [--budget-minutes <n>] [--over-budget <reason>] [--isc <ISC-n>]... | [--isc-none <reason>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — a task or build node in a repo whose default branch has a root VSA.md needs --isc naming each criterion it moves (a \"- [ ] ISC-n:\" line there) or --isc-none with the reason none fits; the body then opens with \"Serves: ISC-n.\" or \"ISC: none (<reason>)\", and a body that already has such a line counts without either flag. Refuses when the parent already has its map root's declared children-per-node cap of children, or the map is at its declared open-node cap; --over-budget files anyway and records the reason under \"## Over budget\" in the body. With --once, nothing is filed when a node under the first --label, authored by you, ends with <marker>; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, with its parent or null, and writes nothing",
     link: "Usage: soma graph link <id> [--blocked-by <ref>]... [--parent <id>] [--repo <forge>:<host>/<path>] [--json] — add blocking edges to an existing node, then (with --parent) attach an unattached one; a <ref> may name another repo on the same forge (owner/name#N), a parent may not",
     chart: "Usage: soma graph chart --title <text> --autonomy <auto|propose|approve> --checkpoint <id> [--serves G<n>] [--home-project <group/project> (required on GitLab)] [--spawn-children-per-node <n>] [--spawn-open-nodes <n>] [--label <name>]... [--body <text>|--body-file <path>] [--once <marker> [--dry-run]] [--repo <forge>:<host>/<path>] [--json] — with --once, nothing is charted when a node under the first --label, authored by you, ends with <marker>, and that node is printed with \"existing\": true; otherwise <marker> becomes the body's last line. --dry-run only reports that node, found or not, and writes nothing",
     close:
@@ -1544,11 +1544,9 @@ async function enforceIscCitation(
       throw new SomaCliError(`soma graph add refused: could not read ${VSA_FILE} from ${displayRepo(repo)}, so the node's criterion cannot be checked and nothing is filed: ${errorMessage(error)}`, 1);
     }
   }
-  const refusal = iscCitationRefusal({ kind, citation, vsa, where: displayRepo(repo) });
+  const refusal = iscCitationRefusal({ kind, citation: citation ?? bodyIscCitation(body), vsa, where: displayRepo(repo) });
   if (refusal !== undefined) throw new SomaCliError(`soma graph add refused: ${refusal}`, 1);
-  if (citation === undefined) return body;
-  const line = iscCitationLine(citation);
-  return body === undefined || body.trim().length === 0 ? line : `${line}\n\n${body}`;
+  return citedBody(citation, body);
 }
 
 /** Why an add went over budget: the caps it exceeded, or why the budget could not be checked. */

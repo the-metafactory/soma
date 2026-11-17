@@ -53,3 +53,27 @@ export function iscCitationRefusal(options: {
   const valid = known.length === 0 ? "it declares no criteria" : `valid ids: ${known.join(", ")}`;
   return `${unknown.join(", ")} ${unknown.length === 1 ? "is not a criterion" : "are not criteria"} in ${VSA_FILE} on ${where}'s default branch (${valid}). Criteria are its "- [ ] ISC-n:" lines.`;
 }
+
+/** The citation lines ranger writes into a body itself, in place of the flags. */
+const BODY_SERVES = /^Serves: (ISC-\d+(?:\.\d+)?(?:, ISC-\d+(?:\.\d+)?)*)\.?\s*$/mu;
+const BODY_NONE = /^ISC: none \((.+)\)\s*$/mu;
+
+/** The citation a body already carries as a `Serves:` or `ISC: none (…)` line, if any. */
+export function bodyIscCitation(body: string | undefined): IscCitation | undefined {
+  if (body === undefined) return undefined;
+  const serves = BODY_SERVES.exec(body);
+  if (serves !== null) return { ids: serves[1].split(", ") };
+  const none = BODY_NONE.exec(body)?.[1].trim();
+  return none === undefined || none.length === 0 ? undefined : { none };
+}
+
+/**
+ * The body to file: a flag's citation line opens it, unless the body already
+ * has that exact line; with no flag the body is filed as given.
+ */
+export function citedBody(citation: IscCitation | undefined, body: string | undefined): string | undefined {
+  if (citation === undefined) return body;
+  const line = iscCitationLine(citation);
+  if (body === undefined || body.trim().length === 0) return line;
+  return body.split("\n").some((row) => row.trim() === line) ? body : `${line}\n\n${body}`;
+}
