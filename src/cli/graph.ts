@@ -2546,6 +2546,8 @@ async function recoverPartialProposalNode(store: GraphStore, graph: WorkGraph, p
   return partial.ref;
 }
 
+const ERRATA_ISC_CITATION: IscCitation = { none: "errata: deterministic check" };
+
 /**
  * File the node a proposal describes (soma#903 D6, D9). Everything the file can
  * get wrong is refused before the store is opened; the marker search reads the
@@ -2589,7 +2591,9 @@ async function runFileProposal(parsed: ParsedGraphFileProposalArgs, deps: GraphC
     throw new SomaCliError(`soma graph file-proposal: retry discovery or attachment under ${mapRef} failed, nothing created: ${errorMessage(error)}`, 1);
   }
 
-  const spec = proposalNodeSpec(proposal);
+  const proposed = proposalNodeSpec(proposal);
+  // D4 (2026-11-17): proposals carry no citation field, so a filed build node cites none.
+  const spec = kindNeedsIscCitation(proposed.kind) ? { ...proposed, body: citedBody(ERRATA_ISC_CITATION, proposed.body) ?? proposed.body } : proposed;
   let created: CreatedNode;
   try {
     created = await graph.createNode({ ...spec, parent: { id: String(mapRoot) } });

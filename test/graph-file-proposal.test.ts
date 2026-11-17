@@ -160,6 +160,20 @@ test("a deterministic-check proposal without a Live probe still files a build no
   expect(spec.body).toContain(proposalMarker("errata-check-algorithm-verify-g1"));
 });
 
+test("a filed build node cites no criterion, as its own paragraph (D4)", async () => {
+  await writeProposal("errata-isc-g1");
+  const fx = fixture();
+  await run(fx, "errata-isc-g1");
+  expect(fx.created[0].body?.split("\n\n")).toContain("ISC: none (errata: deterministic check)");
+});
+
+test("a filed grilling node carries no ISC line", async () => {
+  await writeProposal("p-grill-isc", "Should reviewers hold outlines to a standard?\n", { proposal_kind: "rule-memory" });
+  const fx = fixture();
+  await run(fx, "p-grill-isc");
+  expect(fx.created[0].body).not.toContain("ISC:");
+});
+
 test("every other kind files a grilling node at approve", async () => {
   for (const kind of ["reviewer-standard", "navigation-pointer", "information-access", "rule-memory"]) {
     await writeProposal(`p-${kind}`, "Should reviewers hold outlines to a standard?\n", { proposal_kind: kind });
