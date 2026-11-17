@@ -231,3 +231,16 @@ test("a flag whose line the body already carries is not added twice", async () =
   await run(["--kind", "build", "--isc", "ISC-7", "--body", "Serves: ISC-7.\n\nShip it."]);
   expect(created).toEqual([{ body: "Serves: ISC-7.\n\nShip it." }]);
 });
+
+test("a flag with a body Serves line naming an unknown id is refused, naming it", async () => {
+  const { run, created } = fixture(VSA);
+  const message = await refusal(run(["--kind", "build", "--isc", "ISC-7", "--body", "Serves: ISC-99.\n\nShip it."]));
+  expect(message).toContain("ISC-99 is not a criterion in VSA.md");
+  expect(created).toEqual([]);
+});
+
+test("a flag with a different valid body Serves line is filed with the flag line on top", async () => {
+  const { run, created } = fixture(VSA);
+  await run(["--kind", "build", "--isc", "ISC-7", "--body", "Serves: ISC-11.\n\nShip it."]);
+  expect(created).toEqual([{ body: "Serves: ISC-7.\n\nServes: ISC-11.\n\nShip it." }]);
+});

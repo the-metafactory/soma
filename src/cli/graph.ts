@@ -1544,7 +1544,10 @@ async function enforceIscCitation(
       throw new SomaCliError(`soma graph add refused: could not read ${VSA_FILE} from ${displayRepo(repo)}, so the node's criterion cannot be checked and nothing is filed: ${errorMessage(error)}`, 1);
     }
   }
-  const refusal = iscCitationRefusal({ kind, citation: citation ?? bodyIscCitation(body), vsa, where: displayRepo(repo) });
+  const inBody = bodyIscCitation(body);
+  const where = displayRepo(repo);
+  const refusal = iscCitationRefusal({ kind, citation: citation ?? inBody, vsa, where })
+    ?? (citation === undefined || inBody === undefined ? undefined : iscCitationRefusal({ kind, citation: inBody, vsa, where }));
   if (refusal !== undefined) throw new SomaCliError(`soma graph add refused: ${refusal}`, 1);
   return citedBody(citation, body);
 }

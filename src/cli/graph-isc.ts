@@ -8,9 +8,11 @@
  * ranger's, character for character: the two must agree on what counts.
  */
 
+const ISC_ID_SOURCE = String.raw`ISC-\d+(?:\.\d+)?`;
+
 /** Ranger's criterion line, verbatim. */
-const VSA_CRITERION = /^\s*[-*]\s+\[[ xX]\]\s+(ISC-\d+(?:\.\d+)?)\b/gmu;
-export const ISC_ID = /^ISC-\d+(?:\.\d+)?$/u;
+const VSA_CRITERION = new RegExp(String.raw`^\s*[-*]\s+\[[ xX]\]\s+(${ISC_ID_SOURCE})\b`, "gmu");
+export const ISC_ID = new RegExp(`^${ISC_ID_SOURCE}$`, "u");
 export const VSA_FILE = "VSA.md";
 const CITING_KINDS: ReadonlySet<string> = new Set(["task", "build"]);
 
@@ -55,7 +57,7 @@ export function iscCitationRefusal(options: {
 }
 
 /** The citation lines ranger writes into a body itself, in place of the flags. */
-const BODY_SERVES = /^Serves: (ISC-\d+(?:\.\d+)?(?:, ISC-\d+(?:\.\d+)?)*)\.?\s*$/mu;
+const BODY_SERVES = new RegExp(String.raw`^Serves: (${ISC_ID_SOURCE}(?:, ${ISC_ID_SOURCE})*)\.?\s*$`, "mu");
 const BODY_NONE = /^ISC: none \((.+)\)\s*$/mu;
 
 /** The citation a body already carries as a `Serves:` or `ISC: none (…)` line, if any. */
