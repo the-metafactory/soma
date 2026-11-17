@@ -840,6 +840,8 @@ export interface GraphStore<TStoreData extends StoreCreationData = StoreCreation
    * Absence means unsupported, never an empty result.
    */
   findNodesByBodyMarker?(marker: string): Promise<NodeState[]>;
+  /** A root file's text on the default branch; undefined only when absent, any other failure rejects. Absence of the method means unsupported. */
+  readDefaultBranchFile?(repoPath: string, file: string): Promise<string | undefined>;
   /**
    * Every node carrying the label and opened by the author, open and closed,
    * with its API author and its prose body (node block removed). Complete all
@@ -962,6 +964,13 @@ export type WorkGraphErrorCode =
   | "close-refused"
   /** The backend failed or answered in a shape the store cannot read. */
   | "backend";
+
+/** A forge file-contents response (GitHub `contents`, GitLab `repository/files`): `{ content, encoding: "base64" }`. */
+export function decodeRepoFileContent(value: unknown, context: string): string {
+  const record = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  if (typeof record.content !== "string" || record.encoding !== "base64") throw new WorkGraphError("backend", `${context}: expected base64 file content`);
+  return Buffer.from(record.content, "base64").toString("utf8");
+}
 
 export class WorkGraphError extends Error {
   readonly code: WorkGraphErrorCode;

@@ -105,8 +105,13 @@ soma graph add <root> \
   --title "…" --autonomy <auto|propose|approve> --kind <research|prototype|grilling|task|build> \
   --checkpoint <id> --body-file <path> \
   [--probe '{"type":"command","run":"…","timeoutSec":600,"expectExit":0}'] \
-  [--blocked-by <id>]…
+  [--blocked-by <id>]… \
+  [--isc <ISC-n>]… | [--isc-none "<reason>"]
 ```
+
+When filing a `build` or `task` node in a repo with a root `VSA.md`, pass
+`--isc` with the criterion the node moves, or `--isc-none "<reason>"` when none
+fits; `add` refuses the node otherwise.
 
 On GitHub, also pass `--label orienteer:<kind>`.
 On GitHub an unknown label is created by the call rather than rejected by it, so

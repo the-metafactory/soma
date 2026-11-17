@@ -19,6 +19,7 @@ import { assertGraphRead, permitsGraphRead, scopeNodeState, validateGraphReadSco
 
 import {
   WorkGraphError,
+  decodeRepoFileContent,
   parseNodeSpec,
   renderCloseReceipt,
   isStructurallyValidCloseReceipt,
@@ -841,6 +842,13 @@ class GitHubGraphStore implements GraphStore {
       );
     }
     return `repos/${this.repo}/issues/${number}`;
+  }
+
+  /** `contents` without a ref answers from the default branch. */
+  async readDefaultBranchFile(repoPath: string, file: string): Promise<string | undefined> {
+    const path = `repos/${validateRepoRef({ forge: "github", host: this.host, path: repoPath }).path}/contents/${encodeURIComponent(file)}`;
+    const response = await this.transport({ method: "GET", path }).catch((error: unknown) => { if (isMissingRestResource(error)) return undefined; throw error; });
+    return response === undefined ? undefined : decodeRepoFileContent(response, path);
   }
 
   /** `GET /user` — the login `gh` authenticates as, the same call `gh api user` made before the store owned it. */
