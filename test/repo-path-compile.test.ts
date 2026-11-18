@@ -121,7 +121,7 @@ test("a compiled binary lists the same bundled skills as the source checkout", (
   const compiled = compiledProbe.report;
   const source = sourceProbe.report;
 
-  expect(sourceSkillNames()).toEqual(["Memory", "VSA", "migrate-pai-purpose", "orienteer", "the-algorithm"]);
+  expect(sourceSkillNames()).toEqual(["Memory", "VSA", "chief-of-staff", "migrate-pai-purpose", "orienteer", "the-algorithm"]);
   expect(source.names).toEqual(sourceSkillNames());
   expect(compiled.names).toEqual(source.names);
   expect(source.explicitNames).toEqual(source.names);

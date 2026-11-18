@@ -34,6 +34,9 @@ Rules:
   asserts) REQUIRES `--principal-authority`. `import` is for lower-trust intake.
 - One idea per note. Do not restate what the repo/code already records — capture
   what was non-obvious.
+- A claim about code names the repo and the commit it was true at
+  (`As of soma@8d1a207, …`), because the code moves on and the note does not.
+  Never write "currently" or "now" about code without that pin.
 - To revise an existing note, use `--merge <id>` or `--supersede <id>`; never
   hand-edit the file.
 - If a near-duplicate exists, the write is refused — recall first, then merge.
