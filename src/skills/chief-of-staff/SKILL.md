@@ -90,8 +90,11 @@ its lane (`the-algorithm/references/principles/change-only-what-was-asked.md`).
 Where the substrate supports recurring jobs, propose them; never create one
 without the principal's yes:
 
-- A memory audit (`soma memory audit`) to find contradictions, orphan notes,
-  and claims a newer commit has overtaken.
+- A memory health check with `soma memory audit`. It checks the tree, the
+  schema and the index; it does not read what the notes say.
+- A content lint by a subagent: read the notes linked to the goal's hub, flag
+  contradictions and notes with no links, and compare each pinned `repo@SHA`
+  claim with the code at the current head. Supersede what has been overtaken.
 - The retro sample from step 4, when delegated runs pile up between turns.
 - Whatever recurring check measures the goal from step 1.
 
