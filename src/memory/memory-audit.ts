@@ -1,6 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative } from "node:path";
 import { parseDigestPointerIds } from "./episodic-digest";
+import { DEFAULT_REPLICATION_STALE_HOURS, probeHomeReplication } from "./memory-audit-replication";
 import { createPaths, isFsUtilsEnoent as isEnoent, runBoundedConcurrent } from "../core/index";
 import { listMemoryNotes } from "./memory-fs";
 import { memoryIndexPath } from "./memory-index";
@@ -23,7 +24,8 @@ import type {
  * GATING probe reads the filesystem and reports a ground-truth fact. Read-only — it
  * mutates nothing and appends no event. `healthy` is false (and the CLI exits
  * non-zero) when any HEALTH-GATING probe fails: an abnormal note root
- * (root-integrity), a schema-invalid note, or a stale INDEX. The other four (digest
+ * (root-integrity), a schema-invalid note, a stale INDEX, or a stuck home-replication
+ * git clone (home-replication, see ./memory-audit-replication). The other four (digest
  * coverage, orphaned archive, event ratio, retrieval quality) are informational —
  * they never affect `healthy`.
  *
@@ -140,8 +142,12 @@ export async function auditMemory(options: SomaMemoryAuditOptions = {}): Promise
   const validNotes = parsed.length - schema.invalidNotes.length;
   const eventProbe = probeEventRatio(journal.eventLines, validNotes);
   const retrieval = probeRetrievalQuality(journal.retrieval);
+  const replication = await probeHomeReplication(somaHome, {
+    now: options.now ?? new Date(),
+    staleHours: options.replicationStaleHours ?? DEFAULT_REPLICATION_STALE_HOURS,
+  });
 
-  probes.push(treeIntegrity.probe, schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe, retrieval.probe);
+  probes.push(treeIntegrity.probe, schema.probe, index.probe, digestCov.probe, archive.probe, eventProbe.probe, retrieval.probe, replication);
 
   // Single source of truth: healthy iff every HEALTH-GATING probe is ok. The
   // informational probes carry gatesHealth:false and never affect this.

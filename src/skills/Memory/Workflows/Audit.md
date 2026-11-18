@@ -32,12 +32,13 @@ soma memory audit
 | orphaned-archive | no (info) | Archived episodic notes missing from a digest (run `soma memory consolidate`). |
 | event-ratio | no (info) | Event-stream lines over valid-note count. |
 | retrieval-quality | no (info) | Recall volume, empty-recall rate, and verify-follows-recall rate — computed purely from the `memory.recall`/`memory.verify` journal (#425; measure only, does not gate anything yet). |
+| home-replication | YES | Only when the Soma home is the top level of its own git clone (else skipped). Fails on a rebase or merge in progress, a detached HEAD, or an upstream tracking ref not updated for `--replication-stale-hours` (default 24). Ahead/behind counts are reported, not gated. Reads local git state only; never fetches. |
 
 ## Exit code
 
 - HEALTHY → exit 0.
-- UNHEALTHY → exit NON-ZERO. Cause is one of the THREE health-gating probes:
-  root-integrity, schema, or index-freshness. The full report is still printed;
+- UNHEALTHY → exit NON-ZERO. Cause is one of the FOUR health-gating probes:
+  root-integrity, schema, index-freshness, or home-replication. The full report is still printed;
   read each probe's `gatesHealth`/`ok` rather than assuming the cause.
 
 ## Acting on failures
@@ -49,6 +50,10 @@ soma memory audit
   (never leave a corrupt note — it is invisible to recall and dedup).
 - index-freshness FAIL: run `soma memory reindex` (a durable write landed after
   the last index build, or INDEX.md is missing/abnormal).
+- home-replication FAIL: the line names the fix. A stuck rebase or merge: resolve
+  or abort it in the Soma home, then run `soma-sync`. A detached HEAD: switch back
+  to `main`, then run `soma-sync`. A stale upstream: the replication job stopped
+  fetching; check the `soma-sync` job and its log, then run it.
 - orphaned-archive (info): run `soma memory consolidate` to regenerate digests.
 
 ## Report

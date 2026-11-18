@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `soma memory audit` gains a health-gating `home-replication` probe. When the
+  Soma home is its own git clone, it fails on a rebase or merge in progress, a
+  detached HEAD, or an upstream tracking ref not updated for
+  `--replication-stale-hours` (default 24), and names the fix. A home stuck
+  mid-rebase for two days had kept the audit HEALTHY.
+
 ## [0.31.0] - 2026-11-09
 
 ### Added
