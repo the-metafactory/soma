@@ -886,12 +886,12 @@ function callOnlyWritesLocalData(command: string): boolean {
 }
 
 /**
- * Where a tool word sits: the whitespace-separated word ahead of it (null when
- * longer than PREVIOUS_WORD_LIMIT, so no context that needs it applies), the
- * blanks between, and a little of what follows.
+ * Where a tool word sits: the last PREVIOUS_WORD_LIMIT characters of the
+ * whitespace-separated word ahead of it, the blanks between, and a little of
+ * what follows.
  */
 interface ToolWordSite {
-  previous: string | null;
+  previous: string;
   gap: string;
   after: string;
 }
@@ -900,35 +900,34 @@ const PREVIOUS_WORD_LIMIT = 256;
 
 /**
  * Places a shell word naming an outbound tool sits in code, never as a command
- * a shell runs. A newline ends both a key context and a call context, because
- * the next line starts a command. The list is closed: a tool word anywhere else
- * counts, so a context left out costs a false positive, never a missed egress.
+ * a shell runs. A newline ends a call context, because the next line starts a
+ * command. The list is closed: a tool word anywhere else counts, so a context
+ * left out costs a false positive, never a missed egress.
+ *
+ * There is deliberately no context for a value after an object key or a list
+ * comma (`error: "http"`): an env prefix (`X="a "b:`), a redirect (`>x:`) or
+ * `xargs -d ,` puts a command in that same spot. A value with a comma after it
+ * (`"http",`) is not a tool word anyway.
  */
 const CODE_IDENTIFIER_CONTEXTS: readonly { reason: string; applies: (site: ToolWordSite) => boolean }[] = [
   { reason: "a type query, `typeof fetch`", applies: ({ previous }) => previous === "typeof" },
   { reason: "a call on the same line, `fetch(url)`", applies: ({ after }) => /^[ \t]*\(/u.test(after) },
   {
-    reason: "a value after an object key or a list comma on the same line, `error: \"http\"`; a key holding `=` is an env prefix, which makes the value a command",
-    applies: ({ previous, gap }) => previous !== null && /^[^=]*[:,]$/u.test(previous) && !gap.includes("\n"),
-  },
-  {
     reason: "the first argument of a call, `toBe(\"http\")`",
-    applies: ({ previous, gap }) => previous !== null && gap === "" && /\w\($/u.test(previous),
+    applies: ({ previous, gap }) => gap === "" && /\w\($/u.test(previous),
   },
 ];
 
-/** The site of the word at `start`..`end`. The scans back are bounded, so a long line costs one pass. */
+/**
+ * The site of the word at `start`..`end`. The scans back are bounded, so a long
+ * line costs one pass; a tail of a longer word can never read as `typeof`.
+ */
 function toolWordSite(text: string, start: number, end: number): ToolWordSite {
   let previousEnd = start;
   while (previousEnd > 0 && start - previousEnd < PREVIOUS_WORD_LIMIT && /\s/u.test(text[previousEnd - 1])) previousEnd -= 1;
   let previousStart = previousEnd;
-  while (previousStart > 0 && previousEnd - previousStart <= PREVIOUS_WORD_LIMIT && !/\s/u.test(text[previousStart - 1])) previousStart -= 1;
-  const known = previousEnd - previousStart <= PREVIOUS_WORD_LIMIT && start - previousEnd < PREVIOUS_WORD_LIMIT;
-  return {
-    previous: known ? text.slice(previousStart, previousEnd) : null,
-    gap: text.slice(previousEnd, start),
-    after: text.slice(end, end + 64),
-  };
+  while (previousStart > 0 && previousEnd - previousStart < PREVIOUS_WORD_LIMIT && !/\s/u.test(text[previousStart - 1])) previousStart -= 1;
+  return { previous: text.slice(previousStart, previousEnd), gap: text.slice(previousEnd, start), after: text.slice(end, end + 64) };
 }
 
 /** Every quote and backslash removed, as bash does before it runs a word or opens a redirect target. */
