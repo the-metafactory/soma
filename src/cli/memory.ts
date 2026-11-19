@@ -210,9 +210,12 @@ export const MEMORY_COMMAND_HELP: { usage: string; subcommands: Record<MemoryAct
       "rebuild INDEX. --gc-state additionally DELETES current-work state >7d (explicit override). " +
       "--dry-run prints the plan without touching anything.",
     audit:
-      "Usage: soma memory audit [--home-dir <dir>] [--soma-home <dir>]. " +
+      "Usage: soma memory audit [--replication-stale-hours <n>] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Deterministic, read-only health check of the memory tree (no LLM): schema validity, INDEX freshness, " +
-      "digest coverage, orphaned archive notes, event/note ratio. EXITS NON-ZERO on any health-gating failure: an abnormal note root (root-integrity), a schema-invalid note, or a stale INDEX.",
+      "digest coverage, orphaned archive notes, event/note ratio, and (when the soma home is its own git clone) home replication. " +
+      "EXITS NON-ZERO on any health-gating failure: an abnormal note root (root-integrity), a schema-invalid note, a stale INDEX, " +
+      "or a stuck home-replication clone (rebase/merge in progress, detached HEAD, or an upstream ref not updated for " +
+      "--replication-stale-hours, default 24).",
     backfill:
       "Usage: soma memory backfill [--from <dir>] [--type <semantic|procedural>] [--project <key>] [--dry-run] [--home-dir <dir>] [--soma-home <dir>]. " +
       "Bulk-import legacy free-form markdown (default source: <somaHome>/memory category dirs) into schema-valid notes via the import trigger. " +
@@ -317,6 +320,13 @@ function parseMemoryAuditArgs(args: string[]): SomaMemoryAuditOptions {
       index += 1;
     } else if (arg === "--soma-home") {
       options.somaHome = readOption(args, index, arg);
+      index += 1;
+    } else if (arg === "--replication-stale-hours") {
+      const value = Number(readOption(args, index, arg));
+      if (!Number.isInteger(value) || value < 1) {
+        throw new Error("--replication-stale-hours must be a positive integer.");
+      }
+      options.replicationStaleHours = value;
       index += 1;
     } else {
       throw new Error(MEMORY_COMMAND_HELP.subcommands.audit);
@@ -943,7 +953,7 @@ export async function runMemoryCli(parsed: ParsedMemoryArgs): Promise<string> {
     case "audit": {
       const audit = await auditMemory(parsed.options);
       const report = formatMemoryAuditResult(audit);
-      // A deterministic gate: an unhealthy tree (abnormal root, schema-invalid note, or stale INDEX)
+      // A deterministic gate: an unhealthy tree (abnormal root, schema-invalid note, stale INDEX, or stuck replication clone)
       // exits NON-ZERO so the audit can fail CI / a pre-consolidation check. The full
       // report is carried on the error so it is still shown.
       if (!audit.healthy) throw new SomaCliError(report, 1);

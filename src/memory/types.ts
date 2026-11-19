@@ -561,11 +561,16 @@ export interface SomaMemoryConsolidateResult {
 // on-disk memory tree — no LLM, no sentiment, only filesystem ground-truth probes.
 // Read-only: it mutates nothing and appends no event. The CLI exits NON-ZERO when
 // `healthy` is false — any health-gating probe failing: an abnormal note root
-// (root-integrity), a schema-invalid note, or a stale INDEX — so it can gate CI /
+// (root-integrity), a schema-invalid note, a stale INDEX, or a stuck home-replication
+// clone (home-replication) — so it can gate CI /
 // a pre-consolidation check.
 export interface SomaMemoryAuditOptions {
   homeDir?: string;
   somaHome?: string;
+  /** Injected clock for the home-replication staleness math. Defaults to now. */
+  now?: Date;
+  /** Hours the upstream tracking ref may go without an update before home-replication fails. Default 24. */
+  replicationStaleHours?: number;
 }
 
 /** The fixed set of audit probes (stable public names; `auditMemory` is exported). */
@@ -576,12 +581,13 @@ export type SomaMemoryAuditProbeName =
   | "digest-coverage"
   | "orphaned-archive"
   | "event-ratio"
-  | "retrieval-quality";
+  | "retrieval-quality"
+  | "home-replication";
 
 /**
  * One deterministic probe's outcome. `gatesHealth` is machine-readable: when it is
- * true, `ok: false` forces `result.healthy` false. Three probes gate:
- * `root-integrity`, `schema`, and `index-freshness`. Informational probes
+ * true, `ok: false` forces `result.healthy` false. Four probes gate:
+ * `root-integrity`, `schema`, `index-freshness`, and `home-replication`. Informational probes
  * (`digest-coverage`, `orphaned-archive`, `event-ratio`, `retrieval-quality`) have
  * `gatesHealth: false` and always report `ok: true`.
  */
@@ -624,8 +630,8 @@ export interface SomaMemoryRetrievalQuality {
 
 export interface SomaMemoryAuditResult {
   somaHome: string;
-  /** false ⇒ the CLI exits non-zero. Gated by ALL three: real note roots (root-integrity),
-   *  no schema-invalid notes, AND a fresh INDEX. */
+  /** false ⇒ the CLI exits non-zero. Gated by ALL four: real note roots (root-integrity),
+   *  no schema-invalid notes, a fresh INDEX, AND an unstuck replication clone (home-replication). */
   healthy: boolean;
   /** Valid-note counts by type across the whole tree (durable + episodic + archive). */
   notesByType: { semantic: number; procedural: number; episodic: number };
@@ -642,8 +648,8 @@ export interface SomaMemoryAuditResult {
   /** #425 retrieval-quality signal computed from the journal (informational, never gates `healthy`). */
   retrieval: SomaMemoryRetrievalQuality;
   /**
-   * Every probe run, in report order. THREE gate `healthy` (`root-integrity`,
-   * `schema`, `index-freshness`); the other four (`digest-coverage`,
+   * Every probe run, in report order. FOUR gate `healthy` (`root-integrity`,
+   * `schema`, `index-freshness`, `home-replication`); the other four (`digest-coverage`,
    * `orphaned-archive`, `event-ratio`, `retrieval-quality`) are informational drift
    * signals whose `ok` is always true. Read `probe.gatesHealth` rather than
    * hardcoding this list.
