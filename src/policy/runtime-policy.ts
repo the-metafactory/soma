@@ -852,19 +852,65 @@ function stripDataHeredocBodies(command: string, options: { blankTerminators?: b
 const LOCAL_DATA_COMMANDS = new Set(["cd", "cat", "tee", "jq", "wc", "head", "tail", "sort", "uniq", "column", "fold", "pbcopy"]);
 
 /**
+ * Shapes outside the data bodies that let a body leave the machine or run in
+ * this call or without a second one. They are matched after quote removal,
+ * because bash removes quotes before it opens a redirect target.
+ */
+const NON_LOCAL_SHAPES: readonly { reason: string; pattern: RegExp }[] = [
+  { reason: "command substitution", pattern: /\$\(|`/u },
+  { reason: "process substitution", pattern: /[<>]\(/u },
+  { reason: "a lone `&`, which the tokenizer does not split on", pattern: /(?<![&>])&(?![&>])/u },
+  { reason: "a socket bash opens as a redirect target", pattern: /\/dev\/(?:tcp|udp)\//u },
+  {
+    reason: "a shell startup file, which runs its body in every new shell",
+    pattern: /(?:^|[\s/])\.(?:bashrc|bash_profile|bash_login|bash_logout|profile|zshrc|zshenv|zprofile|zlogin|zlogout)\b/u,
+  },
+  { reason: "a git hook, which runs its body on the next git command", pattern: /\.git\/hooks\/|\.husky\//u },
+];
+
+/**
  * True when nothing outside the call's data-heredoc bodies can send or run them:
- * every command is a local data command, and there is no command or process
- * substitution, no lone `&` (the tokenizer does not split on it), and no
- * `/dev/tcp` or `/dev/udp` path. Only then may body text stay out of the
- * outbound check. Any other call keeps the full scan, so
- * `cat > s.sh <<'EOF' … EOF` followed by `bash s.sh` still reads the body.
+ * every command is a local data command and no NON_LOCAL_SHAPES entry matches.
+ * Any other call keeps the full scan, so `cat > s.sh <<'EOF' … EOF` followed by
+ * `bash s.sh` still reads the body.
  */
 function callOnlyWritesLocalData(command: string): boolean {
   const skeleton = stripDataHeredocBodies(command, { blankTerminators: true });
-  if (/\$\(|`|[<>]\(|(?<![&>])&(?![&>])|\/dev\/(?:tcp|udp)\//u.test(skeleton)) return false;
+  const dequoted = skeleton.replace(/["'\\]/gu, "");
+  if (NON_LOCAL_SHAPES.some(({ pattern }) => pattern.test(dequoted))) return false;
   return shellSegments(tokenizeCommand(skeleton, { newlineAsSeparator: true })).every((segment) =>
     LOCAL_DATA_COMMANDS.has(shellCommandName(segment.tokens[skipCommandPrefixes(segment.tokens)])),
   );
+}
+
+/**
+ * Places an outbound tool name sits in code and never as a command a shell runs.
+ * The list is closed: a name anywhere else counts, so a context left out costs a
+ * false positive, never a missed egress.
+ */
+const CODE_IDENTIFIER_CONTEXTS: readonly { reason: string; before?: RegExp; after?: RegExp }[] = [
+  { reason: "member access, `node:http`, a variable or part of a longer word", before: /[.:$\w]$/u },
+  { reason: "a type query, `typeof fetch`", before: /\btypeof\s+$/u },
+  { reason: "a call, `fetch(url)`", after: /^\s*\(/u },
+  { reason: "a quoted value in an object or argument list, `error: \"http\"`", before: /[:,]\s*(["'])$/u, after: /^["']/u },
+];
+
+/**
+ * True when the command holds a URL, or an outbound tool name outside
+ * CODE_IDENTIFIER_CONTEXTS. A script written now can run in a later call that
+ * carries nothing to catch, so a body that reads `curl -d … https://…` or
+ * `| nc host 80` keeps the full scan.
+ */
+function hasRunnableNetworkShape(command: string, config: RuntimePolicyCommandInspectionConfig): boolean {
+  if (/https?:\/\//iu.test(command)) return true;
+  const tools = configuredOutboundTools(config).map(escapeRegExp).join("|");
+  return [...command.matchAll(new RegExp(String.raw`\b(?:${tools})\b`, "giu"))].some((match) => {
+    const before = command.slice(0, match.index);
+    const after = command.slice(match.index + match[0].length);
+    return !CODE_IDENTIFIER_CONTEXTS.some(
+      (context) => (context.before?.test(before) ?? true) && (context.after?.test(after) ?? true),
+    );
+  });
 }
 
 function escapeRegExp(value: string): string {
@@ -1205,9 +1251,11 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   const config = commandConfig(options);
   const normalized = command.toLowerCase();
   // A data body written to a local file is not a destination: `typeof fetch` in a
-  // TypeScript body named the `fetch` tool. The credential terms below still read
-  // the whole command, so a body that a later `curl` sends keeps its payload.
-  const hasOutboundIntent = commandHasOutboundIntent(callOnlyWritesLocalData(command) ? stripDataHeredocBodies(command) : command, config);
+  // TypeScript body named the `fetch` tool. A body that could send itself later
+  // (a URL, or a network tool a shell would run) keeps the full scan, and the
+  // credential terms below always read the whole command.
+  const bodyStaysLocal = callOnlyWritesLocalData(command) && !hasRunnableNetworkShape(command, config);
+  const hasOutboundIntent = commandHasOutboundIntent(bodyStaysLocal ? stripDataHeredocBodies(command) : command, config);
   // `printenv`/`env`/`export`/`set` are COMMANDS — they only dump the
   // environment in command position (start, or after | ; && || $( ` newline).
   // Matching the bare word anywhere flagged ordinary English: a Discord post
