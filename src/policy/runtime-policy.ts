@@ -645,7 +645,10 @@ interface HeredocOpener {
   quoted: boolean;
 }
 
-/** One shell operator found outside any quote span, with its offset in the line. */
+/**
+ * One shell operator found outside any quote span. `index` is the offset of its
+ * LAST character, so the stage after `&&` starts at `index + 1` without a stray `&`.
+ */
 interface LineOperator {
   index: number;
   /** `|` alone. Only a pipe carries a heredoc body to another command. */
@@ -719,8 +722,8 @@ function scanLine(line: string): LineScan {
     }
     if (char === "|" || char === ";" || char === "&") {
       const doubled = line[index + 1] === char;
-      operators.push({ index, isPipe: char === "|" && !doubled });
       if (doubled) index += 1;
+      operators.push({ index, isPipe: char === "|" && !doubled });
       continue;
     }
     if (char !== "<" || line[index + 1] !== "<") continue;
@@ -819,7 +822,7 @@ function isHeredocTerminator(line: string, open: HeredocOpener): boolean {
  * the second body scanned, which costs a false positive and never a missed
  * command — the same direction every other unmodelled case here fails in.
  */
-function stripDataHeredocBodies(command: string): string {
+function stripDataHeredocBodies(command: string, options: { blankTerminators?: boolean } = {}): string {
   if (!command.includes("<<")) return command;
   const lines = command.split("\n");
   const out: string[] = [];
@@ -828,7 +831,7 @@ function stripDataHeredocBodies(command: string): string {
   for (const line of lines) {
     if (open) {
       const terminates = isHeredocTerminator(line, open);
-      out.push(terminates ? line : "");
+      out.push(terminates && !options.blankTerminators ? line : "");
       if (terminates) open = null;
       continue;
     }
@@ -839,6 +842,29 @@ function stripDataHeredocBodies(command: string): string {
   }
 
   return out.join("\n");
+}
+
+/**
+ * Commands that only move bytes between local files and stdout. Unlike
+ * HEREDOC_DATA_SINKS this leaves out `gh`, `glab`, `mail` and `mailx`, which send
+ * their stdin, and `git`, which can push or run hooks.
+ */
+const LOCAL_DATA_COMMANDS = new Set(["cd", "cat", "tee", "jq", "wc", "head", "tail", "sort", "uniq", "column", "fold", "pbcopy"]);
+
+/**
+ * True when nothing outside the call's data-heredoc bodies can send or run them:
+ * every command is a local data command, and there is no command or process
+ * substitution, no lone `&` (the tokenizer does not split on it), and no
+ * `/dev/tcp` or `/dev/udp` path. Only then may body text stay out of the
+ * outbound check. Any other call keeps the full scan, so
+ * `cat > s.sh <<'EOF' … EOF` followed by `bash s.sh` still reads the body.
+ */
+function callOnlyWritesLocalData(command: string): boolean {
+  const skeleton = stripDataHeredocBodies(command, { blankTerminators: true });
+  if (/\$\(|`|[<>]\(|(?<![&>])&(?![&>])|\/dev\/(?:tcp|udp)\//u.test(skeleton)) return false;
+  return shellSegments(tokenizeCommand(skeleton, { newlineAsSeparator: true })).every((segment) =>
+    LOCAL_DATA_COMMANDS.has(shellCommandName(segment.tokens[skipCommandPrefixes(segment.tokens)])),
+  );
 }
 
 function escapeRegExp(value: string): string {
@@ -1178,7 +1204,10 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   const somaHome = createPaths(options).root();
   const config = commandConfig(options);
   const normalized = command.toLowerCase();
-  const hasOutboundIntent = commandHasOutboundIntent(command, config);
+  // A data body written to a local file is not a destination: `typeof fetch` in a
+  // TypeScript body named the `fetch` tool. The credential terms below still read
+  // the whole command, so a body that a later `curl` sends keeps its payload.
+  const hasOutboundIntent = commandHasOutboundIntent(callOnlyWritesLocalData(command) ? stripDataHeredocBodies(command) : command, config);
   // `printenv`/`env`/`export`/`set` are COMMANDS — they only dump the
   // environment in command position (start, or after | ; && || $( ` newline).
   // Matching the bare word anywhere flagged ordinary English: a Discord post
