@@ -886,16 +886,50 @@ function callOnlyWritesLocalData(command: string): boolean {
 }
 
 /**
- * Places an outbound tool name sits in code and never as a command a shell runs.
- * The list is closed: a name anywhere else counts, so a context left out costs a
- * false positive, never a missed egress.
+ * Where a tool word sits: the whitespace-separated word ahead of it (null when
+ * longer than PREVIOUS_WORD_LIMIT, so no context that needs it applies), the
+ * blanks between, and a little of what follows.
  */
-const CODE_IDENTIFIER_CONTEXTS: readonly { reason: string; before?: RegExp; after?: RegExp }[] = [
-  { reason: "member access, `node:http`, a variable or part of a longer word", before: /[.:$\w]$/u },
-  { reason: "a type query, `typeof fetch`", before: /\btypeof\s+$/u },
-  { reason: "a call, `fetch(url)`", after: /^\s*\(/u },
-  { reason: "a quoted value in an object or argument list, `error: \"http\"`", before: /[:,]\s*(["'])$/u, after: /^["']/u },
+interface ToolWordSite {
+  previous: string | null;
+  gap: string;
+  after: string;
+}
+
+const PREVIOUS_WORD_LIMIT = 256;
+
+/**
+ * Places a shell word naming an outbound tool sits in code, never as a command
+ * a shell runs. A newline ends both a key context and a call context, because
+ * the next line starts a command. The list is closed: a tool word anywhere else
+ * counts, so a context left out costs a false positive, never a missed egress.
+ */
+const CODE_IDENTIFIER_CONTEXTS: readonly { reason: string; applies: (site: ToolWordSite) => boolean }[] = [
+  { reason: "a type query, `typeof fetch`", applies: ({ previous }) => previous === "typeof" },
+  { reason: "a call on the same line, `fetch(url)`", applies: ({ after }) => /^[ \t]*\(/u.test(after) },
+  {
+    reason: "a value after an object key or a list comma on the same line, `error: \"http\"`; a key holding `=` is an env prefix, which makes the value a command",
+    applies: ({ previous, gap }) => previous !== null && /^[^=]*[:,]$/u.test(previous) && !gap.includes("\n"),
+  },
+  {
+    reason: "the first argument of a call, `toBe(\"http\")`",
+    applies: ({ previous, gap }) => previous !== null && gap === "" && /\w\($/u.test(previous),
+  },
 ];
+
+/** The site of the word at `start`..`end`. The scans back are bounded, so a long line costs one pass. */
+function toolWordSite(text: string, start: number, end: number): ToolWordSite {
+  let previousEnd = start;
+  while (previousEnd > 0 && start - previousEnd < PREVIOUS_WORD_LIMIT && /\s/u.test(text[previousEnd - 1])) previousEnd -= 1;
+  let previousStart = previousEnd;
+  while (previousStart > 0 && previousEnd - previousStart <= PREVIOUS_WORD_LIMIT && !/\s/u.test(text[previousStart - 1])) previousStart -= 1;
+  const known = previousEnd - previousStart <= PREVIOUS_WORD_LIMIT && start - previousEnd < PREVIOUS_WORD_LIMIT;
+  return {
+    previous: known ? text.slice(previousStart, previousEnd) : null,
+    gap: text.slice(previousEnd, start),
+    after: text.slice(end, end + 64),
+  };
+}
 
 /** Every quote and backslash removed, as bash does before it runs a word or opens a redirect target. */
 function removeShellQuotes(text: string): string {
@@ -903,39 +937,27 @@ function removeShellQuotes(text: string): string {
 }
 
 /**
- * Every whitespace-separated word that holds a quote or backslash, with them
- * removed, as the shell removes them: `c'u'rl`, `"cu"rl`, `"cu"'rl'`, `c''url`,
- * `"c"\url` and `c\url` all run `curl`. A word that is one quoted value, with
- * nothing but code punctuation after it (`"http"`, `"k",`, `"http"});`), keeps
- * its quotes, so CODE_IDENTIFIER_CONTEXTS can still tell it from a command.
- *
- * This removes quoting only. It does not expand braces (`c{u,}rl`), decode
- * ANSI-C quoting (`$'\x63url'`), resolve variables or follow `eval`; none of
- * those were decoded before this function existed either.
- */
-function joinQuotedWordParts(text: string): string {
-  return text.replace(/\S*["'\\]\S*/gu, (word) => (/^(["'])[^"']*\1[,;:)\]}]*$/u.test(word) ? word : removeShellQuotes(word)));
-}
-
-/**
  * True when the command holds a URL, a `/dev/tcp` or `/dev/udp` socket path, or
- * an outbound tool name outside CODE_IDENTIFIER_CONTEXTS. A script written now
- * can run in a later call that carries nothing to catch, so a body that reads
- * `curl -d … https://…`, `| nc host 80` or `> /dev/tcp/host/80` keeps the full
- * scan. URLs and socket paths are matched after removeShellQuotes, and tool
- * names after joinQuotedWordParts, as the shell that later runs the body does.
- * ANSI-C quoting (`$'\x63url'`) and names built from variables are not decoded.
+ * a shell word that names an outbound tool outside CODE_IDENTIFIER_CONTEXTS. A
+ * script written now can run in a later call that carries nothing to catch, so
+ * a body that reads `curl -d … https://…`, `| nc host 80` or
+ * `> /dev/tcp/host/80` keeps the full scan.
+ *
+ * Words split on whitespace and shell operators, and a word names a tool when,
+ * with its quotes and backslashes removed as the shell removes them, it is the
+ * tool's name or a path ending in it: `c'u'rl`, `"cu"'rl'`, `"c"\url` and
+ * `/usr/bin/curl` do; `fetchImpl`, `globalThis.fetch`, `node:http` and
+ * `"http",` do not. Brace expansion (`c{u,}rl`), ANSI-C quoting (`$'\x63url'`),
+ * variables and `eval` are not decoded.
  */
 function hasRunnableNetworkShape(command: string, config: RuntimePolicyCommandInspectionConfig): boolean {
   if (/https?:\/\/|\/dev\/(?:tcp|udp)\//iu.test(removeShellQuotes(command))) return true;
-  const joined = joinQuotedWordParts(command);
-  const tools = configuredOutboundTools(config).map(escapeRegExp).join("|");
-  return [...joined.matchAll(new RegExp(String.raw`\b(?:${tools})\b`, "giu"))].some((match) => {
-    const before = joined.slice(0, match.index);
-    const after = joined.slice(match.index + match[0].length);
-    return !CODE_IDENTIFIER_CONTEXTS.some(
-      (context) => (context.before?.test(before) ?? true) && (context.after?.test(after) ?? true),
-    );
+  const tools = new Set(configuredOutboundTools(config));
+  return [...command.matchAll(/[^\s|;&()<>`]+/gu)].some((match) => {
+    const word = match[0];
+    if (!tools.has(removeShellQuotes(word).toLowerCase().split("/").pop() ?? "")) return false;
+    const site = toolWordSite(command, match.index, match.index + word.length);
+    return !CODE_IDENTIFIER_CONTEXTS.some((context) => context.applies(site));
   });
 }
 
