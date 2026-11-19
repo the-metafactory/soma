@@ -860,12 +860,14 @@ const NON_LOCAL_SHAPES: readonly { reason: string; pattern: RegExp }[] = [
   { reason: "command substitution", pattern: /\$\(|`/u },
   { reason: "process substitution", pattern: /[<>]\(/u },
   { reason: "a lone `&`, which the tokenizer does not split on", pattern: /(?<![&>])&(?![&>])/u },
-  { reason: "a socket bash opens as a redirect target", pattern: /\/dev\/(?:tcp|udp)\//u },
   {
     reason: "a shell startup file, which runs its body in every new shell",
-    pattern: /(?:^|[\s/])\.(?:bashrc|bash_profile|bash_login|bash_logout|profile|zshrc|zshenv|zprofile|zlogin|zlogout)\b/u,
+    pattern: /(?:^|[^\w.-])\.(?:bashrc|bash_profile|bash_login|bash_logout|profile|zshrc|zshenv|zprofile|zlogin|zlogout)(?![\w.-])|\bconfig\.fish(?![\w.-])/u,
   },
-  { reason: "a git hook, which runs its body on the next git command", pattern: /\.git\/hooks\/|\.husky\//u },
+  {
+    reason: "a git or husky directory, whose hooks run their body on the next git command",
+    pattern: /\.(?:git|husky)(?![\w.-])/u,
+  },
 ];
 
 /**
@@ -896,17 +898,22 @@ const CODE_IDENTIFIER_CONTEXTS: readonly { reason: string; before?: RegExp; afte
 ];
 
 /**
- * True when the command holds a URL, or an outbound tool name outside
- * CODE_IDENTIFIER_CONTEXTS. A script written now can run in a later call that
- * carries nothing to catch, so a body that reads `curl -d … https://…` or
- * `| nc host 80` keeps the full scan.
+ * True when the command holds a URL, a `/dev/tcp` or `/dev/udp` socket path, or
+ * an outbound tool name outside CODE_IDENTIFIER_CONTEXTS. A script written now
+ * can run in a later call that carries nothing to catch, so a body that reads
+ * `curl -d … https://…`, `| nc host 80` or `> /dev/tcp/host/80` keeps the full
+ * scan. URLs and socket paths are matched after quote removal, as the shell
+ * that later runs the body removes them; a quote or backslash inside a word
+ * (`c''url`, `c\url`) is removed before the tool names are matched.
  */
 function hasRunnableNetworkShape(command: string, config: RuntimePolicyCommandInspectionConfig): boolean {
-  if (/https?:\/\//iu.test(command)) return true;
+  const dequoted = command.replace(/["'\\]/gu, "");
+  if (/https?:\/\/|\/dev\/(?:tcp|udp)\//iu.test(dequoted)) return true;
+  const joined = command.replace(/(?<=\w)(?:''|""|\\)(?=\w)/gu, "");
   const tools = configuredOutboundTools(config).map(escapeRegExp).join("|");
-  return [...command.matchAll(new RegExp(String.raw`\b(?:${tools})\b`, "giu"))].some((match) => {
-    const before = command.slice(0, match.index);
-    const after = command.slice(match.index + match[0].length);
+  return [...joined.matchAll(new RegExp(String.raw`\b(?:${tools})\b`, "giu"))].some((match) => {
+    const before = joined.slice(0, match.index);
+    const after = joined.slice(match.index + match[0].length);
     return !CODE_IDENTIFIER_CONTEXTS.some(
       (context) => (context.before?.test(before) ?? true) && (context.after?.test(after) ?? true),
     );
@@ -1251,11 +1258,13 @@ function inspectToolCall(options: RuntimePolicyInspectOptions): RuntimePolicyFin
   const config = commandConfig(options);
   const normalized = command.toLowerCase();
   // A data body written to a local file is not a destination: `typeof fetch` in a
-  // TypeScript body named the `fetch` tool. A body that could send itself later
-  // (a URL, or a network tool a shell would run) keeps the full scan, and the
-  // credential terms below always read the whole command.
-  const bodyStaysLocal = callOnlyWritesLocalData(command) && !hasRunnableNetworkShape(command, config);
-  const hasOutboundIntent = commandHasOutboundIntent(bodyStaysLocal ? stripDataHeredocBodies(command) : command, config);
+  // TypeScript body named the `fetch` tool. A command that could send itself, now
+  // or from a written body later (a URL, a socket path, a network tool a shell
+  // would run), is outbound, and the credential terms below always read the
+  // whole command.
+  const hasOutboundIntent =
+    hasRunnableNetworkShape(command, config) ||
+    commandHasOutboundIntent(callOnlyWritesLocalData(command) ? stripDataHeredocBodies(command) : command, config);
   // `printenv`/`env`/`export`/`set` are COMMANDS — they only dump the
   // environment in command position (start, or after | ; && || $( ` newline).
   // Matching the bare word anywhere flagged ordinary English: a Discord post
