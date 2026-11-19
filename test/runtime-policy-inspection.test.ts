@@ -1317,7 +1317,7 @@ describe("credential-shaped text written to a local file", () => {
     },
     {
       name: "a credential and `fetch` used as code identifiers in a body written by tee",
-      command: `tee config.test.ts > /dev/null <<'EOF'\n${codeBody}\nconst res = await fetch(endpoint, { headers });\nconst g = globalThis.fetch;\nEOF`,
+      command: `tee config.test.ts > /dev/null <<'EOF'\n${codeBody}\nconst res = await fetch(endpoint, { headers });\nconst g = globalThis.fetch;\nexpect(result).toEqual({ error: "http", ok: false });\nEOF`,
     },
     { name: "a body appended to .gitignore", command: `cat >> .gitignore <<'EOF'\n${codeBody}\nEOF` },
     { name: "a body written to .git-blame-ignore-revs", command: `cat > .git-blame-ignore-revs <<'EOF'\n${codeBody}\nEOF` },
@@ -1398,6 +1398,22 @@ describe("credential-shaped text written to a local file", () => {
     {
       name: "a script running curl with quoted parts that touch only each other",
       command: `cat > /tmp/s.sh <<'EOF'\nc'u''r''l' -d ${cred} "$HOST"\nEOF`,
+    },
+    {
+      name: "a script running curl from a double-quoted then a single-quoted part",
+      command: `cat > /tmp/s.sh <<'EOF'\n"cu"'rl' -d ${cred} "$HOST"\nEOF`,
+    },
+    {
+      name: "a script running curl from a single-quoted then a double-quoted part",
+      command: `cat > /tmp/s.sh <<'EOF'\n'cu'"rl" -d ${cred} "$HOST"\nEOF`,
+    },
+    {
+      name: "a script running curl from a quoted part and a backslash",
+      command: `cat > /tmp/s.sh <<'EOF'\n"c"\\url -d ${cred} "$HOST"\nEOF`,
+    },
+    {
+      name: "a script running a quoted curl on its own",
+      command: `cat > /tmp/s.sh <<'EOF'\n'curl' -d ${cred} "$HOST"\nEOF`,
     },
     {
       name: "a script running curl split by a backslash",

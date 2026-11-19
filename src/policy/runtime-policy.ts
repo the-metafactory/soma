@@ -903,20 +903,18 @@ function removeShellQuotes(text: string): string {
 }
 
 /**
- * Quoted segments and backslashes glued to a word character joined into that
- * word, as the shell joins them: `c'u'rl`, `"cu"rl`, `c''url` and `c\url` all run
- * `curl`. A quoted value standing alone, such as `error: "http"`, keeps its
- * quotes, so CODE_IDENTIFIER_CONTEXTS can still tell it from a command.
+ * Every whitespace-separated word that holds a quote or backslash, with them
+ * removed, as the shell removes them: `c'u'rl`, `"cu"rl`, `"cu"'rl'`, `c''url`,
+ * `"c"\url` and `c\url` all run `curl`. A word that is one quoted value, with
+ * nothing but code punctuation after it (`"http"`, `"k",`, `"http"});`), keeps
+ * its quotes, so CODE_IDENTIFIER_CONTEXTS can still tell it from a command.
+ *
+ * This removes quoting only. It does not expand braces (`c{u,}rl`), decode
+ * ANSI-C quoting (`$'\x63url'`), resolve variables or follow `eval`; none of
+ * those were decoded before this function existed either.
  */
 function joinQuotedWordParts(text: string): string {
-  let current = text;
-  for (;;) {
-    const next = current
-      .replace(/(?<=\w)(["'])([^"'\s]*)\1|(["'])([^"'\s]*)\3(?=\w)/gu, "$2$4")
-      .replace(/(?<=\w)\\(?=\w)/gu, "");
-    if (next === current) return current;
-    current = next;
-  }
+  return text.replace(/\S*["'\\]\S*/gu, (word) => (/^(["'])[^"']*\1[,;:)\]}]*$/u.test(word) ? word : removeShellQuotes(word)));
 }
 
 /**
