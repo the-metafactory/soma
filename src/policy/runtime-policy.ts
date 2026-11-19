@@ -878,7 +878,7 @@ const NON_LOCAL_SHAPES: readonly { reason: string; pattern: RegExp }[] = [
  */
 function callOnlyWritesLocalData(command: string): boolean {
   const skeleton = stripDataHeredocBodies(command, { blankTerminators: true });
-  const dequoted = skeleton.replace(/["'\\]/gu, "");
+  const dequoted = removeShellQuotes(skeleton);
   if (NON_LOCAL_SHAPES.some(({ pattern }) => pattern.test(dequoted))) return false;
   return shellSegments(tokenizeCommand(skeleton, { newlineAsSeparator: true })).every((segment) =>
     LOCAL_DATA_COMMANDS.has(shellCommandName(segment.tokens[skipCommandPrefixes(segment.tokens)])),
@@ -897,19 +897,40 @@ const CODE_IDENTIFIER_CONTEXTS: readonly { reason: string; before?: RegExp; afte
   { reason: "a quoted value in an object or argument list, `error: \"http\"`", before: /[:,]\s*(["'])$/u, after: /^["']/u },
 ];
 
+/** Every quote and backslash removed, as bash does before it runs a word or opens a redirect target. */
+function removeShellQuotes(text: string): string {
+  return text.replace(/["'\\]/gu, "");
+}
+
+/**
+ * Quoted segments and backslashes glued to a word character joined into that
+ * word, as the shell joins them: `c'u'rl`, `"cu"rl`, `c''url` and `c\url` all run
+ * `curl`. A quoted value standing alone, such as `error: "http"`, keeps its
+ * quotes, so CODE_IDENTIFIER_CONTEXTS can still tell it from a command.
+ */
+function joinQuotedWordParts(text: string): string {
+  let current = text;
+  for (;;) {
+    const next = current
+      .replace(/(?<=\w)(["'])([^"'\s]*)\1|(["'])([^"'\s]*)\3(?=\w)/gu, "$2$4")
+      .replace(/(?<=\w)\\(?=\w)/gu, "");
+    if (next === current) return current;
+    current = next;
+  }
+}
+
 /**
  * True when the command holds a URL, a `/dev/tcp` or `/dev/udp` socket path, or
  * an outbound tool name outside CODE_IDENTIFIER_CONTEXTS. A script written now
  * can run in a later call that carries nothing to catch, so a body that reads
  * `curl -d … https://…`, `| nc host 80` or `> /dev/tcp/host/80` keeps the full
- * scan. URLs and socket paths are matched after quote removal, as the shell
- * that later runs the body removes them; a quote or backslash inside a word
- * (`c''url`, `c\url`) is removed before the tool names are matched.
+ * scan. URLs and socket paths are matched after removeShellQuotes, and tool
+ * names after joinQuotedWordParts, as the shell that later runs the body does.
+ * ANSI-C quoting (`$'\x63url'`) and names built from variables are not decoded.
  */
 function hasRunnableNetworkShape(command: string, config: RuntimePolicyCommandInspectionConfig): boolean {
-  const dequoted = command.replace(/["'\\]/gu, "");
-  if (/https?:\/\/|\/dev\/(?:tcp|udp)\//iu.test(dequoted)) return true;
-  const joined = command.replace(/(?<=\w)(?:''|""|\\)(?=\w)/gu, "");
+  if (/https?:\/\/|\/dev\/(?:tcp|udp)\//iu.test(removeShellQuotes(command))) return true;
+  const joined = joinQuotedWordParts(command);
   const tools = configuredOutboundTools(config).map(escapeRegExp).join("|");
   return [...joined.matchAll(new RegExp(String.raw`\b(?:${tools})\b`, "giu"))].some((match) => {
     const before = joined.slice(0, match.index);
